@@ -908,7 +908,6 @@ function Feed() {
                           {item.distance < 1
                             ? `${Math.round(item.distance * 1000)}m`
                             : `${item.distance.toFixed(1)}km`}{" "}
-                          dari anda
                         </span>
                       )}
                       <span className="text-xs text-gray-400">
