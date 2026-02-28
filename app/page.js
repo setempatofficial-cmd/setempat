@@ -53,7 +53,7 @@ function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex
     <>
       {/* FOTO UTAMA dengan SWIPE */}
       <div
-        className="relative h-64 mb-2 overflow-hidden rounded-xl"
+        className="relative h-80 mb-2 overflow-hidden rounded-xl"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -80,34 +80,6 @@ function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex
           </div>
         )}
       </div>
-
-      {/* THUMBNAIL KECIL */}
-      {photos.length > 1 && (
-        <div className="flex gap-2 pb-1 overflow-x-auto scrollbar-hide">
-          {photos.map((photo, idx) => (
-            <button
-              key={idx}
-              onClick={() =>
-                setSelectedPhotoIndex((prev) => ({
-                  ...prev,
-                  [itemId]: idx,
-                }))
-              }
-              className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                idx === selectedPhotoIndex
-                  ? "border-[#E3655B] opacity-100"
-                  : "border-transparent opacity-60 hover:opacity-100"
-              }`}
-            >
-              <img
-                src={photo}
-                alt={`Thumbnail ${idx + 1}`}
-                className="object-cover w-full h-full"
-              />
-            </button>
-          ))}
-        </div>
-      )}
     </>
   );
 }
