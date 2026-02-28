@@ -10,7 +10,7 @@ import { generateMoment } from "./lib/momentEngine";
 const LIMIT = 10;
 
 // Komponen PhotoSlider
-function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex }) {
+function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex, estimasiOrang, itemDistance, commentCount, locationReady }) {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
   
@@ -62,6 +62,24 @@ function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex
           alt={`Slide ${selectedPhotoIndex + 1}`}
           className="object-cover w-full h-full"
         />
+        {/* BADGE DI DALAM FOTO (POJOK KIRI ATAS) - LEFT FLUSH */}
+<div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
+  {estimasiOrang > 20 && (
+    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-red-500 rounded-r-full shadow-lg truncate">
+      🔥 Lagi Ramai
+    </span>
+  )}
+  {locationReady && itemDistance && itemDistance < 1 && (
+    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-blue-500 rounded-r-full shadow-lg truncate">
+      📍 Dekat Anda
+    </span>
+  )}
+  {!locationReady && commentCount > 5 && (
+    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-purple-500 rounded-r-full shadow-lg truncate">
+      ⚡ Sedang Viral
+    </span>
+  )}
+</div>
 
         {photos.length > 1 && (
           <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
@@ -497,7 +515,8 @@ function Feed() {
         const lastActivity = new Date(Math.max(...timestamps));
         return { ...item, lastActivity };
       });
-
+      
+      
       // Filter aktivitas 48 jam terakhir
       let filteredItems = items.filter(item => item.lastActivity > twoDaysAgo);
 
@@ -619,103 +638,133 @@ function Feed() {
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
 
-{/* HEADER */}
-<div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
-  <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-    isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
-  }`}>
-    <div className="px-4 pt-3 pb-2">
-      {/* Baris 1: Logo di tengah + lokasi/suhu (kanan) - hanya saat ON */}
-      <div className="flex items-center justify-between">
-        {/* Spacer kiri (agar logo benar-benar di tengah) */}
-        <div className="w-[60px]"></div>
+      {/* HEADER */}
+      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+          isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
+        }`}>
+          <div className="px-4 pt-3 pb-2">
+            {/* Baris 1: Logo di tengah + lokasi/suhu (kanan) */}
+            <div className="flex items-center justify-between">
+              <div className="w-[60px]"></div>
+              <div className="flex items-center justify-center gap-1">
+                <svg className="w-4 h-4 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-sm font-semibold text-[#1C2C3C] tracking-tight">Setempat.id</span>
+              </div>
+              {locationReady && displayLocation ? (
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "🌤️" : "🌙"}</span>
+                  <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation} 29°</span>  
+                </div>
+              ) : (
+                <div className="w-[60px]"></div>
+              )}
+            </div>
 
-        {/* Logo di tengah */}
-        <div className="flex items-center justify-center gap-1">
-          <svg className="w-4 h-4 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-sm font-semibold text-[#1C2C3C] tracking-tight">Setempat.id</span>
+            {/* Baris 2: Greeting */}
+            <div className="mt-2 mb-4 text-center">
+              {locationReady ? (
+                <div className="space-y-1">
+                  <p className="text-2xl font-semibold text-gray-800">{greeting.text}</p>
+                  <p className="text-base text-gray-600">
+                    {generateMoment(
+                      tempat,
+                      getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
+                      currentHour
+                    ).text}
+                  </p>
+                </div>
+              ) : (
+                <button
+                  onClick={requestLocation}
+                  className="text-base text-gray-500 hover:text-[#E3655B] transition-colors font-medium"
+                >
+                  Aktifkan lokasi Anda
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Lokasi + suhu (kanan) - hanya muncul saat ON */}
-        {locationReady && displayLocation ? (
-          <div className="flex items-center gap-1 text-xs text-gray-500">
-            <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "🌤️" : "🌙"}</span>
-            <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation} 29°</span>  
+        {/* SEARCH BAR (DIPERBAIKI) */}
+        <div className="px-4 pb-3 pt-1">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder={
+                locationReady && displayLocation 
+                  ? `Cari sesuatu di sekitar ${displayLocation}...` 
+                  : "Cari sesuatu di sekitar Anda..."
+              }
+              className="w-full bg-gray-100 rounded-full py-2.5 pl-12 pr-24 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50 transition-all"
+            />
+            <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+              {locationReady ? (
+                <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
+                  ON
+                </span>
+              ) : (
+                <button
+                  onClick={requestLocation}
+                  className="px-3 py-1 text-xs font-medium text-white bg-[#E3655B] rounded-full hover:bg-[#d54e44] transition-colors"
+                >
+                  OFF
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="w-[60px]"></div> /* Spacer kanan saat OFF */
-        )}
+        </div>
       </div>
 
-{/* Baris 2: Greeting (tetap dua baris) */}
-      <div className="mt-2 mb-4 text-center">
-        {locationReady ? (
-          <div className="space-y-1">
-            <p className="text-2xl font-semibold text-gray-800">{greeting.text}</p>
-            <p className="text-base text-gray-600">
-              {generateMoment(
-                tempat,
-                getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
-                currentHour
-              ).text}
-            </p>
+      {/* INFO BAR - REKOMENDASI WARGA SETEMPAT */}
+      {locationReady && (
+        <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-r from-[#E3655B]/5 via-white to-[#E3655B]/5 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-3">
+              <div className="w-6 h-px bg-gradient-to-r from-transparent to-gray-300"></div>
+              <span className="text-xs font-medium tracking-[0.2em] text-gray-400">Pantauan Warga Setempat di Dekatmu</span>
+              <div className="w-6 h-px bg-gradient-to-l from-transparent to-gray-300"></div>
+            </div>
+            
+            <div className="flex items-center justify-center gap-6">
+              {tempat.filter(t => parseInt(t.estimasi_orang) > 20).length > 0 && (
+                <div className="flex flex-col items-center">
+                  <span className="text-2xl filter drop-shadow-lg text-[#E3655B] animate-pulse">🔥</span>
+                  <span className="text-xs font-semibold text-gray-700 mt-1">
+                    {tempat.filter(t => parseInt(t.estimasi_orang) > 20).length} Sedang Ramai
+                  </span>
+                </div>
+              )}
+
+              {locationReady && tempat.filter(t => t.distance && t.distance < 1).length > 0 && (
+                <div className="flex flex-col items-center">
+                  <span className="text-2xl filter drop-shadow-lg text-blue-400 animate-bounce">⚡</span>
+                  <span className="text-xs font-semibold text-gray-700 mt-1">
+                    {tempat.filter(t => t.distance && t.distance < 1).length} Dekat Anda
+                  </span>
+                </div>
+              )}
+
+              {tempat.filter(t => (t.testimonial_terbaru?.length || 0) > 3).length > 0 && (
+                <div className="flex flex-col items-center">
+                  <span className="text-2xl filter drop-shadow-lg text-purple-400 animate-pulse">💬</span>
+                  <span className="text-xs font-semibold text-gray-700 mt-1">
+                    {tempat.filter(t => (t.testimonial_terbaru?.length || 0) > 3).length} Lagi Viral
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <button
-            onClick={requestLocation}
-            className="text-base text-gray-500 hover:text-[#E3655B] transition-colors font-medium"
-          >
-            Aktifkan lokasi Anda
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-
-  {/* SEARCH BAR */}
-  <div className="px-4 pb-3 pt-1">
-    <div className="relative">
-      <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-      </div>
-      <input
-        type="text"
-        placeholder={locationReady && displayLocation ? `Cari di sekitar ${displayLocation}...` : "Cari sesuatu di sekitar Anda..."}
-        className="w-full bg-gray-100 rounded-full py-2.5 pl-12 pr-24 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50 transition-all"
-      />
-      <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-        {locationReady ? (
-          <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
-            ON
-          </span>
-        ) : (
-          <button
-            onClick={requestLocation}
-            className="px-3 py-1 text-xs font-medium text-white bg-[#E3655B] rounded-full hover:bg-[#d54e44] transition-colors"
-          >
-            OFF
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-</div>
-
-{/* INFO TAMBAHAN - HANYA SATU, DI SINI */}
-{!isScrolled && locationReady && displayLocation && (
-  <div className="px-4 py-1 border-b border-gray-100 bg-white/50">
-    <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-      <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation}</span>
-      <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-      <span>{tempat.length} tempat aktif</span>
-    </div>
-  </div>
-)}
+        </div>
+      )}  
 
       {/* FEED */}
       <div className="px-4 space-y-4">
@@ -752,6 +801,7 @@ function Feed() {
             const alamatSingkat = getAlamatSingkat(item.alamat);
             const estimasiOrang = parseInt(item.estimasi_orang) || 0;
 
+            // Tentukan KEJADIAN UTAMA
             let kejadianUtama = "";
             let kejadianIcon = "📍";
 
@@ -791,6 +841,10 @@ function Feed() {
                     itemId={item.id}
                     selectedPhotoIndex={currentPhotoIndex}
                     setSelectedPhotoIndex={setSelectedPhotoIndex}
+		    estimasiOrang={estimasiOrang}
+                    itemDistance={item.distance}
+                    commentCount={comments[item.id]?.length || 0}
+                    locationReady={locationReady}
                   />
                 </div>
 
@@ -812,7 +866,7 @@ function Feed() {
                       </span>
                     )}
                     <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
-                    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang pengunjung</span>}
+                    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang di Sini </span>}
                   </div>
 
                   <div className="mt-3 ml-8 space-y-2">
@@ -824,18 +878,6 @@ function Feed() {
                     )}
                     {suasana && <p className="text-xs text-gray-500">{suasana.deskripsi}</p>}
                   </div>
-                </div>
-
-                <div className="flex flex-wrap gap-1 px-4 mt-2">
-                  {estimasiOrang > 20 && (
-                    <span className="px-2 py-1 text-[10px] font-bold text-white bg-red-500 rounded-full">🔥 RAMAI</span>
-                  )}
-                  {locationReady && item.distance && item.distance < 1 && (
-                    <span className="px-2 py-1 text-[10px] font-bold text-white bg-blue-500 rounded-full">📍 DEKAT</span>
-                  )}
-                  {!locationReady && comments[item.id]?.length > 5 && (
-                    <span className="px-2 py-1 text-[10px] font-bold text-white bg-purple-500 rounded-full">⚡ VIRAL</span>
-                  )}
                 </div>
 
                 <div className="flex items-center justify-between px-4 pt-3 pb-5 mt-2 border-t border-gray-100">
