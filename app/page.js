@@ -618,80 +618,103 @@ function Feed() {
 
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
-      {/* HEADER */}
-      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
-        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          isScrolled ? "max-h-0 opacity-0" : "max-h-[120px] opacity-100"
-        }`}>
-          <div className="px-4 pt-3 pb-1">
-            <div className="flex justify-center mb-2">
-              <span className="font-bold text-2xl text-[#E3655B] tracking-tight">Setempat.id</span>
-            </div>
-            <div className="text-center">
-              {locationReady ? (
-                <div className="space-y-1">
-                  <p className="text-xl font-semibold text-gray-800">{greeting.text}</p>
-                  <p className="text-base text-gray-600">
-                    {generateMoment(
-                      tempat,
-                      getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
-                      currentHour
-                    ).text}
-                  </p>
-                </div>
-              ) : (
-                <button
-                  onClick={requestLocation}
-                  className="text-base text-gray-600 hover:text-[#E3655B] transition-colors"
-                >
-                  Aktifkan lokasi Anda Untuk Lihat Suasana Sekitar
-                </button>
-              )}
-            </div>
-          </div>
+{/* HEADER */}
+<div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
+  <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+    isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
+  }`}>
+    <div className="px-4 pt-3 pb-2">
+      {/* Baris 1: Logo di tengah + lokasi/suhu (kanan) - hanya saat ON */}
+      <div className="flex items-center justify-between">
+        {/* Spacer kiri (agar logo benar-benar di tengah) */}
+        <div className="w-[60px]"></div>
+
+        {/* Logo di tengah */}
+        <div className="flex items-center justify-center gap-1">
+          <svg className="w-4 h-4 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-sm font-semibold text-[#E3655B] tracking-tight">Setempat</span>
         </div>
 
-        {/* SEARCH BAR */}
-        <div className="px-4 py-2">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-            <input
-              type="text"
-              placeholder={locationReady && displayLocation ? `Cari di sekitar ${displayLocation}...` : "Cari sesuatu di sekitar Anda..."}
-              className="w-full bg-gray-100 rounded-full py-2.5 pl-12 pr-24 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50 transition-all"
-            />
-            <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-              {locationReady ? (
-                <span className="flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-medium px-3 py-1 rounded-full">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> ON
-                </span>
-              ) : (
-                <button
-                  onClick={requestLocation}
-                  className="flex items-center gap-1.5 bg-red-100 text-red-700 text-xs font-medium px-3 py-1 rounded-full hover:bg-red-200 transition-colors"
-                >
-                  <span className="w-2 h-2 bg-red-500 rounded-full"></span> OFF
-                </button>
-              )}
-            </div>
+        {/* Lokasi + suhu (kanan) - hanya muncul saat ON */}
+        {locationReady && displayLocation ? (
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "☀️" : "🌙"}</span>
+            <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation}29°</span>  
           </div>
-        </div>
+        ) : (
+          <div className="w-[60px]"></div> /* Spacer kanan saat OFF */
+        )}
       </div>
 
-      {/* INFO TAMBAHAN */}
-      {!isScrolled && locationReady && displayLocation && (
-        <div className="px-4 py-1 border-b border-gray-100 bg-white/50">
-          <div className="flex items-center justify-center gap-2 text-xs">
-            <span className="text-gray-500">{getUserAreaFromNearestPlace(tempat, location) || displayLocation}</span>
-            <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-            <span className="text-gray-500">{tempat.length} tempat aktif</span>
+      {/* Baris 2: Greeting (tetap dua baris) */}
+      <div className="mt-2 text-center">
+        {locationReady ? (
+          <div className="space-y-0.5">
+            <p className="text-base font-semibold text-gray-800">{greeting.text}</p>
+            <p className="text-sm text-gray-600">
+              {generateMoment(
+                tempat,
+                getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
+                currentHour
+              ).text}
+            </p>
           </div>
-        </div>
-      )}
+        ) : (
+          <button
+            onClick={requestLocation}
+            className="text-sm text-gray-500 hover:text-[#E3655B] transition-colors"
+          >
+            Aktifkan lokasi Anda
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+
+  {/* SEARCH BAR */}
+  <div className="px-4 pb-3 pt-1">
+    <div className="relative">
+      <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </div>
+      <input
+        type="text"
+        placeholder={locationReady && displayLocation ? `Cari di sekitar ${displayLocation}...` : "Cari sesuatu di sekitar Anda..."}
+        className="w-full bg-gray-100 rounded-full py-2.5 pl-12 pr-24 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50 transition-all"
+      />
+      <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+        {locationReady ? (
+          <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
+            ON
+          </span>
+        ) : (
+          <button
+            onClick={requestLocation}
+            className="px-3 py-1 text-xs font-medium text-white bg-[#E3655B] rounded-full hover:bg-[#d54e44] transition-colors"
+          >
+            OFF
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+</div>
+
+{/* INFO TAMBAHAN - HANYA SATU, DI SINI */}
+{!isScrolled && locationReady && displayLocation && (
+  <div className="px-4 py-1 border-b border-gray-100 bg-white/50">
+    <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+      <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation}</span>
+      <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+      <span>{tempat.length} tempat aktif</span>
+    </div>
+  </div>
+)}
 
       {/* FEED */}
       <div className="px-4 space-y-4">
@@ -788,7 +811,7 @@ function Feed() {
                       </span>
                     )}
                     <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
-                    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang</span>}
+                    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang pengunjung</span>}
                   </div>
 
                   <div className="mt-3 ml-8 space-y-2">
