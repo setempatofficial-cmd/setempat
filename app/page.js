@@ -618,6 +618,7 @@ function Feed() {
 
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
+
 {/* HEADER */}
 <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
   <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
@@ -635,26 +636,26 @@ function Feed() {
             <path strokeLinecap="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
             <path strokeLinecap="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          <span className="text-sm font-semibold text-[#E3655B] tracking-tight">Setempat</span>
+          <span className="text-sm font-semibold text-[#1C2C3C] tracking-tight">Setempat.id</span>
         </div>
 
         {/* Lokasi + suhu (kanan) - hanya muncul saat ON */}
         {locationReady && displayLocation ? (
           <div className="flex items-center gap-1 text-xs text-gray-500">
-            <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "☀️" : "🌙"}</span>
-            <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation}29°</span>  
+            <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "🌤️" : "🌙"}</span>
+            <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation} 29°</span>  
           </div>
         ) : (
           <div className="w-[60px]"></div> /* Spacer kanan saat OFF */
         )}
       </div>
 
-      {/* Baris 2: Greeting (tetap dua baris) */}
-      <div className="mt-2 text-center">
+{/* Baris 2: Greeting (tetap dua baris) */}
+      <div className="mt-2 mb-4 text-center">
         {locationReady ? (
-          <div className="space-y-0.5">
-            <p className="text-base font-semibold text-gray-800">{greeting.text}</p>
-            <p className="text-sm text-gray-600">
+          <div className="space-y-1">
+            <p className="text-2xl font-semibold text-gray-800">{greeting.text}</p>
+            <p className="text-base text-gray-600">
               {generateMoment(
                 tempat,
                 getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
@@ -665,7 +666,7 @@ function Feed() {
         ) : (
           <button
             onClick={requestLocation}
-            className="text-sm text-gray-500 hover:text-[#E3655B] transition-colors"
+            className="text-base text-gray-500 hover:text-[#E3655B] transition-colors font-medium"
           >
             Aktifkan lokasi Anda
           </button>
