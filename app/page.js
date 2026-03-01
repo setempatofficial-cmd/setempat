@@ -6,14 +6,29 @@ import LocationProvider, { useLocation } from "./components/LocationProvider";
 import { calculateDistance } from "./lib/distance";
 import { getGreeting } from "./lib/greeting";
 import { generateMoment } from "./lib/momentEngine";
+import { calculateScore } from "../lib/ranking";
 
 const LIMIT = 10;
 
 // Komponen PhotoSlider
-function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex, estimasiOrang, itemDistance, commentCount, locationReady }) {
+function PhotoSlider({
+  photos,
+  itemId,
+  selectedPhotoIndex,
+  setSelectedPhotoIndex,
+  estimasiOrang,
+  itemDistance,
+  commentCount,
+  locationReady,
+  isRamai,
+  isViral,
+  isHits,
+  isDekat,
+  isBaru,
+}) {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
-  
+
   const minSwipeDistance = 50;
 
   const onTouchStart = (e) => {
@@ -62,23 +77,34 @@ function PhotoSlider({ photos, itemId, selectedPhotoIndex, setSelectedPhotoIndex
           alt={`Slide ${selectedPhotoIndex + 1}`}
           className="object-cover w-full h-full"
         />
-        {/* BADGE DI DALAM FOTO (POJOK KIRI ATAS) - LEFT FLUSH */}
+{/* BADGE DI DALAM FOTO - PRIORITAS MAKSIMAL 2 */}
 <div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
-  {estimasiOrang > 20 && (
-    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-red-500 rounded-r-full shadow-lg truncate">
-      🔥 Lagi Ramai
-    </span>
-  )}
-  {locationReady && itemDistance && itemDistance < 1 && (
-    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-blue-500 rounded-r-full shadow-lg truncate">
-      📍 Dekat Anda
-    </span>
-  )}
-  {!locationReady && commentCount > 5 && (
-    <span className="pl-2 pr-3 py-1 text-[10px] font-bold text-white bg-purple-500 rounded-r-full shadow-lg truncate">
-      ⚡ Sedang Viral
-    </span>
-  )}
+  {(() => {
+    // Kumpulkan badge berdasarkan prioritas
+    const badges = [];
+    
+    // Prioritas utama: Viral > Ramai > Hits
+    if (isViral) badges.push({ label: '⚡ Sedang Viral', color: 'bg-purple-500' });
+    else if (isRamai) badges.push({ label: '🔥 Lagi Ramai', color: 'bg-red-500' });
+    else if (isHits) badges.push({ label: '📱 Hits', color: 'bg-orange-500' });
+    
+    // Tambahkan Dekat jika masih ada slot (<2)
+    if (isDekat && badges.length < 2) {
+      badges.push({ label: '📍 Dekat Anda', color: 'bg-blue-500' });
+    }
+    
+    // Tambahkan Baru jika masih ada slot (<2)
+    if (isBaru && badges.length < 2) {
+      badges.push({ label: '🟢 Baru Saja', color: 'bg-green-400' });
+    }
+    
+    // Render badge
+    return badges.map((badge, idx) => (
+      <span key={idx} className={`pl-2 pr-3 py-1 text-[10px] font-bold text-white ${badge.color} rounded-r-full shadow-lg truncate`}>
+        {badge.label}
+      </span>
+    ));
+  })()}
 </div>
 
         {photos.length > 1 && (
@@ -160,20 +186,39 @@ function AIModal({ isOpen, onClose, tempat }) {
               <p className="text-xs text-gray-400">{tempat?.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-xl text-gray-400">✕</button>
+          <button onClick={onClose} className="text-xl text-gray-400">
+            ✕
+          </button>
         </div>
 
         <div className="h-96 p-4 space-y-4 overflow-y-auto">
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex items-start gap-2 ${msg.type === "user" ? "flex-row-reverse" : ""}`}>
+            <div
+              key={msg.id}
+              className={`flex items-start gap-2 ${
+                msg.type === "user" ? "flex-row-reverse" : ""
+              }`}
+            >
               {msg.type === "ai" && (
                 <div className="flex items-center justify-center w-8 h-8 bg-opacity-10 rounded-full bg-[#E3655B] flex-shrink-0">
                   <span className="text-[#E3655B]">🤖</span>
                 </div>
               )}
-              <div className={`max-w-[80%] ${msg.type === "user" ? "bg-[#E3655B] text-white" : "bg-gray-100"} rounded-2xl p-3`}>
+              <div
+                className={`max-w-[80%] ${
+                  msg.type === "user"
+                    ? "bg-[#E3655B] text-white"
+                    : "bg-gray-100"
+                } rounded-2xl p-3`}
+              >
                 <p className="text-sm">{msg.text}</p>
-                <p className={`text-xs mt-1 ${msg.type === "user" ? "text-white/70" : "text-gray-400"}`}>{msg.time}</p>
+                <p
+                  className={`text-xs mt-1 ${
+                    msg.type === "user" ? "text-white/70" : "text-gray-400"
+                  }`}
+                >
+                  {msg.time}
+                </p>
               </div>
             </div>
           ))}
@@ -182,7 +227,12 @@ function AIModal({ isOpen, onClose, tempat }) {
             <div className="mt-4 space-y-2">
               <p className="text-xs text-gray-400">Pertanyaan cepat:</p>
               <div className="flex flex-wrap gap-2">
-                {["Jam operasional?", "Lagi antrian?", "Info parkir", "Live music?"].map((q, i) => (
+                {[
+                  "Jam operasional?",
+                  "Lagi antrian?",
+                  "Info parkir",
+                  "Live music?",
+                ].map((q, i) => (
                   <button
                     key={i}
                     onClick={() => {
@@ -213,7 +263,9 @@ function AIModal({ isOpen, onClose, tempat }) {
               onClick={handleSend}
               disabled={!input.trim()}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                input.trim() ? "bg-[#E3655B] text-white shadow-sm" : "bg-gray-200 text-gray-400"
+                input.trim()
+                  ? "bg-[#E3655B] text-white shadow-sm"
+                  : "bg-gray-200 text-gray-400"
               }`}
             >
               <span className="text-lg">➤</span>
@@ -239,7 +291,11 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
           id: c.id || idx,
           username: c.username || "warga_" + (idx + 1),
           content: c.content,
-          time: c.time || ["5 menit lalu", "10 menit lalu", "15 menit lalu", "30 menit lalu"][idx % 4],
+          time:
+            c.time ||
+            ["5 menit lalu", "10 menit lalu", "15 menit lalu", "30 menit lalu"][
+              idx % 4
+            ],
           likes: Math.floor(Math.random() * 15) + 5,
           replies: [],
         }));
@@ -252,7 +308,9 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
             content: "Wifi cepet banget, enak buat nugas!",
             time: "5 menit lalu",
             likes: 12,
-            replies: [{ username: "ani", content: "Setuju!", time: "2 menit lalu" }],
+            replies: [
+              { username: "ani", content: "Setuju!", time: "2 menit lalu" },
+            ],
           },
           {
             id: 2,
@@ -333,13 +391,23 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
               <p className="text-xs text-gray-400">{tempat?.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-xl text-gray-400 hover:text-gray-600">✕</button>
+          <button
+            onClick={onClose}
+            className="text-xl text-gray-400 hover:text-gray-600"
+          >
+            ✕
+          </button>
         </div>
 
         {replyTo && (
           <div className="flex items-center justify-between px-4 py-2 bg-blue-50">
             <p className="text-xs text-blue-600">Membalas @{replyTo.username}</p>
-            <button onClick={() => setReplyTo(null)} className="text-xs text-blue-600">Batal</button>
+            <button
+              onClick={() => setReplyTo(null)}
+              className="text-xs text-blue-600"
+            >
+              Batal
+            </button>
           </div>
         )}
 
@@ -362,14 +430,23 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
                       <button
                         onClick={() => handleLike(comment.id)}
                         className={`flex items-center gap-1 text-xs transition-colors ${
-                          likedComments[comment.id] ? "text-[#E3655B]" : "text-gray-400"
+                          likedComments[comment.id]
+                            ? "text-[#E3655B]"
+                            : "text-gray-400"
                         }`}
                       >
-                        <span className="text-sm">{likedComments[comment.id] ? "❤️" : "🤍"}</span>
+                        <span className="text-sm">
+                          {likedComments[comment.id] ? "❤️" : "🤍"}
+                        </span>
                         <span>{comment.likes}</span>
                       </button>
                       <button
-                        onClick={() => setReplyTo({ commentId: comment.id, username: comment.username })}
+                        onClick={() =>
+                          setReplyTo({
+                            commentId: comment.id,
+                            username: comment.username,
+                          })
+                        }
                         className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
                       >
                         <span className="text-sm">💬</span>
@@ -388,8 +465,12 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-medium">@{reply.username}</span>
-                            <span className="text-xs text-gray-400">{reply.time}</span>
+                            <span className="text-xs font-medium">
+                              @{reply.username}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {reply.time}
+                            </span>
                           </div>
                           <p className="text-xs text-gray-600">{reply.content}</p>
                         </div>
@@ -405,7 +486,9 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
                 <span className="text-2xl text-gray-400">💬</span>
               </div>
               <p className="text-sm text-gray-500">Belum ada komentar</p>
-              <p className="mt-1 text-xs text-gray-400">Jadi yang pertama kasih pendapat!</p>
+              <p className="mt-1 text-xs text-gray-400">
+                Jadi yang pertama kasih pendapat!
+              </p>
             </div>
           )}
         </div>
@@ -416,7 +499,9 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
               type="text"
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder={replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar..."}
+              placeholder={
+                replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar..."
+              }
               className="flex-1 bg-gray-100 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50"
               onKeyPress={(e) => e.key === "Enter" && handleSubmit()}
             />
@@ -424,7 +509,9 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
               onClick={handleSubmit}
               disabled={!newComment.trim()}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                newComment.trim() ? "bg-[#E3655B] text-white shadow-sm" : "bg-gray-200 text-gray-400"
+                newComment.trim()
+                  ? "bg-[#E3655B] text-white shadow-sm"
+                  : "bg-gray-200 text-gray-400"
               }`}
             >
               <span className="text-lg">➤</span>
@@ -436,7 +523,8 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
   );
 }
 
-function Feed() {
+// Konten Feed yang menggunakan useLocation
+function FeedContent() {
   const { location, status, placeName, requestLocation } = useLocation();
   const [tempat, setTempat] = useState([]);
   const [page, setPage] = useState(0);
@@ -454,7 +542,8 @@ function Feed() {
   const greeting = getGreeting();
   const locationReady = status === "granted" && location;
   const currentHour = new Date().getHours();
-  const displayLocation = locationReady && placeName ? placeName.split(",")[0] : null;
+  const displayLocation =
+    locationReady && placeName ? placeName.split(",")[0] : null;
 
   // Deteksi scroll
   useEffect(() => {
@@ -471,95 +560,117 @@ function Feed() {
     return parts.length >= 2 ? `${parts[0]}, ${parts[1]}` : alamat;
   };
 
-  const loadPlaces = useCallback(async (reset = false) => {
-    if (loading) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const currentPage = reset ? 0 : page;
-      const from = currentPage * LIMIT;
-      const to = from + LIMIT - 1;
+  const loadPlaces = useCallback(
+    async (reset = false) => {
+      if (loading) return;
 
-      const { data, error } = await supabase
-        .from("feed_view")
-        .select("*")
-        .range(from, to);
+      setLoading(true);
+      setError(null);
 
-      if (error) throw error;
+      try {
+        const currentPage = reset ? 0 : page;
+        const from = currentPage * LIMIT;
+        const to = from + LIMIT - 1;
 
-      let items = data || [];
-      
-      // Hitung lastActivity
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
+        const { data, error } = await supabase
+          .from("feed_view")
+          .select("*")
+          .range(from, to);
 
-      items = items.map(item => {
-        const timestamps = [];
-        
-        if (item.testimonial_terbaru?.length) {
-          timestamps.push(new Date(item.testimonial_terbaru[0].created_at).getTime());
+        if (error) throw error;
+
+        let items = data || [];
+
+        // Hitung lastActivity
+        const twoDaysAgo = new Date();
+        twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
+
+        items = items.map((item) => {
+          const timestamps = [];
+
+          if (item.testimonial_terbaru?.length) {
+            timestamps.push(
+              new Date(item.testimonial_terbaru[0].created_at).getTime()
+            );
+          }
+          if (item.laporan_terbaru?.length) {
+            timestamps.push(
+              new Date(item.laporan_terbaru[0].created_at).getTime()
+            );
+          }
+          if (item.medsos_terbaru?.length) {
+            timestamps.push(
+              new Date(item.medsos_terbaru[0].posted_at).getTime()
+            );
+          }
+
+          if (timestamps.length === 0) {
+            timestamps.push(new Date(item.created_at).getTime());
+          }
+
+          const lastActivity = new Date(Math.max(...timestamps));
+          return { ...item, lastActivity };
+        });
+
+        // Filter aktivitas 48 jam terakhir
+        let filteredItems = items.filter(
+          (item) => item.lastActivity > twoDaysAgo
+        );
+
+        // Jika hasil filter kosong, gunakan semua item (tanpa filter waktu)
+        items = filteredItems.length > 0 ? filteredItems : items;
+
+        // Hitung score untuk setiap item
+        items = items.map((item) => ({
+          ...item,
+          score: calculateScore(item, location),
+        }));
+
+        if (locationReady && items.length > 0 && location) {
+          items = items
+            .map((item) => {
+              if (item.latitude && item.longitude) {
+                const distance = calculateDistance(
+                  location.latitude,
+                  location.longitude,
+                  item.latitude,
+                  item.longitude
+                );
+                return { ...item, distance };
+              }
+              return { ...item, distance: Infinity };
+            })
+            .sort((a, b) => {
+              // Kombinasi jarak (60%) dan score (40%)
+              const scoreA =
+                a.score * 0.4 + (1 / (a.distance || 10)) * 0.6;
+              const scoreB =
+                b.score * 0.4 + (1 / (b.distance || 10)) * 0.6;
+              return scoreB - scoreA;
+            });
+        } else {
+          items.sort((a, b) => b.score - a.score);
         }
-        if (item.laporan_terbaru?.length) {
-          timestamps.push(new Date(item.laporan_terbaru[0].created_at).getTime());
-        }
-        if (item.medsos_terbaru?.length) {
-          timestamps.push(new Date(item.medsos_terbaru[0].posted_at).getTime());
-        }
-        
-        if (timestamps.length === 0) {
-          timestamps.push(new Date(item.created_at).getTime());
-        }
-        
-        const lastActivity = new Date(Math.max(...timestamps));
-        return { ...item, lastActivity };
-      });
-      
-      
-      // Filter aktivitas 48 jam terakhir
-      let filteredItems = items.filter(item => item.lastActivity > twoDaysAgo);
 
-     // Jika hasil filter kosong, gunakan semua item (tanpa filter waktu)
-     items = filteredItems.length > 0 ? filteredItems : items;
+        const commentsMap = {};
+        items.forEach((item) => {
+          commentsMap[item.id] = item.testimonial_terbaru || [];
+        });
+        setComments((prev) => ({ ...prev, ...commentsMap }));
 
-      if (locationReady && items.length > 0 && location) {
-        items = items
-          .map(item => {
-            if (item.latitude && item.longitude) {
-              const distance = calculateDistance(
-                location.latitude,
-                location.longitude,
-                item.latitude,
-                item.longitude
-              );
-              return { ...item, distance };
-            }
-            return { ...item, distance: Infinity };
-          })
-          .sort((a, b) => a.distance - b.distance);
-      } else {
-        items.sort((a, b) => b.lastActivity - a.lastActivity);
+        setTempat((prev) => (reset ? items : [...prev, ...items]));
+        setPage(currentPage + 1);
+        setHasMore(items.length === LIMIT);
+      } catch (error) {
+        console.error("Error loading places:", error);
+        setError(error.message);
+      } finally {
+        setLoading(false);
+        setInitialLoad(false);
       }
-
-      const commentsMap = {};
-      items.forEach(item => {
-        commentsMap[item.id] = item.testimonial_terbaru || [];
-      });
-      setComments(prev => ({ ...prev, ...commentsMap }));
-
-      setTempat(prev => reset ? items : [...prev, ...items]);
-      setPage(currentPage + 1);
-      setHasMore(items.length === LIMIT);
-      
-    } catch (error) {
-      console.error("Error loading places:", error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
-      setInitialLoad(false);
-    }
-  }, [location, locationReady, page, loading]);
+    },
+    [location, locationReady, page, loading]
+  );
 
   useEffect(() => {
     loadPlaces(true);
@@ -568,8 +679,10 @@ function Feed() {
   useEffect(() => {
     const handleScroll = () => {
       if (
-        window.innerHeight + window.scrollY >= document.body.offsetHeight - 500 &&
-        !loading && hasMore
+        window.innerHeight + window.scrollY >=
+          document.body.offsetHeight - 500 &&
+        !loading &&
+        hasMore
       ) {
         loadPlaces();
       }
@@ -609,7 +722,7 @@ function Feed() {
     if (!places.length || !userLocation) return null;
     const nearestPlace = places[0];
     if (nearestPlace.distance > 5) return null;
-    const parts = nearestPlace.alamat.split(",").map(p => p.trim());
+    const parts = nearestPlace.alamat.split(",").map((p) => p.trim());
     for (let i = 0; i < parts.length; i++) {
       if (parts[i].includes("Kec.") || parts[i].includes("Kecamatan")) {
         return parts[i].replace("Kec.", "").replace("Kecamatan", "").trim();
@@ -624,8 +737,8 @@ function Feed() {
       <div className="flex items-center justify-center min-h-screen p-4">
         <div className="text-center">
           <p className="text-red-500 mb-2">Error: {error}</p>
-          <button 
-            onClick={() => loadPlaces(true)} 
+          <button
+            onClick={() => loadPlaces(true)}
             className="px-4 py-2 bg-[#E3655B] text-white rounded-lg"
           >
             Coba Lagi
@@ -637,27 +750,51 @@ function Feed() {
 
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
-
       {/* HEADER */}
-      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-100">
-        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
-        }`}>
+      <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100">
+        <div
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${
+            isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
+          }`}
+        >
           <div className="px-4 pt-3 pb-2">
             {/* Baris 1: Logo di tengah + lokasi/suhu (kanan) */}
             <div className="flex items-center justify-between">
               <div className="w-[60px]"></div>
               <div className="flex items-center justify-center gap-1">
-                <svg className="w-4 h-4 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                <svg
+                  className="w-4 h-4 text-[#E3655B]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeWidth={2}
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeWidth={2}
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
                 </svg>
-                <span className="text-sm font-semibold text-[#1C2C3C] tracking-tight">Setempat.id</span>
+                <span className="text-sm font-semibold text-[#1C2C3C] tracking-tight">
+                  Setempat.id
+                </span>
               </div>
               {locationReady && displayLocation ? (
                 <div className="flex items-center gap-1 text-xs text-gray-500">
-                  <span>{new Date().getHours() >= 4 && new Date().getHours() < 18 ? "🌤️" : "🌙"}</span>
-                  <span>{getUserAreaFromNearestPlace(tempat, location) || displayLocation} 29°</span>  
+                  <span>
+                    {new Date().getHours() >= 4 && new Date().getHours() < 18
+                      ? "🌤️"
+                      : "🌙"}
+                  </span>
+                  <span>
+                    {getUserAreaFromNearestPlace(tempat, location) ||
+                      displayLocation}{" "}
+                    29°
+                  </span>
                 </div>
               ) : (
                 <div className="w-[60px]"></div>
@@ -668,11 +805,15 @@ function Feed() {
             <div className="mt-2 mb-4 text-center">
               {locationReady ? (
                 <div className="space-y-1">
-                  <p className="text-2xl font-semibold text-gray-800">{greeting.text}</p>
+                  <p className="text-2xl font-semibold text-gray-800">
+                    {greeting.text}
+                  </p>
                   <p className="text-base text-gray-600">
                     {generateMoment(
                       tempat,
-                      getUserAreaFromNearestPlace(tempat, location) || displayLocation || "sekitar",
+                      getUserAreaFromNearestPlace(tempat, location) ||
+                        displayLocation ||
+                        "sekitar",
                       currentHour
                     ).text}
                   </p>
@@ -682,26 +823,35 @@ function Feed() {
                   onClick={requestLocation}
                   className="text-base text-gray-500 hover:text-[#E3655B] transition-colors font-medium"
                 >
-                  Aktifkan lokasi Untuk Lihat Sekitar
+                  Aktifkan Lokasi Untuk Lihat Sekitar
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* SEARCH BAR (DIPERBAIKI) */}
+        {/* SEARCH BAR */}
         <div className="px-4 pb-3 pt-1">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="w-5 h-5 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </div>
             <input
               type="text"
               placeholder={
-                locationReady && displayLocation 
-                  ? `Cari sesuatu di sekitar ${displayLocation}...` 
+                locationReady && displayLocation
+                  ? `Cari sesuatu di sekitar ${displayLocation}...`
                   : "Cari sesuatu di sekitar Anda..."
               }
               className="w-full bg-gray-100 rounded-full py-2.5 pl-12 pr-24 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B] focus:ring-opacity-50 transition-all"
@@ -730,48 +880,77 @@ function Feed() {
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-3">
               <div className="w-6 h-px bg-gradient-to-r from-transparent to-gray-300"></div>
-              <span className="text-xs font-medium tracking-[0.2em] text-gray-400">Pantauan Warga Setempat di Dekatmu</span>
+              <span className="text-xs font-medium tracking-[0.2em] text-gray-400">
+                Pantauan Warga Setempat di Dekatmu
+              </span>
               <div className="w-6 h-px bg-gradient-to-l from-transparent to-gray-300"></div>
             </div>
-            
+
             <div className="flex items-center justify-center gap-6">
-              {tempat.filter(t => parseInt(t.estimasi_orang) > 20).length > 0 && (
+              {tempat.filter((t) => parseInt(t.estimasi_orang) > 20).length >
+                0 && (
                 <div className="flex flex-col items-center">
-                  <span className="text-2xl filter drop-shadow-lg text-[#E3655B] animate-pulse">🔥</span>
+                  <span className="text-2xl filter drop-shadow-lg text-[#E3655B] animate-pulse">
+                    🔥
+                  </span>
                   <span className="text-xs font-semibold text-gray-700 mt-1">
-                    {tempat.filter(t => parseInt(t.estimasi_orang) > 20).length} Sedang Ramai
+                    {
+                      tempat.filter((t) => parseInt(t.estimasi_orang) > 20)
+                        .length
+                    }{" "}
+                    Sedang Ramai
                   </span>
                 </div>
               )}
 
-              {locationReady && tempat.filter(t => t.distance && t.distance < 1).length > 0 && (
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl filter drop-shadow-lg text-blue-400 animate-bounce">⚡</span>
-                  <span className="text-xs font-semibold text-gray-700 mt-1">
-                    {tempat.filter(t => t.distance && t.distance < 1).length} Dekat Anda
-                  </span>
-                </div>
-              )}
+              {locationReady &&
+                tempat.filter((t) => t.distance && t.distance < 1).length >
+                  0 && (
+                  <div className="flex flex-col items-center">
+                    <span className="text-2xl filter drop-shadow-lg text-blue-400 animate-bounce">
+                      ⚡
+                    </span>
+                    <span className="text-xs font-semibold text-gray-700 mt-1">
+                      {
+                        tempat.filter((t) => t.distance && t.distance < 1)
+                          .length
+                      }{" "}
+                      Dekat Anda
+                    </span>
+                  </div>
+                )}
 
-              {tempat.filter(t => (t.testimonial_terbaru?.length || 0) > 3).length > 0 && (
+              {tempat.filter(
+                (t) => (t.testimonial_terbaru?.length || 0) > 3
+              ).length > 0 && (
                 <div className="flex flex-col items-center">
-                  <span className="text-2xl filter drop-shadow-lg text-purple-400 animate-pulse">💬</span>
+                  <span className="text-2xl filter drop-shadow-lg text-purple-400 animate-pulse">
+                    💬
+                  </span>
                   <span className="text-xs font-semibold text-gray-700 mt-1">
-                    {tempat.filter(t => (t.testimonial_terbaru?.length || 0) > 3).length} Lagi Viral
+                    {
+                      tempat.filter(
+                        (t) => (t.testimonial_terbaru?.length || 0) > 3
+                      ).length
+                    }{" "}
+                    Lagi Viral
                   </span>
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}  
+      )}
 
       {/* FEED */}
       <div className="px-4 space-y-4">
         {initialLoad && loading ? (
           <div className="space-y-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm animate-pulse">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm animate-pulse"
+              >
                 <div className="h-48 bg-gray-200"></div>
                 <div className="p-4 space-y-3">
                   <div className="h-5 bg-gray-200 rounded w-1/3"></div>
@@ -783,7 +962,9 @@ function Feed() {
           </div>
         ) : tempat.length === 0 && !loading ? (
           <div className="text-center py-8">
-            <p className="text-gray-500">Tidak ada tempat dengan aktivitas terbaru</p>
+            <p className="text-gray-500">
+              Tidak ada tempat dengan aktivitas terbaru
+            </p>
           </div>
         ) : (
           tempat.map((item, index) => {
@@ -791,11 +972,17 @@ function Feed() {
             const medsos = item.medsos_terbaru || [];
             const laporan = item.laporan_terbaru || [];
             const testimonial = item.testimonial_terbaru || [];
+            const externalSignals = item.external_signals_terbaru || [];
+            const externalCount = externalSignals.length;
 
-            const aktivitasUtama = aktivitas.length > 0 ? aktivitas[0] : null;
-            const suasana = laporan.find(l => l.tipe === "keramaian" || l.tipe === "suasana");
-            const antrian = laporan.find(l => l.tipe === "antrian");
-            const testimonialTerbaru = testimonial.length > 0 ? testimonial[0] : null;
+            const aktivitasUtama =
+              aktivitas.length > 0 ? aktivitas[0] : null;
+            const suasana = laporan.find(
+              (l) => l.tipe === "keramaian" || l.tipe === "suasana"
+            );
+            const antrian = laporan.find((l) => l.tipe === "antrian");
+            const testimonialTerbaru =
+              testimonial.length > 0 ? testimonial[0] : null;
             const medsosTerbaru = medsos.length > 0 ? medsos[0] : null;
 
             const alamatSingkat = getAlamatSingkat(item.alamat);
@@ -804,6 +991,38 @@ function Feed() {
             // Tentukan KEJADIAN UTAMA
             let kejadianUtama = "";
             let kejadianIcon = "📍";
+            // Hitung agregat dari external signals
+            let totalLikes = 0;
+            let totalComments = 0;
+            let totalConfidence = 0;
+
+            externalSignals.forEach((s) => {
+              totalLikes += s.likes_count || 0;
+              totalComments += s.comments_count || 0;
+              totalConfidence += s.confidence || 0;
+            });
+
+            const avgConfidence =
+              externalCount > 0 ? totalConfidence / externalCount : 0;
+            // Cari external signal dengan komentar terbanyak untuk kutipan
+            const topExternalComment = externalSignals
+              .filter((s) => s.content && s.content.length > 0)
+              .sort(
+                (a, b) => (b.comments_count || 0) - (a.comments_count || 0)
+              )[0];
+
+            // ===== LOGIKA BADGE GABUNGAN =====
+            const isRamai = estimasiOrang > 20 || externalCount > 5;
+            const isViral =
+              (comments[item.id]?.length || 0) > 5 ||
+              totalLikes > 100 ||
+              totalComments > 20;
+            const isHits = externalCount > 2 && avgConfidence > 0.9;
+            const isDekat = locationReady && item.distance && item.distance < 1;
+            const isBaru = (() => {
+              const last = item.lastActivity ? new Date(item.lastActivity) : null;
+              return last && Date.now() - last < 30 * 60 * 1000;
+            })();
 
             if (aktivitasUtama) {
               kejadianUtama = aktivitasUtama.deskripsi;
@@ -812,7 +1031,10 @@ function Feed() {
               kejadianUtama = `Antrian ${antrian.estimasi_menit} menit`;
               kejadianIcon = "🚶";
             } else if (testimonialTerbaru) {
-              kejadianUtama = `"${testimonialTerbaru.content.substring(0, 40)}..."`;
+              kejadianUtama = `"${testimonialTerbaru.content.substring(
+                0,
+                40
+              )}..."`;
               kejadianIcon = "💬";
             } else if (medsosTerbaru) {
               kejadianUtama = medsosTerbaru.content.substring(0, 40) + "...";
@@ -825,81 +1047,146 @@ function Feed() {
               kejadianIcon = "🔥";
             }
 
-            const photos = item.photos || (item.image_url ? [item.image_url] : [
-              "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=500",
-              "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
-              "https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=500"
-            ]);
+            const photos = item.photos ||
+              (item.image_url ? [item.image_url] : [
+                "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=500",
+                "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
+                "https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=500",
+              ]);
 
             const currentPhotoIndex = selectedPhotoIndex[item.id] || 0;
 
             return (
-              <div key={`${item.id}-${index}`} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+              <div
+                key={`${item.id}-${index}`}
+                className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
+              >
                 <div className="px-4 mt-3">
                   <PhotoSlider
                     photos={photos}
                     itemId={item.id}
                     selectedPhotoIndex={currentPhotoIndex}
                     setSelectedPhotoIndex={setSelectedPhotoIndex}
-		    estimasiOrang={estimasiOrang}
+                    estimasiOrang={estimasiOrang}
                     itemDistance={item.distance}
                     commentCount={comments[item.id]?.length || 0}
                     locationReady={locationReady}
+                    isRamai={isRamai}
+                    isViral={isViral}
+                    isHits={isHits}
+                    isDekat={isDekat}
+                    isBaru={isBaru}
                   />
                 </div>
 
                 <div className="px-4 pt-4">
-  {/* Judul */}
-  <div className="flex items-start gap-2">
-    <span className="text-2xl">{kejadianIcon}</span>
-    <p className="flex-1 text-lg font-semibold text-[#2D2D2D]">{kejadianUtama}</p>
-  </div>
+                  {/* Judul */}
+                  <div className="flex items-start gap-2">
+                    <span className="text-2xl">{kejadianIcon}</span>
+                    <p className="flex-1 text-lg font-semibold text-[#2D2D2D]">
+                      {kejadianUtama}
+                    </p>
+                  </div>
 
-  {/* Nama tempat */}
-  <div className="flex items-center gap-1 mt-1 ml-8">
-    <span className="text-sm font-medium text-[#E3655B]">{item.name}</span>
-    <span className="text-xs text-gray-400">• {alamatSingkat}</span>
-  </div>
+                  {/* Nama tempat */}
+                  <div className="flex items-center gap-1 mt-1 ml-8">
+                    <span className="text-sm font-medium text-[#E3655B]">
+                      {item.name}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      • {alamatSingkat}
+                    </span>
+                  </div>
 
-  {/* Metadata */}
-  <div className="flex items-center gap-1 mt-2 ml-8 text-xs text-gray-400">
-    {locationReady && item.distance && (
-      <span>📍 {item.distance < 1 ? `${Math.round(item.distance * 1000)}m` : `${item.distance.toFixed(1)}km`}</span>
-    )}
-    <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
-    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang di Sini </span>}
-    
-{/* INDIKATOR HIDUP */}
-  {(() => {
-    const lastActivity = item.lastActivity ? new Date(item.lastActivity) : null;
-    if (lastActivity && (Date.now() - lastActivity) < 30 * 60 * 1000) {
-      return <span className="ml-2 text-green-600 font-medium text-[10px]">🟢 Ramai sekarang</span>;
-    }
-    return null;
-  })()}
-</div>
+                  {/* Metadata */}
+                  <div className="flex items-center gap-1 mt-2 ml-8 text-xs text-gray-400">
+                    {locationReady && item.distance && (
+                      <span>
+                        📍{" "}
+                        {item.distance < 1
+                          ? `${Math.round(item.distance * 1000)}m`
+                          : `${item.distance.toFixed(1)}km`}
+                      </span>
+                    )}
+                    <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
+                    {estimasiOrang > 0 && (
+                      <span>• 👥 {estimasiOrang} orang di Lokasi </span>
+                    )}
 
-  {/* Testimoni / Info tambahan */}
-  <div className="mt-3 ml-8 space-y-2">
-    {testimonialTerbaru && !aktivitasUtama && (
-      <p className="text-sm text-gray-600 italic border-l-2 border-gray-200 pl-2">"{testimonialTerbaru.content}"</p>
-    )}
-    {medsosTerbaru && !aktivitasUtama && !testimonialTerbaru && (
-      <p className="text-sm text-gray-600 border-l-2 border-gray-200 pl-2">📱 {medsosTerbaru.content}</p>
-    )}
-    {suasana && <p className="text-xs text-gray-500">{suasana.deskripsi}</p>}
-  </div>
-</div> {/* Tutup px-4 pt-4 */}
+                    {/* INDIKATOR HIDUP */}
+                    {(() => {
+                      const lastActivity = item.lastActivity
+                        ? new Date(item.lastActivity)
+                        : null;
+                      if (
+                        lastActivity &&
+                        Date.now() - lastActivity < 30 * 60 * 1000
+                      ) {
+                        return (
+                          <span className="ml-2 text-green-600 font-medium text-[10px]">
+                            🟢 Ramai sekarang
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
 
-{/* Tombol aksi */}
-<div className="flex items-center justify-between px-4 pt-3 pb-5 mt-2 border-t border-gray-100">
-  <button onClick={() => openAIModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
-    <span className="text-base">🤖</span> Tanya AI Setempat
-  </button>
-  <button onClick={() => openKomentarModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
-    <span className="text-base">💬</span> <span>{comments[item.id]?.length || 0}</span> Kata Warga
-  </button>
-</div>
+                  {/* Testimoni / Info tambahan */}
+                  <div className="mt-3 ml-8 space-y-2">
+                    {testimonialTerbaru && !aktivitasUtama && (
+                      <p className="text-sm text-gray-600 italic border-l-2 border-gray-200 pl-2">
+                        "{testimonialTerbaru.content}"
+                      </p>
+                    )}
+                    {medsosTerbaru && !aktivitasUtama && !testimonialTerbaru && (
+                      <p className="text-sm text-gray-600 border-l-2 border-gray-200 pl-2">
+                        📱 {medsosTerbaru.content}
+                      </p>
+                    )}
+                    {/* External signal teratas */}
+                    {topExternalComment && !aktivitasUtama && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-purple-400 text-sm mt-0.5">
+                          📱
+                        </span>
+                        <div className="flex-1">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs font-medium">
+                              @{topExternalComment.username}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {formatTimeAgo(topExternalComment.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700 italic">
+                            "{topExternalComment.content}"
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {suasana && (
+                      <p className="text-xs text-gray-500">{suasana.deskripsi}</p>
+                    )}
+                  </div>
+
+                  {/* Tombol aksi */}
+                  <div className="flex items-center justify-between px-4 pt-3 pb-5 mt-2 border-t border-gray-100">
+                    <button
+                      onClick={() => openAIModal(item)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200"
+                    >
+                      <span className="text-base">🤖</span> Tanya AI Setempat
+                    </button>
+                    <button
+                      onClick={() => openKomentarModal(item)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200"
+                    >
+                      <span className="text-base">💬</span>{" "}
+                      <span>{comments[item.id]?.length || 0}</span> Kata Warga
+                    </button>
+                  </div>
+                </div>
               </div>
             );
           })
@@ -913,25 +1200,34 @@ function Feed() {
         )}
 
         {!loading && !hasMore && tempat.length > 0 && (
-          <p className="py-4 text-sm text-center text-gray-400">Tidak ada tempat lagi</p>
+          <p className="py-4 text-sm text-center text-gray-400">
+            Tidak ada tempat lagi
+          </p>
         )}
       </div>
 
-      <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
+      <AIModal
+        isOpen={showAIModal}
+        onClose={closeModals}
+        tempat={selectedTempat}
+      />
       <KomentarModal
         isOpen={showKomentarModal}
         onClose={closeModals}
         tempat={selectedTempat}
-        initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []}
+        initialComments={
+          selectedTempat ? comments[selectedTempat.id] || [] : []
+        }
       />
     </main>
   );
 }
 
-export default function Home() {
+// Komponen utama yang diekspor
+export default function Feed() {
   return (
     <LocationProvider>
-      <Feed />
+      <FeedContent />
     </LocationProvider>
   );
 }
