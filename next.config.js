@@ -1,6 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Exclude supabase folder dari proses build Next.js
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -8,13 +7,14 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   webpack: (config, { isServer }) => {
-    // Abaikan folder supabase
     config.watchOptions = {
       ...config.watchOptions,
       ignored: ['**/supabase/**'],
     };
     return config;
   },
+  // Tambahkan ini untuk menonaktifkan error Turbopack
+  turbopack: {},
 };
 
 module.exports = nextConfig;
