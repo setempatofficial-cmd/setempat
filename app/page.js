@@ -730,7 +730,31 @@ function FeedContent() {
     }
     return parts[1] || parts[0];
   };
-
+// Fungsi untuk judul cadangan yang variatif (tanpa parameter isNight)
+const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
+  const kategori = item.kategori || 'tempat';
+  const parts = alamatSingkat.split(',');
+  const area = parts.length > 1 ? parts[1].trim() : (displayLocation || 'sekitar');
+  
+  // Tentukan waktu berdasarkan currentHour
+  const hour = currentHour; // sudah didefinisikan di awal komponen
+  const isNight = hour >= 18 || hour < 4; // malam jika jam 18-04
+  const waktuStr = isNight ? 'malam' : 'siang';
+  
+  const templates = [
+    `${kategori} cozy di ${area}`,
+    `Warga suka nongkrong di sini`,
+    `Tempat ${waktuStr} yang asyik`,
+    `Lagi hits di ${area}`,
+    `Rekomendasi untuk santai`,
+    `Spot ${kategori} favorit`,
+    `${kategori} recommended warga`,
+    `Cocok buat kumpul ${waktuStr} ini`,
+  ];
+  
+  const randomIndex = Math.floor(Math.random() * templates.length);
+  return templates[randomIndex];
+};
   // Tampilkan error jika ada
   if (error) {
     return (
@@ -1043,8 +1067,8 @@ function FeedContent() {
               kejadianUtama = `${estimasiOrang} orang di lokasi`;
               kejadianIcon = "👥";
             } else {
-              kejadianUtama = "Lagi ramai dikunjungi";
-              kejadianIcon = "🔥";
+              kejadianUtama = getFallbackTitle(item, alamatSingkat, displayLocation);
+              kejadianIcon = "📍";
             }
 
             const photos = item.photos ||
