@@ -682,7 +682,7 @@ function Feed() {
                   onClick={requestLocation}
                   className="text-base text-gray-500 hover:text-[#E3655B] transition-colors font-medium"
                 >
-                  Aktifkan lokasi Anda
+                  Aktifkan lokasi Untuk Lihat Sekitar
                 </button>
               )}
             </div>
@@ -849,45 +849,57 @@ function Feed() {
                 </div>
 
                 <div className="px-4 pt-4">
-                  <div className="flex items-start gap-2">
-                    <span className="text-2xl">{kejadianIcon}</span>
-                    <p className="flex-1 text-lg font-semibold text-[#2D2D2D]">{kejadianUtama}</p>
-                  </div>
+  {/* Judul */}
+  <div className="flex items-start gap-2">
+    <span className="text-2xl">{kejadianIcon}</span>
+    <p className="flex-1 text-lg font-semibold text-[#2D2D2D]">{kejadianUtama}</p>
+  </div>
 
-                  <div className="flex items-center gap-1 mt-1 ml-8">
-                    <span className="text-sm font-medium text-[#E3655B]">{item.name}</span>
-                    <span className="text-xs text-gray-400">• {alamatSingkat}</span>
-                  </div>
+  {/* Nama tempat */}
+  <div className="flex items-center gap-1 mt-1 ml-8">
+    <span className="text-sm font-medium text-[#E3655B]">{item.name}</span>
+    <span className="text-xs text-gray-400">• {alamatSingkat}</span>
+  </div>
 
-                  <div className="flex items-center gap-1 mt-2 ml-8 text-xs text-gray-400">
-                    {locationReady && item.distance && (
-                      <span>
-                        📍 {item.distance < 1 ? `${Math.round(item.distance * 1000)}m` : `${item.distance.toFixed(1)}km`}
-                      </span>
-                    )}
-                    <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
-                    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang di Sini </span>}
-                  </div>
+  {/* Metadata */}
+  <div className="flex items-center gap-1 mt-2 ml-8 text-xs text-gray-400">
+    {locationReady && item.distance && (
+      <span>📍 {item.distance < 1 ? `${Math.round(item.distance * 1000)}m` : `${item.distance.toFixed(1)}km`}</span>
+    )}
+    <span>🕒 {formatTimeAgo(item.updated_at || item.created_at)}</span>
+    {estimasiOrang > 0 && <span>• 👥 {estimasiOrang} orang di Sini </span>}
+    
+{/* INDIKATOR HIDUP */}
+  {(() => {
+    const lastActivity = item.lastActivity ? new Date(item.lastActivity) : null;
+    if (lastActivity && (Date.now() - lastActivity) < 30 * 60 * 1000) {
+      return <span className="ml-2 text-green-600 font-medium text-[10px]">🟢 Ramai sekarang</span>;
+    }
+    return null;
+  })()}
+</div>
 
-                  <div className="mt-3 ml-8 space-y-2">
-                    {testimonialTerbaru && !aktivitasUtama && (
-                      <p className="text-sm text-gray-600 italic border-l-2 border-gray-200 pl-2">"{testimonialTerbaru.content}"</p>
-                    )}
-                    {medsosTerbaru && !aktivitasUtama && !testimonialTerbaru && (
-                      <p className="text-sm text-gray-600 border-l-2 border-gray-200 pl-2">📱 {medsosTerbaru.content}</p>
-                    )}
-                    {suasana && <p className="text-xs text-gray-500">{suasana.deskripsi}</p>}
-                  </div>
-                </div>
+  {/* Testimoni / Info tambahan */}
+  <div className="mt-3 ml-8 space-y-2">
+    {testimonialTerbaru && !aktivitasUtama && (
+      <p className="text-sm text-gray-600 italic border-l-2 border-gray-200 pl-2">"{testimonialTerbaru.content}"</p>
+    )}
+    {medsosTerbaru && !aktivitasUtama && !testimonialTerbaru && (
+      <p className="text-sm text-gray-600 border-l-2 border-gray-200 pl-2">📱 {medsosTerbaru.content}</p>
+    )}
+    {suasana && <p className="text-xs text-gray-500">{suasana.deskripsi}</p>}
+  </div>
+</div> {/* Tutup px-4 pt-4 */}
 
-                <div className="flex items-center justify-between px-4 pt-3 pb-5 mt-2 border-t border-gray-100">
-                  <button onClick={() => openAIModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
-                    <span className="text-base">🤖</span> Tanya AI Setempat
-                  </button>
-                  <button onClick={() => openKomentarModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
-                    <span className="text-base">💬</span> <span>{comments[item.id]?.length || 0}</span> Kata Warga
-                  </button>
-                </div>
+{/* Tombol aksi */}
+<div className="flex items-center justify-between px-4 pt-3 pb-5 mt-2 border-t border-gray-100">
+  <button onClick={() => openAIModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
+    <span className="text-base">🤖</span> Tanya AI Setempat
+  </button>
+  <button onClick={() => openKomentarModal(item)} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200">
+    <span className="text-base">💬</span> <span>{comments[item.id]?.length || 0}</span> Kata Warga
+  </button>
+</div>
               </div>
             );
           })
