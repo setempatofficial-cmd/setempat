@@ -741,15 +741,19 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
   const isNight = hour >= 18 || hour < 4; // malam jika jam 18-04
   const waktuStr = isNight ? 'malam' : 'siang';
   
-  const templates = [
-    `${kategori} cozy di ${area}`,
-    `Warga suka nongkrong di sini`,
-    `Tempat ${waktuStr} yang asyik`,
-    `Lagi hits di ${area}`,
-    `Rekomendasi untuk santai`,
-    `Spot ${kategori} favorit`,
-    `${kategori} recommended warga`,
-    `Cocok buat kumpul ${waktuStr} ini`,
+ const templates = [
+    `🍵 Pengunjung sedang Menikmati Sore`,
+    `👥 Ramai Dipenuhi Warga`,
+    `🌙 Suasana ${waktuStr} Mulai Ramai`,
+    `🍜 Warga Antre beli Takjil`,
+    `📸 Banyak yang Foto-foto di sini`,
+    `🎵 Ada Hiburan musik Akustik`,
+    `☕ Banyak Warga Ngopi di sini`,
+    `🌅 Pemandangan sore Ini menarik`,
+    `🚶 Banyak yang lalu lalang`,
+    `💬 Suasana obrolan hangat`,
+    `⚡ Lagi ramai dikunjungi`,
+    `🎉 Mulai Ramai`,
   ];
   
   const randomIndex = Math.floor(Math.random() * templates.length);
