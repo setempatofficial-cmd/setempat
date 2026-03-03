@@ -7,6 +7,7 @@ import { calculateDistance } from "./lib/distance";
 import { getGreeting } from "./lib/greeting";
 import { generateMoment } from "./lib/momentEngine";
 import { calculateScore } from "../lib/ranking";
+import { generateHeadline } from "../lib/headlineEngine";
 
 const LIMIT = 10;
 
@@ -26,6 +27,7 @@ function PhotoSlider({
   isDekat,
   isBaru,
 }) {
+
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
@@ -72,11 +74,13 @@ function PhotoSlider({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <img
-          src={photos[selectedPhotoIndex]}
-          alt={`Slide ${selectedPhotoIndex + 1}`}
-          className="object-cover w-full h-full"
-        />
+<img
+  src={typeof photos[selectedPhotoIndex] === 'string' 
+    ? photos[selectedPhotoIndex] 
+    : photos[selectedPhotoIndex]?.url}
+  alt={`Slide ${selectedPhotoIndex + 1}`}
+  className="object-cover w-full h-full"
+/>
 {/* BADGE DI DALAM FOTO - PRIORITAS MAKSIMAL 2 */}
 <div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
   {(() => {
@@ -84,13 +88,13 @@ function PhotoSlider({
     const badges = [];
     
     // Prioritas utama: Viral > Ramai > Hits
-    if (isViral) badges.push({ label: '⚡ Sedang Viral', color: 'bg-purple-500' });
-    else if (isRamai) badges.push({ label: '🔥 Lagi Ramai', color: 'bg-red-500' });
-    else if (isHits) badges.push({ label: '📱 Hits', color: 'bg-orange-500' });
+    if (isViral) badges.push({ label: '⚡ Sedang Viral Sejam lalu', color: 'bg-purple-500' });
+    else if (isRamai) badges.push({ label: '🔥 Lagi Ramai Saat Ini', color: 'bg-red-500' });
+    else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-500' });
     
     // Tambahkan Dekat jika masih ada slot (<2)
     if (isDekat && badges.length < 2) {
-      badges.push({ label: '📍 Dekat Anda', color: 'bg-blue-500' });
+      badges.push({ label: '📍 Di Dekat Anda', color: 'bg-blue-500' });
     }
     
     // Tambahkan Baru jika masih ada slot (<2)
@@ -717,7 +721,29 @@ function FeedContent() {
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)} jam lalu`;
     return `${Math.floor(diffMins / 1440)} hari lalu`;
   };
-
+  // Fungsi untuk memilih foto berdasarkan waktu saat ini
+  const getFotoByWaktu = (photos, currentHour) => {
+  if (!photos || photos.length === 0) return null;
+  
+  // Tentukan kategori waktu
+  let kategoriWaktu = 'siang'; // default
+  if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
+  else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
+  else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
+  else kategoriWaktu = 'malam';
+  
+  // Cari foto dengan waktu yang sesuai
+  const fotoSesuai = photos.find(foto => foto.waktu === kategoriWaktu);
+  
+  // Jika tidak ada, cari foto tanpa waktu (format lama) atau ambil pertama
+  if (fotoSesuai) return fotoSesuai.url || fotoSesuai;
+  
+  // Handle format lama (array of strings)
+  if (typeof photos[0] === 'string') return photos[0];
+  
+  // Fallback ke foto pertama
+  return photos[0]?.url || photos[0];
+};
   const getUserAreaFromNearestPlace = (places, userLocation) => {
     if (!places.length || !userLocation) return null;
     const nearestPlace = places[0];
@@ -730,6 +756,15 @@ function FeedContent() {
     }
     return parts[1] || parts[0];
   };
+// Fungsi hash sederhana (bisa diganti dengan yang lebih baik)
+const simpleHash = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
 // Fungsi untuk judul cadangan yang variatif (tanpa parameter isNight)
 const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
   const kategori = item.kategori || 'tempat';
@@ -738,28 +773,36 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
   
   // Tentukan waktu berdasarkan currentHour
   const hour = currentHour; // sudah didefinisikan di awal komponen
-  const isNight = hour >= 18 || hour < 4; // malam jika jam 18-04
-  const waktuStr = isNight ? 'malam' : 'siang';
+  const waktuStr =
+  hour >= 18 || hour < 4
+    ? "malam"
+    : hour < 11
+    ? "pagi"
+    : hour < 15
+    ? "siang"
+    : "sore";
   
  const templates = [
-    `🍵 Pengunjung sedang Menikmati Sore`,
-    `👥 Ramai Dipenuhi Warga`,
-    `🌙 Suasana ${waktuStr} Mulai Ramai`,
+    `🍵 Banyak Pengunjung sedang Menikmati ${waktuStr}`,
+    `👥 ${waktuStr} Ramai Dipenuhi Warga`,
+    `🌙 ${waktuStr} Ini Baru Mulai Rame`,
     `🍜 Warga Antre beli Takjil`,
-    `📸 Banyak yang Foto-foto di sini`,
-    `🎵 Ada Hiburan musik Akustik`,
-    `☕ Banyak Warga Ngopi di sini`,
-    `🌅 Pemandangan sore Ini menarik`,
-    `🚶 Banyak yang lalu lalang`,
-    `💬 Suasana obrolan hangat`,
-    `⚡ Lagi ramai dikunjungi`,
-    `🎉 Mulai Ramai`,
+    `📸 Saat ini Banyak yang Foto-foto di sini`,
+    `🎵 Lagi Ada Hiburan musik Akustik`,
+    `☕ Banyak Pengunjung Luar Kota ${waktuStr} Ini`,
+    `🌅 Pemandangan ${waktuStr} Lagi Cerah`,
+    `🚶 Banyak Pengunjung yang lalu lalang`,
+    `💬 Lagi ada Acara Diskusi hangat`,
+    `⚡ ${waktuStr} Ramai Pengunjung`,
+    `🎉 Lokasi ${waktuStr} Sedang Tenang`,
   ];
-  
-  const randomIndex = Math.floor(Math.random() * templates.length);
-  return templates[randomIndex];
+// Gunakan hash dari item.id untuk indeks tetap
+  const hash = simpleHash(String(item.id));
+  const index = hash % templates.length;
+  return templates[index];
 };
-  // Tampilkan error jika ada
+  
+    // Tampilkan error jika ada
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
@@ -1052,28 +1095,13 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
               return last && Date.now() - last < 30 * 60 * 1000;
             })();
 
-            if (aktivitasUtama) {
-              kejadianUtama = aktivitasUtama.deskripsi;
-              kejadianIcon = "⚡️";
-            } else if (antrian) {
-              kejadianUtama = `Antrian ${antrian.estimasi_menit} menit`;
-              kejadianIcon = "🚶";
-            } else if (testimonialTerbaru) {
-              kejadianUtama = `"${testimonialTerbaru.content.substring(
-                0,
-                40
-              )}..."`;
-              kejadianIcon = "💬";
-            } else if (medsosTerbaru) {
-              kejadianUtama = medsosTerbaru.content.substring(0, 40) + "...";
-              kejadianIcon = "📱";
-            } else if (estimasiOrang > 0) {
-              kejadianUtama = `${estimasiOrang} orang di lokasi`;
-              kejadianIcon = "👥";
-            } else {
-              kejadianUtama = getFallbackTitle(item, alamatSingkat, displayLocation);
-              kejadianIcon = "📍";
-            }
+const headline = generateHeadline({
+  item,
+  estimasiOrang,
+  antrian,
+  fallbackFn: (item) =>
+    getFallbackTitle(item, alamatSingkat, displayLocation),
+});
 
             const photos = item.photos ||
               (item.image_url ? [item.image_url] : [
@@ -1083,7 +1111,23 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
               ]);
 
             const currentPhotoIndex = selectedPhotoIndex[item.id] || 0;
+			
+// Tentukan kategori waktu
+let kategoriWaktu = 'siang';
+if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
+else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
+else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
+else kategoriWaktu = 'malam';
 
+// Urutkan foto agar yang sesuai waktu di awal
+const sortedPhotos = [...photos].sort((a, b) => {
+  const waktuA = a.waktu || 'siang';
+  const waktuB = b.waktu || 'siang';
+  if (waktuA === kategoriWaktu) return -1;
+  if (waktuB === kategoriWaktu) return 1;
+  return 0;
+});
+			
             return (
               <div
                 key={`${item.id}-${index}`}
@@ -1091,7 +1135,7 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
               >
                 <div className="px-4 mt-3">
                   <PhotoSlider
-                    photos={photos}
+                    photos={sortedPhotos}
                     itemId={item.id}
                     selectedPhotoIndex={currentPhotoIndex}
                     setSelectedPhotoIndex={setSelectedPhotoIndex}
@@ -1110,9 +1154,9 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
                 <div className="px-4 pt-4">
                   {/* Judul */}
                   <div className="flex items-start gap-2">
-                    <span className="text-2xl">{kejadianIcon}</span>
+                    <span className="text-2xl">{headline.icon}</span>
                     <p className="flex-1 text-lg font-semibold text-[#2D2D2D]">
-                      {kejadianUtama}
+                      {headline.text}
                     </p>
                   </div>
 
@@ -1152,7 +1196,7 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
                       ) {
                         return (
                           <span className="ml-2 text-green-600 font-medium text-[10px]">
-                            🟢 Ramai sekarang
+                            🟢 Lagi Ramai
                           </span>
                         );
                       }
@@ -1211,7 +1255,7 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
                       className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-full hover:bg-gray-200"
                     >
                       <span className="text-base">💬</span>{" "}
-                      <span>{comments[item.id]?.length || 0}</span> Kata Warga
+                      <span>{comments[item.id]?.length || 0}</span> Suara Warga
                     </button>
                   </div>
                 </div>

@@ -68,6 +68,29 @@ async function fetchAllInstagramMentions(tempatList: any[]) {
   console.log(`✅ [MOCK] Ditemukan ${allSignals.length} mention Instagram`);
   return allSignals;
 }
+async function matchEntity(text: string, supabase: any) {
+  // Panggil fungsi SQL yang sudah dibuat
+  const { data, error } = await supabase
+    .rpc('match_entity', { search_text: text });
+    
+  if (error || !data || data.length === 0) {
+    return null;
+  }
+  
+  return data[0];
+}
+
+// Di dalam fungsi fetchInstagramMentions, setelah dapat konten:
+const match = await matchEntity(content, supabase);
+let tempatId = null;
+let confidence = 0;
+
+if (match && match.confidence > 0.7) {
+  tempatId = match.tempat_id;
+  confidence = match.confidence;
+} else {
+  // Fallback ke pencarian biasa (jika ada)
+}
 
 // ============================================
 // HANDLER UTAMA
