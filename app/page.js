@@ -27,7 +27,6 @@ function PhotoSlider({
   isDekat,
   isBaru,
 }) {
-
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
@@ -74,53 +73,52 @@ function PhotoSlider({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-<img
-  src={typeof photos[selectedPhotoIndex] === 'string' 
-    ? photos[selectedPhotoIndex] 
-    : photos[selectedPhotoIndex]?.url}
-  alt={`Slide ${selectedPhotoIndex + 1}`}
-  className="object-cover w-full h-full"
-/>
-{/* BADGE DI DALAM FOTO - PRIORITAS MAKSIMAL 2 */}
-<div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
-  {(() => {
-    // Kumpulkan badge berdasarkan prioritas
-    const badges = [];
-    
-    // Prioritas utama: Viral > Ramai > Hits
-    if (isViral) badges.push({ label: '⚡ Sedang Viral Sejam lalu', color: 'bg-purple-500' });
-    else if (isRamai) badges.push({ label: '🔥 Lagi Ramai Saat Ini', color: 'bg-red-500' });
-    else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-500' });
-    
-    // Tambahkan Dekat jika masih ada slot (<2)
-    if (isDekat && badges.length < 2) {
-      badges.push({ label: '📍 Di Dekat Anda', color: 'bg-blue-500' });
-    }
-    
-    // Tambahkan Baru jika masih ada slot (<2)
-    if (isBaru && badges.length < 2) {
-      badges.push({ label: '🟢 Baru Saja', color: 'bg-green-400' });
-    }
-    
-    // Render badge
-    return badges.map((badge, idx) => (
-      <span key={idx} className={`pl-2 pr-3 py-1 text-[10px] font-bold text-white ${badge.color} rounded-r-full shadow-lg truncate`}>
-        {badge.label}
-      </span>
-    ));
-  })()}
-</div>
+        <img
+          src={typeof photos[selectedPhotoIndex] === 'string'
+            ? photos[selectedPhotoIndex]
+            : photos[selectedPhotoIndex]?.url}
+          alt={`Slide ${selectedPhotoIndex + 1}`}
+          className="object-cover w-full h-full"
+        />
+        {/* BADGE DI DALAM FOTO - PRIORITAS MAKSIMAL 2 */}
+        <div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
+          {(() => {
+            // Kumpulkan badge berdasarkan prioritas
+            const badges = [];
+
+            // Prioritas utama: Viral > Ramai > Hits
+            if (isViral) badges.push({ label: '⚡ Sedang Viral Sejam lalu', color: 'bg-purple-500' });
+            else if (isRamai) badges.push({ label: '🔥 Lagi Ramai Saat Ini', color: 'bg-red-500' });
+            else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-500' });
+
+            // Tambahkan Dekat jika masih ada slot (<2)
+            if (isDekat && badges.length < 2) {
+              badges.push({ label: '📍 Di Dekat Anda', color: 'bg-blue-500' });
+            }
+
+            // Tambahkan Baru jika masih ada slot (<2)
+            if (isBaru && badges.length < 2) {
+              badges.push({ label: '🟢 Baru Saja', color: 'bg-green-400' });
+            }
+
+            // Render badge
+            return badges.map((badge, idx) => (
+              <span key={idx} className={`pl-2 pr-3 py-1 text-[10px] font-bold text-white ${badge.color} rounded-r-full shadow-lg truncate`}>
+                {badge.label}
+              </span>
+            ));
+          })()}
+        </div>
 
         {photos.length > 1 && (
           <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
             {photos.map((_, idx) => (
               <div
                 key={idx}
-                className={`h-1.5 rounded-full transition-all ${
-                  idx === selectedPhotoIndex
-                    ? "w-4 bg-[#E3655B]"
-                    : "w-1.5 bg-white/70"
-                }`}
+                className={`h-1.5 rounded-full transition-all ${idx === selectedPhotoIndex
+                  ? "w-4 bg-[#E3655B]"
+                  : "w-1.5 bg-white/70"
+                  }`}
               />
             ))}
           </div>
@@ -199,9 +197,8 @@ function AIModal({ isOpen, onClose, tempat }) {
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex items-start gap-2 ${
-                msg.type === "user" ? "flex-row-reverse" : ""
-              }`}
+              className={`flex items-start gap-2 ${msg.type === "user" ? "flex-row-reverse" : ""
+                }`}
             >
               {msg.type === "ai" && (
                 <div className="flex items-center justify-center w-8 h-8 bg-opacity-10 rounded-full bg-[#E3655B] flex-shrink-0">
@@ -209,17 +206,15 @@ function AIModal({ isOpen, onClose, tempat }) {
                 </div>
               )}
               <div
-                className={`max-w-[80%] ${
-                  msg.type === "user"
-                    ? "bg-[#E3655B] text-white"
-                    : "bg-gray-100"
-                } rounded-2xl p-3`}
+                className={`max-w-[80%] ${msg.type === "user"
+                  ? "bg-[#E3655B] text-white"
+                  : "bg-gray-100"
+                  } rounded-2xl p-3`}
               >
                 <p className="text-sm">{msg.text}</p>
                 <p
-                  className={`text-xs mt-1 ${
-                    msg.type === "user" ? "text-white/70" : "text-gray-400"
-                  }`}
+                  className={`text-xs mt-1 ${msg.type === "user" ? "text-white/70" : "text-gray-400"
+                    }`}
                 >
                   {msg.time}
                 </p>
@@ -266,11 +261,10 @@ function AIModal({ isOpen, onClose, tempat }) {
             <button
               onClick={handleSend}
               disabled={!input.trim()}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                input.trim()
-                  ? "bg-[#E3655B] text-white shadow-sm"
-                  : "bg-gray-200 text-gray-400"
-              }`}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${input.trim()
+                ? "bg-[#E3655B] text-white shadow-sm"
+                : "bg-gray-200 text-gray-400"
+                }`}
             >
               <span className="text-lg">➤</span>
             </button>
@@ -298,7 +292,7 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
           time:
             c.time ||
             ["5 menit lalu", "10 menit lalu", "15 menit lalu", "30 menit lalu"][
-              idx % 4
+            idx % 4
             ],
           likes: Math.floor(Math.random() * 15) + 5,
           replies: [],
@@ -339,16 +333,16 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
         prev.map((c) =>
           c.id === replyTo.commentId
             ? {
-                ...c,
-                replies: [
-                  ...(c.replies || []),
-                  {
-                    username: "kamu",
-                    content: newComment,
-                    time: "Baru saja",
-                  },
-                ],
-              }
+              ...c,
+              replies: [
+                ...(c.replies || []),
+                {
+                  username: "kamu",
+                  content: newComment,
+                  time: "Baru saja",
+                },
+              ],
+            }
             : c
         )
       );
@@ -433,11 +427,10 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
                     <div className="flex items-center gap-4 mt-2">
                       <button
                         onClick={() => handleLike(comment.id)}
-                        className={`flex items-center gap-1 text-xs transition-colors ${
-                          likedComments[comment.id]
-                            ? "text-[#E3655B]"
-                            : "text-gray-400"
-                        }`}
+                        className={`flex items-center gap-1 text-xs transition-colors ${likedComments[comment.id]
+                          ? "text-[#E3655B]"
+                          : "text-gray-400"
+                          }`}
                       >
                         <span className="text-sm">
                           {likedComments[comment.id] ? "❤️" : "🤍"}
@@ -512,11 +505,10 @@ function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
             <button
               onClick={handleSubmit}
               disabled={!newComment.trim()}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                newComment.trim()
-                  ? "bg-[#E3655B] text-white shadow-sm"
-                  : "bg-gray-200 text-gray-400"
-              }`}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${newComment.trim()
+                ? "bg-[#E3655B] text-white shadow-sm"
+                : "bg-gray-200 text-gray-400"
+                }`}
             >
               <span className="text-lg">➤</span>
             </button>
@@ -542,12 +534,22 @@ function FeedContent() {
   const [showAIModal, setShowAIModal] = useState(false);
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [error, setError] = useState(null);
+  const [manualLocationOff, setManualLocationOff] = useState(false);
 
   const greeting = getGreeting();
-  const locationReady = status === "granted" && location;
+  const locationReady = (status === "granted" && location) && !manualLocationOff;
   const currentHour = new Date().getHours();
   const displayLocation =
     locationReady && placeName ? placeName.split(",")[0] : null;
+
+  const handleRequestLocation = () => {
+    setManualLocationOff(false);
+    requestLocation();
+  };
+
+  const disableLocation = () => {
+    setManualLocationOff(true);
+  };
 
   // Deteksi scroll
   useEffect(() => {
@@ -684,7 +686,7 @@ function FeedContent() {
     const handleScroll = () => {
       if (
         window.innerHeight + window.scrollY >=
-          document.body.offsetHeight - 500 &&
+        document.body.offsetHeight - 500 &&
         !loading &&
         hasMore
       ) {
@@ -721,29 +723,31 @@ function FeedContent() {
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)} jam lalu`;
     return `${Math.floor(diffMins / 1440)} hari lalu`;
   };
+
   // Fungsi untuk memilih foto berdasarkan waktu saat ini
   const getFotoByWaktu = (photos, currentHour) => {
-  if (!photos || photos.length === 0) return null;
-  
-  // Tentukan kategori waktu
-  let kategoriWaktu = 'siang'; // default
-  if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
-  else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
-  else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
-  else kategoriWaktu = 'malam';
-  
-  // Cari foto dengan waktu yang sesuai
-  const fotoSesuai = photos.find(foto => foto.waktu === kategoriWaktu);
-  
-  // Jika tidak ada, cari foto tanpa waktu (format lama) atau ambil pertama
-  if (fotoSesuai) return fotoSesuai.url || fotoSesuai;
-  
-  // Handle format lama (array of strings)
-  if (typeof photos[0] === 'string') return photos[0];
-  
-  // Fallback ke foto pertama
-  return photos[0]?.url || photos[0];
-};
+    if (!photos || photos.length === 0) return null;
+
+    // Tentukan kategori waktu
+    let kategoriWaktu = 'siang'; // default
+    if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
+    else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
+    else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
+    else kategoriWaktu = 'malam';
+
+    // Cari foto dengan waktu yang sesuai
+    const fotoSesuai = photos.find(foto => foto.waktu === kategoriWaktu);
+
+    // Jika tidak ada, cari foto tanpa waktu (format lama) atau ambil pertama
+    if (fotoSesuai) return fotoSesuai.url || fotoSesuai;
+
+    // Handle format lama (array of strings)
+    if (typeof photos[0] === 'string') return photos[0];
+
+    // Fallback ke foto pertama
+    return photos[0]?.url || photos[0];
+  };
+
   const getUserAreaFromNearestPlace = (places, userLocation) => {
     if (!places.length || !userLocation) return null;
     const nearestPlace = places[0];
@@ -756,53 +760,56 @@ function FeedContent() {
     }
     return parts[1] || parts[0];
   };
-// Fungsi hash sederhana (bisa diganti dengan yang lebih baik)
-const simpleHash = (str) => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-};
-// Fungsi untuk judul cadangan yang variatif (tanpa parameter isNight)
-const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
-  const kategori = item.kategori || 'tempat';
-  const parts = alamatSingkat.split(',');
-  const area = parts.length > 1 ? parts[1].trim() : (displayLocation || 'sekitar');
-  
-  // Tentukan waktu berdasarkan currentHour
-  const hour = currentHour; // sudah didefinisikan di awal komponen
-  const waktuStr =
-  hour >= 18 || hour < 4
-    ? "malam"
-    : hour < 11
-    ? "pagi"
-    : hour < 15
-    ? "siang"
-    : "sore";
-  
- const templates = [
-    `🍵 Banyak Pengunjung sedang Menikmati ${waktuStr}`,
-    `👥 ${waktuStr} Ramai Dipenuhi Warga`,
-    `🌙 ${waktuStr} Ini Baru Mulai Rame`,
-    `🍜 Warga Antre beli Takjil`,
-    `📸 Saat ini Banyak yang Foto-foto di sini`,
-    `🎵 Lagi Ada Hiburan musik Akustik`,
-    `☕ Banyak Pengunjung Luar Kota ${waktuStr} Ini`,
-    `🌅 Pemandangan ${waktuStr} Lagi Cerah`,
-    `🚶 Banyak Pengunjung yang lalu lalang`,
-    `💬 Lagi ada Acara Diskusi hangat`,
-    `⚡ ${waktuStr} Ramai Pengunjung`,
-    `🎉 Lokasi ${waktuStr} Sedang Tenang`,
-  ];
-// Gunakan hash dari item.id untuk indeks tetap
-  const hash = simpleHash(String(item.id));
-  const index = hash % templates.length;
-  return templates[index];
-};
-  
-    // Tampilkan error jika ada
+
+  // Fungsi hash sederhana
+  const simpleHash = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash);
+  };
+
+  // Fungsi untuk judul cadangan yang variatif
+  const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
+    const kategori = item.kategori || 'tempat';
+    const parts = alamatSingkat.split(',');
+    const area = parts.length > 1 ? parts[1].trim() : (displayLocation || 'sekitar');
+
+    // Tentukan waktu berdasarkan currentHour
+    const hour = currentHour;
+    const waktuStr =
+      hour >= 18 || hour < 4
+        ? "malam"
+        : hour < 11
+          ? "pagi"
+          : hour < 15
+            ? "siang"
+            : "sore";
+
+    const templates = [
+      `🍵 Banyak Pengunjung sedang Menikmati ${waktuStr}`,
+      `👥 ${waktuStr} Ramai Dipenuhi Warga`,
+      `🌙 ${waktuStr} Ini Baru Mulai Rame`,
+      `🍜 Warga Antre beli Takjil`,
+      `📸 Saat ini Banyak yang Foto-foto di sini`,
+      `🎵 Lagi Ada Hiburan musik Akustik`,
+      `☕ Banyak Pengunjung Luar Kota ${waktuStr} Ini`,
+      `🌅 Pemandangan ${waktuStr} Lagi Cerah`,
+      `🚶 Banyak Pengunjung yang lalu lalang`,
+      `💬 Lagi ada Acara Diskusi hangat`,
+      `⚡ ${waktuStr} Ramai Pengunjung`,
+      `🎉 Lokasi ${waktuStr} Sedang Tenang`,
+    ];
+
+    // Gunakan hash dari item.id untuk indeks tetap
+    const hash = simpleHash(String(item.id));
+    const index = hash % templates.length;
+    return templates[index];
+  };
+
+  // Tampilkan error jika ada
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
@@ -824,9 +831,8 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
       {/* HEADER */}
       <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100">
         <div
-          className={`transition-all duration-300 ease-in-out overflow-hidden ${
-            isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
-          }`}
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${isScrolled ? "max-h-0 opacity-0" : "max-h-[140px] opacity-100"
+            }`}
         >
           <div className="px-4 pt-3 pb-2">
             {/* Baris 1: Logo di tengah + lokasi/suhu (kanan) */}
@@ -883,8 +889,8 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
                     {generateMoment(
                       tempat,
                       getUserAreaFromNearestPlace(tempat, location) ||
-                        displayLocation ||
-                        "sekitar",
+                      displayLocation ||
+                      "sekitar",
                       currentHour
                     ).text}
                   </p>
@@ -929,12 +935,15 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
             />
             <div className="absolute inset-y-0 right-0 flex items-center pr-2">
               {locationReady ? (
-                <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
+                <button
+                  onClick={disableLocation}
+                  className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full hover:bg-green-600 transition-colors"
+                >
                   ON
-                </span>
+                </button>
               ) : (
                 <button
-                  onClick={requestLocation}
+                  onClick={handleRequestLocation}
                   className="px-3 py-1 text-xs font-medium text-white bg-[#E3655B] rounded-full hover:bg-[#d54e44] transition-colors"
                 >
                   OFF
@@ -952,7 +961,7 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
             <div className="flex items-center gap-3">
               <div className="w-6 h-px bg-gradient-to-r from-transparent to-gray-300"></div>
               <span className="text-xs font-medium tracking-[0.2em] text-gray-400">
-                Pantauan Warga Setempat di Dekatmu
+                Laporan Warga {displayLocation} Saat Ini
               </span>
               <div className="w-6 h-px bg-gradient-to-l from-transparent to-gray-300"></div>
             </div>
@@ -960,23 +969,23 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
             <div className="flex items-center justify-center gap-6">
               {tempat.filter((t) => parseInt(t.estimasi_orang) > 20).length >
                 0 && (
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl filter drop-shadow-lg text-[#E3655B] animate-pulse">
-                    🔥
-                  </span>
-                  <span className="text-xs font-semibold text-gray-700 mt-1">
-                    {
-                      tempat.filter((t) => parseInt(t.estimasi_orang) > 20)
-                        .length
-                    }{" "}
-                    Sedang Ramai
-                  </span>
-                </div>
-              )}
+                  <div className="flex flex-col items-center">
+                    <span className="text-2xl filter drop-shadow-lg text-[#E3655B] animate-pulse">
+                      🔥
+                    </span>
+                    <span className="text-xs font-semibold text-gray-700 mt-1">
+                      {
+                        tempat.filter((t) => parseInt(t.estimasi_orang) > 20)
+                          .length
+                      }{" "}
+                      Sedang Ramai
+                    </span>
+                  </div>
+                )}
 
               {locationReady &&
                 tempat.filter((t) => t.distance && t.distance < 1).length >
-                  0 && (
+                0 && (
                   <div className="flex flex-col items-center">
                     <span className="text-2xl filter drop-shadow-lg text-blue-400 animate-bounce">
                       ⚡
@@ -994,20 +1003,20 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
               {tempat.filter(
                 (t) => (t.testimonial_terbaru?.length || 0) > 3
               ).length > 0 && (
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl filter drop-shadow-lg text-purple-400 animate-pulse">
-                    💬
-                  </span>
-                  <span className="text-xs font-semibold text-gray-700 mt-1">
-                    {
-                      tempat.filter(
-                        (t) => (t.testimonial_terbaru?.length || 0) > 3
-                      ).length
-                    }{" "}
-                    Lagi Viral
-                  </span>
-                </div>
-              )}
+                  <div className="flex flex-col items-center">
+                    <span className="text-2xl filter drop-shadow-lg text-purple-400 animate-pulse">
+                      💬
+                    </span>
+                    <span className="text-xs font-semibold text-gray-700 mt-1">
+                      {
+                        tempat.filter(
+                          (t) => (t.testimonial_terbaru?.length || 0) > 3
+                        ).length
+                      }{" "}
+                      Lagi Viral
+                    </span>
+                  </div>
+                )}
             </div>
           </div>
         </div>
@@ -1059,9 +1068,6 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
             const alamatSingkat = getAlamatSingkat(item.alamat);
             const estimasiOrang = parseInt(item.estimasi_orang) || 0;
 
-            // Tentukan KEJADIAN UTAMA
-            let kejadianUtama = "";
-            let kejadianIcon = "📍";
             // Hitung agregat dari external signals
             let totalLikes = 0;
             let totalComments = 0;
@@ -1075,6 +1081,7 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
 
             const avgConfidence =
               externalCount > 0 ? totalConfidence / externalCount : 0;
+
             // Cari external signal dengan komentar terbanyak untuk kutipan
             const topExternalComment = externalSignals
               .filter((s) => s.content && s.content.length > 0)
@@ -1095,13 +1102,13 @@ const getFallbackTitle = (item, alamatSingkat, displayLocation) => {
               return last && Date.now() - last < 30 * 60 * 1000;
             })();
 
-const headline = generateHeadline({
-  item,
-  estimasiOrang,
-  antrian,
-  fallbackFn: (item) =>
-    getFallbackTitle(item, alamatSingkat, displayLocation),
-});
+            const headline = generateHeadline({
+              item,
+              estimasiOrang,
+              antrian,
+              fallbackFn: (item) =>
+                getFallbackTitle(item, alamatSingkat, displayLocation),
+            });
 
             const photos = item.photos ||
               (item.image_url ? [item.image_url] : [
@@ -1111,23 +1118,23 @@ const headline = generateHeadline({
               ]);
 
             const currentPhotoIndex = selectedPhotoIndex[item.id] || 0;
-			
-// Tentukan kategori waktu
-let kategoriWaktu = 'siang';
-if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
-else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
-else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
-else kategoriWaktu = 'malam';
 
-// Urutkan foto agar yang sesuai waktu di awal
-const sortedPhotos = [...photos].sort((a, b) => {
-  const waktuA = a.waktu || 'siang';
-  const waktuB = b.waktu || 'siang';
-  if (waktuA === kategoriWaktu) return -1;
-  if (waktuB === kategoriWaktu) return 1;
-  return 0;
-});
-			
+            // Tentukan kategori waktu
+            let kategoriWaktu = 'siang';
+            if (currentHour >= 4 && currentHour < 11) kategoriWaktu = 'pagi';
+            else if (currentHour >= 11 && currentHour < 15) kategoriWaktu = 'siang';
+            else if (currentHour >= 15 && currentHour < 18) kategoriWaktu = 'sore';
+            else kategoriWaktu = 'malam';
+
+            // Urutkan foto agar yang sesuai waktu di awal
+            const sortedPhotos = [...photos].sort((a, b) => {
+              const waktuA = a.waktu || 'siang';
+              const waktuB = b.waktu || 'siang';
+              if (waktuA === kategoriWaktu) return -1;
+              if (waktuB === kategoriWaktu) return 1;
+              return 0;
+            });
+
             return (
               <div
                 key={`${item.id}-${index}`}
