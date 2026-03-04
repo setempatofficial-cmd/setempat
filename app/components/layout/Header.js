@@ -17,9 +17,9 @@ export default function Header({
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           {/* LOGO ASLI */}
-          <div className="w-8 h-8 bg-[#E3655B]/10 rounded-xl flex items-center justify-center">
+          <div className="w-9 h-9 bg-gradient-to-br from-[#E3655B] to-[#FF7A70] rounded-xl flex items-center justify-center shadow-sm">
             <svg
-              className="w-5 h-5 text-[#E3655B]"
+              className="w-5 h-5 text-white"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -39,8 +39,8 @@ export default function Header({
 
           {/* BRAND + LOKASI */}
           <div>
-            <h1 className="text-base font-bold text-gray-800">
-              Setempat<span className="text-[#E3655B]">.id</span>
+            <h1 className="text-base font-bold text-gray-900 tracking-tight">
+              Setempat<span className="text-[#E3655B]">ID</span>
             </h1>
             {locationReady && displayLocation ? (
               <p className="text-xs text-gray-500 flex items-center gap-1">
@@ -64,7 +64,7 @@ export default function Header({
           <button
             onClick={locationReady ? onToggleLocation : onRequestLocation}
             className={`relative w-12 h-6 rounded-full transition-colors ${
-              locationReady ? "bg-[#E3655B]" : "bg-gray-300"
+              locationReady ? "bg-gradient-to-r from-[#E3655B] to-[#FF7A70]" : "bg-gray-300"
             }`}
           >
             <span
@@ -77,7 +77,7 @@ export default function Header({
           <button className="relative p-1">
             <span className="text-xl">🔔</span>
             {locationReady && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#E3655B] text-white text-[10px] rounded-full flex items-center justify-center">
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#E3655B] animate-pulse text-white text-[10px] rounded-full flex items-center justify-center">
                 3
               </span>
             )}
@@ -95,7 +95,7 @@ export default function Header({
                 ? `Cari di ${displayLocation}...`
                 : "Cari tempat atau suasana..."
             }
-            className="w-full bg-gray-100/80 rounded-2xl py-3 pl-12 pr-4 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B]/30 focus:bg-white transition-all"
+            className="w-full bg-gray-100/70 border border-transparent focus:border-[#E3655B]/40 rounded-2xl py-3 pl-12 pr-4 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B]/40 focus:bg-white transition-all"
           />
           <svg
             className="absolute left-4 top-3.5 w-4 h-4 text-gray-400"

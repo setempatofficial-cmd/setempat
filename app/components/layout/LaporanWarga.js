@@ -1,17 +1,29 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 
-export default function LaporanWarga({ tempat, locationReady, displayLocation }) {
-  // Hitung statistik hanya jika tempat tersedia
-  const stats = useMemo(() => {
-    if (!tempat.length) return null;
+export default function LaporanWarga({ tempat, locationReady, displayLocation, onStatClick }) {
+  // Statistik state, agar update otomatis saat `tempat` berubah
+  const [stats, setStats] = useState({
+    titikRamai: 0,
+    titikDekat: 0,
+    titikViral: 0,
+    topKategori: null,
+    topRamai: 0,
+    totalKategori: 0,
+  });
+
+  useEffect(() => {
+    if (!tempat || tempat.length === 0 || !locationReady) {
+      setStats((prev) => ({ ...prev, titikRamai: 0, titikDekat: 0, titikViral: 0 }));
+      return;
+    }
 
     const titikRamai = tempat.filter((t) => parseInt(t.estimasi_orang) > 20).length;
     const titikDekat = tempat.filter((t) => t.distance && t.distance < 1).length;
     const titikViral = tempat.filter((t) => (t.testimonial_terbaru?.length || 0) > 3).length;
 
-    // Insight berdasarkan kategori (misal: kuliner)
+    // Insight kategori
     const kategoriCount = {};
     const kategoriRamai = {};
     tempat.forEach((t) => {
@@ -22,7 +34,6 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
       }
     });
 
-    // Cari kategori dengan jumlah ramai terbanyak
     let topKategori = null;
     let topRamai = 0;
     Object.keys(kategoriRamai).forEach((cat) => {
@@ -32,31 +43,27 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
       }
     });
 
-    return {
-      titikRamai,
-      titikDekat,
-      titikViral,
-      topKategori,
-      topRamai,
-      totalKategori: topKategori ? kategoriCount[topKategori] : 0,
-    };
-  }, [tempat]);
+    setStats({ titikRamai, titikDekat, titikViral, topKategori, topRamai, totalKategori: topKategori ? kategoriCount[topKategori] : 0 });
+  }, [tempat, locationReady]);
 
-  if (!locationReady || !stats) return null;
+  if (!locationReady) return null;
 
-  // Contoh insight tambahan (nanti bisa diganti dengan data real)
-  const trafficInfo = "Lalu Lintas Padat ke Arah Bangil"; // Placeholder
+  // Insight tambahan
+  const trafficInfo = "Lalu Lintas Padat ke Arah Bangil";
+
+  const statBoxes = [
+    { label: "Lagi Ramai", value: stats.titikRamai, icon: "🔥", key: "titikRamai" },
+    { label: "Aktivitas Terdekat", value: stats.titikDekat, icon: "⚡", key: "titikDekat" },
+    { label: "Jadi Obrolan", value: stats.titikViral, icon: "💬", key: "titikViral" },
+  ];
 
   return (
     <div className="px-4 py-5 border-b border-gray-100 bg-gradient-to-br from-[#E3655B]/5 to-white">
-      {/* HEADER AREA - GABUNGAN KODE LAMA & BARU */}
+      {/* HEADER */}
       <div className="flex items-center gap-2 mb-3">
-        {/* Judul Area - dari kode lama */}
         <span className="text-sm font-semibold text-gray-700">
           📍 {displayLocation} Sekarang
         </span>
-        
-        {/* Live Badge dengan animasi berkedip - dari kode baru */}
         <div className="flex items-center gap-1">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E3655B] opacity-75"></span>
@@ -66,32 +73,26 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
         </div>
       </div>
 
-      {/* Statistik Utama - Grid 3 Kolom */}
+      {/* GRID STATISTIK */}
       <div className="grid grid-cols-3 gap-2 mb-4">
-        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-          <div className="text-2xl mb-1">🔥</div>
-          <div className="text-lg font-bold text-gray-800">{stats.titikRamai}</div>
-          <div className="text-xs text-gray-500">Lagi Ramai</div>
-        </div>
-        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-          <div className="text-2xl mb-1">⚡</div>
-          <div className="text-lg font-bold text-gray-800">{stats.titikDekat}</div>
-          <div className="text-xs text-gray-500">Aktivitas Terdekat</div>
-        </div>
-        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-          <div className="text-2xl mb-1">💬</div>
-          <div className="text-lg font-bold text-gray-800">{stats.titikViral}</div>
-          <div className="text-xs text-gray-500">Jadi Obrolan</div>
-        </div>
+        {statBoxes.map((box) => (
+          <button
+            key={box.key}
+            className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col items-center"
+            onClick={() => onStatClick && onStatClick(box.key)}
+          >
+            <div className="text-2xl mb-1">{box.icon}</div>
+            <div className="text-lg font-bold text-gray-800">{box.value}</div>
+            <div className="text-xs text-gray-500">{box.label}</div>
+          </button>
+        ))}
       </div>
 
-      {/* Insight Kategori */}
+      {/* INSIGHT KATEGORI */}
       {stats.topKategori && stats.topRamai > 0 && (
         <div className="flex items-center justify-between bg-[#E3655B]/10 rounded-xl p-3 mb-2">
           <div className="flex items-center gap-2">
-            <span className="text-xl">
-              {stats.topKategori === 'kuliner' ? '🍜' : '📍'}
-            </span>
+            <span className="text-xl">{stats.topKategori === 'kuliner' ? '🍜' : '📍'}</span>
             <div>
               <p className="text-xs text-gray-600">
                 {stats.topKategori === 'kuliner' ? 'Kuliner' : stats.topKategori}
@@ -107,7 +108,7 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
         </div>
       )}
 
-      {/* Info Lalu Lintas (Placeholder) */}
+      {/* TRAFFIC INFO */}
       <div className="flex items-center gap-2 text-xs text-gray-500 mt-2">
         <span className="text-base">🚗</span>
         <span>{trafficInfo}</span>
