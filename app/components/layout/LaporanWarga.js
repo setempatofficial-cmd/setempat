@@ -71,17 +71,17 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
           <div className="text-2xl mb-1">🔥</div>
           <div className="text-lg font-bold text-gray-800">{stats.titikRamai}</div>
-          <div className="text-xs text-gray-500">Titik Ramai</div>
+          <div className="text-xs text-gray-500">Lagi Ramai</div>
         </div>
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
           <div className="text-2xl mb-1">⚡</div>
           <div className="text-lg font-bold text-gray-800">{stats.titikDekat}</div>
-          <div className="text-xs text-gray-500">Dekatmu</div>
+          <div className="text-xs text-gray-500">Aktivitas Terdekat</div>
         </div>
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
           <div className="text-2xl mb-1">💬</div>
           <div className="text-lg font-bold text-gray-800">{stats.titikViral}</div>
-          <div className="text-xs text-gray-500">Viral</div>
+          <div className="text-xs text-gray-500">Jadi Obrolan</div>
         </div>
       </div>
 
@@ -97,7 +97,7 @@ export default function LaporanWarga({ tempat, locationReady, displayLocation })
                 {stats.topKategori === 'kuliner' ? 'Kuliner' : stats.topKategori}
               </p>
               <p className="text-sm font-semibold text-gray-800">
-                {stats.topRamai} tempat ramai
+                {stats.topRamai} Lebih Aktif dari Biasa
               </p>
             </div>
           </div>
