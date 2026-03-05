@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export default function AIModal({ isOpen, onClose, tempat }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const modalContentRef = useRef(null);
+  const startYRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
     if (isOpen && tempat) {
@@ -19,7 +22,52 @@ export default function AIModal({ isOpen, onClose, tempat }) {
     }
   }, [isOpen, tempat]);
 
-  if (!isOpen) return null;
+  // Lock body scroll ketika modal terbuka
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none"; // Untuk mobile
+    } else {
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+    };
+  }, [isOpen]);
+
+  // Handle touch start untuk deteksi swipe down
+  const handleTouchStart = (e) => {
+    const modalContent = modalContentRef.current;
+    if (!modalContent) return;
+
+    // Hanya aktif jika scroll position di paling atas
+    if (modalContent.scrollTop === 0) {
+      startYRef.current = e.touches[0].clientY;
+      isDraggingRef.current = true;
+    }
+  };
+
+  // Handle touch move untuk swipe down
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current) return;
+
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - startYRef.current;
+
+    // Jika swipe ke bawah lebih dari 50px, tutup modal
+    if (diff > 50) {
+      isDraggingRef.current = false;
+      onClose();
+    }
+  };
+
+  // Handle touch end
+  const handleTouchEnd = () => {
+    isDraggingRef.current = false;
+  };
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -49,11 +97,23 @@ export default function AIModal({ isOpen, onClose, tempat }) {
     setInput("");
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      {/* Backdrop dengan opacity */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md max-h-[80vh] overflow-hidden bg-white rounded-t-2xl animate-slide-up sm:rounded-2xl">
-        <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+      
+      {/* Modal Content */}
+      <div 
+        ref={modalContentRef}
+        className="relative w-full max-w-md max-h-[80vh] overflow-y-auto bg-white rounded-t-2xl animate-slide-up sm:rounded-2xl"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Header Sticky */}
+        <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <span className="text-xl text-[#E3655B]">🤖</span>
             <div>
@@ -66,7 +126,8 @@ export default function AIModal({ isOpen, onClose, tempat }) {
           </button>
         </div>
 
-        <div className="h-96 p-4 space-y-4 overflow-y-auto">
+        {/* Messages Container */}
+        <div className="p-4 space-y-4">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -121,6 +182,7 @@ export default function AIModal({ isOpen, onClose, tempat }) {
           )}
         </div>
 
+        {/* Input Sticky */}
         <div className="sticky bottom-0 bg-white border-t p-3">
           <div className="flex items-center gap-2">
             <input

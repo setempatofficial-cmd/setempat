@@ -119,8 +119,8 @@ export default function Header({
             type="text"
             placeholder={
               locationReady && displayLocation
-                ? `Cari di ${displayLocation}...`
-                : "Cari tempat atau suasana..."
+                ? `Cari suasana di ${displayLocation}...`
+                : "Cari suasana di sekitar aktifkan lokasi..."
             }
             className="w-full bg-gray-100/70 border border-transparent focus:border-[#E3655B]/40 rounded-2xl py-3 pl-12 pr-4 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B]/40 focus:bg-white transition-all"
           />
