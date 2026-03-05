@@ -10,7 +10,7 @@ export function useLocation() {
 
 export default function LocationProvider({ children }) {
   const [location, setLocation] = useState(null);
-  const [status, setStatus] = useState("idle"); 
+  const [status, setStatus] = useState("idle");
   const [placeName, setPlaceName] = useState(null);
 
   // idle | loading | granted | denied
@@ -31,6 +31,7 @@ export default function LocationProvider({ children }) {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
 
+        // update lokasi langsung
         setLocation({
           latitude: lat,
           longitude: lon,
@@ -38,6 +39,7 @@ export default function LocationProvider({ children }) {
 
         setStatus("granted");
 
+        // ambil nama lokasi di background
         fetchPlaceName(lat, lon);
       },
       () => {
@@ -45,7 +47,7 @@ export default function LocationProvider({ children }) {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        timeout: 7000,
       }
     );
   }
@@ -53,12 +55,7 @@ export default function LocationProvider({ children }) {
   async function fetchPlaceName(lat, lon) {
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
-        {
-          headers: {
-            "User-Agent": "Setempat.id",
-          },
-        }
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
       );
 
       const data = await res.json();
