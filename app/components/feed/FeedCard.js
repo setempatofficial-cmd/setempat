@@ -245,6 +245,8 @@ export default function FeedCard({
           openKomentarModal={openKomentarModal}
           onLapor={onLapor}
           onShare={onShare}
+          locationReady={locationReady}
+          location={location}
         />
       </div>
     </div>

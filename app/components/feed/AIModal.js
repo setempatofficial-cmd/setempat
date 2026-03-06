@@ -31,10 +31,8 @@ export default function AIModal({ isOpen, onClose, tempat }) {
         },
       ]);
       
-      // Auto focus ke input
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 300);
+      // --- AUTOFOCUS DIHAPUS ---
+      // Kursor tidak langsung menuju kolom teks
     }
   }, [isOpen, tempat]);
 

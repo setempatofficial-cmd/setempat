@@ -93,9 +93,8 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
         ]);
       }
       
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 300);
+      // --- AUTOFOCUS DIHAPUS ---
+      // Kursor tidak langsung menuju kolom komentar
     }
   }, [isOpen, tempat, initialComments]);
 
