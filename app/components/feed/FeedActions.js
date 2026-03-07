@@ -1,93 +1,57 @@
 "use client";
 
-import { useState, useEffect } from "react";
-
 export default function FeedActions({
   item,
   comments = {},
   openAIModal,
   openKomentarModal,
   onShare,
-  locationReady,
 }) {
-
-  const [isHere, setIsHere] = useState(false);
-
   const jumlahKomentar = comments[item.id]?.length || 0;
 
-  const distance = item.distance ?? null;
-
-  const lokasiDekat = distance !== null && distance <= 0.3;
-
-  const bolehCheckin = locationReady && lokasiDekat;
-
-  useEffect(() => {
-    // reset jika lokasi berubah
-    if (!locationReady) {
-      setIsHere(false);
-    }
-  }, [locationReady]);
-
-  const handleCheckin = () => {
-    if (!bolehCheckin) return;
-
-    setIsHere(!isHere);
-  };
-
   return (
-    <div className="flex items-center px-4 py-3 mt-3 border-t border-gray-100">
+    <div className="flex items-center gap-2 pt-4 border-t border-gray-100/60">
+      
+      {/* TANYA AI - Primary Action */}
+      <button
+        onClick={() => openAIModal(item)}
+        className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 active:scale-95 text-white transition-all duration-200 shadow-md shadow-indigo-100"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+          <path d="M5 3v4M3 5h4M21 17v4M19 19h4"/>
+        </svg>
+        <span className="text-[13px] font-bold tracking-tight">Tanya AI</span>
+      </button>
 
-      <div className="flex items-center gap-3">
+      {/* KOMENTAR - Secondary Action */}
+      <button
+        onClick={() => openKomentarModal(item)}
+        className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-95 text-gray-700 border border-gray-200/50 transition-all duration-200"
+      >
+        <div className="relative">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
+          </svg>
+          {jumlahKomentar > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white border-2 border-white">
+              {jumlahKomentar}
+            </span>
+          )}
+        </div>
+        <span className="text-[13px] font-bold tracking-tight text-gray-800">Obrolan</span>
+      </button>
 
-        {/* Tanya AI */}
-        <button
-          onClick={() => openAIModal(item)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-xs text-gray-700 transition shadow-sm"
-        >
-          🤖 <span className="font-medium">Tanya AI</span>
-        </button>
-
-        {/* Komentar */}
-        <button
-          onClick={() => openKomentarModal(item)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-xs text-gray-700 transition shadow-sm"
-        >
-          💬 <span className="font-medium">{jumlahKomentar}</span>
-        </button>
-
-        {/* Checkin */}
-        <button
-          onClick={handleCheckin}
-          disabled={!bolehCheckin}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition shadow-sm
-          
-          ${isHere
-            ? "bg-green-100 text-green-700"
-            : bolehCheckin
-            ? "bg-gray-50 hover:bg-gray-100 text-gray-700"
-            : "bg-gray-100 text-gray-400 cursor-not-allowed"}
-          `}
-        >
-          📍
-          <span className="font-medium">
-            {!locationReady
-              ? "Aktifkan Lokasi"
-              : !lokasiDekat
-              ? "Terlalu Jauh"
-              : isHere
-              ? "Lagi di Sini"
-              : "Aku di Sini"}
-          </span>
-        </button>
-
-      </div>
-
-      {/* SHARE */}
+      {/* SHARE - Utility Action */}
       <button
         onClick={() => onShare(item)}
-        className="ml-auto flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 transition text-xl text-gray-600"
+        className="flex items-center justify-center w-11 h-11 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-90 text-gray-500 border border-gray-200/50 transition-all duration-200"
+        aria-label="Bagikan"
       >
-        ↗
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
       </button>
 
     </div>

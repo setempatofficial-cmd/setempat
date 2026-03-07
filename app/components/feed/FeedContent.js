@@ -34,7 +34,7 @@ export default function FeedContent() {
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [error, setError] = useState(null);
   const [manualLocationOff, setManualLocationOff] = useState(false);
-
+  const [toast, setToast] = useState({ show: false, message: "" });
   const greeting = getGreeting();
   const locationReady = (status === "granted" && location) && !manualLocationOff;
   const currentHour = new Date().getHours();
@@ -196,6 +196,29 @@ export default function FeedContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [loading, hasMore, loadPlaces]);
 
+// Update fungsi handleShare kamu
+const handleShare = async (item) => {
+  const shareUrl = `${window.location.origin}?id=${item.id}`;
+  const shareData = {
+    title: item.name,
+    text: `📍 Cek kondisi di ${item.name} sekarang!`,
+    url: shareUrl,
+  };
+
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      // Tampilkan Toast buatan sendiri
+      setToast({ show: true, message: "✅ Link berhasil disalin!" });
+      setTimeout(() => setToast({ show: false, message: "" }), 3000);
+    }
+  } catch (err) {
+    console.log("Share cancelled or failed");
+  }
+};
+
   const openAIModal = (item) => {
     setSelectedTempat(item);
     setShowAIModal(true);
@@ -354,6 +377,7 @@ export default function FeedContent() {
       formatTimeAgo={formatTimeAgo}
       displayLocation={displayLocation}
       currentHour={currentHour}
+      onShare={handleShare}
     />
   ))
  )}
@@ -376,6 +400,14 @@ export default function FeedContent() {
         tempat={selectedTempat}
         initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []}
       />
+	  {/* TOAST NOTIFICATION */}
+      <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 transform ${
+        toast.show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0 pointer-events-none"
+      }`}>
+        <div className="bg-gray-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-white/10">
+          <span className="text-sm font-semibold tracking-wide">{toast.message}</span>
+        </div>
+      </div>
     </main>
   );
 }

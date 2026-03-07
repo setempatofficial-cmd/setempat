@@ -3,9 +3,9 @@
 import { useState } from "react";
 
 export default function PhotoSlider({
-  photos,
+  photos = [],
   itemId,
-  selectedPhotoIndex,
+  selectedPhotoIndex = 0,
   setSelectedPhotoIndex,
   isRamai,
   isViral,
@@ -29,7 +29,6 @@ export default function PhotoSlider({
 
   const onTouchEnd = () => {
     if (!touchStart || !touchEnd) return;
-
     const distance = touchStart - touchEnd;
     const isLeftSwipe = distance > minSwipeDistance;
     const isRightSwipe = distance < -minSwipeDistance;
@@ -53,55 +52,86 @@ export default function PhotoSlider({
 
   return (
     <div
-      className="relative h-80 mb-2 overflow-hidden rounded-xl"
+      className="relative h-80 overflow-hidden rounded-[24px] bg-gray-100 group"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <img
-        src={typeof photos[selectedPhotoIndex] === 'string'
-          ? photos[selectedPhotoIndex]
-          : photos[selectedPhotoIndex]?.url}
-        alt={`Slide ${selectedPhotoIndex + 1}`}
-        className="object-cover w-full h-full"
-      />
-      
-      {/* BADGE */}
-      <div className="absolute top-2 left-0 flex flex-col gap-1 z-20 max-w-[90%]">
-        {(() => {
-          const badges = [];
-          if (isViral) badges.push({ label: '⚡ Sedang Viral', color: 'bg-purple-500' });
-          else if (isRamai) badges.push({ label: '🔥 Lagi Ramai', color: 'bg-red-500' });
-          else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-500' });
+      {/* 1. META CAPTION & BADGES OVERLAY */}
+      <div className="absolute top-3 left-0 right-3 z-20 flex justify-between items-start pointer-events-none">
+        <div className="flex flex-col gap-1.5 items-start">
+          {(() => {
+            const badges = [];
+            if (isViral) badges.push({ label: '⚡ Sedang Viral', color: 'bg-purple-600/90' });
+            else if (isRamai) badges.push({ label: '🔥 Lagi Ramai', color: 'bg-red-600/90' });
+            else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-600/90' });
 
-          if (isDekat && badges.length < 2) {
-            badges.push({ label: '📍 Di Dekat Anda', color: 'bg-blue-500' });
-          }
+            if (isDekat && badges.length < 2) {
+              badges.push({ label: '📍 Dekat Anda', color: 'bg-blue-600/90' });
+            }
 
-          if (isBaru && badges.length < 2) {
-            badges.push({ label: '🟢 Baru Saja', color: 'bg-green-400' });
-          }
+            if (isBaru && badges.length < 2) {
+              badges.push({ label: '🟢 Baru Saja', color: 'bg-emerald-500/90' });
+            }
 
-          return badges.map((badge, idx) => (
-            <span key={idx} className={`pl-2 pr-3 py-1 text-[10px] font-bold text-white ${badge.color} rounded-r-full shadow-lg truncate`}>
-              {badge.label}
-            </span>
-          ));
-        })()}
+            return badges.map((badge, idx) => (
+              <span 
+                key={idx} 
+                className={`pl-3 pr-4 py-1.5 text-[10px] font-black text-white ${badge.color} backdrop-blur-md rounded-r-full shadow-lg transition-transform duration-500 hover:translate-x-1 uppercase tracking-wider`}
+              >
+                {badge.label}
+              </span>
+            ));
+          })()}
+        </div>
+
+        {/* 2. SLIDE COUNTER (Khas Aplikasi Modern) */}
+        {photos.length > 1 && (
+          <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full border border-white/20">
+            {selectedPhotoIndex + 1} / {photos.length}
+          </div>
+        )}
       </div>
 
-      {/* DOTS */}
+      {/* 3. FOTO CONTAINER DENGAN ANIMASI HALUS */}
+      <div 
+        className="flex h-full transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]"
+        style={{ transform: `translateX(-${selectedPhotoIndex * 100}%)` }}
+      >
+        {photos.map((photo, idx) => (
+          <div key={idx} className="min-w-full h-full relative">
+            <img
+              src={typeof photo === 'string' ? photo : photo?.url}
+              alt={`Slide ${idx + 1}`}
+              className="object-cover w-full h-full transition-transform duration-[2s] group-hover:scale-110"
+              loading="lazy"
+            />
+            {/* Overlay Gradient halus di bawah agar dots & teks terbaca */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-60 pointer-events-none" />
+          </div>
+        ))}
+      </div>
+      
+      {/* 4. MODERN DOTS INDICATOR */}
       {photos.length > 1 && (
-        <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-20">
           {photos.map((_, idx) => (
             <div
               key={idx}
-              className={`h-1.5 rounded-full transition-all ${idx === selectedPhotoIndex
-                ? "w-4 bg-[#E3655B]"
-                : "w-1.5 bg-white/70"
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                idx === selectedPhotoIndex
+                ? "w-6 bg-white" // Dot aktif lebih panjang (pill style)
+                : "w-1.5 bg-white/50"
               }`}
             />
           ))}
+        </div>
+      )}
+
+      {/* 5. HINT VISUAL (Supaya user tau bisa di-slide) */}
+      {photos.length > 1 && selectedPhotoIndex === 0 && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 animate-bounce-x p-2 pointer-events-none opacity-50">
+          <svg width="20" height="20" fill="white" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
         </div>
       )}
     </div>
