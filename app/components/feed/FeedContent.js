@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { supabase } from "../../../lib/supabaseClient";
@@ -39,21 +39,21 @@ export default function FeedContent() {
   const [isSearching, setIsSearching] = useState(false);
   const [queryText, setQueryText] = useState("");
 
+  // OPTIMASI 1: Defer query pencarian agar input teks tidak berat/delay
+  const deferredQuery = useDeferredValue(queryText);
+
   const greeting = getGreeting();
   const locationReady = (status === "granted" && location) && !manualLocationOff;
   const currentHour = new Date().getHours();
   const displayLocation = locationReady && placeName ? placeName.split(",")[0] : null;
 
-  // Ref untuk mengontrol race condition saat fetch async
   const fetchIdRef = useRef(0);
 
   const loadPlaces = useCallback(
     async (reset = false) => {
       const currentFetchId = ++fetchIdRef.current;
-      
       if (loading && !reset) return;
 
-      // Reset state untuk keamanan key dan animasi
       if (reset) {
         setTempat([]);
         setPage(0);
@@ -75,13 +75,11 @@ export default function FeedContent() {
           .range(from, to);
 
         if (fetchError) throw fetchError;
-
-        // Validasi: Abaikan jika sudah ada request baru yang masuk
         if (currentFetchId !== fetchIdRef.current) return;
 
         let items = data || [];
 
-        // Integrasi Jarak & Skor Ranking
+        // Mapping Jarak & Skor
         items = items.map((item) => {
           const distance = (locationReady && location && item.latitude && item.longitude)
             ? calculateDistance(location.latitude, location.longitude, item.latitude, item.longitude)
@@ -94,7 +92,7 @@ export default function FeedContent() {
           };
         });
 
-        // Sorting Logic
+        // Sorting
         items.sort((a, b) => {
           if (locationReady && a.distance !== Infinity) {
             const scoreA = a.score * 0.4 + (1 / (a.distance || 0.1)) * 0.6;
@@ -114,10 +112,7 @@ export default function FeedContent() {
         setPage(currentPage + 1);
         setHasMore(items.length === LIMIT);
       } catch (err) {
-        if (currentFetchId === fetchIdRef.current) {
-          console.error("Error loading places:", err);
-          setError(err.message);
-        }
+        if (currentFetchId === fetchIdRef.current) setError(err.message);
       } finally {
         if (currentFetchId === fetchIdRef.current) {
           setLoading(false);
@@ -128,17 +123,13 @@ export default function FeedContent() {
     [location, locationReady, page, loading]
   );
 
-  useEffect(() => {
-    loadPlaces(true);
-  }, [locationReady]);
+  useEffect(() => { loadPlaces(true); }, [locationReady]);
 
+  // Handle Scroll
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
-      if (
-        window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 &&
-        !loading && hasMore && queryText.length < 2
-      ) {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 && !loading && hasMore && queryText.length < 2) {
         loadPlaces();
       }
     };
@@ -156,9 +147,8 @@ export default function FeedContent() {
   const handleShare = async (item) => {
     const shareUrl = `${window.location.origin}?id=${item.id}`;
     try {
-      if (navigator.share) {
-        await navigator.share({ title: item.name, text: `📍 Cek kondisi di ${item.name}!`, url: shareUrl });
-      } else {
+      if (navigator.share) await navigator.share({ title: item.name, text: `📍 Cek kondisi di ${item.name}!`, url: shareUrl });
+      else {
         await navigator.clipboard.writeText(shareUrl);
         setToast({ show: true, message: "✅ Link disalin!" });
         setTimeout(() => setToast({ show: false, message: "" }), 3000);
@@ -166,7 +156,11 @@ export default function FeedContent() {
     } catch (err) { console.log("Share failed"); }
   };
 
-  const displayData = queryText.length >= 2 ? filteredPlaces : tempat;
+  // OPTIMASI 2: Gunakan Memo untuk data tampilan agar tidak re-render kecuali diperlukan
+  const displayData = useMemo(() => {
+    return deferredQuery.length >= 2 ? filteredPlaces : tempat;
+  }, [deferredQuery, filteredPlaces, tempat]);
+
   const titikRamai = tempat.filter((t) => (parseInt(t.estimasi_orang) || 0) > 20).length;
   const titikDekat = tempat.filter((t) => t.distance && t.distance < 1).length;
 
@@ -190,67 +184,48 @@ export default function FeedContent() {
       <LaporanWarga tempat={tempat} locationReady={locationReady} displayLocation={displayLocation} />
 
       <div className="px-4 mt-4">
-        {/* HEADER PENCARIAN ESTETIK */}
+        {/* HEADER PENCARIAN */}
         <AnimatePresence mode="wait">
-          {queryText.length >= 2 && (
+          {deferredQuery.length >= 2 && (
             <motion.div 
-              key="search-headline-premium"
-              initial={{ opacity: 0, y: -20, filter: "blur(10px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -20, filter: "blur(10px)" }}
+              key="search-headline"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
               className="px-1 py-6 mb-2"
             >
-              <div className="flex items-center gap-2 mb-2">
+               <div className="flex items-center gap-2 mb-2">
                 <span className="flex h-2 w-2 rounded-full bg-[#E3655B] animate-pulse shadow-[0_0_10px_#E3655B]"></span>
                 <h3 className="text-[10px] font-black text-[#E3655B] uppercase tracking-[0.3em]">Eksplorasi Suasana</h3>
               </div>
-              
               <h2 className="text-3xl font-black text-gray-900 tracking-tighter leading-[0.9] mb-3">
-                Lagi nyari <br/>
-                <span className="text-[#E3655B] relative inline-block">
-                  "{queryText}"
-                  <svg className="absolute -bottom-1 left-0 w-full h-2 text-[#E3655B]/20" viewBox="0 0 100 10" preserveAspectRatio="none">
-                    <path d="M0 5 Q 25 0 50 5 T 100 5" fill="none" stroke="currentColor" strokeWidth="4" />
-                  </svg>
-                </span> ya?
+                Lagi nyari <span className="text-[#E3655B]">"{deferredQuery}"</span> ya?
               </h2>
-              
-              <div className="flex items-center gap-2 mt-4 bg-white/50 backdrop-blur-sm border border-white p-2 rounded-2xl w-fit">
-                <span className="text-[11px] text-gray-500 font-bold italic px-2">
-                  Ditemukan {displayData.length} lokasi di sekitar Pasuruan
-                </span>
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
         <div className="space-y-4 min-h-[60vh]">
-          <AnimatePresence mode="popLayout" initial={false}>
+          {/* OPTIMASI 3: Matikan popLayout saat searching/initial load untuk performa maksimal */}
+          <AnimatePresence mode="sync" initial={false}>
             {initialLoad ? (
               <motion.div key="skeleton-wrapper" exit={{ opacity: 0 }} className="space-y-6">
                 {[1, 2, 3].map((i) => (
                   <div key={`skel-${i}`} className="h-80 bg-gray-200/60 rounded-[32px] animate-pulse" />
                 ))}
               </motion.div>
-            ) : displayData.length === 0 && !isSearching ? (
-              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20 opacity-30">
-                <p className="font-black italic">Tidak ada data di Pasuruan saat ini.</p>
+            ) : displayData.length === 0 ? (
+              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20 opacity-30 italic font-black">
+                Tidak ada data ditemukan.
               </motion.div>
             ) : (
               displayData.map((item, index) => (
                 <motion.div
-                  // UNIQUE KEY: Gabungan mode lokasi & ID mencegah tabrakan saat transisi
                   key={`feed-${locationReady ? 'near' : 'all'}-${item.id}`}
-                  initial={{ opacity: 0, y: 30 }}
+                  // OPTIMASI 4: Animasi sederhana tanpa 'layout' yang berat saat render masif
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, filter: "blur(5px)" }}
-                  transition={{ 
-                    type: "spring", 
-                    stiffness: 100, 
-                    damping: 20, 
-                    delay: Math.min(index * 0.08, 0.5) 
-                  }}
-                  layout
+                  transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.2) }}
                 >
                   <FeedCard
                     item={item}
@@ -275,15 +250,8 @@ export default function FeedContent() {
 
       <AnimatePresence>
         {toast.show && (
-          <motion.div 
-            initial={{ y: 50, opacity: 0, x: "-50%" }}
-            animate={{ y: 0, opacity: 1, x: "-50%" }}
-            exit={{ y: 20, opacity: 0, x: "-50%" }}
-            className="fixed bottom-24 left-1/2 z-[100]"
-          >
-            <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl font-black text-[11px] uppercase tracking-widest whitespace-nowrap">
-              {toast.message}
-            </div>
+          <motion.div initial={{ y: 20, opacity: 0, x: "-50%" }} animate={{ y: 0, opacity: 1, x: "-50%" }} exit={{ y: 20, opacity: 0, x: "-50%" }} className="fixed bottom-24 left-1/2 z-[100]">
+            <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl font-black text-[11px] uppercase tracking-widest whitespace-nowrap">{toast.message}</div>
           </motion.div>
         )}
       </AnimatePresence>
