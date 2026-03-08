@@ -99,7 +99,6 @@ export default function LocationModal({ isOpen, onClose, onSelectLocation, onUse
           <div className="relative mb-6">
             <input 
               type="text"
-              autoFocus
               placeholder="Cari wilayah spesifik..."
               className="w-full bg-slate-50 border-none rounded-2xl py-5 px-8 text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-500/10 transition-all outline-none shadow-inner"
               value={searchQuery}
