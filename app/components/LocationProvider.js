@@ -9,14 +9,33 @@ export function useLocation() {
 }
 
 export default function LocationProvider({ children }) {
+  // Set default awal ke null atau titik tengah Pasuruan agar tidak kosong
   const [location, setLocation] = useState(null);
   const [status, setStatus] = useState("idle");
   const [placeName, setPlaceName] = useState(null);
 
-  // idle | loading | granted | denied
+  const setManualLocation = (spot) => {
+    // CEK: Jika spot adalah null (User klik Nonaktifkan)
+    if (!spot) {
+      setLocation(null);
+      setPlaceName(null);
+      setStatus("idle"); // Kembalikan status ke awal
+      localStorage.removeItem("user-location"); // Hapus cache
+      return;
+    }
 
+   // Jika spot ada isinya, baru jalankan logika ini
+   setLocation({
+     latitude: spot.latitude,
+     longitude: spot.longitude,
+   });
+   setPlaceName(spot.name);
+   setStatus("granted");
+   localStorage.setItem("user-location", JSON.stringify(spot));
+ };
+
+  // 2. FUNGSI GPS (HP Friendly - Kode Anda sebelumnya)
   function requestLocation() {
-    // 🛑 cegah spam klik
     if (status === "loading") return;
 
     if (!navigator.geolocation) {
@@ -31,15 +50,12 @@ export default function LocationProvider({ children }) {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
 
-        // update lokasi langsung
         setLocation({
           latitude: lat,
           longitude: lon,
         });
 
         setStatus("granted");
-
-        // ambil nama lokasi di background
         fetchPlaceName(lat, lon);
       },
       () => {
@@ -59,28 +75,15 @@ export default function LocationProvider({ children }) {
       );
 
       const data = await res.json();
+      const village = data?.address?.village || data?.address?.suburb || data?.address?.town || data?.address?.city || "";
+      const city = data?.address?.city || data?.address?.county || data?.address?.state || "";
 
-      const village =
-        data?.address?.village ||
-        data?.address?.suburb ||
-        data?.address?.town ||
-        data?.address?.city ||
-        "";
-
-      const city =
-        data?.address?.city ||
-        data?.address?.county ||
-        data?.address?.state ||
-        "";
-
-      const finalName =
-        village || city
-          ? `${village}${village && city ? ", " : ""}${city}`
-          : "Lokasi Anda";
+      const finalName = village || city 
+        ? `${village}${village && city ? ", " : ""}${city}` 
+        : "Lokasi Anda";
 
       setPlaceName(finalName);
     } catch (err) {
-      console.log("Gagal ambil nama lokasi", err);
       setPlaceName("Lokasi Anda");
     }
   }
@@ -92,6 +95,7 @@ export default function LocationProvider({ children }) {
         status,
         placeName,
         requestLocation,
+        setManualLocation, // Tambahkan ini agar bisa dipanggil oleh Modal
       }}
     >
       {children}

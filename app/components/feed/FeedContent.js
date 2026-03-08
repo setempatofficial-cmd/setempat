@@ -15,11 +15,14 @@ import Header from "../layout/NewHeader";
 import LaporanWarga from "../layout/LaporanWarga";
 import AIModal from "./AIModal";
 import KomentarModal from "./KomentarModal";
+import LocationModal from "@/components/LocationModal";
 
 const LIMIT = 10;
 
 export default function FeedContent() {
-  const { location, status, placeName, requestLocation } = useLocation();
+  // 1. Ambil fungsi setManualLocation dari Provider
+  const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
+  
   const [tempat, setTempat] = useState([]);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -31,21 +34,22 @@ export default function FeedContent() {
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showKomentarModal, setShowKomentarModal] = useState(false);
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false); // State Modal Lokasi
   const [error, setError] = useState(null);
-  const [manualLocationOff, setManualLocationOff] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "" });
   
   const [filteredPlaces, setFilteredPlaces] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [queryText, setQueryText] = useState("");
 
-  // OPTIMASI 1: Defer query pencarian agar input teks tidak berat/delay
   const deferredQuery = useDeferredValue(queryText);
 
   const greeting = getGreeting();
-  const locationReady = (status === "granted" && location) && !manualLocationOff;
+  
+  // Lokasi dianggap Ready jika statusnya granted (baik via GPS atau Manual Modal)
+  const locationReady = status === "granted" && location;
   const currentHour = new Date().getHours();
-  const displayLocation = locationReady && placeName ? placeName.split(",")[0] : null;
+  const displayLocation = locationReady && placeName ? placeName.split(",")[0] : "Pasuruan";
 
   const fetchIdRef = useRef(0);
 
@@ -79,7 +83,6 @@ export default function FeedContent() {
 
         let items = data || [];
 
-        // Mapping Jarak & Skor
         items = items.map((item) => {
           const distance = (locationReady && location && item.latitude && item.longitude)
             ? calculateDistance(location.latitude, location.longitude, item.latitude, item.longitude)
@@ -92,7 +95,7 @@ export default function FeedContent() {
           };
         });
 
-        // Sorting
+        // Sorting cerdas berdasarkan jarak dan skor
         items.sort((a, b) => {
           if (locationReady && a.distance !== Infinity) {
             const scoreA = a.score * 0.4 + (1 / (a.distance || 0.1)) * 0.6;
@@ -123,9 +126,9 @@ export default function FeedContent() {
     [location, locationReady, page, loading]
   );
 
-  useEffect(() => { loadPlaces(true); }, [locationReady]);
+  // Re-fetch saat lokasi berubah (Penting!)
+  useEffect(() => { loadPlaces(true); }, [location]);
 
-  // Handle Scroll
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
@@ -137,9 +140,6 @@ export default function FeedContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [loading, hasMore, loadPlaces, queryText]);
 
-  // Handlers
-  const handleRequestLocation = () => { setManualLocationOff(false); requestLocation(); };
-  const disableLocation = () => { setManualLocationOff(true); };
   const openAIModal = (item) => { setSelectedTempat(item); setShowAIModal(true); };
   const openKomentarModal = (item) => { setSelectedTempat(item); setShowKomentarModal(true); };
   const closeModals = () => { setShowAIModal(false); setShowKomentarModal(false); setSelectedTempat(null); };
@@ -156,7 +156,6 @@ export default function FeedContent() {
     } catch (err) { console.log("Share failed"); }
   };
 
-  // OPTIMASI 2: Gunakan Memo untuk data tampilan agar tidak re-render kecuali diperlukan
   const displayData = useMemo(() => {
     return deferredQuery.length >= 2 ? filteredPlaces : tempat;
   }, [deferredQuery, filteredPlaces, tempat]);
@@ -172,8 +171,9 @@ export default function FeedContent() {
         isScrolled={isScrolled}
         greeting={greeting.text}
         momentText={generateMoment(tempat, displayLocation || "Pasuruan", currentHour).text}
-        onToggleLocation={disableLocation}
-        onRequestLocation={handleRequestLocation}
+        // Sekarang tombol memicu Modal Lokasi
+        onToggleLocation={() => setIsLocationModalOpen(true)}
+        onRequestLocation={() => setIsLocationModalOpen(true)}
         statsTitikRamai={titikRamai}
         statsTitikDekat={titikDekat}
         onSearchResults={setFilteredPlaces}
@@ -184,16 +184,9 @@ export default function FeedContent() {
       <LaporanWarga tempat={tempat} locationReady={locationReady} displayLocation={displayLocation} />
 
       <div className="px-4 mt-4">
-        {/* HEADER PENCARIAN */}
         <AnimatePresence mode="wait">
           {deferredQuery.length >= 2 && (
-            <motion.div 
-              key="search-headline"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="px-1 py-6 mb-2"
-            >
+            <motion.div key="search-headline" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="px-1 py-6 mb-2">
                <div className="flex items-center gap-2 mb-2">
                 <span className="flex h-2 w-2 rounded-full bg-[#E3655B] animate-pulse shadow-[0_0_10px_#E3655B]"></span>
                 <h3 className="text-[10px] font-black text-[#E3655B] uppercase tracking-[0.3em]">Eksplorasi Suasana</h3>
@@ -206,7 +199,6 @@ export default function FeedContent() {
         </AnimatePresence>
 
         <div className="space-y-4 min-h-[60vh]">
-          {/* OPTIMASI 3: Matikan popLayout saat searching/initial load untuk performa maksimal */}
           <AnimatePresence mode="sync" initial={false}>
             {initialLoad ? (
               <motion.div key="skeleton-wrapper" exit={{ opacity: 0 }} className="space-y-6">
@@ -221,8 +213,7 @@ export default function FeedContent() {
             ) : (
               displayData.map((item, index) => (
                 <motion.div
-                  key={`feed-${locationReady ? 'near' : 'all'}-${item.id}`}
-                  // OPTIMASI 4: Animasi sederhana tanpa 'layout' yang berat saat render masif
+                  key={`feed-${item.id}-${location?.latitude}`} // Key berubah saat lokasi ganti agar animasi reset
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.2) }}
@@ -244,6 +235,15 @@ export default function FeedContent() {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Tambahkan Modal Lokasi di sini */}
+      <LocationModal 
+        isOpen={isLocationModalOpen} 
+        onClose={() => setIsLocationModalOpen(false)} 
+        onSelectLocation={setManualLocation}
+        onUseGPS={requestLocation}
+        locationReady={locationReady}
+      />
 
       <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
       <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} />

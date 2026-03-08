@@ -1,143 +1,135 @@
 "use client";
 
-export default function Header({
-  locationReady,
-  displayLocation,
-  isScrolled,
-  greeting,
-  momentText,
-  onToggleLocation,
-  onRequestLocation,
-  statsTitikRamai = 0,
-  statsTitikDekat = 0,
-}) {
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+// Tambahkan prop 'locationReady' agar modal tahu status saat ini
+export default function LocationModal({ isOpen, onClose, onSelectLocation, onUseGPS, locationReady }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.length > 2) {
+        setIsSearching(true);
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${searchQuery}&countrycodes=id&limit=5`
+          );
+          const data = await res.json();
+          setSearchResults(data);
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setSearchResults([]);
+      }
+    }, 600);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
+  if (!isOpen) return null;
+
+  // Fungsi untuk mematikan lokasi (User "kabur" dari status ON)
+  const handleDisableLocation = () => {
+    onSelectLocation(null); // Mengirim null ke setManualLocation untuk reset
+    onClose();
+  };
+
   return (
-    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-100/50">
-      {/* Baris 1: Logo + Brand + Lokasi + Toggle */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          {/* LOGO ASLI */}
-          <div className="w-9 h-9 bg-gradient-to-br from-[#E3655B] to-[#FF7A70] rounded-xl flex items-center justify-center shadow-sm">
-            <svg
-              className="w-5 h-5 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeWidth={2}
-                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeWidth={2}
-                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
+    <div className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-slate-900/10 backdrop-blur-3xl"
+        onClick={onClose}
+      />
+
+      <motion.div 
+        initial={{ y: 100, opacity: 0 }} 
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 100, opacity: 0 }}
+        className="relative w-full max-w-[400px] bg-white rounded-[40px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] border border-white overflow-hidden"
+      >
+        <div className="p-10">
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-black tracking-tighter text-slate-900 leading-none">Radius</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-3">
+              {locationReady ? "Kelola Lokasi Aktif" : "Atur Jangkauan Linimasa"}
+            </p>
           </div>
 
-          {/* BRAND + LOKASI */}
-          <div>
-            <h1 className="text-base font-bold text-gray-900 tracking-tight">
-              Setempat<span className="text-[#E3655B]">ID</span>
-            </h1>
-            {locationReady && displayLocation ? (
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <span>{displayLocation}</span>
-                <span>•</span>
-                <span>
-                  {new Date().getHours() >= 4 && new Date().getHours() < 18
-                    ? "🌤️"
-                    : "🌙"}{" "}
-                  29°
-                </span>
-              </p>
-            ) : (
-              <p className="text-xs text-gray-400">Jelajahi sekitar</p>
-            )}
-          </div>
-        </div>
-
-{/* Toggle Lokasi */}
-<div className="flex items-center gap-2">
-  <button
-    onClick={locationReady ? onToggleLocation : onRequestLocation}
-    className={`relative w-14 h-7 rounded-full transition-all duration-300 active:scale-95 overflow-hidden ${
-      locationReady
-        ? "bg-gradient-to-r from-[#E3655B] to-[#FF7A70] shadow-md"
-        : "bg-gray-200 border border-gray-300"
-    }`}
-  >
-    {/* Glow halus ketika ON */}
-    {locationReady && (
-      <span className="absolute inset-0 bg-white/20 opacity-30 blur-sm"></span>
-    )}
-
-    {/* Circle */}
-    <span
-      className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${
-        locationReady ? "translate-x-7" : "translate-x-0"
-      }`}
-    />
-
-    {/* ON */}
-    <span
-      className={`absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold tracking-wide transition-opacity duration-200 ${
-        locationReady ? "opacity-100 text-white" : "opacity-0"
-      }`}
-    >
-      ON
-    </span>
-
-    {/* OFF */}
-    <span
-      className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold tracking-wide transition-opacity duration-200 ${
-        locationReady ? "opacity-0" : "opacity-100 text-gray-500"
-      }`}
-    >
-      OFF
-    </span>
-  </button>
-
-
-          <button className="relative p-1">
-            <span className="text-xl">🔔</span>
-            {locationReady && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#E3655B] animate-pulse text-white text-[10px] rounded-full flex items-center justify-center">
-                3
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Search Bar */}
-      <div className="px-4 pb-3">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder={
-              locationReady && displayLocation
-                ? `Cari suasana di ${displayLocation}...`
-                : "Cari suasana di sekitar aktifkan lokasi..."
-            }
-            className="w-full bg-gray-100/70 border border-transparent focus:border-[#E3655B]/40 rounded-2xl py-3 pl-12 pr-4 text-sm text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E3655B]/40 focus:bg-white transition-all"
-          />
-          <svg
-            className="absolute left-4 top-3.5 w-4 h-4 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          <div className="relative mb-6">
+            <input 
+              type="text"
+              autoFocus
+              placeholder="Cari wilayah spesifik..."
+              className="w-full bg-slate-50 border-none rounded-2xl py-5 px-8 text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-[#E3655B]/20 transition-all outline-none"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
-          </svg>
+          </div>
+
+          <button 
+            onClick={() => { onUseGPS(); onClose(); }}
+            className="w-full flex items-center justify-between p-5 mb-4 bg-slate-900 rounded-2xl hover:bg-[#E3655B] transition-all group shadow-xl shadow-slate-200"
+          >
+            <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">Perbarui Titik Presisi</span>
+            <span className="text-xl">🛰️</span>
+          </button>
+
+          {/* TOMBOL DINAMIS: Mode Penjelajah atau Nonaktifkan Lokasi */}
+          <button 
+            onClick={locationReady ? handleDisableLocation : onClose}
+            className={`w-full py-5 rounded-2xl border transition-all mb-8 active:scale-95 ${
+              locationReady 
+                ? "bg-red-50 border-red-100 text-red-500" 
+                : "bg-slate-100 border-transparent text-slate-500"
+            }`}
+          >
+            <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+              {locationReady ? "Nonaktifkan Lokasi (Off)" : "Masuk Mode Penjelajah"}
+            </span>
+          </button>
+
+          <div className="space-y-1 min-h-[60px] max-h-[160px] overflow-y-auto no-scrollbar border-t border-slate-50 pt-6">
+             {/* ... (logika search results sama seperti sebelumnya) */}
+             {searchResults.length > 0 ? (
+                searchResults.map((res) => (
+                  <button
+                    key={res.place_id}
+                    onClick={() => {
+                      onSelectLocation({
+                        latitude: parseFloat(res.lat),
+                        longitude: parseFloat(res.lon),
+                        name: res.display_name.split(",")[0]
+                      });
+                      onClose();
+                    }}
+                    className="w-full p-3 rounded-xl hover:bg-slate-50 transition-all text-left"
+                  >
+                    <h4 className="font-bold text-slate-800 text-[13px] truncate">{res.display_name.split(",")[0]}</h4>
+                  </button>
+                ))
+             ) : (
+                <div className="text-center py-4 opacity-20">
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em]">Awaiting Position</p>
+                </div>
+             )}
+          </div>
+
+          <div className="mt-8 flex items-start gap-4 p-5 bg-slate-50/50 rounded-[30px] border border-white">
+            <div className={`mt-1 w-2 h-2 rounded-full ${locationReady ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-[#E3655B] shadow-[0_0_8px_#E3655B]'}`} />
+            <p className="text-[9px] text-slate-500 leading-relaxed font-bold italic">
+              {locationReady 
+                ? "Radar saat ini sedang aktif menyaring konten di radius sekitar Anda." 
+                : "Aktifkan lokasi untuk memfilter konten real-time di titik terdekat."}
+            </p>
+          </div>
         </div>
-      </div>
-    </header>
+      </motion.div>
+    </div>
   );
 }
