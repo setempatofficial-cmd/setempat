@@ -23,7 +23,7 @@ export function useSearch(locationReady, displayLocation) {
           .from('feed_view')
           .select('*')
           // Menggunakan 'kategori' sesuai kolom di database kamu
-          .or(`name.ilike.%${searchQuery}%,kategori.ilike.%${searchQuery}%,alamat.ilike.%${searchQuery}%`)
+          .or(`name.ilike.%${searchQuery}%,category.ilike.%${searchQuery}%,alamat.ilike.%${searchQuery}%`)
           .limit(10);
 
         if (error) throw error;
