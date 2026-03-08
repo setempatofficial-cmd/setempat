@@ -23,11 +23,17 @@ export default function FeedCard({
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const { currentTime, timeLabel } = useClock();
 
-  // 1. Logic Feed Engine
+  // 1. Logic Feed Engine - DIPERBAIKI: Memantau latitude & longitude secara spesifik
   const feed = useMemo(() => {
     if (!item) return {};
     return processFeedItem({ item, comments, locationReady, location });
-  }, [item, comments, locationReady, location]);
+  }, [
+    item, 
+    comments, 
+    locationReady, 
+    location?.latitude, // Trigger recalculate saat koordinat didapat
+    location?.longitude 
+  ]);
 
   // 2. Logic Cuaca
   const isHujan = useMemo(() => {
@@ -120,11 +126,12 @@ export default function FeedCard({
               {isHujan ? "Kabar Cuaca" : "Live Setempat"}
             </span>
           </div>
-          {locationReady && feed?.distance && (
+          {/* DIPERBAIKI: Logika tampilan jarak agar lebih konsisten */}
+          {locationReady && feed?.distance !== null && (
             <span className="text-[11px] font-bold tracking-tight text-slate-400 animate-in fade-in slide-in-from-left-2 duration-700">
-              📍 {parseFloat(feed.distance) < 1
-                ? `${(parseFloat(feed.distance) * 1000).toFixed(0)}m`
-                : `${parseFloat(feed.distance).toFixed(1)}km`} dari sini
+              📍 {feed.distance < 1
+                ? `${(feed.distance * 1000).toFixed(0)}m`
+                : `${feed.distance.toFixed(1)}km`} dari sini
             </span>
           )}
         </div>
