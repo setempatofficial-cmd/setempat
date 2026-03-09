@@ -15,9 +15,8 @@ export function useLocation() {
 export default function LocationProvider({ children }) {
   const [location, setLocation] = useState(null);
   const [status, setStatus] = useState("idle");
-  const [placeName, setPlaceName] = useState(null); // Format: "Desa, Kecamatan"
+  const [placeName, setPlaceName] = useState(null);
 
-  // Load dari localStorage saat pertama kali aplikasi dibuka
   useEffect(() => {
     const saved = localStorage.getItem("user-location");
     if (saved) {
@@ -42,68 +41,68 @@ export default function LocationProvider({ children }) {
     localStorage.setItem("user-location", JSON.stringify(spot));
   };
 
+  // UBAH: Sekarang menggunakan Promise agar modal bisa 'await'
   function requestLocation() {
-    if (status === "loading") return;
-    setStatus("loading");
+    return new Promise((resolve, reject) => {
+      if (status === "loading") return;
+      setStatus("loading");
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        setLocation({ latitude: lat, longitude: lon });
-        setStatus("granted");
-        fetchPlaceName(lat, lon);
-      },
-      () => {
-        setStatus("denied");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          setLocation({ latitude: lat, longitude: lon });
+          setStatus("granted");
+          
+          // Tunggu sampai nama tempat didapat baru resolve
+          const name = await fetchPlaceName(lat, lon);
+          resolve({ lat, lon, name });
+        },
+        (err) => {
+          setStatus("denied");
+          reject(err);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
   }
 
   async function fetchPlaceName(lat, lon) {
     try {
-      // Zoom 17 sangat krusial untuk akurasi tingkat desa/sub-district
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1`
       );
       const data = await res.json();
       const addr = data?.address;
 
-      // 1. Ekstraksi Desa/Kelurahan (Akurasi Tinggi)
-      // village: untuk desa, suburb: untuk kelurahan kota, hamlet: untuk dusun kecil
       const rawVillage = addr?.village || addr?.suburb || addr?.neighborhood || addr?.hamlet || "";
-      
-      // 2. Ekstraksi Kecamatan
       const rawDistrict = addr?.city_district || addr?.town || addr?.municipality || "";
 
-      // 3. Pembersihan String (Membersihkan label administratif agar UI tidak penuh)
       const clean = (text) => 
         text ? text.replace(/Kelurahan|Desa|Kecamatan|Subdistrict|District/gi, "").trim() : "";
 
       const village = clean(rawVillage);
       const district = clean(rawDistrict);
 
-      // 4. Logika Penggabungan Pintar
       let finalName = "";
       if (village && district && village.toLowerCase() !== district.toLowerCase()) {
         finalName = `${village}, ${district}`;
       } else {
-        // Fallback jika salah satu kosong atau namanya sama
         finalName = village || district || "Lokasi Terdeteksi";
       }
 
       setPlaceName(finalName);
-      
       localStorage.setItem("user-location", JSON.stringify({
         latitude: lat,
         longitude: lon,
         name: finalName
       }));
+      
+      return finalName; // Kembalikan nilai untuk resolve
     } catch (err) {
       console.error("Geocoding error:", err);
-      // Fallback aman jika API error
       setPlaceName("Pasuruan, Jawa Timur");
+      return "Pasuruan, Jawa Timur";
     }
   }
 

@@ -33,14 +33,13 @@ export default function Header({
       {/* BARIS UTAMA */}
       <div className="flex items-center gap-2 px-4 py-3 h-16">
         
-        {/* LOGO & LOCATION TRIGGER: Tetap bisa diklik untuk buka modal saat scroll */}
+        {/* LOGO & LOCATION TRIGGER */}
         <button 
           onClick={onOpenLocationModal}
           className={`flex items-center gap-2 flex-shrink-0 transition-all duration-500 rounded-xl active:scale-95 ${
             isScrolled ? "bg-slate-50 p-1 pr-2 border border-slate-100 shadow-sm" : ""
           }`}
         >
-          {/* Logo Box */}
           <div className={`transition-all duration-500 ease-in-out flex-shrink-0 bg-[#E3655B] rounded-lg flex items-center justify-center shadow-md ${
             isScrolled ? "w-8 h-8" : "w-10 h-10"
           }`}>
@@ -50,7 +49,6 @@ export default function Header({
             </svg>
           </div>
 
-          {/* Indikator Panah & Status saat Scrolled */}
           {isScrolled && (
             <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-500">
                <span className={`w-1.5 h-1.5 rounded-full ${locationReady ? "bg-green-500 shadow-[0_0_3px_#22c55e]" : "bg-red-400"}`} />
@@ -61,34 +59,32 @@ export default function Header({
           )}
         </button>
 
-        {/* CONTAINER DINAMIS: Branding atau Search Bar */}
+        {/* CONTAINER DINAMIS */}
         <div className="relative flex-1 h-10 flex items-center min-w-0">
-          
+          {/* AREA BRANDING */}
+          <button 
+            onClick={onOpenLocationModal}
+            className={`absolute inset-0 flex flex-col items-start transition-all duration-300 ease-in-out origin-left overflow-hidden ${
+              isScrolled 
+                ? "opacity-0 -translate-y-4 pointer-events-none w-0" 
+                : "opacity-100 translate-y-0 w-auto"
+            }`}
+          >
+            <h1 className="text-[16px] font-bold text-slate-900 tracking-tight leading-tight whitespace-nowrap">
+              Setempat<span className="text-[#E3655B]">ID</span>
+            </h1>
+            <div className="flex items-center gap-1.5 mt-0.5 w-full whitespace-nowrap">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${locationReady ? "bg-green-500 shadow-[0_0_3px_#22c55e]" : "bg-red-400"}`} />
+              <p className="text-[11px] font-medium text-slate-500 truncate max-w-[110px]">
+                {locationReady && villageLocation ? villageLocation : "Pilih lokasimu"}
+              </p>
+              <svg className="w-2.5 h-2.5 text-slate-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ animationDuration: '3s' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </button>
 
-          {/* AREA BRANDING: Menghilang lebih cepat & rapi saat scroll */}
-<button 
-  onClick={onOpenLocationModal}
-  className={`absolute inset-0 flex flex-col items-start transition-all duration-300 ease-in-out origin-left overflow-hidden ${
-    isScrolled 
-      ? "opacity-0 -translate-y-4 pointer-events-none w-0" 
-      : "opacity-100 translate-y-0 w-auto"
-  }`}
->
-  <h1 className="text-[16px] font-bold text-slate-900 tracking-tight leading-tight whitespace-nowrap">
-    Setempat<span className="text-[#E3655B]">ID</span>
-  </h1>
-  <div className="flex items-center gap-1.5 mt-0.5 w-full whitespace-nowrap">
-    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${locationReady ? "bg-green-500 shadow-[0_0_3px_#22c55e]" : "bg-red-400"}`} />
-    <p className="text-[11px] font-medium text-slate-500 truncate max-w-[110px]">
-      {locationReady && villageLocation ? villageLocation : "Pilih lokasimu"}
-    </p>
-    <svg className="w-2.5 h-2.5 text-slate-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ animationDuration: '3s' }}>
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-    </svg>
-  </div>
-</button>
-
-          {/* SEARCH BAR (SCROLLED): Muncul menggantikan Branding */}
+          {/* SEARCH BAR (SCROLLED) */}
           <div className={`w-full transition-all duration-500 ease-out ${
             isScrolled 
               ? "opacity-100 translate-y-0 scale-100" 
@@ -124,9 +120,12 @@ export default function Header({
         </div>
       </div>
 
-      {/* SEARCH BAR BAWAH: Hanya saat di atas */}
-      <div className={`px-5 transition-all duration-500 ease-in-out overflow-hidden ${
-        isScrolled ? "h-0 opacity-0 pb-0" : "h-[60px] opacity-100 pb-4"
+      {/* SEARCH BAR BAWAH: PERBAIKAN JITTER */}
+      {/* Perubahan: Menggunakan max-height dan easing yang lebih smooth 
+          agar tidak "memotong" konten secara kasar saat scroll.
+      */}
+      <div className={`px-5 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
+        isScrolled ? "max-h-0 opacity-0 pb-0" : "max-h-[80px] opacity-100 pb-4"
       }`}>
         <div className="relative group">
           <input

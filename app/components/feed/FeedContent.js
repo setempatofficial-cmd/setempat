@@ -194,9 +194,12 @@ export default function FeedContent() {
         isOpen={isLocationModalOpen} 
         onClose={() => setIsLocationModalOpen(false)}
         locationReady={locationReady}
-        onActivateGPS={() => {
-          requestLocation();
-          setIsLocationModalOpen(false);
+        onActivateGPS={async () => {
+          try {
+            await requestLocation();
+          } catch (err) {
+            console.error("Gagal aktivasi:", err);
+          }
         }}
         onSelectManual={(coords) => {
           setManualLocation(coords);
