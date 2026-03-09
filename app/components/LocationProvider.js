@@ -1,103 +1,114 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 
 const LocationContext = createContext(null);
 
 export function useLocation() {
-  return useContext(LocationContext);
+  const context = useContext(LocationContext);
+  if (!context) {
+    throw new Error("useLocation must be used within a LocationProvider");
+  }
+  return context;
 }
 
 export default function LocationProvider({ children }) {
-  // Set default awal ke null atau titik tengah Pasuruan agar tidak kosong
   const [location, setLocation] = useState(null);
   const [status, setStatus] = useState("idle");
-  const [placeName, setPlaceName] = useState(null);
+  const [placeName, setPlaceName] = useState(null); // Format: "Desa, Kecamatan"
+
+  // Load dari localStorage saat pertama kali aplikasi dibuka
+  useEffect(() => {
+    const saved = localStorage.getItem("user-location");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setLocation({ latitude: parsed.latitude, longitude: parsed.longitude });
+      setPlaceName(parsed.name);
+      setStatus("granted");
+    }
+  }, []);
 
   const setManualLocation = (spot) => {
-    // CEK: Jika spot adalah null (User klik Nonaktifkan)
     if (!spot) {
       setLocation(null);
       setPlaceName(null);
-      setStatus("idle"); // Kembalikan status ke awal
-      localStorage.removeItem("user-location"); // Hapus cache
+      setStatus("idle");
+      localStorage.removeItem("user-location");
       return;
     }
+    setLocation({ latitude: spot.latitude, longitude: spot.longitude });
+    setPlaceName(spot.name);
+    setStatus("granted");
+    localStorage.setItem("user-location", JSON.stringify(spot));
+  };
 
-   // Jika spot ada isinya, baru jalankan logika ini
-   setLocation({
-     latitude: spot.latitude,
-     longitude: spot.longitude,
-   });
-   setPlaceName(spot.name);
-   setStatus("granted");
-   localStorage.setItem("user-location", JSON.stringify(spot));
- };
-
-  // 2. FUNGSI GPS (HP Friendly - Kode Anda sebelumnya)
   function requestLocation() {
     if (status === "loading") return;
-
-    if (!navigator.geolocation) {
-      setStatus("denied");
-      return;
-    }
-
     setStatus("loading");
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-
-        setLocation({
-          latitude: lat,
-          longitude: lon,
-        });
-
+        setLocation({ latitude: lat, longitude: lon });
         setStatus("granted");
         fetchPlaceName(lat, lon);
       },
       () => {
         setStatus("denied");
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 7000,
-      }
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   }
 
   async function fetchPlaceName(lat, lon) {
     try {
+      // Zoom 17 sangat krusial untuk akurasi tingkat desa/sub-district
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1`
       );
-
       const data = await res.json();
-      const village = data?.address?.village || data?.address?.suburb || data?.address?.town || data?.address?.city || "";
-      const city = data?.address?.city || data?.address?.county || data?.address?.state || "";
+      const addr = data?.address;
 
-      const finalName = village || city 
-        ? `${village}${village && city ? ", " : ""}${city}` 
-        : "Lokasi Anda";
+      // 1. Ekstraksi Desa/Kelurahan (Akurasi Tinggi)
+      // village: untuk desa, suburb: untuk kelurahan kota, hamlet: untuk dusun kecil
+      const rawVillage = addr?.village || addr?.suburb || addr?.neighborhood || addr?.hamlet || "";
+      
+      // 2. Ekstraksi Kecamatan
+      const rawDistrict = addr?.city_district || addr?.town || addr?.municipality || "";
+
+      // 3. Pembersihan String (Membersihkan label administratif agar UI tidak penuh)
+      const clean = (text) => 
+        text ? text.replace(/Kelurahan|Desa|Kecamatan|Subdistrict|District/gi, "").trim() : "";
+
+      const village = clean(rawVillage);
+      const district = clean(rawDistrict);
+
+      // 4. Logika Penggabungan Pintar
+      let finalName = "";
+      if (village && district && village.toLowerCase() !== district.toLowerCase()) {
+        finalName = `${village}, ${district}`;
+      } else {
+        // Fallback jika salah satu kosong atau namanya sama
+        finalName = village || district || "Lokasi Terdeteksi";
+      }
 
       setPlaceName(finalName);
+      
+      localStorage.setItem("user-location", JSON.stringify({
+        latitude: lat,
+        longitude: lon,
+        name: finalName
+      }));
     } catch (err) {
-      setPlaceName("Lokasi Anda");
+      console.error("Geocoding error:", err);
+      // Fallback aman jika API error
+      setPlaceName("Pasuruan, Jawa Timur");
     }
   }
 
   return (
-    <LocationContext.Provider
-      value={{
-        location,
-        status,
-        placeName,
-        requestLocation,
-        setManualLocation, // Tambahkan ini agar bisa dipanggil oleh Modal
-      }}
-    >
+    <LocationContext.Provider value={{ location, status, placeName, requestLocation, setManualLocation }}>
       {children}
     </LocationContext.Provider>
   );

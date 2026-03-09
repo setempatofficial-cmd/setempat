@@ -20,7 +20,6 @@ import LocationModal from "@/components/LocationModal";
 const LIMIT = 10;
 
 export default function FeedContent() {
-  // 1. Ambil fungsi setManualLocation dari Provider
   const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
   
   const [tempat, setTempat] = useState([]);
@@ -34,7 +33,8 @@ export default function FeedContent() {
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showKomentarModal, setShowKomentarModal] = useState(false);
-  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false); // State Modal Lokasi
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+
   const [error, setError] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "" });
   
@@ -43,13 +43,33 @@ export default function FeedContent() {
   const [queryText, setQueryText] = useState("");
 
   const deferredQuery = useDeferredValue(queryText);
-
   const greeting = getGreeting();
-  
-  // Lokasi dianggap Ready jika statusnya granted (baik via GPS atau Manual Modal)
-  const locationReady = status === "granted" && location;
   const currentHour = new Date().getHours();
-  const displayLocation = locationReady && placeName ? placeName.split(",")[0] : "Pasuruan";
+
+  // --- 1. STATUS KONEKSI LOKASI ---
+  const locationReady = useMemo(() => {
+    return status === "granted" && !!location?.latitude && !!location?.longitude;
+  }, [status, location]);
+
+  // --- 2. LOGIKA EKSTRAKSI LOKASI BERJENJANG (Desa | Kecamatan) ---
+  const { villageLocation, districtLocation } = useMemo(() => {
+    if (!placeName) {
+      return { 
+        villageLocation: "Pilih Lokasi", 
+        districtLocation: "" 
+      };
+    }
+    
+    // Memisahkan string "Tejowangi, Purwosari" yang dikirim dari Provider
+    const parts = placeName.split(",").map(p => p.trim());
+    
+    return { 
+      // Elemen pertama: Desa atau Kota
+      villageLocation: parts[0] || "Lokasi", 
+      // Elemen kedua: Kecamatan (jika tersedia)
+      districtLocation: parts[1] || "" 
+    };
+  }, [placeName]);
 
   const fetchIdRef = useRef(0);
 
@@ -66,8 +86,6 @@ export default function FeedContent() {
       }
 
       setLoading(true);
-      setError(null);
-
       try {
         const currentPage = reset ? 0 : page;
         const from = currentPage * LIMIT;
@@ -82,7 +100,6 @@ export default function FeedContent() {
         if (currentFetchId !== fetchIdRef.current) return;
 
         let items = data || [];
-
         items = items.map((item) => {
           const distance = (locationReady && location && item.latitude && item.longitude)
             ? calculateDistance(location.latitude, location.longitude, item.latitude, item.longitude)
@@ -95,7 +112,7 @@ export default function FeedContent() {
           };
         });
 
-        // Sorting cerdas berdasarkan jarak dan skor
+        // Sorting Logika: Jarak vs Ranking
         items.sort((a, b) => {
           if (locationReady && a.distance !== Infinity) {
             const scoreA = a.score * 0.4 + (1 / (a.distance || 0.1)) * 0.6;
@@ -126,8 +143,7 @@ export default function FeedContent() {
     [location, locationReady, page, loading]
   );
 
-  // Re-fetch saat lokasi berubah (Penting!)
-  useEffect(() => { loadPlaces(true); }, [location]);
+  useEffect(() => { loadPlaces(true); }, [location, locationReady]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -160,28 +176,39 @@ export default function FeedContent() {
     return deferredQuery.length >= 2 ? filteredPlaces : tempat;
   }, [deferredQuery, filteredPlaces, tempat]);
 
-  const titikRamai = tempat.filter((t) => (parseInt(t.estimasi_orang) || 0) > 20).length;
-  const titikDekat = tempat.filter((t) => t.distance && t.distance < 1).length;
-
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
+      {/* HEADER DINAMIS DENGAN FORMAT DESA | KECAMATAN */}
       <Header
         locationReady={locationReady}
-        displayLocation={displayLocation}
+        villageLocation={villageLocation}
+        districtLocation={districtLocation}
         isScrolled={isScrolled}
-        greeting={greeting.text}
-        momentText={generateMoment(tempat, displayLocation || "Pasuruan", currentHour).text}
-        // Sekarang tombol memicu Modal Lokasi
-        onToggleLocation={() => setIsLocationModalOpen(true)}
-        onRequestLocation={() => setIsLocationModalOpen(true)}
-        statsTitikRamai={titikRamai}
-        statsTitikDekat={titikDekat}
+        onOpenLocationModal={() => setIsLocationModalOpen(true)}
         onSearchResults={setFilteredPlaces}
         onSearchLoading={setIsSearching}
         onQueryChange={setQueryText}
       />
 
-      <LaporanWarga tempat={tempat} locationReady={locationReady} displayLocation={displayLocation} />
+      <LocationModal 
+        isOpen={isLocationModalOpen} 
+        onClose={() => setIsLocationModalOpen(false)}
+        locationReady={locationReady}
+        onActivateGPS={() => {
+          requestLocation();
+          setIsLocationModalOpen(false);
+        }}
+        onSelectManual={(coords) => {
+          setManualLocation(coords);
+          setIsLocationModalOpen(false);
+        }}
+      />
+
+      <LaporanWarga 
+        tempat={tempat} 
+        locationReady={locationReady} 
+        displayLocation={villageLocation} 
+      />
 
       <div className="px-4 mt-4">
         <AnimatePresence mode="wait">
@@ -206,14 +233,10 @@ export default function FeedContent() {
                   <div key={`skel-${i}`} className="h-80 bg-gray-200/60 rounded-[32px] animate-pulse" />
                 ))}
               </motion.div>
-            ) : displayData.length === 0 ? (
-              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20 opacity-30 italic font-black">
-                Tidak ada data ditemukan.
-              </motion.div>
             ) : (
               displayData.map((item, index) => (
                 <motion.div
-                  key={`feed-${item.id}-${location?.latitude}`} // Key berubah saat lokasi ganti agar animasi reset
+                  key={`feed-${item.id}`} 
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.2) }}
@@ -236,17 +259,13 @@ export default function FeedContent() {
         </div>
       </div>
 
-      {/* Tambahkan Modal Lokasi di sini */}
-      <LocationModal 
-        isOpen={isLocationModalOpen} 
-        onClose={() => setIsLocationModalOpen(false)} 
-        onSelectLocation={setManualLocation}
-        onUseGPS={requestLocation}
-        locationReady={locationReady}
-      />
-
       <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
-      <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} />
+      <KomentarModal 
+        isOpen={showKomentarModal} 
+        onClose={closeModals} 
+        tempat={selectedTempat} 
+        initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} 
+      />
 
       <AnimatePresence>
         {toast.show && (

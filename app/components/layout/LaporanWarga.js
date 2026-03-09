@@ -5,9 +5,34 @@ import { useMemo, useState, useEffect } from "react";
 export default function LaporanWargaInteractive({
   tempat = [],
   locationReady,
-  displayLocation,
+  districtLocation,
+  displayLocation,  // akan menjadi fallback
+  location,         // koordinat user untuk validasi
   onStatClick,
 }) {
+  // ===== FUNGSI VALIDASI LOKASI =====
+  const getValidatedDistrict = (places, userLocation) => {
+    if (!places?.length || !userLocation) return null;
+    const nearestPlace = places[0];
+    if (nearestPlace.distance > 5) return null;
+    const parts = nearestPlace.alamat.split(",").map((p) => p.trim());
+    
+    // Cari bagian yang mengandung "Kec." atau ambil bagian ke-2/ke-3
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].includes("Kec.") || parts[i].includes("Kecamatan")) {
+        return parts[i].replace("Kec.", "").replace("Kecamatan", "").trim();
+      }
+    }
+    // Fallback ke bagian ke-2 (desa) atau ke-1
+    return parts[1] || parts[0];
+  };
+
+  // Lokasi yang sudah divalidasi (prioritas: dari tempat terdekat)
+  const validatedLocation = locationReady && tempat.length > 0 && location
+    ? getValidatedDistrict(tempat, location) || displayLocation
+    : displayLocation;
+  // ===================================
+
   const stats = useMemo(() => {
     if (!tempat || tempat.length === 0) return null;
 
@@ -106,7 +131,7 @@ export default function LaporanWargaInteractive({
     if (titikRamai > 8)
       return {
         icon: "🚗",
-        text: `Lalu lintas padat di sekitar ${displayLocation}`,
+        text: `Lalu lintas padat di sekitar ${validatedLocation}`,
       };
 
     if (titikRamai > 3)
@@ -150,10 +175,10 @@ export default function LaporanWargaInteractive({
   return (
     <div className="px-4 py-5 border-b border-gray-100 bg-gradient-to-br from-[#FFEAEA]/20 to-white rounded-2xl">
       
-      {/* HEADER */}
+      {/* HEADER - menggunakan validatedLocation */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm font-semibold text-gray-700">
-          📍 {displayLocation} Sekarang
+          📍 {validatedLocation} {districtLocation && `| ${districtLocation}`}Sekarang
         </span>
 
         <div className="flex items-center gap-1">
@@ -216,7 +241,7 @@ export default function LaporanWargaInteractive({
         </div>
       )}
 
-      {/* INFO LALU LINTAS */}
+      {/* INFO LALU LINTAS - menggunakan validatedLocation */}
       <div className="flex items-center gap-3 text-sm text-gray-700 mt-3 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors">
         <span className="text-xl">{trafficInfo.icon}</span>
 

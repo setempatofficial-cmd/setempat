@@ -33,7 +33,7 @@ export default function LocationModal({ isOpen, onClose, onSelectLocation, onUse
 
   if (!isOpen) return null;
 
-  // Fungsi untuk mematikan lokasi (User "kabur" dari status ON)
+  // Fungsi untuk mematikan lokasi 
   const handleDisableLocation = () => {
     onSelectLocation(null); // Mengirim null ke setManualLocation untuk reset
     onClose();

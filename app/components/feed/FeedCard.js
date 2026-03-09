@@ -237,7 +237,7 @@ export default function FeedCard({
                   : "bg-white border-gray-200 text-gray-500 shadow-sm active:scale-95"
               }`}
             >
-              <span className="text-xl">{isSesuai ? "🛡️" : "✨"}</span>
+              <span className="text-xl">{isSesuai ? "🛡️" : "💛"}</span>
               <div className="flex flex-col items-start leading-none text-left">
                 <span className="text-[11px] font-black uppercase tracking-tighter">
                   {isSesuai ? "Terverifikasi" : "Sesuai?"}
