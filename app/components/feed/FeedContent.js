@@ -188,6 +188,9 @@ export default function FeedContent() {
         onSearchResults={setFilteredPlaces}
         onSearchLoading={setIsSearching}
         onQueryChange={setQueryText}
+        tempat={tempat} 
+        location={location}
+
       />
 
       <LocationModal 
@@ -205,12 +208,6 @@ export default function FeedContent() {
           setManualLocation(coords);
           setIsLocationModalOpen(false);
         }}
-      />
-
-      <LaporanWarga 
-        tempat={tempat} 
-        locationReady={locationReady} 
-        displayLocation={villageLocation} 
       />
 
       <div className="px-4 mt-4">

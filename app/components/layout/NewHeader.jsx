@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useSearch } from "../../hooks/useSearch";
+import LaporanWarga from "./LaporanWarga"; // Pastikan path benar
 
 export default function Header({
   locationReady,
@@ -11,7 +12,10 @@ export default function Header({
   onOpenLocationModal,
   onSearchResults,
   onSearchLoading,
-  onQueryChange
+  onQueryChange,
+  // Props Tambahan untuk Laporan Warga
+  tempat = [],
+  location
 }) {
   const { query, setQuery, results, isLoading } = useSearch(locationReady, villageLocation);
 
@@ -30,7 +34,7 @@ export default function Header({
       isScrolled ? "bg-white/95 backdrop-blur-xl shadow-md" : "bg-white/80 backdrop-blur-md"
     } border-b border-slate-100/50`}>
       
-      {/* BARIS UTAMA */}
+      {/* BARIS UTAMA (Logo, Lokasi Scrolled, Notif) */}
       <div className="flex items-center gap-2 px-4 py-3 h-16">
         
         {/* LOGO & LOCATION TRIGGER */}
@@ -59,9 +63,9 @@ export default function Header({
           )}
         </button>
 
-        {/* CONTAINER DINAMIS */}
+        {/* CONTAINER DINAMIS (Brand vs Search Scrolled) */}
         <div className="relative flex-1 h-10 flex items-center min-w-0">
-          {/* AREA BRANDING */}
+          {/* AREA BRANDING (Hanya saat di atas) */}
           <button 
             onClick={onOpenLocationModal}
             className={`absolute inset-0 flex flex-col items-start transition-all duration-300 ease-in-out origin-left overflow-hidden ${
@@ -84,7 +88,7 @@ export default function Header({
             </div>
           </button>
 
-          {/* SEARCH BAR (SCROLLED) */}
+          {/* SEARCH BAR (Hanya saat scrolled) */}
           <div className={`w-full transition-all duration-500 ease-out ${
             isScrolled 
               ? "opacity-100 translate-y-0 scale-100" 
@@ -120,31 +124,44 @@ export default function Header({
         </div>
       </div>
 
-      {/* SEARCH BAR BAWAH: PERBAIKAN JITTER */}
-      {/* Perubahan: Menggunakan max-height dan easing yang lebih smooth 
-          agar tidak "memotong" konten secara kasar saat scroll.
-      */}
-      <div className={`px-5 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
-        isScrolled ? "max-h-0 opacity-0 pb-0" : "max-h-[80px] opacity-100 pb-4"
+      {/* AREA DINAMIS BAWAH (Search Bawah + Laporan Warga) */}
+      <div className={`transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+        isScrolled ? "max-h-[120px]" : "max-h-[800px]"
       }`}>
-        <div className="relative group">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full bg-slate-50 border border-slate-100 rounded-xl py-3 pl-11 pr-4 text-[13px] font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:bg-white transition-all shadow-sm"
-          />
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#E3655B] transition-colors">
-            {isLoading ? (
-              <div className="w-4 h-4 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            )}
+        
+        {/* SEARCH BAR BAWAH (Sembunyi saat scroll) */}
+        <div className={`px-5 transition-all duration-500 ease-in-out overflow-hidden ${
+          isScrolled ? "max-h-0 opacity-0 pb-0" : "max-h-[80px] opacity-100 pb-2"
+        }`}>
+          <div className="relative group">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="w-full bg-slate-50 border border-slate-100 rounded-xl py-3 pl-11 pr-4 text-[13px] font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:bg-white transition-all shadow-sm"
+            />
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#E3655B] transition-colors">
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* LAPORAN WARGA (Interaktif & Elastis) */}
+        <LaporanWarga 
+          compact={isScrolled}
+          tempat={tempat}
+          locationReady={locationReady}
+          displayLocation={villageLocation}
+          districtLocation={districtLocation}
+          location={location}
+        />
       </div>
     </header>
   );

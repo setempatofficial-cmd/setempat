@@ -8,17 +8,28 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
   const [likedComments, setLikedComments] = useState({});
   const [replyTo, setReplyTo] = useState(null);
   const [expandedComments, setExpandedComments] = useState({});
-  const [replyPages, setReplyPages] = useState({}); // Untuk pagination balasan
+  const [expandedReplies, setExpandedReplies] = useState({});
+  const [replyPages, setReplyPages] = useState({});
+  
+  // State untuk swipe
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
   const [translateY, setTranslateY] = useState(0);
+  const [dragVelocity, setDragVelocity] = useState(0);
+  const [lastDragY, setLastDragY] = useState(0);
+  const [lastDragTime, setLastDragTime] = useState(0);
+  const [isClosing, setIsClosing] = useState(false);
   
   const modalContentRef = useRef(null);
   const contentRef = useRef(null);
   const inputRef = useRef(null);
+  const commentRefs = useRef({});
+  const dragAnimationRef = useRef(null);
 
-  const INITIAL_REPLIES = 3; // Jumlah balasan awal yang ditampilkan
-  const REPLIES_PER_PAGE = 4; // Jumlah balasan per halaman berikutnya
+  const INITIAL_REPLIES = 3;
+  const REPLIES_PER_PAGE = 4;
+  const SWIPE_THRESHOLD = 100; // Jarak minimal untuk menutup
+  const VELOCITY_THRESHOLD = 0.5; // Kecepatan minimal untuk menutup (px/ms)
 
   useEffect(() => {
     if (isOpen && tempat) {
@@ -35,7 +46,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
         }));
         setComments(formatted);
       } else {
-        // Data contoh dengan banyak balasan
         const sampleReplies = [];
         for (let i = 1; i <= 12; i++) {
           sampleReplies.push({
@@ -92,9 +102,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
           },
         ]);
       }
-      
-      // --- AUTOFOCUS DIHAPUS ---
-      // Kursor tidak langsung menuju kolom komentar
     }
   }, [isOpen, tempat, initialComments]);
 
@@ -107,6 +114,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
       document.body.style.overflow = "";
       document.body.style.touchAction = "";
       setTranslateY(0);
+      setIsClosing(false);
     }
 
     return () => {
@@ -115,47 +123,145 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     };
   }, [isOpen]);
 
-  // Handle touch untuk swipe down
+  // Handle touch untuk swipe down (ala Instagram)
   const handleTouchStart = (e) => {
     const modalContent = modalContentRef.current;
-    if (!modalContent) return;
+    if (!modalContent || isClosing) return;
 
+    // Hanya aktif jika di bagian paling atas
     if (modalContent.scrollTop <= 0) {
       setIsDragging(true);
       setStartY(e.touches[0].clientY);
+      setLastDragY(e.touches[0].clientY);
+      setLastDragTime(Date.now());
+      setDragVelocity(0);
+      
+      // Cancel animasi yang sedang berjalan
+      if (dragAnimationRef.current) {
+        cancelAnimationFrame(dragAnimationRef.current);
+      }
     }
   };
 
   const handleTouchMove = (e) => {
-    if (!isDragging) return;
+    if (!isDragging || isClosing) return;
 
     const currentY = e.touches[0].clientY;
+    const currentTime = Date.now();
     const diff = currentY - startY;
+    
+    // Hitung velocity
+    const timeDiff = currentTime - lastDragTime;
+    if (timeDiff > 0) {
+      const distance = currentY - lastDragY;
+      const velocity = distance / timeDiff;
+      setDragVelocity(velocity);
+    }
     
     if (diff > 0) {
       e.preventDefault();
-      setTranslateY(Math.min(diff, 150));
+      
+      // Efek resistance: semakin sulit ditarik ke bawah
+      const resistance = Math.max(0, 1 - (diff / 500));
+      const newTranslateY = diff * resistance;
+      
+      setTranslateY(newTranslateY);
+      
+      // Opacity backdrop berkurang saat ditarik
+      const backdrop = document.querySelector('.modal-backdrop');
+      if (backdrop) {
+        backdrop.style.opacity = Math.max(0, 0.6 - (diff / 500)).toString();
+      }
     }
+    
+    setLastDragY(currentY);
+    setLastDragTime(currentTime);
   };
 
   const handleTouchEnd = () => {
-    if (isDragging) {
-      if (translateY > 80) {
-        onClose();
-      } else {
-        setTranslateY(0);
-      }
-      setIsDragging(false);
+    if (!isDragging || isClosing) return;
+
+    const shouldClose = translateY > SWIPE_THRESHOLD || dragVelocity > VELOCITY_THRESHOLD;
+    
+    if (shouldClose) {
+      // Animasi menutup dengan velocity
+      setIsClosing(true);
+      
+      // Hitung jarak berdasarkan velocity untuk efek momentum
+      const momentumDistance = Math.min(dragVelocity * 100, 300);
+      const targetTranslateY = translateY + momentumDistance;
+      
+      // Animasi menutup
+      const startTime = Date.now();
+      const startTranslate = translateY;
+      
+      const animateClose = () => {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        const duration = 300; // ms
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Easing function untuk efek smooth
+        const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+        const currentTranslate = startTranslate + (targetTranslateY - startTranslate) * easeOutCubic;
+        
+        setTranslateY(currentTranslate);
+        
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) {
+          backdrop.style.opacity = Math.max(0, 0.6 - (currentTranslate / 500)).toString();
+        }
+        
+        if (progress < 1) {
+          dragAnimationRef.current = requestAnimationFrame(animateClose);
+        } else {
+          onClose();
+        }
+      };
+      
+      dragAnimationRef.current = requestAnimationFrame(animateClose);
+      
+    } else {
+      // Animasi kembali ke posisi awal
+      const startTime = Date.now();
+      const startTranslate = translateY;
+      
+      const animateReset = () => {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        const duration = 200; // ms
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Easing function
+        const easeOutElastic = Math.pow(2, -10 * progress) * Math.sin((progress - 0.075) * (2 * Math.PI) / 0.3) + 1;
+        const currentTranslate = startTranslate * (1 - easeOutElastic);
+        
+        setTranslateY(currentTranslate);
+        
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) {
+          backdrop.style.opacity = 0.6 - (currentTranslate / 500);
+        }
+        
+        if (progress < 1) {
+          dragAnimationRef.current = requestAnimationFrame(animateReset);
+        } else {
+          setTranslateY(0);
+        }
+      };
+      
+      dragAnimationRef.current = requestAnimationFrame(animateReset);
     }
+    
+    setIsDragging(false);
   };
 
-  // Fungsi untuk toggle expand komentar
   const toggleExpandComment = (commentId) => {
     setExpandedComments(prev => ({
       ...prev,
       [commentId]: !prev[commentId]
     }));
-    // Reset reply page ketika menutup
+    
     if (expandedComments[commentId]) {
       setReplyPages(prev => ({
         ...prev,
@@ -164,7 +270,13 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     }
   };
 
-  // Fungsi untuk load lebih banyak balasan
+  const toggleExpandReply = (replyId) => {
+    setExpandedReplies(prev => ({
+      ...prev,
+      [replyId]: !prev[replyId]
+    }));
+  };
+
   const loadMoreReplies = (commentId) => {
     setReplyPages(prev => ({
       ...prev,
@@ -172,7 +284,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     }));
   };
 
-  // Fungsi untuk mendapatkan balasan yang ditampilkan berdasarkan halaman
   const getVisibleReplies = (replies, commentId) => {
     if (!replies) return [];
     
@@ -180,10 +291,8 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     const totalReplies = replies.length;
     
     if (page === 1) {
-      // Halaman 1: tampilkan INITIAL_REPLIES
       return replies.slice(0, INITIAL_REPLIES);
     } else {
-      // Halaman berikutnya: tampilkan lebih banyak
       const endIndex = INITIAL_REPLIES + (page - 1) * REPLIES_PER_PAGE;
       return replies.slice(0, endIndex);
     }
@@ -211,31 +320,62 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     });
   };
 
+  useEffect(() => {
+    if (replyTo && inputRef.current) {
+      const mentionText = `@${replyTo.username} `;
+      setNewComment(mentionText);
+      
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.setSelectionRange(mentionText.length, mentionText.length);
+        }
+      }, 100);
+    }
+  }, [replyTo]);
+
   const handleSubmit = () => {
     if (!newComment.trim()) return;
 
-    const newReplyObj = {
-      id: Date.now(),
-      username: "kamu",
-      content: newComment,
-      time: "Baru saja",
-      likes: 0,
-      isLiked: false,
-      replies: [],
-    };
-
+    let newItemId;
+    
     if (replyTo) {
+      const newReplyObj = {
+        id: Date.now(),
+        username: "kamu",
+        content: newComment,
+        time: "Baru saja",
+        likes: 0,
+        isLiked: false,
+        replies: [],
+      };
+
+      newItemId = replyTo.commentId;
       setComments(prev => addReplyToComment(prev, replyTo.commentId, newReplyObj));
       
-      // Auto expand dan load semua balasan setelah kirim
+      // Auto expand semua level balasan
       setExpandedComments(prev => ({
         ...prev,
         [replyTo.commentId]: true
       }));
       
-      // Load semua balasan dengan set page ke maksimum
+      // Auto expand nested replies sampai ke level yang dibalas
+      const expandAllReplies = (replies, targetId) => {
+        replies.forEach(reply => {
+          setExpandedReplies(prev => ({
+            ...prev,
+            [reply.id]: true
+          }));
+          if (reply.replies?.length > 0) {
+            expandAllReplies(reply.replies, targetId);
+          }
+        });
+      };
+      
       const comment = comments.find(c => c.id === replyTo.commentId);
       if (comment) {
+        expandAllReplies(comment.replies, replyTo.commentId);
+        
         const maxPages = Math.ceil((comment.replies.length + 1 - INITIAL_REPLIES) / REPLIES_PER_PAGE) + 1;
         setReplyPages(prev => ({
           ...prev,
@@ -245,8 +385,9 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
       
       setReplyTo(null);
     } else {
+      newItemId = Date.now();
       const newCommentObj = {
-        id: Date.now(),
+        id: newItemId,
         username: "kamu",
         content: newComment,
         time: "Baru saja",
@@ -257,8 +398,22 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
       };
       setComments((prev) => [newCommentObj, ...prev]);
     }
-
+    
     setNewComment("");
+
+    // Scroll otomatis
+    setTimeout(() => {
+      if (replyTo) {
+        const targetComment = commentRefs.current[replyTo.commentId];
+        if (targetComment) {
+          targetComment.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else {
+        if (contentRef.current) {
+          contentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    }, 100);
   };
 
   const handleLike = (commentId) => {
@@ -282,8 +437,10 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     setComments(prev => updateLikes(prev));
   };
 
-  // Komponen ReplyItem
-  const ReplyItem = ({ reply }) => {
+  const ReplyItem = ({ reply, depth = 0 }) => {
+    const hasReplies = reply.replies?.length > 0;
+    const isExpanded = expandedReplies[reply.id];
+    
     return (
       <div className="flex items-start gap-2">
         <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-gray-400 to-gray-500 text-white font-medium text-xs flex-shrink-0">
@@ -292,25 +449,25 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
         
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-gray-800">
+            <span className="text-sm font-semibold text-gray-900">
               @{reply.username}
             </span>
-            <span className="text-[10px] text-gray-400">{reply.time}</span>
+            <span className="text-xs text-gray-500">{reply.time}</span>
           </div>
           
-          <p className="text-xs text-gray-700 leading-relaxed mt-0.5">
+          <p className="text-sm text-gray-800 leading-relaxed mt-1">
             {reply.content}
           </p>
 
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex items-center gap-4 mt-2">
             <button
               onClick={() => handleLike(reply.id)}
-              className={`flex items-center gap-1 text-xs transition-all ${
-                reply.isLiked ? "text-[#E3655B]" : "text-gray-400 hover:text-gray-600"
+              className={`flex items-center gap-1.5 text-sm transition-all ${
+                reply.isLiked ? "text-[#E3655B]" : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              <span className="text-xs">{reply.isLiked ? "❤️" : "🤍"}</span>
-              <span className="text-xs">{reply.likes}</span>
+              <span className="text-base">{reply.isLiked ? "❤️" : "🤍"}</span>
+              <span className="font-medium">{reply.likes}</span>
             </button>
             
             <button
@@ -320,17 +477,38 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
                   username: reply.username,
                 })
               }
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
-              Balas
+              <span className="text-base">💬</span>
+              <span className="font-medium">Balas</span>
             </button>
           </div>
 
-          {reply.replies && reply.replies.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {reply.replies.map((nestedReply) => (
-                <ReplyItem key={nestedReply.id} reply={nestedReply} />
-              ))}
+          {hasReplies && (
+            <div className="mt-2">
+              <button
+                onClick={() => toggleExpandReply(reply.id)}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#E3655B] transition-colors mb-2"
+              >
+                <span className="text-xs">{isExpanded ? "🔽" : "▶️"}</span>
+                <span>
+                  {isExpanded 
+                    ? "Sembunyikan balasan" 
+                    : `Lihat ${reply.replies.length} balasan`}
+                </span>
+              </button>
+
+              {isExpanded && (
+                <div className="space-y-2">
+                  {reply.replies.map((nestedReply) => (
+                    <ReplyItem 
+                      key={nestedReply.id} 
+                      reply={nestedReply} 
+                      depth={depth + 1}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -338,19 +516,19 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
     );
   };
 
-  // Komponen CommentItem
   const CommentItem = ({ comment }) => {
     const hasReplies = comment.replies?.length > 0;
     const isExpanded = expandedComments[comment.id];
     const visibleReplies = getVisibleReplies(comment.replies, comment.id);
-    const currentPage = replyPages[comment.id] || 1;
     const totalReplies = comment.replies?.length || 0;
     const remainingReplies = totalReplies - visibleReplies.length;
     const hasMoreToShow = remainingReplies > 0;
 
     return (
-      <div className="mb-6">
-        {/* Komentar Utama */}
+      <div 
+        ref={el => commentRefs.current[comment.id] = el}
+        className="mb-6"
+      >
         <div className="flex items-start gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-[#E3655B] to-[#c24b45] text-white font-medium text-sm flex-shrink-0">
             {comment.username[0]?.toUpperCase()}
@@ -399,10 +577,8 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
           </div>
         </div>
 
-        {/* Bagian Balasan */}
         {hasReplies && (
           <div className="mt-3 ml-4 pl-4 border-l-2 border-gray-200">
-            {/* Tombol Lihat Balasan (hanya jika belum expand) */}
             {!isExpanded && (
               <button
                 onClick={() => toggleExpandComment(comment.id)}
@@ -413,7 +589,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
               </button>
             )}
 
-            {/* Daftar Balasan (jika expand) */}
             {isExpanded && (
               <>
                 <div className="space-y-3">
@@ -422,7 +597,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
                   ))}
                 </div>
 
-                {/* Tombol Lihat Lebih Banyak (di tengah) */}
                 {hasMoreToShow && (
                   <button
                     onClick={() => loadMoreReplies(comment.id)}
@@ -433,7 +607,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
                   </button>
                 )}
 
-                {/* Tombol Sembunyikan Balasan (di bagian paling bawah) */}
                 <button
                   onClick={() => toggleExpandComment(comment.id)}
                   className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#E3655B] transition-colors mt-3"
@@ -454,28 +627,41 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div 
-        className="absolute inset-0 bg-black/60 transition-opacity duration-300" 
+        className="modal-backdrop absolute inset-0 bg-black/60 transition-opacity duration-300" 
+        style={{ opacity: 0.6 - (translateY / 500) }}
         onClick={onClose} 
       />
       
       <div 
         ref={modalContentRef}
-        className="relative w-full max-w-md h-full sm:h-[90vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-xl transition-transform duration-200 ease-out"
+        className="relative w-full max-w-md h-full sm:h-[90vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-xl transition-transform duration-200 ease-out overflow-hidden"
         style={{
           transform: `translateY(${translateY}px)`,
-          transition: isDragging ? 'none' : 'transform 0.3s ease-out'
+          transition: isDragging || isClosing ? 'none' : 'transform 0.3s ease-out'
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Drag indicator */}
-        <div className="sticky top-0 z-20 flex justify-center pt-2 pb-1 bg-white rounded-t-2xl">
+        {/* Drag indicator dengan efek parallax */}
+        <div 
+          className="sticky top-0 z-20 flex justify-center pt-2 pb-1 bg-white rounded-t-2xl"
+          style={{
+            transform: `translateY(${Math.min(translateY * 0.3, 20)}px)`,
+            opacity: 1 - (translateY / 200)
+          }}
+        >
           <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
         </div>
 
-        {/* Header */}
-        <div className="sticky top-[10px] z-10 bg-white px-4 py-3 border-b border-gray-200">
+        {/* Header dengan efek parallax */}
+        <div 
+          className="sticky top-[10px] z-10 bg-white px-4 py-3 border-b border-gray-200"
+          style={{
+            transform: `translateY(${Math.min(translateY * 0.2, 15)}px)`,
+            opacity: 1 - (translateY / 300)
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-[#E3655B]/10 flex items-center justify-center">
@@ -501,7 +687,13 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
 
         {/* Reply indicator */}
         {replyTo && (
-          <div className="sticky top-[88px] z-10 flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100">
+          <div 
+            className="sticky top-[88px] z-10 flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100"
+            style={{
+              transform: `translateY(${Math.min(translateY * 0.1, 10)}px)`,
+              opacity: 1 - (translateY / 400)
+            }}
+          >
             <div className="flex items-center gap-2">
               <span className="text-blue-500">↩️</span>
               <p className="text-sm text-blue-700">
@@ -520,11 +712,14 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
         {/* Comments container */}
         <div 
           ref={contentRef}
-          className="overflow-y-auto"
+          className="overflow-y-auto scrollbar-hide"
           style={{ 
             height: replyTo 
               ? 'calc(100vh - 240px)' 
-              : 'calc(100vh - 200px)'
+              : 'calc(100vh - 200px)',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+            transform: `translateY(${Math.min(translateY * 0.05, 5)}px)`,
           }}
         >
           <div className="p-4 space-y-4">
@@ -550,8 +745,14 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
           </div>
         </div>
 
-        {/* Input section */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 p-3">
+        {/* Input section dengan efek parallax */}
+        <div 
+          className="sticky bottom-0 bg-white border-t border-gray-200 p-3"
+          style={{
+            transform: `translateY(${Math.min(translateY, 50)}px)`,
+            opacity: 1 - (translateY / 200)
+          }}
+        >
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-gray-100 rounded-full px-4 py-2.5 focus-within:ring-2 focus-within:ring-[#E3655B] focus-within:ring-opacity-50">
               <input
@@ -580,6 +781,16 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
   );
 }
