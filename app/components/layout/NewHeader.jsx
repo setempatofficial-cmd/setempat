@@ -30,7 +30,7 @@ export default function Header({
     : "Pilih lokasi & cari suasana...";
 
   return (
-    <header className={`sticky top-0 z-30 transition-all duration-500 ${
+    <header className={`sticky top-0 z-[1000] transition-all duration-500 ${
       isScrolled ? "bg-white/95 backdrop-blur-xl shadow-md" : "bg-white/80 backdrop-blur-md"
     } border-b border-slate-100/50`}>
       
@@ -152,16 +152,6 @@ export default function Header({
             </div>
           </div>
         </div>
-
-        {/* LAPORAN WARGA (Interaktif & Elastis) */}
-        <LaporanWarga 
-          compact={isScrolled}
-          tempat={tempat}
-          locationReady={locationReady}
-          displayLocation={villageLocation}
-          districtLocation={districtLocation}
-          location={location}
-        />
       </div>
     </header>
   );

@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 
 import { supabase } from "../../../lib/supabaseClient";
 import { calculateDistance } from "../../../lib/distance";
 import { getGreeting } from "../../../lib/greeting";
-import { generateMoment } from "../../../lib/momentEngine";
 import { calculateScore } from "../../../lib/ranking";
 import { useLocation } from "../LocationProvider";
 
@@ -43,30 +42,16 @@ export default function FeedContent() {
   const [queryText, setQueryText] = useState("");
 
   const deferredQuery = useDeferredValue(queryText);
-  const greeting = getGreeting();
-  const currentHour = new Date().getHours();
 
-  // --- 1. STATUS KONEKSI LOKASI ---
   const locationReady = useMemo(() => {
     return status === "granted" && !!location?.latitude && !!location?.longitude;
   }, [status, location]);
 
-  // --- 2. LOGIKA EKSTRAKSI LOKASI BERJENJANG (Desa | Kecamatan) ---
   const { villageLocation, districtLocation } = useMemo(() => {
-    if (!placeName) {
-      return { 
-        villageLocation: "Pilih Lokasi", 
-        districtLocation: "" 
-      };
-    }
-    
-    // Memisahkan string "Tejowangi, Purwosari" yang dikirim dari Provider
+    if (!placeName) return { villageLocation: "Pilih Lokasi", districtLocation: "" };
     const parts = placeName.split(",").map(p => p.trim());
-    
     return { 
-      // Elemen pertama: Desa atau Kota
       villageLocation: parts[0] || "Lokasi", 
-      // Elemen kedua: Kecamatan (jika tersedia)
       districtLocation: parts[1] || "" 
     };
   }, [placeName]);
@@ -112,7 +97,6 @@ export default function FeedContent() {
           };
         });
 
-        // Sorting Logika: Jarak vs Ranking
         items.sort((a, b) => {
           if (locationReady && a.distance !== Infinity) {
             const scoreA = a.score * 0.4 + (1 / (a.distance || 0.1)) * 0.6;
@@ -147,7 +131,8 @@ export default function FeedContent() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
+      // Threshold 20px agar transisi sticky tidak terlalu sensitif
+      setIsScrolled(window.scrollY > 20);
       if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 && !loading && hasMore && queryText.length < 2) {
         loadPlaces();
       }
@@ -178,7 +163,6 @@ export default function FeedContent() {
 
   return (
     <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
-      {/* HEADER DINAMIS DENGAN FORMAT DESA | KECAMATAN */}
       <Header
         locationReady={locationReady}
         villageLocation={villageLocation}
@@ -190,19 +174,29 @@ export default function FeedContent() {
         onQueryChange={setQueryText}
         tempat={tempat} 
         location={location}
-
       />
+
+      {/* WRAPPER STICKY DIOPTIMASI */}
+      <div 
+        className="sticky z-20 will-change-transform transition-all duration-300 ease-in-out"
+        style={{ top: isScrolled ? "64px" : "0px" }}
+      >
+        <LaporanWarga 
+          compact={isScrolled}
+          tempat={tempat}
+          locationReady={locationReady}
+          displayLocation={villageLocation}
+          districtLocation={districtLocation}
+          location={location}
+        />
+      </div>
 
       <LocationModal 
         isOpen={isLocationModalOpen} 
         onClose={() => setIsLocationModalOpen(false)}
         locationReady={locationReady}
         onActivateGPS={async () => {
-          try {
-            await requestLocation();
-          } catch (err) {
-            console.error("Gagal aktivasi:", err);
-          }
+          try { await requestLocation(); } catch (err) { console.error(err); }
         }}
         onSelectManual={(coords) => {
           setManualLocation(coords);
@@ -213,8 +207,14 @@ export default function FeedContent() {
       <div className="px-4 mt-4">
         <AnimatePresence mode="wait">
           {deferredQuery.length >= 2 && (
-            <motion.div key="search-headline" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="px-1 py-6 mb-2">
-               <div className="flex items-center gap-2 mb-2">
+            <motion.div 
+              key="search-headline" 
+              initial={{ opacity: 0, y: -10 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              exit={{ opacity: 0 }} 
+              className="px-1 py-6 mb-2"
+            >
+              <div className="flex items-center gap-2 mb-2">
                 <span className="flex h-2 w-2 rounded-full bg-[#E3655B] animate-pulse shadow-[0_0_10px_#E3655B]"></span>
                 <h3 className="text-[10px] font-black text-[#E3655B] uppercase tracking-[0.3em]">Eksplorasi Suasana</h3>
               </div>
@@ -225,38 +225,50 @@ export default function FeedContent() {
           )}
         </AnimatePresence>
 
-        <div className="space-y-4 min-h-[60vh]">
-          <AnimatePresence mode="sync" initial={false}>
-            {initialLoad ? (
-              <motion.div key="skeleton-wrapper" exit={{ opacity: 0 }} className="space-y-6">
-                {[1, 2, 3].map((i) => (
-                  <div key={`skel-${i}`} className="h-80 bg-gray-200/60 rounded-[32px] animate-pulse" />
-                ))}
-              </motion.div>
-            ) : (
-              displayData.map((item, index) => (
-                <motion.div
-                  key={`feed-${item.id}`} 
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.2) }}
+        {/* LAYOUT GROUP UNTUK MENGHINDARI KEDIPAN SAAT KOMPONEN NAIK/TURUN */}
+        <LayoutGroup>
+          <motion.div layout className="space-y-4 min-h-[60vh]">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {initialLoad ? (
+                <motion.div 
+                  key="skeleton-wrapper" 
+                  exit={{ opacity: 0 }} 
+                  className="space-y-6"
                 >
-                  <FeedCard
-                    item={item}
-                    locationReady={locationReady}
-                    location={location}
-                    comments={comments}
-                    selectedPhotoIndex={selectedPhotoIndex}
-                    setSelectedPhotoIndex={setSelectedPhotoIndex}
-                    openAIModal={openAIModal}
-                    openKomentarModal={openKomentarModal}
-                    onShare={handleShare}
-                  />
+                  {[1, 2, 3].map((i) => (
+                    <div key={`skel-${i}`} className="h-80 bg-gray-200/60 rounded-[32px] animate-pulse" />
+                  ))}
                 </motion.div>
-              ))
-            )}
-          </AnimatePresence>
-        </div>
+              ) : (
+                displayData.map((item, index) => (
+                  <motion.div
+                    key={`feed-${item.id}`} 
+                    layout // Menangani pergerakan posisi tanpa kedipan
+                    initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ 
+                      duration: 0.25, 
+                      delay: Math.min(index * 0.02, 0.1),
+                      layout: { type: "spring", stiffness: 300, damping: 30 } 
+                    }}
+                  >
+                    <FeedCard
+                      item={item}
+                      locationReady={locationReady}
+                      location={location}
+                      comments={comments}
+                      selectedPhotoIndex={selectedPhotoIndex}
+                      setSelectedPhotoIndex={setSelectedPhotoIndex}
+                      openAIModal={openAIModal}
+                      openKomentarModal={openKomentarModal}
+                      onShare={handleShare}
+                    />
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </motion.div>
+        </LayoutGroup>
       </div>
 
       <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
@@ -269,8 +281,15 @@ export default function FeedContent() {
 
       <AnimatePresence>
         {toast.show && (
-          <motion.div initial={{ y: 20, opacity: 0, x: "-50%" }} animate={{ y: 0, opacity: 1, x: "-50%" }} exit={{ y: 20, opacity: 0, x: "-50%" }} className="fixed bottom-24 left-1/2 z-[100]">
-            <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl font-black text-[11px] uppercase tracking-widest whitespace-nowrap">{toast.message}</div>
+          <motion.div 
+            initial={{ y: 20, opacity: 0, x: "-50%" }} 
+            animate={{ y: 0, opacity: 1, x: "-50%" }} 
+            exit={{ y: 20, opacity: 0, x: "-50%" }} 
+            className="fixed bottom-24 left-1/2 z-[100]"
+          >
+            <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl font-black text-[11px] uppercase tracking-widest whitespace-nowrap">
+              {toast.message}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

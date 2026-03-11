@@ -51,14 +51,16 @@ export default function PhotoSlider({
   };
 
   return (
+    /* KUNCI PERBAIKAN: isolate dan z-0 memastikan semua isi slider 
+       terkunci di lapisan bawah dan tidak akan menembus LaporanWarga */
     <div
-      className="relative h-80 overflow-hidden rounded-[24px] bg-gray-100 group"
+      className="relative h-80 overflow-hidden rounded-[24px] bg-gray-100 group isolate z-0"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
       {/* 1. META CAPTION & BADGES OVERLAY */}
-      <div className="absolute top-3 left-0 right-3 z-20 flex justify-between items-start pointer-events-none">
+      <div className="absolute top-3 left-0 right-3 z-10 flex justify-between items-start pointer-events-none">
         <div className="flex flex-col gap-1.5 items-start">
           {(() => {
             const badges = [];
@@ -85,15 +87,15 @@ export default function PhotoSlider({
           })()}
         </div>
 
-        {/* 2. SLIDE COUNTER (Khas Aplikasi Modern) */}
+        {/* 2. SLIDE COUNTER (ANGKA TETAP ADA DI SINI) */}
         {photos.length > 1 && (
-          <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full border border-white/20">
+          <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full border border-white/10">
             {selectedPhotoIndex + 1} / {photos.length}
           </div>
         )}
       </div>
 
-      {/* 3. FOTO CONTAINER DENGAN ANIMASI HALUS */}
+      {/* 3. FOTO CONTAINER */}
       <div 
         className="flex h-full transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]"
         style={{ transform: `translateX(-${selectedPhotoIndex * 100}%)` }}
@@ -106,21 +108,20 @@ export default function PhotoSlider({
               className="object-cover w-full h-full transition-transform duration-[2s] group-hover:scale-110"
               loading="lazy"
             />
-            {/* Overlay Gradient halus di bawah agar dots & teks terbaca */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-60 pointer-events-none" />
           </div>
         ))}
       </div>
       
-      {/* 4. MODERN DOTS INDICATOR */}
+      {/* 4. MODERN DOTS INDICATOR (TITIK-TITIK TETAP ADA) */}
       {photos.length > 1 && (
-        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-20">
+        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-10">
           {photos.map((_, idx) => (
             <div
               key={idx}
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 idx === selectedPhotoIndex
-                ? "w-6 bg-white" // Dot aktif lebih panjang (pill style)
+                ? "w-6 bg-white" 
                 : "w-1.5 bg-white/50"
               }`}
             />
@@ -128,9 +129,9 @@ export default function PhotoSlider({
         </div>
       )}
 
-      {/* 5. HINT VISUAL (Supaya user tau bisa di-slide) */}
+      {/* 5. HINT VISUAL (PANAH PETUNJUK TETAP ADA) */}
       {photos.length > 1 && selectedPhotoIndex === 0 && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 animate-bounce-x p-2 pointer-events-none opacity-50">
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 animate-bounce-x p-2 pointer-events-none opacity-50 z-10">
           <svg width="20" height="20" fill="white" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
         </div>
       )}
