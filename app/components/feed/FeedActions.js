@@ -24,7 +24,14 @@ export default function FeedActions({
         <span className="text-[13px] font-bold tracking-tight">Tanya AI</span>
       </button>
 
-      {/* KOMENTAR - Secondary Action */}
+{/* COCOK - Secondary  Action */}
+
+        <button onClick={handleSesuai} disabled={isSesuai} className={`flex-1 flex flex-col items-center justify-center rounded-2xl border py-2 transition-all ${isSesuai ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400" : "border-white/10 bg-white/5 text-zinc-500 active:bg-white/10"}`}>
+          <span className="text-xl">{isSesuai ? "🛡️" : "💛"}</span>
+          <span className="text-[8px] font-black uppercase tracking-tighter">{localValidationCount >= 5 ? "Info Valid" : "Cocok"}</span>
+        </button>
+
+      {/* KOMENTAR - Third Action */}
       <button
         onClick={() => openKomentarModal(item)}
         className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-95 text-gray-700 border border-gray-200/50 transition-all duration-200"
