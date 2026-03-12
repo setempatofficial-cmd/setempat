@@ -93,15 +93,39 @@ export default function LaporanWarga({
   }, [stats.titikRamai]);
 
   const timeTheme = useMemo(() => {
-    const sapaan = getGreeting().text;
-    const themes = {
-      Pagi: { bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-900", sub: "text-amber-500", dot: "bg-amber-400" },
-      Siang: { bg: "bg-blue-50", border: "border-blue-100", text: "text-blue-900", sub: "text-blue-400", dot: "bg-blue-500" },
-      Sore: { bg: "bg-orange-50", border: "border-orange-100", text: "text-orange-900", sub: "text-orange-500", dot: "bg-orange-500" },
-      Malam: { bg: "bg-slate-900", border: "border-slate-800", text: "text-white", sub: "text-slate-400", dot: "bg-indigo-400" }
-    };
-    return themes[sapaan] || { bg: "bg-white", border: "border-slate-100", text: "text-slate-900", sub: "text-slate-400", dot: "bg-red-500" };
-  }, [time]);
+  const sapaan = getGreeting().text;
+  const themes = {
+    Pagi: { 
+      bg: "bg-gradient-to-br from-orange-50 to-white", 
+      border: "border-orange-100", 
+      text: "text-orange-950", 
+      sub: "text-orange-600", 
+      dot: "bg-orange-500 shadow-sm" 
+    },
+    Siang: { 
+      bg: "bg-gradient-to-br from-blue-50 to-white", 
+      border: "border-blue-100", 
+      text: "text-blue-950", 
+      sub: "text-blue-500", 
+      dot: "bg-blue-600 shadow-sm" 
+    },
+    Sore: { 
+      bg: "bg-gradient-to-br from-rose-50 via-orange-50 to-white", 
+      border: "border-rose-100", 
+      text: "text-rose-950", 
+      sub: "text-rose-600", 
+      dot: "bg-rose-500 shadow-sm" 
+    },
+    Malam: { 
+      bg: "bg-[#0f172a]", // Slate 900 murni
+      border: "border-slate-800", 
+      text: "text-slate-50", 
+      sub: "text-slate-400", 
+      dot: "bg-cyan-400 shadow-[0_0_10px_#22d3ee]" 
+    }
+  };
+  return themes[sapaan] || themes.Siang;
+}, [time]);
 
   if (!locationReady) return null;
 
@@ -144,7 +168,7 @@ export default function LaporanWarga({
             {stats.topPlace && (
               <button onClick={() => window.location.href = `/?id=${stats.topPlace.id}`} className="w-full active:scale-[0.98] transition-transform text-left bg-slate-900 rounded-xl p-2.5 flex items-center justify-between shadow-lg">
                 <p className="text-[11px] font-bold text-white truncate px-1 min-w-0">
-                  <span className="text-orange-400 font-black uppercase tracking-tighter">Trending:</span> {stats.topPlace.name} <span className={`font-black italic ml-1 ${dynamicMessage.color}`}>— {dynamicMessage.short}</span>
+                  <span className="text-orange-400 font-black uppercase tracking-tighter">Saat Ini:</span> {stats.topPlace.name} <span className={`font-black italic ml-1 ${dynamicMessage.color}`}>— {dynamicMessage.short}</span>
                 </p>
                 <span className="text-[10px] font-black text-white/30 uppercase ml-2 whitespace-nowrap">Cek →</span>
               </button>
@@ -166,7 +190,7 @@ export default function LaporanWarga({
                   <span className="text-slate-300">•</span>
                   <span className={vibeInfo.color}>{vibeInfo.impact}</span>
                 </div>
-                <p className="text-[9px] font-bold truncate text-slate-400">Update warga @ {validatedLocation}</p>
+                <p className="text-[9px] font-bold truncate text-slate-400">Update Warga Setempat {validatedLocation}</p>
               </div>
             </div>
             <button onClick={() => setIsExpanded(!isExpanded)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${isExpanded ? "bg-white text-slate-900" : "bg-black/10 text-slate-500"}`}>

@@ -7,11 +7,10 @@ export default function PhotoSlider({
   itemId,
   selectedPhotoIndex = 0,
   setSelectedPhotoIndex,
+  // Props ini tetap diterima jika kedepannya ingin memberi filter/efek pada foto
   isRamai,
   isViral,
-  isHits,
-  isDekat,
-  isBaru,
+  isHujan, 
 }) {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
@@ -35,8 +34,9 @@ export default function PhotoSlider({
 
     if (isLeftSwipe || isRightSwipe) {
       const photosLength = photos.length;
-      let newIndex = selectedPhotoIndex;
+      if (photosLength <= 1) return;
 
+      let newIndex = selectedPhotoIndex;
       if (isLeftSwipe) {
         newIndex = (selectedPhotoIndex + 1) % photosLength;
       } else if (isRightSwipe) {
@@ -51,53 +51,15 @@ export default function PhotoSlider({
   };
 
   return (
-    /* KUNCI PERBAIKAN: isolate dan z-0 memastikan semua isi slider 
-       terkunci di lapisan bawah dan tidak akan menembus LaporanWarga */
     <div
-      className="relative h-80 overflow-hidden rounded-[24px] bg-gray-100 group isolate z-0"
+      className="relative h-full w-full overflow-hidden bg-zinc-800 group isolate z-0"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* 1. META CAPTION & BADGES OVERLAY */}
-      <div className="absolute top-3 left-0 right-3 z-10 flex justify-between items-start pointer-events-none">
-        <div className="flex flex-col gap-1.5 items-start">
-          {(() => {
-            const badges = [];
-            if (isViral) badges.push({ label: '⚡ Sedang Viral', color: 'bg-purple-600/90' });
-            else if (isRamai) badges.push({ label: '🔥 Lagi Ramai', color: 'bg-red-600/90' });
-            else if (isHits) badges.push({ label: '📱 Hits Jam Ini', color: 'bg-orange-600/90' });
-
-            if (isDekat && badges.length < 2) {
-              badges.push({ label: '📍 Dekat Anda', color: 'bg-blue-600/90' });
-            }
-
-            if (isBaru && badges.length < 2) {
-              badges.push({ label: '🟢 Baru Saja', color: 'bg-emerald-500/90' });
-            }
-
-            return badges.map((badge, idx) => (
-              <span 
-                key={idx} 
-                className={`pl-3 pr-4 py-1.5 text-[10px] font-black text-white ${badge.color} backdrop-blur-md rounded-r-full shadow-lg transition-transform duration-500 hover:translate-x-1 uppercase tracking-wider`}
-              >
-                {badge.label}
-              </span>
-            ));
-          })()}
-        </div>
-
-        {/* 2. SLIDE COUNTER (ANGKA TETAP ADA DI SINI) */}
-        {photos.length > 1 && (
-          <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full border border-white/10">
-            {selectedPhotoIndex + 1} / {photos.length}
-          </div>
-        )}
-      </div>
-
-      {/* 3. FOTO CONTAINER */}
+      {/* 1. FOTO CONTAINER */}
       <div 
-        className="flex h-full transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]"
+        className="flex h-full transition-transform duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
         style={{ transform: `translateX(-${selectedPhotoIndex * 100}%)` }}
       >
         {photos.map((photo, idx) => (
@@ -105,34 +67,37 @@ export default function PhotoSlider({
             <img
               src={typeof photo === 'string' ? photo : photo?.url}
               alt={`Slide ${idx + 1}`}
-              className="object-cover w-full h-full transition-transform duration-[2s] group-hover:scale-110"
+              className={`object-cover w-full h-full transition-transform duration-[5s] group-hover:scale-105 ${isHujan ? 'brightness-75' : ''}`}
               loading="lazy"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-60 pointer-events-none" />
+            {/* Overlay gelap tipis agar teks putih di FeedCard selalu terbaca */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-transparent opacity-40 pointer-events-none" />
           </div>
         ))}
       </div>
       
-      {/* 4. MODERN DOTS INDICATOR (TITIK-TITIK TETAP ADA) */}
+      {/* 2. MODERN DOTS INDICATOR */}
       {photos.length > 1 && (
-        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-10">
+        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-10 pointer-events-none">
           {photos.map((_, idx) => (
             <div
               key={idx}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
+              className={`h-1 rounded-full transition-all duration-300 ${
                 idx === selectedPhotoIndex
                 ? "w-6 bg-white" 
-                : "w-1.5 bg-white/50"
+                : "w-1.5 bg-white/40"
               }`}
             />
           ))}
         </div>
       )}
 
-      {/* 5. HINT VISUAL (PANAH PETUNJUK TETAP ADA) */}
+      {/* 3. HINT SWIPE (Hanya muncul di foto pertama) */}
       {photos.length > 1 && selectedPhotoIndex === 0 && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 animate-bounce-x p-2 pointer-events-none opacity-50 z-10">
-          <svg width="20" height="20" fill="white" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 animate-pulse p-2 pointer-events-none opacity-30 z-10">
+          <svg width="24" height="24" fill="white" viewBox="0 0 256 256">
+            <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path>
+          </svg>
         </div>
       )}
     </div>
