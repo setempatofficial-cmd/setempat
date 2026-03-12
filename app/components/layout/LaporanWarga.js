@@ -120,7 +120,7 @@ export default function LaporanWarga({
       bg: "bg-[#0f172a]", // Slate 900 murni
       border: "border-slate-800", 
       text: "text-slate-50", 
-      sub: "text-slate-400", 
+      sub: "text-slate-300", 
       dot: "bg-cyan-400 shadow-[0_0_10px_#22d3ee]" 
     }
   };
@@ -159,7 +159,7 @@ export default function LaporanWarga({
               </div>
               {stats.titikRamai > 0 && (
                 <div className="flex-1 bg-white/50 backdrop-blur-sm px-3 py-2.5 rounded-2xl border border-white/20 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-400 uppercase mb-1">TITIK AKTIF</p>
+                  <p className="text-[10px] font-black text-slate-200 uppercase mb-1">TITIK AKTIF</p>
                   <p className={`text-[15px] font-black leading-none ${timeTheme.text === "text-white" ? "text-white" : "text-slate-900"}`}>{stats.titikRamai} <span className="text-[9px] opacity-50 font-bold ml-0.5">LOKASI</span></p>
                 </div>
               )}
@@ -186,7 +186,7 @@ export default function LaporanWarga({
                 <div className="flex items-center gap-1.5 text-[11px] font-black uppercase leading-none">
                   <span className={vibeInfo.color}>{vibeInfo.text}</span>
                   <span className="text-slate-300">•</span>
-                  <span className={timeTheme.text === "text-white" ? "text-white" : "text-slate-900"}>{stats.titikRamai} TITIK</span>
+                  <span className={timeTheme.text === "text-white" ? "text-white" : "text-slate-200"}>{stats.titikRamai} TITIK</span>
                   <span className="text-slate-300">•</span>
                   <span className={vibeInfo.color}>{vibeInfo.impact}</span>
                 </div>
