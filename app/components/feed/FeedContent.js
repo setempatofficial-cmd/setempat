@@ -12,7 +12,8 @@ import { useLocation } from "../LocationProvider";
 import FeedCard from "./FeedCard";
 import Header from "../layout/NewHeader";
 import LaporanWarga from "../layout/LaporanWarga";
-import AIModal from "./AIModal";
+import AIModal from "./AIModal"; 
+import AISearchModal from "./AISearchModal"; 
 import KomentarModal from "./KomentarModal";
 import LocationModal from "@/components/LocationModal";
 
@@ -29,8 +30,10 @@ export default function FeedContent() {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
   const [initialLoad, setInitialLoad] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
+  
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showAISearchModal, setShowAISearchModal] = useState(false); 
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
 
@@ -42,6 +45,9 @@ export default function FeedContent() {
   const [queryText, setQueryText] = useState("");
 
   const deferredQuery = useDeferredValue(queryText);
+
+  // Logika Malam tetap ada tapi bg-color dipindah ke parent (page.js)
+  const isMalam = useMemo(() => getGreeting().text === "Malam", []);
 
   const locationReady = useMemo(() => {
     return status === "granted" && !!location?.latitude && !!location?.longitude;
@@ -131,7 +137,6 @@ export default function FeedContent() {
 
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold 20px agar transisi sticky tidak terlalu sensitif
       setIsScrolled(window.scrollY > 20);
       if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 && !loading && hasMore && queryText.length < 2) {
         loadPlaces();
@@ -141,9 +146,15 @@ export default function FeedContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [loading, hasMore, loadPlaces, queryText]);
 
-  const openAIModal = (item) => { setSelectedTempat(item); setShowAIModal(true); };
+  const openAICardModal = (item) => { setSelectedTempat(item); setShowAIModal(true); };
+  const openAISearchModal = () => { setShowAISearchModal(true); };
   const openKomentarModal = (item) => { setSelectedTempat(item); setShowKomentarModal(true); };
-  const closeModals = () => { setShowAIModal(false); setShowKomentarModal(false); setSelectedTempat(null); };
+  const closeModals = () => { 
+    setShowAIModal(false); 
+    setShowAISearchModal(false); 
+    setShowKomentarModal(false); 
+    setSelectedTempat(null); 
+  };
 
   const handleShare = async (item) => {
     const shareUrl = `${window.location.origin}?id=${item.id}`;
@@ -162,39 +173,52 @@ export default function FeedContent() {
   }, [deferredQuery, filteredPlaces, tempat]);
 
   return (
-    <main className="relative min-h-screen max-w-md mx-auto pb-20 bg-[#F9F7F7]">
-      <Header
-        locationReady={locationReady}
-        villageLocation={villageLocation}
-        districtLocation={districtLocation}
-        isScrolled={isScrolled}
-        onOpenLocationModal={() => setIsLocationModalOpen(true)}
-        onSearchResults={setFilteredPlaces}
-        onSearchLoading={setIsSearching}
-        onQueryChange={setQueryText}
-        tempat={tempat} 
-        location={location}
-      />
-
-      {/* WRAPPER STICKY DIOPTIMASI */}
-      <div 
-        className="sticky z-20 will-change-transform transition-all duration-300 ease-in-out"
-        style={{ top: isScrolled ? "64px" : "0px" }}
-      >
-        <LaporanWarga 
-          compact={isScrolled}
-          tempat={tempat}
+    // bg-transparent penting agar aura di page.js tidak tertutup
+    <main className={`relative min-h-screen max-w-md mx-auto pb-24 transition-all duration-700 bg-transparent`}>
+      
+      {/* HEADER: Sekarang menggunakan backdrop-blur untuk efek mewah saat scroll */}
+      <div className={`sticky top-0 z-50 transition-all duration-300 ${isScrolled ? 'backdrop-blur-xl bg-black/20 border-b border-white/5' : 'bg-transparent'}`}>
+        <Header
           locationReady={locationReady}
-          displayLocation={villageLocation}
+          villageLocation={villageLocation}
           districtLocation={districtLocation}
+          isScrolled={isScrolled}
+          onOpenLocationModal={() => setIsLocationModalOpen(true)}
+          onOpenAIModal={openAISearchModal}
+          onSearchResults={setFilteredPlaces}
+          onSearchLoading={setIsSearching}
+          onQueryChange={setQueryText}
+          tempat={tempat} 
           location={location}
         />
+      </div>
+
+      {/* WRAPPER STICKY LAPORAN WARGA */}
+      <div 
+        className="sticky z-20" 
+        style={{ 
+          top: isScrolled ? "70px" : "10px",
+          padding: "0 16px",
+          transition: "all 0.4s cubic-bezier(0.22, 1, 0.36, 1)"
+        }}
+      >
+        <div className={`rounded-[28px] overflow-hidden transition-all duration-300 ${isScrolled ? 'shadow-2xl' : ''}`}>
+          <LaporanWarga 
+            compact={isScrolled}
+            tempat={tempat}
+            locationReady={locationReady}
+            displayLocation={villageLocation}
+            districtLocation={districtLocation}
+            location={location}
+          />
+        </div>
       </div>
 
       <LocationModal 
         isOpen={isLocationModalOpen} 
         onClose={() => setIsLocationModalOpen(false)}
         locationReady={locationReady}
+        isMalam={isMalam}
         onActivateGPS={async () => {
           try { await requestLocation(); } catch (err) { console.error(err); }
         }}
@@ -204,52 +228,47 @@ export default function FeedContent() {
         }}
       />
 
-      <div className="px-4 mt-4">
+      <div className="px-0 mt-6">
         <AnimatePresence mode="wait">
           {deferredQuery.length >= 2 && (
             <motion.div 
               key="search-headline" 
-              initial={{ opacity: 0, y: -10 }} 
-              animate={{ opacity: 1, y: 0 }} 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
               exit={{ opacity: 0 }} 
-              className="px-1 py-6 mb-2"
+              className="px-6 py-8 mx-4 mb-4 bg-white/[0.03] rounded-[32px] border border-white/5"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="flex h-2 w-2 rounded-full bg-[#E3655B] animate-pulse shadow-[0_0_10px_#E3655B]"></span>
-                <h3 className="text-[10px] font-black text-[#E3655B] uppercase tracking-[0.3em]">Eksplorasi Suasana</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_red]"></span>
+                <h3 className="text-[9px] font-black text-white/40 uppercase tracking-[0.4em]">Eksplorasi Suasana</h3>
               </div>
-              <h2 className="text-3xl font-black text-gray-900 tracking-tighter leading-[0.9] mb-3">
-                Lagi nyari <span className="text-[#E3655B]">"{deferredQuery}"</span> ya?
+              <h2 className={`text-2xl font-bold tracking-tight text-white leading-tight`}>
+                Mencari <span className="text-red-500 italic">"{deferredQuery}"</span>
               </h2>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* LAYOUT GROUP UNTUK MENGHINDARI KEDIPAN SAAT KOMPONEN NAIK/TURUN */}
         <LayoutGroup>
-          <motion.div layout className="space-y-4 min-h-[60vh]">
+          <motion.div layout className="space-y-2 min-h-[60vh]">
             <AnimatePresence mode="popLayout" initial={false}>
               {initialLoad ? (
-                <motion.div 
-                  key="skeleton-wrapper" 
-                  exit={{ opacity: 0 }} 
-                  className="space-y-6"
-                >
-                  {[1, 2, 3].map((i) => (
-                    <div key={`skel-${i}`} className="h-80 bg-gray-200/60 rounded-[32px] animate-pulse" />
+                <motion.div key="skeleton-wrapper" exit={{ opacity: 0 }} className="space-y-6 px-4">
+                  {[1, 2].map((i) => (
+                    <div key={`skel-${i}`} className="h-[400px] w-full rounded-[40px] animate-pulse bg-white/5 border border-white/5" />
                   ))}
                 </motion.div>
               ) : (
                 displayData.map((item, index) => (
                   <motion.div
-                    key={`feed-${item.id}`} 
-                    layout // Menangani pergerakan posisi tanpa kedipan
-                    initial={{ opacity: 0, scale: 0.98, y: 10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    key={`feed-${item.id}`}    
+                    layout    
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
                     transition={{ 
-                      duration: 0.25, 
-                      delay: Math.min(index * 0.02, 0.1),
-                      layout: { type: "spring", stiffness: 300, damping: 30 } 
+                      duration: 0.5, 
+                      ease: [0.22, 1, 0.36, 1],
+                      delay: Math.min(index * 0.05, 0.2)
                     }}
                   >
                     <FeedCard
@@ -259,7 +278,7 @@ export default function FeedContent() {
                       comments={comments}
                       selectedPhotoIndex={selectedPhotoIndex}
                       setSelectedPhotoIndex={setSelectedPhotoIndex}
-                      openAIModal={openAIModal}
+                      openAIModal={openAICardModal}
                       openKomentarModal={openKomentarModal}
                       onShare={handleShare}
                     />
@@ -271,23 +290,21 @@ export default function FeedContent() {
         </LayoutGroup>
       </div>
 
+      {/* MODALS */}
+      <AISearchModal isOpen={showAISearchModal} onClose={closeModals} query={queryText} villageLocation={villageLocation} locationReady={locationReady} />
       <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
-      <KomentarModal 
-        isOpen={showKomentarModal} 
-        onClose={closeModals} 
-        tempat={selectedTempat} 
-        initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} 
-      />
+      <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} />
 
+      {/* TOAST NOTIFICATION */}
       <AnimatePresence>
         {toast.show && (
           <motion.div 
-            initial={{ y: 20, opacity: 0, x: "-50%" }} 
-            animate={{ y: 0, opacity: 1, x: "-50%" }} 
-            exit={{ y: 20, opacity: 0, x: "-50%" }} 
-            className="fixed bottom-24 left-1/2 z-[100]"
+            initial={{ y: 50, x: "-50%", opacity: 0 }} 
+            animate={{ y: 0, x: "-50%", opacity: 1 }} 
+            exit={{ y: 50, x: "-50%", opacity: 0 }} 
+            className="fixed bottom-10 left-1/2 z-[100]"
           >
-            <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl font-black text-[11px] uppercase tracking-widest whitespace-nowrap">
+            <div className="bg-white text-black px-6 py-3 rounded-2xl shadow-2xl font-bold text-[12px] tracking-tight uppercase">
               {toast.message}
             </div>
           </motion.div>

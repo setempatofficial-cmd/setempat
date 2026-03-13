@@ -625,7 +625,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, initialComments
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
       <div 
         className="modal-backdrop absolute inset-0 bg-black/60 transition-opacity duration-300" 
         style={{ opacity: 0.6 - (translateY / 500) }}

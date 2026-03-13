@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
+import { getGreeting } from "@/lib/greeting";
 
 const LocationContext = createContext(null);
 
@@ -16,6 +17,21 @@ export default function LocationProvider({ children }) {
   const [location, setLocation] = useState(null);
   const [status, setStatus] = useState("idle");
   const [placeName, setPlaceName] = useState(null);
+  
+  // --- SYNC TEMA TERPUSAT ---
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update waktu setiap menit untuk memastikan greeting akurat
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // "Sapaan" ini akan jadi referensi tunggal untuk Header, Feed, dan Modal
+  const sapaan = useMemo(() => {
+    return getGreeting(currentTime).text; 
+  }, [currentTime]);
+  // --------------------------
 
   useEffect(() => {
     const saved = localStorage.getItem("user-location");
@@ -41,7 +57,6 @@ export default function LocationProvider({ children }) {
     localStorage.setItem("user-location", JSON.stringify(spot));
   };
 
-  // UBAH: Sekarang menggunakan Promise agar modal bisa 'await'
   function requestLocation() {
     return new Promise((resolve, reject) => {
       if (status === "loading") return;
@@ -54,7 +69,6 @@ export default function LocationProvider({ children }) {
           setLocation({ latitude: lat, longitude: lon });
           setStatus("granted");
           
-          // Tunggu sampai nama tempat didapat baru resolve
           const name = await fetchPlaceName(lat, lon);
           resolve({ lat, lon, name });
         },
@@ -98,7 +112,7 @@ export default function LocationProvider({ children }) {
         name: finalName
       }));
       
-      return finalName; // Kembalikan nilai untuk resolve
+      return finalName;
     } catch (err) {
       console.error("Geocoding error:", err);
       setPlaceName("Pasuruan, Jawa Timur");
@@ -107,7 +121,16 @@ export default function LocationProvider({ children }) {
   }
 
   return (
-    <LocationContext.Provider value={{ location, status, placeName, requestLocation, setManualLocation }}>
+    <LocationContext.Provider 
+      value={{ 
+        location, 
+        status, 
+        placeName, 
+        requestLocation, 
+        setManualLocation,
+        sapaan // <--- Sekarang sapaan dibagikan ke seluruh aplikasi
+      }}
+    >
       {children}
     </LocationContext.Provider>
   );

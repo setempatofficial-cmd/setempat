@@ -211,7 +211,7 @@ export default function AIModal({ isOpen, onClose, tempat }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 transition-opacity duration-300" 
