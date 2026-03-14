@@ -13,6 +13,8 @@ export default function LaporanWarga({
 }) {
   const { sapaan } = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isVisible, setIsVisible] = useState(true); // State untuk menghilang
+  const [isClosing, setIsClosing] = useState(false); // State untuk animasi keluar
   const [contentHeight, setContentHeight] = useState(0);
   const fullContentRef = useRef(null);
   const compactContentRef = useRef(null);
@@ -94,21 +96,26 @@ export default function LaporanWarga({
     return themes[sapaan] || themes.Siang;
   }, [sapaan]);
 
-  // Effect untuk mengukur tinggi konten
+  // Fungsi untuk menutup komponen dengan animasi
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => setIsVisible(false), 500); // Tunggu animasi selesai baru remove dari DOM
+  };
+
   useEffect(() => {
     if (fullContentRef.current) {
       setContentHeight(fullContentRef.current.offsetHeight);
     }
   }, [stats, validatedLocation, sapaan, tempat]);
 
-  if (!locationReady) return null;
+  if (!locationReady || !isVisible) return null;
 
   return (
-    <div className="w-full transition-all duration-500 ease-out will-change-transform">
+    <div className={`w-full transition-all duration-500 ease-in-out will-change-transform ${isClosing ? "opacity-0 scale-95 translate-y-[-20px]" : "opacity-100"}`}>
       <div className={`relative w-full transition-all duration-500 ${timeTheme.bg} 
         ${compact ? "border-none shadow-md shadow-black/5" : "border-b " + timeTheme.border}`}>
         
-        {/* Container dengan fixed height saat compact */}
+        {/* Container Utama */}
         <div 
           className="relative overflow-hidden"
           style={{ 
@@ -187,10 +194,23 @@ export default function LaporanWarga({
                   <p className="text-[9px] font-bold truncate text-slate-400">Update Warga {validatedLocation}</p>
                 </div>
               </div>
-              <button onClick={() => setIsExpanded(!isExpanded)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${isExpanded ? "bg-white text-slate-900 shadow-sm" : "bg-black/10 text-slate-500"}`}>
-                <svg className={`transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
-                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+
+              {/* Tombol yang berubah fungsi: Klik pertama Expand, Klik saat Expand = Menghilang */}
+              <button 
+                onClick={() => isExpanded ? handleClose() : setIsExpanded(true)} 
+                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-300 ${isExpanded ? "bg-red-500 text-white shadow-lg rotate-0" : "bg-black/10 text-slate-500"}`}
+              >
+                {isExpanded ? (
+                  // Icon X saat expanded
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
+                    <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  // Icon Panah saat compact
+                  <svg className="transition-transform duration-300" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
+                    <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
@@ -222,11 +242,14 @@ export default function LaporanWarga({
                 <h4 className="text-slate-900 font-black text-[15px] leading-tight mb-3 italic">
                   {dynamicMessage.pre}<span className="text-red-600 not-italic">"{dynamicMessage.name}"</span>{dynamicMessage.post}
                 </h4>
-                <button onClick={() => window.location.href = `/?id=${stats.topPlace.id}`} className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase">
+                <button onClick={() => window.location.href = `/?id=${stats.topPlace.id}`} className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase active:scale-95 transition-transform">
                   ⚡ Cek Suasana Sekarang
                 </button>
               </div>
             )}
+            
+            {/* Opsi tambahan: Text kecil untuk info klik tombol merah untuk tutup */}
+            <p className="text-[8px] text-center text-slate-400 mt-3 font-bold uppercase tracking-wider">Klik icon merah di atas untuk tutup laporan</p>
           </div>
         </div>
       </div>

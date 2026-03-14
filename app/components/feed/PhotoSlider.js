@@ -1,16 +1,11 @@
 "use client";
-
 import { useState } from "react";
 
 export default function PhotoSlider({
   photos = [],
-  itemId,
   selectedPhotoIndex = 0,
   setSelectedPhotoIndex,
-  // Props ini tetap diterima jika kedepannya ingin memberi filter/efek pada foto
-  isRamai,
-  isViral,
-  isHujan, 
+  isHujan,
 }) {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
@@ -42,11 +37,7 @@ export default function PhotoSlider({
       } else if (isRightSwipe) {
         newIndex = (selectedPhotoIndex - 1 + photosLength) % photosLength;
       }
-
-      setSelectedPhotoIndex((prev) => ({
-        ...prev,
-        [itemId]: newIndex,
-      }));
+      setSelectedPhotoIndex(newIndex);
     }
   };
 
@@ -57,42 +48,39 @@ export default function PhotoSlider({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* 1. FOTO CONTAINER */}
+      {/* 1. FOTO CONTAINER - Ditambahkan w-full dan flex-shrink-0 untuk presisi */}
       <div 
         className="flex h-full transition-transform duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
-        style={{ transform: `translateX(-${selectedPhotoIndex * 100}%)` }}
+        style={{ transform: `translate3d(-${selectedPhotoIndex * 100}%, 0, 0)` }}
       >
         {photos.map((photo, idx) => (
-          <div key={idx} className="min-w-full h-full relative">
+          <div key={idx} className="w-full h-full flex-shrink-0 relative">
             <img
               src={typeof photo === 'string' ? photo : photo?.url}
               alt={`Slide ${idx + 1}`}
               className={`object-cover w-full h-full transition-transform duration-[5s] group-hover:scale-105 ${isHujan ? 'brightness-75' : ''}`}
               loading="lazy"
             />
-            {/* Overlay gelap tipis agar teks putih di FeedCard selalu terbaca */}
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-transparent opacity-40 pointer-events-none" />
           </div>
         ))}
       </div>
       
-      {/* 2. MODERN DOTS INDICATOR */}
+      {/* 2. DOTS INDICATOR */}
       {photos.length > 1 && (
-        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-10 pointer-events-none">
+        <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-10 pointer-events-none">
           {photos.map((_, idx) => (
             <div
               key={idx}
               className={`h-1 rounded-full transition-all duration-300 ${
-                idx === selectedPhotoIndex
-                ? "w-6 bg-white" 
-                : "w-1.5 bg-white/40"
+                idx === selectedPhotoIndex ? "w-6 bg-white" : "w-1.5 bg-white/40"
               }`}
             />
           ))}
         </div>
       )}
 
-      {/* 3. HINT SWIPE (Hanya muncul di foto pertama) */}
+      {/* 3. HINT SWIPE */}
       {photos.length > 1 && selectedPhotoIndex === 0 && (
         <div className="absolute right-4 top-1/2 -translate-y-1/2 animate-pulse p-2 pointer-events-none opacity-30 z-10">
           <svg width="24" height="24" fill="white" viewBox="0 0 256 256">
