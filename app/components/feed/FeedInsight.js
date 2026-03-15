@@ -5,118 +5,85 @@ export default function FeedInsight({
   testimonialTerbaru,
   medsosTerbaru,
   topExternalComment,
-  narasiCerita, // Pastikan prop ini dikirim dari FeedCard
+  narasiCerita,
   suasana,
   formatTimeAgo,
   isHujan,
   isRamai,
   theme: timeTheme
 }) {
-  // Logic pemilihan konten prioritas
   const highlight = aktivitasUtama || testimonialTerbaru || medsosTerbaru || topExternalComment;
-  
-  // Jika tidak ada data highlight, gunakan narasiCerita dari engine sebagai fallback
   const displayContent = highlight?.content || highlight?.text || highlight?.deskripsi || highlight?.konten || narasiCerita;
 
   const getInsightTheme = () => {
     const isDark = timeTheme?.name === "MALAM";
-
-    // 1. Kondisi Hujan
-    if (isHujan) return {
-      border: isDark ? "border-blue-500/30" : "border-blue-200",
-      bg: isDark ? "bg-blue-500/10" : "bg-blue-50",
-      line: "from-blue-500 to-cyan-400",
-      text: isDark ? "text-blue-400" : "text-blue-700",
-      content: isDark ? "text-zinc-100" : "text-blue-950",
-      label: "Kabar Cuaca"
+    if (isHujan) return { 
+      accent: "text-blue-500", 
+      bg: "bg-blue-500/5", 
+      label: "Kabar Cuaca", 
+      icon: "🌧️" 
     };
-
-    // 2. Kondisi Ramai
-    if (isRamai) return {
-      border: isDark ? "border-orange-500/30" : "border-orange-200",
-      bg: isDark ? "bg-orange-500/10" : "bg-orange-50",
-      line: "from-orange-500 to-red-500",
-      text: isDark ? "text-orange-400" : "text-orange-700",
-      content: isDark ? "text-orange-950" : "text-orange-950",
-      label: "Lagi Rame Pol"
+    if (isRamai) return { 
+      accent: "text-orange-500", 
+      bg: "bg-orange-500/5", 
+      label: "Lagi Rame Pol", 
+      icon: "🔥" 
     };
-
-    // 3. Kondisi Normal (Ikut Tema Waktu)
-    return {
-      border: isDark ? "border-white/10" : (timeTheme?.border || "border-slate-200"),
-      bg: isDark ? "bg-white/5" : (timeTheme?.bgHeader || "bg-slate-50"),
-      line: isDark ? "from-indigo-500 to-purple-500" : "from-slate-400 to-slate-600",
-      text: isDark ? "text-indigo-400" : (timeTheme?.accent || "text-slate-600"),
-      content: isDark ? "text-zinc-100" : "text-slate-900", // Hitam pekat di mode terang
-      label: "Update Terkini"
+    return { 
+      accent: isDark ? "text-cyan-400" : "text-slate-500", 
+      bg: isDark ? "bg-white/5" : "bg-slate-100", 
+      label: "Update Terkini", 
+      icon: "✨" 
     };
   };
 
   const st = getInsightTheme();
-
-  // Guard clause: jangan render apapun jika benar-benar kosong
   if (!displayContent && !suasana) return null;
 
   return (
-    <div className="mt-4 relative animate-in fade-in slide-in-from-bottom-2 duration-500">
-      <div className={`relative overflow-hidden rounded-2xl p-3.5 border ${st.border} ${st.bg} ${timeTheme?.name === 'MALAM' ? 'backdrop-blur-md' : 'shadow-sm'} transition-all duration-500`}>
+    <div className="relative space-y-3 animate-in fade-in duration-700">
+      
+      {/* 1. Header Insight: Pakai Chip, bukan border penuh */}
+      <div className="flex items-center justify-between">
+        <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full ${st.bg} border border-current/10 ${st.accent}`}>
+          <span className="text-[10px]">{st.icon}</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.15em]">
+            {st.label}
+          </span>
+        </div>
         
-        {/* Indikator Status (Dot Denyut) */}
-        <div className="absolute top-4 right-4 flex h-2 w-2">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${st.line.split(' ')[0].replace('from-', 'bg-')}`}></span>
-          <span className={`relative inline-flex rounded-full h-2 w-2 ${st.line.split(' ')[0].replace('from-', 'bg-')}`}></span>
-        </div>
+        {highlight?.created_at && (
+          <span className="text-[9px] font-bold opacity-30 uppercase tracking-tighter">
+            {formatTimeAgo ? formatTimeAgo(highlight.created_at) : "Baru Saja"}
+          </span>
+        )}
+      </div>
 
-        <div className="flex gap-3.5">
-          {/* Garis Gradasi Samping */}
-          <div className={`w-1 rounded-full bg-gradient-to-b ${st.line} opacity-80`} />
+      {/* 2. Isi Konten: Tipografi yang kuat, hilangkan box luar */}
+      <div className="px-1 relative">
+        <p className={`text-[14px] leading-[1.4] font-medium tracking-tight ${timeTheme?.textWhite || 'text-slate-900'}`}>
+          <span className={`inline-block w-1 h-1 rounded-full mr-2 mb-1 ${st.accent.replace('text', 'bg')}`} />
+          {displayContent}
+        </p>
 
-          <div className="flex-1 space-y-1.5">
-            {/* Label & Waktu */}
-            <div className="flex items-center gap-2">
-              <span className={`text-[9px] font-black uppercase tracking-[0.2em] ${st.text}`}>
-                {st.label}
-              </span>
-              {highlight?.created_at && (
-                <span className={`text-[9px] font-bold opacity-40 uppercase ${timeTheme?.name === 'MALAM' ? 'text-zinc-500' : 'text-slate-500'}`}>
-                  • {formatTimeAgo ? formatTimeAgo(highlight.created_at) : "Baru Saja"}
-                </span>
-              )}
-            </div>
-
-            {/* Isi Konten Utama */}
-            <p className={`text-[13px] leading-relaxed font-bold tracking-tight ${st.content}`}>
-              {displayContent}
-            </p>
-
-            {/* User Tag (Hanya muncul jika ada pengirim asli) */}
-            {(highlight?.username || highlight?.user_name) && (
-              <div className="flex items-center gap-1.5 pt-1">
-                <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] border ${timeTheme?.name === 'MALAM' ? 'bg-white/10 border-white/5' : 'bg-slate-200 border-slate-300'}`}>
-                  👤
-                </div>
-                <span className={`text-[10px] font-bold italic lowercase ${timeTheme?.name === 'MALAM' ? 'text-zinc-500' : 'text-slate-400'}`}>
-                  @{highlight.username || highlight.user_name}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Suasana Extra */}
-        {suasana?.deskripsi && (
-          <div className={`mt-3 pt-2 border-t ${timeTheme?.name === 'MALAM' ? 'border-white/5' : 'border-slate-200/60'} flex items-center gap-2`}>
-            <span className="text-[10px]">✨</span>
-            <p className={`text-[10px] font-bold italic ${timeTheme?.name === 'MALAM' ? 'text-zinc-500' : 'text-slate-500'}`}>
-              {suasana.deskripsi}
-            </p>
+        {/* User Tag: Minimalis di bawah teks */}
+        {(highlight?.username || highlight?.user_name) && (
+          <div className="mt-2 flex items-center gap-1.5 opacity-60">
+            <div className="w-3.5 h-3.5 rounded-full bg-current/10 flex items-center justify-center text-[7px]">👤</div>
+            <span className="text-[10px] font-bold italic">
+              @{highlight.username || highlight.user_name}
+            </span>
           </div>
         )}
       </div>
 
-      {/* Glow Effect khusus Malam */}
-      {timeTheme?.name === "MALAM" && (
-        <div className={`absolute -inset-1 blur-2xl opacity-[0.08] -z-10 rounded-full bg-gradient-to-r ${st.line}`} />
+      {/* 3. Suasana: Dibuat seperti catatan kaki (Footer Note) */}
+      {suasana?.deskripsi && (
+        <div className={`mx-1 p-3 rounded-2xl border-l-2 ${st.accent.replace('text', 'border')} ${st.bg} italic`}>
+          <p className="text-[11px] font-medium leading-relaxed opacity-80">
+            "{suasana.deskripsi}"
+          </p>
+        </div>
       )}
     </div>
   );
