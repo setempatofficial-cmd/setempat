@@ -27,19 +27,40 @@ export default function LaporanWarga({
     return `${hh}:${mm}`;
   };
 
-  // 2. LOGIKA LOKASI TERVALIDASI (Tetap)
+  // 2. LOGIKA LOKASI TERVALIDASI (Handle jika location berupa object)
   const validatedLocation = useMemo(() => {
-    if (!locationReady || !tempat.length || !location)
-      return displayLocation || "Pasuruan";
-    const nearestPlace = tempat[0];
-    const parts = (nearestPlace.alamat || "").split(",").map((p) => p.trim());
-    const district = parts.find(
-      (p) => p.includes("Kec.") || p.includes("Kecamatan")
-    );
-    return district
-      ? district.replace(/Kec\.|Kecamatan/g, "").trim()
-      : parts[1] || parts[0] || displayLocation;
-  }, [locationReady, tempat, location, displayLocation]);
+    // PRIORITAS UTAMA: Lokasi yang diaktifkan user
+    if (locationReady && location) {
+      // CEK: Jika location adalah object (kemungkinan {latitude, longitude})
+      if (typeof location === 'object' && location !== null) {
+        // Coba ambil properti string yang mungkin ada
+        if (location.nama) return location.nama;
+        if (location.address) return location.address;
+        if (location.kecamatan) return location.kecamatan;
+        if (location.kota) return location.kota;
+        if (location.daerah) return location.daerah;
+        
+        // Jika object hanya berisi koordinat, gunakan displayLocation
+        if (location.latitude && location.longitude) {
+          return displayLocation || "Lokasi Anda";
+        }
+        
+        // Fallback
+        return displayLocation || "Lokasi Tidak Dikenali";
+      }
+      
+      // Jika location sudah string, langsung gunakan
+      return location;
+    }
+    
+    // Fallback: Jika lokasi user belum tersedia
+    if (displayLocation) {
+      return displayLocation;
+    }
+    
+    // Default
+    return "Lokasi Tidak Diketahui";
+  }, [locationReady, location, displayLocation]);
 
   // 3. STATISTIK SUASANA (Tetap)
   const stats = useMemo(() => {

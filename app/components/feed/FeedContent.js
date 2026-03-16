@@ -229,7 +229,7 @@ export default function FeedContent() {
   }, [deferredQuery, filteredPlaces, tempat]);
 
   return (
-    <main className={`relative min-h-screen max-w-md mx-auto pb-24 transition-all duration-700 bg-transparent`}>
+    <main className="relative min-h-screen mx-auto w-[92%] max-w-[400px] bg-transparent">
       
       {/* HEADER */}
       <div className={`sticky top-0 z-50 transition-all duration-300 ${isScrolled ? 'backdrop-blur-xl bg-black/20 border-b border-white/5' : 'bg-transparent'}`}>
@@ -250,14 +250,13 @@ export default function FeedContent() {
 
       {/* WRAPPER STICKY LAPORAN WARGA */}
       <div 
-        className="sticky z-20" 
+        className="sticky z-20 w-full"  
         style={{ 
-          top: isScrolled ? "70px" : "10px",
-          padding: "0 16px",
+          top: isScrolled ? "85px" : "0px",
           transition: "all 0.4s cubic-bezier(0.22, 1, 0.36, 1)"
         }}
       >
-        <div className={`rounded-[28px] overflow-hidden transition-all duration-300 ${isScrolled ? 'shadow-2xl' : ''}`}>
+        <div className="overflow-hidden transition-all duration-300">
           <LaporanWarga 
             compact={isScrolled}
             tempat={tempat}
@@ -265,6 +264,7 @@ export default function FeedContent() {
             displayLocation={villageLocation}
             districtLocation={districtLocation}
             location={location}
+            maxRadius={10}
           />
         </div>
       </div>

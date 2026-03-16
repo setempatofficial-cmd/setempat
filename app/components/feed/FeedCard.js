@@ -87,7 +87,8 @@ export default function FeedCard({
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      className={`relative mx-auto mb-6 w-[92%] max-w-[400px] transition-all duration-700 ${timeTheme.glow}`}
+      // HAPUS mx-auto dan batasan width - serahkan ke container
+      className={`relative mb-6 w-full transition-all duration-700 ${timeTheme.glow}`}
     >
       <div className={`relative overflow-hidden rounded-[40px] ${timeTheme.bgCard} border ${timeTheme.border} shadow-2xl flex flex-col`}>
         
@@ -157,7 +158,7 @@ export default function FeedCard({
                    Live_Insight
                 </span>
                 
-                <button onClick={openAIModal} className="relative group flex items-center gap-2 px-4 py-1.5 rounded-full overflow-hidden transition-transform active:scale-95 shadow-lg bg-indigo-600">
+                <button onClick={() => openAIModal(item)} className="relative group flex items-center gap-2 px-4 py-1.5 rounded-full overflow-hidden transition-transform active:scale-95 shadow-lg bg-indigo-600">
                   <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600" />
                   <motion.div {...ANIM.shimmer} className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12" />
                   <div className="relative flex items-center gap-2 text-white">
@@ -175,7 +176,7 @@ export default function FeedCard({
 
         {/* --- 5. PHOTO CONTEXT --- */}
         <div className="relative px-5 mb-6">
-          <div className="absolute -right-1 top-0 z-40">
+          <div className="absolute -right-1 top-0 z-10">
             <FeedActions item={item} comments={comments} openKomentarModal={openKomentarModal} onShare={onShare} variant="floating-sidebar" />
           </div>
           <div className="relative aspect-video rounded-[30px] overflow-hidden border border-white/10 shadow-2xl">
