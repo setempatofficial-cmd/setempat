@@ -6,24 +6,37 @@ export default function StatusIsland({
   item, 
   theme, 
   isExpanded, 
-  setIsExpanded 
+  setIsExpanded,
+  jumlahWarga 
 }) {
   
   const handleToggle = () => {
     setIsExpanded(!isExpanded);
   };
 
-  // Status items untuk variasi teks saat kondisi tertutup
+  // Tentukan level aktivitas dari data yang ada
+  const getActivityLevel = () => {
+    if (item.isViral) return "sangat ramai";
+    if (item.isRamai) return "ramai";
+    if (item.viewingCount > 5) return "cukup ramai";
+    return "normal";
+  };
+
+  // Dapatkan status dari item (dari feedEngine)
+  const currentStatus = item.badgeStatus || "Kondisi Terpantau Lancar";
+  const activityLevel = getActivityLevel();
+  
+  // Status messages untuk variasi teks saat kondisi tertutup
   const statusMessages = [
-    item.current_status || "Kondisi Terpantau Lancar",
-    `Update ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`,
-    `Sumber: ${item.source_type || 'Warga Lokal'}`
+    currentStatus,
+    `${jumlahWarga || 0} warga memantau`,
+    `Update ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`
   ];
 
-  // Jika expand, judulnya tetap tegas. Jika tutup, ganti-ganti status.
+  // Rotate status messages (bisa ditambah useEffect untuk rotasi otomatis)
   const displayStatus = isExpanded 
-    ? "NARASI_VISUAL_REPORT" 
-    : statusMessages[0]; // Ambil pesan utama jika tertutup
+    ? "LAPORAN VISUAL TERKINI" 
+    : statusMessages[0];
 
   return (
     <div 
@@ -47,7 +60,7 @@ export default function StatusIsland({
             </p>
           </div>
           
-          {/* INDIKATOR EXPAND: User Indonesia butuh visual cue yang jelas */}
+          {/* INDIKATOR EXPAND */}
           <div className={`flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5 border border-white/5`}>
             <span className={`text-[8px] font-black uppercase opacity-60 ${theme.statusText}`}>
               {isExpanded ? 'Tutup' : 'Detail'}
@@ -72,10 +85,10 @@ export default function StatusIsland({
               <div className="space-y-3 py-1">
                 <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText}`}>
                   "Live report warga menunjukkan{' '}
-                  <span className={`px-1 rounded bg-white/10 not-italic`}>{item.vibe_status || 'kondisi normal'}</span>. 
+                  <span className={`px-1 rounded bg-white/10 not-italic`}>{currentStatus}</span>. 
                   Aktivitas terpantau{' '}
                   <span className="underline decoration-2 underline-offset-4">
-                    {item.activity_level || 'stabil'}
+                    {activityLevel}
                   </span>{' '}
                   dibandingkan data rata-rata jam sebelumnya."
                 </p>
@@ -89,7 +102,7 @@ export default function StatusIsland({
                       ))}
                    </div>
                    <p className="text-[9px] font-bold opacity-40 uppercase tracking-tighter">
-                     Verified by 12+ active citizens nearby
+                     Verified by {jumlahWarga || 0} active citizens
                    </p>
                 </div>
               </div>

@@ -6,7 +6,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { supabase } from "../../../lib/supabaseClient";
 import { calculateDistance } from "../../../lib/distance";
 import { getGreeting } from "../../../lib/greeting";
-import { calculateScore } from "../../../lib/ranking";
+import { processFeedItem } from "../../../lib/feedEngine"; // UBAH: import processFeedItem
 import { useLocation } from "../LocationProvider";
 
 import FeedCard from "./FeedCard";
@@ -32,10 +32,12 @@ export default function FeedContent() {
   const [isScrolled, setIsScrolled] = useState(false);
   
   const [selectedTempat, setSelectedTempat] = useState(null);
+  const [aiContext, setAiContext] = useState("general");
   const [showAIModal, setShowAIModal] = useState(false);
   const [showAISearchModal, setShowAISearchModal] = useState(false); 
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  
 
   const [error, setError] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "" });
@@ -91,34 +93,73 @@ export default function FeedContent() {
         if (currentFetchId !== fetchIdRef.current) return;
 
         let items = data || [];
-        items = items.map((item) => {
-          const distance = (locationReady && location && item.latitude && item.longitude)
-            ? calculateDistance(location.latitude, location.longitude, item.latitude, item.longitude)
-            : Infinity;
-
-          return {
-            ...item,
-            distance,
-            score: calculateScore(item, location),
-          };
-        });
-
-        items.sort((a, b) => {
-          if (locationReady && a.distance !== Infinity) {
-            const scoreA = a.score * 0.4 + (1 / (a.distance || 0.1)) * 0.6;
-            const scoreB = b.score * 0.4 + (1 / (b.distance || 0.1)) * 0.6;
-            return scoreB - scoreA;
-          }
-          return b.score - a.score;
-        });
-
+        
+        // ============================================
+        // PROSES SETIAP ITEM DENGAN feedEngine.js
+        // ============================================
         const commentsMap = {};
-        items.forEach((item) => {
+        const processedItems = [];
+        
+        for (const item of items) {
+          // Proses item dengan feedEngine
+          const processed = processFeedItem({ 
+            item, 
+            locationReady, 
+            location, 
+            comments // comments masih kosong di sini, nanti diisi
+          });
+          
+          processedItems.push(processed);
+          
+          // Kumpulkan comments untuk item ini
           commentsMap[item.id] = item.testimonial_terbaru || [];
+        }
+
+        // ============================================
+        // SORTING BERDASARKAN REALTIME SCORE
+        // ============================================
+        processedItems.sort((a, b) => {
+          // PRIORITAS 1: Yang punya aktivitas terkini (< 1 jam)
+          const now = new Date();
+          const oneHourAgo = now - (60 * 60 * 1000);
+          
+          const aRecent = a.lastActivityAt && new Date(a.lastActivityAt).getTime() > oneHourAgo;
+          const bRecent = b.lastActivityAt && new Date(b.lastActivityAt).getTime() > oneHourAgo;
+          
+          if (aRecent && !bRecent) return -1;
+          if (!aRecent && bRecent) return 1;
+          
+          // PRIORITAS 2: Yang punya lokasi dan dekat
+          const aHasLocation = locationReady && a.distance !== null && a.distance !== Infinity;
+          const bHasLocation = locationReady && b.distance !== null && b.distance !== Infinity;
+          
+          if (aHasLocation && !bHasLocation) return -1;
+          if (!aHasLocation && bHasLocation) return 1;
+          
+          // PRIORITAS 3: Urut berdasarkan REALTIME SCORE (dari ranking.js)
+          if (a.sortScore && b.sortScore) {
+            return b.sortScore - a.sortScore;
+          }
+          
+          // PRIORITAS 4: Yang punya external signal official
+          if (a.hasOfficialExternal && !b.hasOfficialExternal) return -1;
+          if (!a.hasOfficialExternal && b.hasOfficialExternal) return 1;
+          
+          // PRIORITAS 5: Yang lebih baru aktivitasnya
+          if (a.lastActivityAt && b.lastActivityAt) {
+            return new Date(b.lastActivityAt) - new Date(a.lastActivityAt);
+          }
+          
+          // FALLBACK: Jarak
+          if (a.distance && b.distance) {
+            return a.distance - b.distance;
+          }
+          
+          return 0;
         });
 
         setComments((prev) => ({ ...prev, ...commentsMap }));
-        setTempat((prev) => (reset ? items : [...prev, ...items]));
+        setTempat((prev) => (reset ? processedItems : [...prev, ...processedItems]));
         setPage(currentPage + 1);
         setHasMore(items.length === LIMIT);
       } catch (err) {
@@ -146,9 +187,19 @@ export default function FeedContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [loading, hasMore, loadPlaces, queryText]);
 
-  const openAICardModal = (item) => { setSelectedTempat(item); setShowAIModal(true); };
+  const openAICardModal = (item) => { 
+    setSelectedTempat(item); 
+    setAiContext("general"); 
+    setShowAIModal(true); 
+  };
+  
   const openAISearchModal = () => { setShowAISearchModal(true); };
-  const openKomentarModal = (item) => { setSelectedTempat(item); setShowKomentarModal(true); };
+  
+  const openKomentarModal = (item) => { 
+    setSelectedTempat(item); 
+    setShowKomentarModal(true); 
+  };
+  
   const closeModals = () => { 
     setShowAIModal(false); 
     setShowAISearchModal(false); 
@@ -159,8 +210,13 @@ export default function FeedContent() {
   const handleShare = async (item) => {
     const shareUrl = `${window.location.origin}?id=${item.id}`;
     try {
-      if (navigator.share) await navigator.share({ title: item.name, text: `📍 Cek kondisi di ${item.name}!`, url: shareUrl });
-      else {
+      if (navigator.share) {
+        await navigator.share({ 
+          title: item.name, 
+          text: `📍 Cek kondisi di ${item.name}!`, 
+          url: shareUrl 
+        });
+      } else {
         await navigator.clipboard.writeText(shareUrl);
         setToast({ show: true, message: "✅ Link disalin!" });
         setTimeout(() => setToast({ show: false, message: "" }), 3000);
@@ -173,10 +229,9 @@ export default function FeedContent() {
   }, [deferredQuery, filteredPlaces, tempat]);
 
   return (
-    // bg-transparent penting agar aura di page.js tidak tertutup
     <main className={`relative min-h-screen max-w-md mx-auto pb-24 transition-all duration-700 bg-transparent`}>
       
-      {/* HEADER: Sekarang menggunakan backdrop-blur untuk efek mewah saat scroll */}
+      {/* HEADER */}
       <div className={`sticky top-0 z-50 transition-all duration-300 ${isScrolled ? 'backdrop-blur-xl bg-black/20 border-b border-white/5' : 'bg-transparent'}`}>
         <Header
           locationReady={locationReady}
@@ -292,7 +347,7 @@ export default function FeedContent() {
 
       {/* MODALS */}
       <AISearchModal isOpen={showAISearchModal} onClose={closeModals} query={queryText} villageLocation={villageLocation} locationReady={locationReady} />
-      <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} />
+      <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} context={aiContext} />
       <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} initialComments={selectedTempat ? comments[selectedTempat.id] || [] : []} />
 
       {/* TOAST NOTIFICATION */}

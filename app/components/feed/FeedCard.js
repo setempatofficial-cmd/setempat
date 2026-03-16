@@ -76,7 +76,7 @@ export default function FeedCard({
     setIsSesuai(true);
     setLocalValidationCount(v => v + 1);
     try {
-      await supabase.from("minat").insert([{ tempat_id: item.id, type: 'vibe_sesuai' }]);
+      await supabase.from("minat").insert([{ tempat_id: item.id }]);
     } catch (e) { console.error(e); }
   }, [isSesuai, item?.id]);
 
@@ -87,7 +87,7 @@ export default function FeedCard({
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      className={`relative mx-auto mb-[12vh] w-[92%] max-w-[400px] transition-all duration-700 ${timeTheme.glow}`}
+      className={`relative mx-auto mb-6 w-[92%] max-w-[400px] transition-all duration-700 ${timeTheme.glow}`}
     >
       <div className={`relative overflow-hidden rounded-[40px] ${timeTheme.bgCard} border ${timeTheme.border} shadow-2xl flex flex-col`}>
         
@@ -134,16 +134,18 @@ export default function FeedCard({
         {/* --- 2. HEADLINE --- */}
         <div className="px-7 pb-5">
           <h2 className={`text-[26px] font-[1000] italic leading-[0.95] tracking-tight uppercase ${timeTheme.textWhite} break-words`}>
-            {feed.narasiCerita?.split('.')[0] || "SUASANA SEKITAR"}
+            {feed.headline?.text || feed.narasiCerita?.split('.')[0] || "SUASANA SEKITAR"}
           </h2>
         </div>
 
         {/* --- 3. STATUS ISLAND --- */}
         <div className="px-5 mb-4 relative">
-          <StatusIsland 
-            item={item} theme={timeTheme} isExpanded={isExpanded} setIsExpanded={setIsExpanded}
-            jumlahWarga={totalSaksi}
-          />
+          <div className="text-sm">
+            <StatusIsland 
+              item={item} theme={timeTheme} isExpanded={isExpanded} setIsExpanded={setIsExpanded}
+              jumlahWarga={totalSaksi}
+            />
+          </div>
         </div>
 
         {/* --- 4. LIVE INSIGHT & AI ACTION --- */}
@@ -161,8 +163,8 @@ export default function FeedCard({
                   <div className="relative flex items-center gap-2 text-white">
                     <span className="text-[10px] animate-bounce">✨</span>
                     <div className="flex flex-col items-start leading-none">
-                      <span className="text-[9px] font-black uppercase tracking-tighter">Lapor/Tanya</span>
-                      <span className="text-[6px] font-bold opacity-70 uppercase tracking-widest text-white/80">AI Setempat</span>
+                      <span className="text-[11px] font-black uppercase tracking-tighter">AI Setempat</span>
+                      <span className="text-[10px] font-bold opacity-70 uppercase tracking-widest text-white/80">Lapor/Tanya</span>
                     </div>
                   </div>
                 </button>
@@ -173,7 +175,7 @@ export default function FeedCard({
 
         {/* --- 5. PHOTO CONTEXT --- */}
         <div className="relative px-5 mb-6">
-          <div className="absolute -right-1 top-4 z-40">
+          <div className="absolute -right-1 top-0 z-40">
             <FeedActions item={item} comments={comments} openKomentarModal={openKomentarModal} onShare={onShare} variant="floating-sidebar" />
           </div>
           <div className="relative aspect-video rounded-[30px] overflow-hidden border border-white/10 shadow-2xl">
@@ -184,9 +186,18 @@ export default function FeedCard({
           </div>
         </div>
 
-        {/* --- 6. FOOTER - TOMBOL VIBE BARU YANG LEBIH MODERN --- */}
+        {/* --- 6. FOOTER - URUTAN YANG LEBIH BAIK --- */}
         <div className="px-6 pb-8 space-y-5 mt-auto">
-          {/* TOMBOL VIBE YANG SUDAH DIREFACTOR - LEBIH COMPACT & MODERN */}
+          {/* INFO TEMPAT DULU */}
+          <div className="flex flex-col gap-1 border-b border-white/5 pb-4">
+            <div className="flex justify-between items-end">
+              <h3 className={`text-base font-black ${timeTheme.textWhite} tracking-tighter uppercase truncate max-w-[80%]`}>{item.name}</h3>
+              <span className="text-[8px] font-mono opacity-20 mb-1">ID_{String(item.id).slice(-4)}</span>
+            </div>
+            <p className={`text-[10px] font-bold ${timeTheme.textMuted} uppercase tracking-widest opacity-60 truncate`}>📍 {item.alamat || "AREA_SETEMPAT"}</p>
+          </div>
+
+          {/* TOMBOL VIBE DI PALING BAWAH */}
           <button 
             onClick={handleSesuai}
             disabled={isSesuai}
@@ -208,21 +219,12 @@ export default function FeedCard({
               </div>
             </div>
             
-            {/* Optional: Arrow indicator untuk menunjukkan interaktivitas */}
             {!isSesuai && (
               <span className="text-white/40 text-[10px] font-mono opacity-60 group-hover:opacity-100 transition-opacity">
                 ↻
               </span>
             )}
           </button>
-
-          <div className="flex flex-col gap-1 border-t border-white/5 pt-4">
-            <div className="flex justify-between items-end">
-              <h3 className={`text-xl font-black ${timeTheme.textWhite} tracking-tighter uppercase truncate max-w-[80%]`}>{item.name}</h3>
-              <span className="text-[8px] font-mono opacity-20 mb-1">ID_{String(item.id).slice(-4)}</span>
-            </div>
-            <p className={`text-[10px] font-bold ${timeTheme.textMuted} uppercase tracking-widest opacity-60 truncate`}>📍 {item.alamat || "AREA_SETEMPAT"}</p>
-          </div>
         </div>
 
       </div>
