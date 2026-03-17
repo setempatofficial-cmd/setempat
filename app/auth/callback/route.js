@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 export async function GET(request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
+  const origin = requestUrl.origin; // Ambil domain yang sedang aktif
 
   if (code) {
     const cookieStore = await cookies();
@@ -19,21 +20,23 @@ export async function GET(request) {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
               )
-            } catch (error) { /* Bisa diabaikan saat redirect */ }
+            } catch (error) {
+              // Middleware Next.js terkadang membatasi set cookies di GET, 
+              // tapi exchangeCodeForSession biasanya tetap berhasil menyimpan session.
+            }
           },
         },
       }
     );
 
-    // Proses tukar kode jadi session
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // PAKSA pulang ke halaman utama (Localhost:3000 / Setempat.id)
-      return NextResponse.redirect(new URL('/', request.url));
+      // Gunakan origin agar selalu pulang ke domain yang benar
+      return NextResponse.redirect(new URL('/', origin));
     }
   }
 
-  // Jika error, arahkan ke home juga agar user tidak bingung di halaman 404
-  return NextResponse.redirect(new URL('/', request.url));
+  // Jika error, pulangkan juga ke home
+  return NextResponse.redirect(new URL('/', origin));
 }

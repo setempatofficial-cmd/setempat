@@ -75,7 +75,7 @@ export default function AuthModal({ isOpen, onClose }) {
               <input 
                 type="email" 
                 placeholder="Masukkan emailmu..."
-                className="w-full p-4 bg-slate-100 rounded-2xl focus:outline-none focus:ring-2 ring-[#E3655B]/20 text-sm font-bold"
+                className="w-full p-4 bg-slate-100 rounded-2xl focus:outline-none focus:ring-2 ring-[#E3655B]/20 text-sm font-bold text-slate-800 placeholder:text-slate-400 placeholder:font-medium"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -85,7 +85,7 @@ export default function AuthModal({ isOpen, onClose }) {
                 disabled={loading}
                 className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs tracking-widest active:scale-95 transition-all disabled:opacity-50"
               >
-                {loading ? "MENGIRIM..." : "KIRIM LINK KE EMAIL"}
+                {loading ? "MENGIRIM..." : "KIRIM LINK KE EMAILMU"}
               </button>
             </form>
           ) : (

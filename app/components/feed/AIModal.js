@@ -445,29 +445,7 @@ export default function AIModal({ isOpen, onClose, tempat, context, onOpenAuthMo
             {/* Quick questions dan Uploader - Hanya muncul setelah memilih Tanya */}
             {messages.length > 2 && messages.some(m => m.text.includes("Silakan tanya")) && !isTyping && (
               <div className="mt-6 space-y-4">
-                {/* Komponen Uploader untuk warga dan admin */}
-                {tempat?.id && (
-                  <AIModalUploader 
-                    tempatId={tempat.id}
-                    namaTempat={tempat.name}
-                    onUploadSuccess={(url, isAdmin) => {
-                      const msg = isAdmin 
-                        ? "Foto utama berhasil diperbarui, Cak! 👍" 
-                        : "Matur nuwun! Laporan fotomu sudah masuk ke sistem. 🙏";
-                      
-                      setMessages(prev => [...prev, {
-                        id: Date.now(),
-                        type: "ai",
-                        text: `✅ **Upload Berhasil!**\n\n${msg}`,
-                        time: new Date().toLocaleTimeString([], { 
-                          hour: "2-digit", 
-                          minute: "2-digit" 
-                        })
-                      }]);
-                    }}
-                  />
-                )}
-
+                
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tanya Real-time
                 </p>
