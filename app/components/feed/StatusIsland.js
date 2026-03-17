@@ -102,7 +102,7 @@ export default function StatusIsland({
                       ))}
                    </div>
                    <p className="text-[9px] font-bold opacity-40 uppercase tracking-tighter">
-                     Verified by {jumlahWarga || 0} active citizens
+                     Tervalidasi {jumlahWarga || 0} Warga Setempat
                    </p>
                 </div>
               </div>

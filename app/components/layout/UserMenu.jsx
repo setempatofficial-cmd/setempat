@@ -12,39 +12,79 @@ export default function UserMenu({ isScrolled, onOpenAuthModal, theme }) {
 
   const handleLogout = async () => {
     try {
-      setIsLoggingOut(true); // Mulai loading
-      
-      // 1. Jalankan logout dari Supabase
+      setIsLoggingOut(true);
       await logout();
-      
-      // 2. Sapu bersih sisa storage agar tidak Lock Broken
       if (typeof window !== "undefined") {
         localStorage.clear();
         sessionStorage.clear();
-        
-        // 3. Beri jeda sangat singkat agar UI loading sempat terlihat
-        // Lalu banting ke halaman utama (Hard Reload)
         setTimeout(() => {
           window.location.href = "/";
         }, 500);
       }
     } catch (error) {
       console.error("Logout error:", error);
-      window.location.href = "/"; // Paksa keluar meski error
+      window.location.href = "/";
     }
   };
 
+  // =========================================
+  // TOMBOL LOGIN (BELUM LOGIN) - VERSI HALUS
+  // =========================================
   if (!user) {
     return (
       <button 
         onClick={onOpenAuthModal}
-        className="px-5 py-2.5 bg-[#E3655B] text-white text-[11px] font-black rounded-xl shadow-sm active:scale-95 transition-all"
+        className={`relative rounded-full transition-all duration-500 
+          active:scale-90 active:brightness-110 group
+          ${isScrolled ? 'scale-90' : 'scale-100'}
+          p-[1px] 
+          bg-gradient-to-tr from-transparent via-transparent to-transparent
+          hover:from-[#E3655B]/30 hover:via-[#E3655B]/70 hover:to-[#E3655B]/30
+          ${theme?.isMalam ? 'hover:via-[#E3655B]/90' : 'hover:via-[#E3655B]/70'}`}
       >
-        MLEBU
+        {/* Lingkaran Utama */}
+        <div className={`rounded-full w-9 h-9 flex items-center justify-center transition-all duration-300
+          ${theme?.isMalam ? 'bg-slate-900' : 'bg-white'}`}
+        >
+          {/* Ikon User dengan Animasi Floating */}
+          <User 
+            size={18} 
+            strokeWidth={2.5}
+            className={`${theme?.isMalam ? 'text-slate-400' : 'text-slate-500'} 
+              group-hover:text-[#E3655B] group-hover:scale-110 transition-all duration-300`} 
+          />
+        </div>
+
+        {/* Efek Ping Lembut di Belakang */}
+        <span 
+          className="absolute inset-0 rounded-full bg-[#E3655B] opacity-0 
+            group-hover:opacity-20 group-hover:animate-ping pointer-events-none" 
+          style={{ animationDuration: '1.5s' }}
+        />
+        
+        {/* Tooltip MLEBU dengan Segitiga */}
+        <div className={`absolute -bottom-9 left-1/2 -translate-x-1/2 px-2.5 py-1.5 
+          rounded-lg text-[8px] font-black uppercase tracking-[0.2em] whitespace-nowrap
+          opacity-0 group-hover:opacity-100 group-hover:-bottom-10 transition-all duration-200 
+          pointer-events-none shadow-lg
+          ${theme?.isMalam 
+            ? 'bg-[#E3655B] text-white' 
+            : 'bg-slate-900 text-white'
+          }`}
+        >
+          MLEBU
+          {/* Segitiga Tooltip */}
+          <div className={`absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 
+            ${theme?.isMalam ? 'bg-[#E3655B]' : 'bg-slate-900'}`} 
+          />
+        </div>
       </button>
     );
   }
 
+  // =========================================
+  // MENU USER (SUDAH LOGIN)
+  // =========================================
   const name = user?.user_metadata?.full_name || user?.email?.split('@')[0] || "Cak User";
 
   return (
