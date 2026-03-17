@@ -9,7 +9,7 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     config.watchOptions = {
       ...config.watchOptions,
-      ignored: ['**/supabase/**'],
+      ignored: ['**/node_modules/**', '**/.git/**', '**/supabase/**'],
     };
     return config;
   },

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
-
+import AuthModal from "@/app/components/auth/AuthModal"; 
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "../../../lib/supabaseClient";
 import { calculateDistance } from "../../../lib/distance";
 import { getGreeting } from "../../../lib/greeting";
@@ -37,7 +38,8 @@ export default function FeedContent() {
   const [showAISearchModal, setShowAISearchModal] = useState(false); 
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
-  
+  const { user, isAdmin, supabase } = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const [error, setError] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "" });
@@ -234,6 +236,9 @@ export default function FeedContent() {
       {/* HEADER */}
       <div className={`sticky top-0 z-50 transition-all duration-300 ${isScrolled ? 'backdrop-blur-xl bg-black/20 border-b border-white/5' : 'bg-transparent'}`}>
         <Header
+          user={user}
+          isAdmin={isAdmin}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)} 
           locationReady={locationReady}
           villageLocation={villageLocation}
           districtLocation={districtLocation}
@@ -247,6 +252,12 @@ export default function FeedContent() {
           location={location}
         />
       </div>
+
+      {/* Modal Login selalu siap dipanggil */}
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+      />
 
       {/* WRAPPER STICKY LAPORAN WARGA */}
       <div 

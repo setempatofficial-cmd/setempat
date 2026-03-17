@@ -1,5 +1,5 @@
 'use server'
-import { supabase } from "../../../lib/supabaseClient"; // Sesuaikan path supabase kamu
+import { createClient } from '@supabase/supabase-js'
 
 export async function updatePhotos(tempatId, newPhoto) {
   const supabase = createClient()
