@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useLocation } from "@/app/components/LocationProvider";
 import { useTheme } from "@/hooks/useTheme";
+import { useWeather } from "@/hooks/useWeather";
 
 export default function LaporanWarga({
   compact = false,
@@ -19,17 +20,8 @@ export default function LaporanWarga({
   const [isClosing, setIsClosing] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
   const fullContentRef = useRef(null);
-  const compactContentRef = useRef(null);
 
-  // FORMAT WAKTU
-  const formatTime = () => {
-    const now = new Date();
-    const hh = now.getHours().toString().padStart(2, "0");
-    const mm = now.getMinutes().toString().padStart(2, "0");
-    return `${hh}:${mm}`;
-  };
-
-  // LOGIKA LOKASI TERVALIDASI
+  // --- LOGIKA DATA ---
   const validatedLocation = useMemo(() => {
     if (locationReady && location) {
       if (typeof location === 'object' && location !== null) {
@@ -38,280 +30,298 @@ export default function LaporanWarga({
         if (location.kecamatan) return location.kecamatan;
         if (location.kota) return location.kota;
         if (location.daerah) return location.daerah;
-        
-        if (location.latitude && location.longitude) {
-          return displayLocation || "Lokasi Anda";
-        }
-        
+        if (location.latitude && location.longitude) return displayLocation || "Lokasi Anda";
         return displayLocation || "Lokasi Tidak Dikenali";
       }
-      
       return location;
     }
-    
-    if (displayLocation) {
-      return displayLocation;
-    }
-    
-    return "Lokasi Tidak Diketahui";
+    return displayLocation || "Mencari Lokasi...";
   }, [locationReady, location, displayLocation]);
 
-  // STATISTIK SUASANA
+  const { weather } = useWeather(validatedLocation);
+
+  const formatTime = () => {
+    const now = new Date();
+    return now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getRandomUpdateText = () => {
+    const updates = ["Warga lapor", "Pantauan terkini", "Info suasana", "Update terkini", "Baru saja", "Situasi saat ini"];
+    return updates[Math.floor(Math.random() * updates.length)];
+  };
+
   const stats = useMemo(() => {
-    if (!tempat?.length)
-      return { titikRamai: 0, titikDekat: 0, viralCount: 0, topPlace: null };
+    if (!tempat?.length) return { titikRamai: 0, titikDekat: 0, viralCount: 0, topPlace: null };
     const titikRamai = tempat.filter((t) => parseInt(t.estimasi_orang) > 20).length;
     const titikDekat = tempat.filter((t) => t.distance && t.distance < 1.5).length;
     const viralCount = tempat.filter((t) => t.is_viral || parseInt(t.estimasi_orang) > 50).length;
-    const topPlace = [...tempat].sort(
-      (a, b) => (parseInt(b.estimasi_orang) || 0) - (parseInt(a.estimasi_orang) || 0)
-    )[0];
+    const topPlace = [...tempat].sort((a, b) => (parseInt(b.estimasi_orang) || 0) - (parseInt(a.estimasi_orang) || 0))[0];
     return { titikRamai, titikDekat, viralCount, topPlace };
   }, [tempat]);
 
-  // PESAN DINAMIS
+  // 🔥 FUNGSI UNTUK INFO ARUS LALU LINTAS
+  const getTrafficInfo = useMemo(() => {
+    const n = stats.titikRamai;
+    
+    // Logika arus lalu lintas berdasarkan keramaian
+    if (stats.viralCount > 0 || n > 20) {
+      return {
+        icon: "🚦",
+        text: "LALIN PADAT",
+        color: "text-rose-500",
+        bg: theme.isMalam ? "bg-rose-500/20" : "bg-rose-100",
+        description: "Antrean panjang, cari jalur alternatif"
+      };
+    } else if (n > 10) {
+      return {
+        icon: "🚗",
+        text: "LALIN RAMAI",
+        color: "text-amber-500",
+        bg: theme.isMalam ? "bg-amber-500/20" : "bg-amber-100",
+        description: "Volume kendaraan tinggi"
+      };
+    } else if (n > 5) {
+      return {
+        icon: "🛵",
+        text: "LALIN LANCAR",
+        color: "text-emerald-500",
+        bg: theme.isMalam ? "bg-emerald-500/20" : "bg-emerald-100",
+        description: "Kondisi normal, tidak ada hambatan"
+      };
+    } else {
+      return {
+        icon: "🌿",
+        text: "LALIN LANCAR",
+        color: "text-emerald-500",
+        bg: theme.isMalam ? "bg-emerald-500/20" : "bg-emerald-100",
+        description: "Jalanan lengang, nyaman"
+      };
+    }
+  }, [stats.titikRamai, stats.viralCount, theme.isMalam]);
+
+  // --- LOGIKA STATUS DISPLAY (PRIORITAS & ANTI ANGKA 0) ---
+  const getStatDisplay = useMemo(() => {
+    // 1. Prioritas Utama: VIRAL (Ada Angka)
+    if (stats.viralCount > 0) {
+      return { 
+        icon: "🔴", 
+        text: `${stats.viralCount} VIRAL`, 
+        color: "text-rose-500",
+        glow: "shadow-[0_0_12px_rgba(244,63,94,0.4)]" 
+      };
+    }
+    
+    // 2. Prioritas Kedua: RAMAI (Ada Angka)
+    if (stats.titikRamai > 0) {
+      return { 
+        icon: "👥", 
+        text: `${stats.titikRamai} RAMAI`, 
+        color: "text-amber-500",
+        glow: ""
+      };
+    }
+    
+    // 3. Fallback: Kondisi Sepi/Nol (TEKSTUAL TANPA ANGKA)
+    const statusOptions = [
+      { icon: "🍃", text: "SEPI", color: "text-emerald-500" },
+      { icon: "🌙", text: "TENANG", color: "text-emerald-500" },
+      { icon: "😴", text: "LENGANG", color: "text-emerald-500" },
+      { icon: "💤", text: "HENING", color: "text-emerald-500" },
+      { icon: "✨", text: "NORMAL", color: "text-emerald-500" }
+    ];
+
+    // Jika Malam, gunakan aksen cyan agar masuk ke tema
+    if (theme.isMalam) {
+      return { icon: "🌙", text: "TENANG", color: "text-cyan-400", glow: "" };
+    }
+
+    // Ambil random dari list status sepi
+    return statusOptions[Math.floor(Math.random() * statusOptions.length)];
+  }, [stats.viralCount, stats.titikRamai, theme.isMalam]);
+
   const dynamicMessage = useMemo(() => {
-    if (!stats.topPlace) return { pre: "", post: "", short: "", color: "text-slate-400" };
-    const place = stats.topPlace;
-    const n = parseInt(place.estimasi_orang) || 0;
-    const variasi = {
-      high: [
-        { pre: "Gokil! ", post: " lagi pecah banget!", short: "Lagi pecah!", color: "text-red-400" },
-        { pre: "Wah, ", post: " lagi rame parah!", short: "Rame parah!", color: "text-red-400" }
-      ],
-      medium: [
-        { pre: "Lagi asyik di ", post: ". Meriah banget!", short: "Lagi asyik", color: "text-orange-400" }
-      ],
-      low: [
-        { pre: "Cek ", post: " deh, lagi kalem nih.", short: "Lagi kalem", color: "text-green-400" }
-      ]
-    };
-    let kategori = n > 50 ? "high" : n > 15 ? "medium" : "low";
-    const list = variasi[kategori];
-    const index = place.name.length % list.length;
-    return { ...list[index], name: place.name };
+    if (!stats.topPlace) return { pre: "Pantau ", post: " yuk!", short: "Cek Lokasi", color: "text-slate-400" };
+    const n = parseInt(stats.topPlace.estimasi_orang) || 0;
+    if (n > 50) return { pre: "Gokil! ", post: " lagi pecah banget!", short: "Rame parah!", color: "text-red-500" };
+    if (n > 15) return { pre: "Lagi asyik di ", post: ". Meriah banget!", short: "Meriah", color: "text-orange-500" };
+    return { pre: "Cek ", post: " yuk, lagi kalem.", short: "Kalem", color: "text-emerald-500" };
   }, [stats.topPlace]);
 
-  // INFO VIBE
-  const vibeInfo = useMemo(() => {
-    const n = stats.titikRamai;
-    if (n > 15) {
-      const situasi = theme.getSituasi('viral');
-      return { 
-        icon: "📣", 
-        text: "Viral & Padat", 
-        impact: "Akses Tersendat", 
-        desc: "LALU LINTAS PADAT", 
-        color: situasi.text, 
-        bg: situasi.bg, 
-        border: situasi.border, 
-        label: "HIGH ACTIVITY" 
-      };
-    }
-    if (n > 8) {
-      const situasi = theme.getSituasi('ramai');
-      return { 
-        icon: "🙌", 
-        text: "Ramai Lancar", 
-        impact: "Akses Nyaman", 
-        desc: "NORMAL", 
-        color: situasi.text, 
-        bg: situasi.bg, 
-        border: situasi.border, 
-        label: "TRENDING" 
-      };
-    }
-    const situasi = theme.getSituasi('sepi');
-    return { 
-      icon: "🍃", 
-      text: "Suasana Santai", 
-      impact: "Akses Lancar", 
-      desc: "LANCAR JAYA", 
-      color: situasi.text, 
-      bg: situasi.bg, 
-      border: situasi.border, 
-      label: "CALM VIBE" 
-    };
-  }, [stats.titikRamai, theme]);
-
-  // Fungsi untuk menutup komponen
-  const handleClose = () => {
-    setIsClosing(true);
-    setTimeout(() => setIsVisible(false), 500);
-  };
+  const handleToggle = () => setIsExpanded(!isExpanded);
 
   useEffect(() => {
-    if (fullContentRef.current) {
-      setContentHeight(fullContentRef.current.offsetHeight);
-    }
-  }, [stats, validatedLocation, sapaan, tempat]);
+    if (fullContentRef.current) setContentHeight(fullContentRef.current.offsetHeight);
+  }, [stats, validatedLocation, sapaan]);
 
   if (!locationReady || !isVisible) return null;
 
   return (
-    <div 
-      className={`sticky top-[72px] z-[999] w-full transition-all duration-500 ease-in-out will-change-transform 
-        ${isClosing ? "opacity-0 scale-95 translate-y-[-20px]" : "opacity-100"}`}
-    >
-      {/* 🔥 YANG DIUBAH: Conditional background - glass saat compact, solid saat full */}
-      <div className={`relative w-full transition-all duration-500 
-        ${compact ? theme.bgGlass : theme.bg}
-        ${compact ? "border-none shadow-md shadow-black/5" : "border-b " + theme.border}`}
-      >
+    <div className={`sticky top-[72px] z-[999] w-full transition-all duration-500 px-3 md:px-6 py-2
+        ${isClosing ? "opacity-0 scale-95 -translate-y-5" : "opacity-100"}`}>
+      
+      <div className={`relative w-full rounded-3xl overflow-hidden transition-all duration-500 shadow-xl border shadow-black/5
+        ${compact ? "backdrop-blur-xl" : ""} 
+        ${theme.card} ${theme.border}`}>
         
-        {/* Container Utama */}
-        <div 
-          className="relative overflow-hidden"
-          style={{ 
-            height: compact ? 48 : contentHeight || 'auto',
-            transition: 'height 500ms cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          {/* TAMPILAN FULL */}
-          <div 
-            ref={fullContentRef}
-            className={`absolute inset-x-0 top-0 transition-all duration-500 ease-out will-change-transform
-              ${compact ? 'opacity-0 translate-y-[-8px] pointer-events-none' : 'opacity-100 translate-y-0'}`}
-          >
-            <div className="px-4 py-3">
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <div className="relative flex h-2 w-2">
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${theme.dot}`}></span>
-                      <span className={`relative inline-flex rounded-full h-2 w-2 ${theme.dot} ${theme.dotGlow}`}></span>
-                    </div>
-                    <p className={`text-[10px] font-black uppercase tracking-[0.2em] leading-none ${theme.timeText}`}>
-                      {sapaan} Ini di Sekitar
-                    </p>
-                  </div>
-                  <h2 className={`text-xl font-black leading-none tracking-tighter italic ${theme.text}`}>{validatedLocation}</h2>
+        <div className="relative" style={{ height: compact ? 56 : contentHeight || 'auto', transition: 'height 500ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
+          
+          {/* --- TAMPILAN FULL --- */}
+          <div ref={fullContentRef} className={`absolute inset-x-0 top-0 p-4 transition-all duration-500 
+              ${compact ? 'opacity-0 -translate-y-4 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+            
+            <div className="flex justify-between items-start mb-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`flex h-2 w-2 rounded-full animate-pulse ${theme.dot} ${theme.dotGlow}`} />
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${theme.textMuted}`}>
+                    {sapaan} • {formatTime()}
+                  </p>
                 </div>
-                <div className={`${theme.isMalam ? "bg-white/10" : "bg-black/5"} px-2 py-1 rounded text-[10px] font-mono font-bold ${theme.text}`}>
-                  {formatTime()}
-                </div>
+                <h2 className={`text-2xl font-black tracking-tight truncate ${theme.text}`}>
+                  {validatedLocation}
+                </h2>
               </div>
 
-              <div className="flex gap-2 mb-3">
-                <div className={`flex-[1.3] ${vibeInfo.bg} ${vibeInfo.border} px-3 py-2.5 rounded-2xl border`}>
-                  <p className="text-[10px] font-black text-slate-400 uppercase mb-1">{vibeInfo.label}</p>
-                  <p className={`text-[15px] font-black ${vibeInfo.color} leading-none flex items-center gap-2 mb-1`}>
-                    {vibeInfo.icon} {vibeInfo.text}
-                  </p>
-                  <p className="text-[9px] font-bold text-slate-500 leading-none uppercase italic">{vibeInfo.desc}</p>
+              {weather && (
+                <div className="flex flex-col items-end shrink-0">
+                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl border ${theme.softBg} ${theme.softBorder}`}>
+                      <span className="text-lg">{weather.icon}</span>
+                      <span className={`font-black text-sm ${theme.text}`}>{weather.temp}°</span>
+                   </div>
+                   <p className={`text-[9px] font-bold mt-1 uppercase italic ${theme.textMuted}`}>BMKG Terkini</p>
                 </div>
-                {stats.titikRamai > 0 && (
-                  <div className={`flex-1 ${theme.isMalam ? "bg-white/5" : "bg-white/50"} backdrop-blur-sm px-3 py-2.5 rounded-2xl border ${theme.border} shadow-sm`}>
-                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">TITIK AKTIF</p>
-                    <p className={`text-[15px] font-black leading-none ${theme.text}`}>
-                      {stats.titikRamai} <span className="text-[9px] opacity-50 font-bold ml-0.5">LOKASI</span>
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {stats.topPlace && (
-                <button 
-                  onClick={() => window.location.href = `/?id=${stats.topPlace.id}`} 
-                  className={`w-full active:scale-[0.98] transition-transform ${theme.isMalam ? "bg-slate-800" : "bg-slate-900"} rounded-xl p-2.5 flex items-center justify-between shadow-lg`}
-                >
-                  <p className="text-[11px] font-bold text-white truncate px-1 min-w-0">
-                    <span className="text-orange-400 font-black uppercase tracking-tighter">Saat Ini:</span> {stats.topPlace.name} 
-                    <span className={`font-black italic ml-1 ${dynamicMessage.color}`}>— {dynamicMessage.short}</span>
-                  </p>
-                  <span className="text-[10px] font-black text-white/30 uppercase ml-2 whitespace-nowrap">Cek →</span>
-                </button>
               )}
             </div>
-          </div>
 
-          {/* TAMPILAN COMPACT */}
-          <div 
-            ref={compactContentRef}
-            className={`absolute inset-x-0 bottom-0 transition-all duration-500 ease-out will-change-transform
-              ${compact ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[8px] pointer-events-none'}`}
-          >
-            <div className="h-[48px] px-4 flex items-center justify-between">
-              <div className="flex items-center gap-3 flex-1 min-w-0" onClick={() => setIsExpanded(!isExpanded)}>
-                <div className="relative">
-                  <span className="text-base">{vibeInfo.icon}</span>
-                  {stats.viralCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-2 w-2 rounded-full bg-red-500 border border-white"></span>
-                  )}
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-1.5 text-[11px] font-black uppercase leading-none">
-                    <span className={vibeInfo.color}>{vibeInfo.text}</span>
-                    <span className="text-slate-300">•</span>
-                    <span className={theme.text}>{stats.titikRamai} TITIK</span>
-                    <span className="text-slate-300">•</span>
-                    <span className={vibeInfo.color}>{vibeInfo.impact}</span>
-                  </div>
-                  <p className="text-[9px] font-bold truncate text-slate-400">Update Warga {validatedLocation}</p>
+            <div className="flex gap-3 mb-4">
+              <div className={`flex-[1.2] ${theme.softBg} ${theme.softBorder} border p-3 rounded-2xl`}>
+                <p className={`text-[9px] font-black uppercase mb-1 ${theme.textMuted}`}>STATUS WILAYAH</p>
+                <div className={`flex items-center gap-2 font-black ${getStatDisplay.color}`}>
+                  <span className="text-lg">{getStatDisplay.icon}</span>
+                  <span className="text-sm">{getStatDisplay.text}</span>
                 </div>
               </div>
-
-              {/* Tombol Expand/Close */}
-              <button 
-                onClick={() => isExpanded ? handleClose() : setIsExpanded(true)} 
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-300 ${
-                  isExpanded 
-                    ? "bg-red-500 text-white shadow-lg rotate-0" 
-                    : theme.isMalam ? "bg-white/10 text-slate-400" : "bg-black/10 text-slate-500"
-                }`}
-              >
-                {isExpanded ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
-                    <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  <svg className="transition-transform duration-300" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
-                    <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
+              <div className={`flex-1 border p-3 rounded-2xl ${theme.softBg} ${theme.softBorder}`}>
+                <p className={`text-[9px] font-black uppercase mb-1 ${theme.textMuted}`}>Aktivitas</p>
+                <p className={`text-sm font-black ${theme.text}`}>
+                  {stats.titikRamai} <span className={`text-[10px] font-bold ml-0.5 ${theme.textMuted}`}>LOKASI</span>
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* DROPDOWN DETAIL (COMPACT) */}
-        <div 
-          className={`overflow-hidden transition-all duration-500 ease-out will-change-transform
-            ${isExpanded && compact ? `max-h-[400px] opacity-100 border-t ${theme.border}` : 'max-h-0 opacity-0'}`}
-        >
-          <div className={`p-4 ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
-            <div className="flex gap-2 mb-4">
-              <div className={`flex-1 ${theme.card} p-3 rounded-2xl border ${theme.border} shadow-sm text-center`}>
-                <p className={`text-sm font-black ${theme.text} leading-none`}>{stats.titikDekat}</p>
-                <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Terdekat</p>
-              </div>
-              <div className={`flex-1 ${theme.card} p-3 rounded-2xl border ${theme.border} shadow-sm text-center`}>
-                <p className={`text-sm font-black ${theme.text} leading-none`}>{stats.viralCount}</p>
-                <p className="text-[8px] font-bold text-rose-500 uppercase mt-1">Viral</p>
+            {/* 🔥 INFO ARUS LALU LINTAS */}
+            <div className={`mb-4 p-3 rounded-2xl border ${getTrafficInfo.bg} ${theme.border} flex items-center gap-3`}>
+              <span className={`text-xl ${getTrafficInfo.color}`}>{getTrafficInfo.icon}</span>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className={`text-[13px] font-black uppercase ${getTrafficInfo.color}`}>
+                    {getTrafficInfo.text}
+                  </span>
+                  <span className={`text-[9px] font-bold ${theme.textMuted}`}>UPDATE LANGSUNG</span>
+                </div>
+                <p className={`text-[10px] font-medium ${theme.textMuted} mt-0.5`}>
+                  {getTrafficInfo.description}
+                </p>
               </div>
             </div>
 
             {stats.topPlace && (
-              <div className={`${theme.card} rounded-2xl p-4 border ${theme.border} shadow-sm border-b-4 border-b-slate-900`}>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className={`w-1.5 h-1.5 rounded-full ${theme.dot} animate-pulse`}></span>
-                  <span className={`${theme.textMuted} text-[9px] font-black uppercase tracking-[0.2em]`}>Update Suasana</span>
+              <button 
+                onClick={() => window.location.href = `/?id=${stats.topPlace.id}`}
+                className={`group relative w-full overflow-hidden p-4 rounded-2xl transition-all active:scale-[0.97] shadow-lg
+                  ${theme.isMalam ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'}`}
+              >
+                <div className="relative z-10 flex justify-between items-center">
+                  <p className="text-xs font-bold truncate pr-4 text-left">
+                    <span className="opacity-60 uppercase text-[10px] block mb-0.5">Rekomendasi Pantauan</span>
+                    {stats.topPlace.name} 
+                    <span className={`ml-2 italic ${theme.isMalam ? 'text-cyan-600' : 'text-cyan-400'}`}>— {dynamicMessage.short}</span>
+                  </p>
+                  <span className={`p-2 rounded-xl ${theme.isMalam ? 'bg-slate-900/10' : 'bg-white/20'}`}>→</span>
                 </div>
-                <h4 className={`${theme.text} font-black text-[15px] leading-tight mb-3 italic`}>
-                  {dynamicMessage.pre}<span className="text-red-600 not-italic">"{dynamicMessage.name}"</span>{dynamicMessage.post}
-                </h4>
-                <button 
-                  onClick={() => window.location.href = `/?id=${stats.topPlace.id}`} 
-                  className={`w-full py-3 ${theme.isMalam ? 'bg-slate-800' : 'bg-slate-900'} text-white rounded-xl text-[10px] font-black uppercase active:scale-95 transition-transform`}
-                >
-                  ⚡ Cek Suasana Sekarang
-                </button>
+              </button>
+            )}
+          </div>
+
+          {/* --- TAMPILAN COMPACT --- */}
+          <div className={`absolute inset-x-0 bottom-0 h-[56px] px-4 flex items-center justify-between transition-all duration-500
+              ${compact ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+            
+            <div className="flex items-center gap-3 flex-1 min-w-0" onClick={handleToggle}>
+              <div className={`w-10 h-10 flex items-center justify-center rounded-2xl text-xl shrink-0 ${theme.softBg} ${theme.softBorder} ${getStatDisplay.glow}`}>
+                {getStatDisplay.icon}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1">
+                   {/* Status Dinamis (Tanpa Angka 0) */}
+                   <span className={`text-[11px] font-black uppercase ${getStatDisplay.color}`}>
+                    {getStatDisplay.text}
+                   </span>
+                   <span className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-slate-700' : 'bg-slate-300'}`} />
+                   {/* Info Vibe (Pagi/Malam dll) */}
+                   <span className={`text-[11px] font-black uppercase ${theme.textMuted}`}>
+                    {theme.vibeInfo.label}
+                   </span>
+                   <span className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-slate-700' : 'bg-slate-300'}`} />
+                   {/* 🔥 INFO LALIN DI COMPACT */}
+                   <span className={`text-[11px] font-black uppercase ${getTrafficInfo.color}`}>
+                    {getTrafficInfo.icon} {getTrafficInfo.text}
+                   </span>
+                </div>
+                <p className={`text-[10px] font-bold truncate tracking-tight italic ${theme.textMuted}`}>
+                  {getRandomUpdateText()} @ {validatedLocation}
+                </p>
+              </div>
+            </div>
+
+            <button onClick={handleToggle} 
+              className={`ml-2 w-8 h-8 flex items-center justify-center rounded-xl transition-transform duration-300
+              ${theme.isMalam ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'}`}>
+              <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* --- DROPDOWN DETAIL --- */}
+        <div className={`overflow-hidden transition-all duration-500 ease-in-out
+            ${isExpanded && compact ? `max-h-[400px] opacity-100 border-t ${theme.border} ${theme.isMalam ? 'bg-white/5' : 'bg-slate-50'}` : 'max-h-0 opacity-0'}`}>
+          <div className="p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`${theme.card} p-3 rounded-2xl border ${theme.border} shadow-sm`}>
+                <p className={`text-xl font-black leading-none ${theme.text}`}>{stats.titikDekat}</p>
+                <p className={`text-[10px] font-bold uppercase mt-1 ${theme.textMuted}`}>Titik Terdekat</p>
+              </div>
+              <div className={`${theme.card} p-3 rounded-2xl border ${theme.border} shadow-sm`}>
+                <p className="text-xl font-black text-rose-500 leading-none">{stats.viralCount}</p>
+                <p className={`text-[10px] font-bold uppercase mt-1 ${theme.textMuted}`}>Lagi Viral</p>
+              </div>
+            </div>
+            
+            {/* 🔥 INFO LALIN DI DROPDOWN */}
+            <div className={`${theme.card} p-3 rounded-2xl border ${theme.border} flex items-center gap-3`}>
+              <span className={`text-2xl ${getTrafficInfo.color}`}>{getTrafficInfo.icon}</span>
+              <div>
+                <span className={`text-[13px] font-black uppercase ${getTrafficInfo.color}`}>{getTrafficInfo.text}</span>
+                <p className={`text-[9px] ${theme.textMuted}`}>{getTrafficInfo.description}</p>
+              </div>
+            </div>
+            
+            {stats.topPlace && (
+              <div className={`${theme.card} p-4 rounded-2xl border ${theme.border}`}>
+                  <h4 className={`text-sm font-black mb-1 italic ${theme.text}`}>
+                    {dynamicMessage.pre}<span className={getStatDisplay.color}>"{stats.topPlace.name}"</span>{dynamicMessage.post}
+                  </h4>
+                  <button 
+                     onClick={() => window.location.href = `/?id=${stats.topPlace.id}`}
+                     className={`w-full mt-3 py-3 rounded-xl text-[11px] font-black uppercase transition-all shadow-md
+                     ${theme.isMalam ? 'bg-cyan-500 text-[#0f172a]' : 'bg-[#E3655B] text-white'}`}
+                  >
+                    ⚡ Pantau Sekarang
+                  </button>
               </div>
             )}
-            
-            <p className="text-[8px] text-center text-slate-400 mt-3 font-bold uppercase tracking-wider">
-              Klik icon merah di atas untuk tutup laporan
-            </p>
           </div>
         </div>
       </div>

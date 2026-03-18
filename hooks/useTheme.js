@@ -1,4 +1,4 @@
-// hooks/useTheme.js - FINAL BERDASARKAN KESEPAKATAN
+// hooks/useTheme.js - FINAL DENGAN STATUS TEXT UNTUK SEMUA MODE
 
 import { useMemo } from "react";
 import { useLocation } from "@/app/components/LocationProvider";
@@ -44,6 +44,8 @@ export function useTheme() {
         softBorder: "border-orange-200",
         timeText: "text-orange-600",
         timeIcon: "🌅",
+        statusText: "text-slate-800",      // ✅ TAMBAH: gelap untuk background terang
+        statusBg: "bg-orange-50/80",        // ✅ TAMBAH: background untuk status island
       },
       Siang: {
         dot: "bg-[#E3655B]",
@@ -52,6 +54,8 @@ export function useTheme() {
         softBorder: "border-rose-200",
         timeText: "text-[#E3655B]",
         timeIcon: "☀️",
+        statusText: "text-slate-800",      // ✅ TAMBAH: gelap untuk background terang
+        statusBg: "bg-rose-50/80",          // ✅ TAMBAH: background untuk status island
       },
       Sore: {
         dot: "bg-rose-500",
@@ -60,6 +64,8 @@ export function useTheme() {
         softBorder: "border-rose-200",
         timeText: "text-rose-600",
         timeIcon: "🌆",
+        statusText: "text-slate-800",      // ✅ TAMBAH: gelap untuk background terang
+        statusBg: "bg-rose-50/80",          // ✅ TAMBAH: background untuk status island
       },
       Malam: {
         dot: "bg-cyan-400",
@@ -68,6 +74,8 @@ export function useTheme() {
         softBorder: "border-cyan-500/20",
         timeText: "text-cyan-400",
         timeIcon: "🌙",
+        statusText: "text-white",           // ✅ TAMBAH: putih untuk background gelap
+        statusBg: "bg-white/5",              // ✅ TAMBAH: background untuk status island
       }
     };
     

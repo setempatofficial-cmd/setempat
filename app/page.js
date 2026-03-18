@@ -1,40 +1,50 @@
 "use client";
 
-import LocationProvider from "./components/LocationProvider";
+import { Providers } from "./providers";
 import FeedContent from "./components/feed/FeedContent";
+import { useTheme } from "@/hooks/useTheme";
 
-
-export default function Home() {
+// Konten utama yang pakai theme
+function HomeContent() {
+  const theme = useTheme();
+  
   return (
-    <LocationProvider>
-      {/* Container Utama: 
-        - bg-[#050505] adalah hitam OLED (Mewah & Hemat Baterai)
-        - min-h-screen memastikan background penuh se-layar HP
-      */}
-      <div className="relative min-h-screen w-full bg-[#050505] text-white selection:bg-red-500/30">
-        
-        {/* --- 1. AMBIENT BACKGROUND (Fixed & Subtle) --- */}
-        {/* Ini yang bikin mewah tanpa bikin boros data/baterai */}
+    <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300 selection:bg-red-500/30`}>
+      
+      {/* Ambient Effects - Hanya di Malam */}
+      {theme.isMalam && (
         <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-          {/* Semburan cahaya biru redup di atas */}
           <div 
-            className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
+            className="absolute top-y[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
             style={{ backgroundColor: '#3b82f6' }} 
           />
-          {/* Semburan cahaya ungu redup di bawah */}
           <div 
             className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]"
             style={{ backgroundColor: '#8b5cf6' }} 
           />
         </div>
+      )}
 
-        {/* --- 2. CONTENT LAYER --- */}
-        {/* z-10 memastikan FeedContent berada di atas cahaya ambient */}
-        <div className="relative z-10">
-          <FeedContent />
+      {/* Ambient untuk Siang */}
+      {!theme.isMalam && (
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-30">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/5 to-transparent" />
         </div>
+      )}
 
+      {/* Konten */}
+      <div className="relative z-10">
+        <FeedContent />
       </div>
-    </LocationProvider>
+    </div>
+  );
+}
+
+// Halaman Utama
+export default function Home() {
+  return (
+    <Providers>
+      <HomeContent />
+    </Providers>
   );
 }

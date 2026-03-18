@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useSearch } from "../../hooks/useSearch";
 import { useLocation } from "../LocationProvider";
 import UserMenu from "./UserMenu";
@@ -19,11 +19,23 @@ export default function Header({
   onSearchLoading,
   onQueryChange,
   onOpenAuthModal,
+  onSearchFocusChange,  // 🔥 PROPS BARU
+  onSearchSubmit,       // 🔥 PROPS BARU
 }) {
   const { sapaan } = useLocation();
   const theme = useTheme();
 
-  const { query, setQuery, results, isLoading } = useSearch(locationReady, villageLocation);
+  const { 
+    query, 
+    setQuery, 
+    results, 
+    isLoading, 
+    rekomendasiKalimat,
+    handleFocus: originalHandleFocus,
+    handleBlur: originalHandleBlur,
+    showDropdown 
+  } = useSearch(locationReady, villageLocation);
+  
   const [isListening, setIsListening] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -32,6 +44,29 @@ export default function Header({
     if (onSearchLoading) onSearchLoading(isLoading);
     if (onQueryChange) onQueryChange(query);
   }, [results, isLoading, query, onSearchResults, onSearchLoading, onQueryChange]);
+
+  // 🔥 HANDLER FOCUS
+  const handleFocus = () => {
+    setIsFocused(true);
+    originalHandleFocus();
+    if (onSearchFocusChange) onSearchFocusChange(true);
+  };
+
+  // 🔥 HANDLER BLUR
+  const handleBlur = () => {
+    setTimeout(() => {
+      setIsFocused(false);
+      originalHandleBlur();
+      if (onSearchFocusChange) onSearchFocusChange(false);
+    }, 200);
+  };
+
+  // 🔥 HANDLER KEY DOWN (ENTER)
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && query.length >= 2) {
+      if (onSearchSubmit) onSearchSubmit();
+    }
+  };
 
   const handleVoiceSearch = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -87,13 +122,17 @@ export default function Header({
                 />
               </svg>
             </div>
-            {isScrolled && (
-              <div className="flex items-center gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    locationReady ? theme.dot + " " + theme.dotGlow : "bg-red-400"
-                  }`}
-                />
+            
+            {/* DOT INDICATOR */}
+            <div className="flex items-center gap-1">
+              <span
+                className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                  locationReady 
+                    ? theme.dot + " " + theme.dotGlow
+                    : "bg-red-500 ring-2 ring-red-300 animate-pulse"
+                }`}
+              />
+              {isScrolled && (
                 <svg
                   className="w-3 h-3 text-slate-400"
                   fill="none"
@@ -107,8 +146,8 @@ export default function Header({
                     d="M19 9l-7 7-7-7"
                   />
                 </svg>
-              </div>
-            )}
+              )}
+            </div>
           </button>
 
           {/* BRANDING & SEARCH COMPACT */}
@@ -123,12 +162,8 @@ export default function Header({
               <h1 className={`text-[16px] font-bold tracking-tight leading-tight whitespace-nowrap ${theme.text}`}>
                 Setempat<span className="text-[#E3655B]">ID</span>
               </h1>
+              
               <div className="flex items-center gap-1.5 mt-0.5 w-full whitespace-nowrap">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    locationReady ? theme.dot + " " + theme.dotGlow : "bg-red-400"
-                  }`}
-                />
                 <p className={`text-[11px] font-medium truncate max-w-[110px] ${theme.textMuted}`}>
                   {locationReady && villageLocation ? villageLocation : "Pilih lokasimu"}
                 </p>
@@ -155,11 +190,14 @@ export default function Header({
                 isScrolled ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-8 scale-95 pointer-events-none"
               }`}
             >
-              <div className="relative group">
+              <div className="relative">
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onFocus={handleFocus}
+                  onBlur={handleBlur}
+                  onKeyDown={handleKeyDown}  // 🔥 TAMBAHKAN INI
                   placeholder={locationReady && villageLocation ? `Cari di ${villageLocation}...` : "Aktifkan Lokasi.."}
                   className={`w-full border rounded-xl py-2 pl-9 pr-14 text-[13px] font-semibold focus:outline-none transition-colors duration-200 
                     ${
@@ -179,27 +217,32 @@ export default function Header({
                 </div>
                 <button
                   onClick={onOpenAIModal}
-                 className={`absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-300 active:scale-90
+                  className={`absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-300 active:scale-90
                     ${
                       theme.isMalam
                         ? theme.accentSoft + " " + theme.accentBorder + " " + theme.accent
                         : "bg-[#E3655B]/10 border-[#E3655B]/20 text-[#E3655B]"
                     }`}
                 >
-                  <div className="flex flex-col items-center leading-[0.75]">
-                    <span className="text-[5px] font-black uppercase tracking-[0.1em] opacity-70"></span>
-                    <span className="text-[9px] font-black italic tracking-tighter">AI PRO</span>
-                  </div>
+                  <span className="text-[9px] font-black italic tracking-tighter">AI PRO</span>
                   <motion.span
                     animate={{ scale: [1, 1.2, 1] }}
                     transition={{ repeat: Infinity, duration: 2 }}
-                    className="flex items-center justify-center"
                   >
                     <svg className="w-2.5 h-2.5 opacity-80" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M9 5l.733 2.267L12 8l-2.267.733L9 11l-.733-2.267L6 8l2.267-.733L9 5zm7 7l.55 1.7L18 14.25l-1.45.55L16 16.5l-.55-1.7L14 14.25l1.45-.55L16 12z" />
                     </svg>
                   </motion.span>
                 </button>
+
+                {/* 🔥 DROPDOWN SEARCH - BISA DIHAPUS ATAU DIKOMENTARI */}
+                {/* <AnimatePresence>
+                  {showDropdown && (
+                    <motion.div ... >
+                      ...
+                    </motion.div>
+                  )}
+                </AnimatePresence> */}
               </div>
             </div>
           </div>
@@ -225,6 +268,9 @@ export default function Header({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}  // 🔥 TAMBAHKAN INI
               placeholder={locationReady && villageLocation ? `Cari di ${villageLocation}...` : "Aktifkan lokasi dulu..."}
               className={`w-full border rounded-xl py-3 pl-11 pr-28 text-[14px] font-medium focus:outline-none transition-colors duration-200
                 ${
@@ -250,7 +296,7 @@ export default function Header({
               </svg>
             </div>
 
-            {/* Kontainer Tombol di Kanan Input */}
+            {/* Tombol di Kanan Input */}
             <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-2">
               {/* Tombol Voice Search */}
               <button

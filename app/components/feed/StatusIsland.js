@@ -33,7 +33,6 @@ export default function StatusIsland({
     `Update ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`
   ];
 
-  // Rotate status messages (bisa ditambah useEffect untuk rotasi otomatis)
   const displayStatus = isExpanded 
     ? "LAPORAN VISUAL TERKINI" 
     : statusMessages[0];
@@ -42,7 +41,7 @@ export default function StatusIsland({
     <div 
       onClick={handleToggle}
       className={`relative overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] cursor-pointer
-        ${theme.statusBg} border ${theme.border} rounded-[28px]
+        ${theme.statusBg} border ${theme.softBorder || theme.border} rounded-[28px]
         ${isExpanded ? 'p-6 shadow-inner' : 'h-14 px-5 flex items-center shadow-sm hover:shadow-md'}
       `}
     >
@@ -60,8 +59,10 @@ export default function StatusIsland({
             </p>
           </div>
           
-          {/* INDIKATOR EXPAND */}
-          <div className={`flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5 border border-white/5`}>
+          {/* INDIKATOR EXPAND - DIPERBAIKI */}
+          <div className={`flex items-center gap-2 px-2 py-1 rounded-lg 
+            ${theme.isMalam ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}
+          >
             <span className={`text-[8px] font-black uppercase opacity-60 ${theme.statusText}`}>
               {isExpanded ? 'Tutup' : 'Detail'}
             </span>
@@ -85,7 +86,10 @@ export default function StatusIsland({
               <div className="space-y-3 py-1">
                 <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText}`}>
                   "Live report warga menunjukkan{' '}
-                  <span className={`px-1 rounded bg-white/10 not-italic`}>{currentStatus}</span>. 
+                  <span className={`px-1 rounded not-italic 
+                    ${theme.isMalam ? 'bg-white/10' : 'bg-black/5'}`}>
+                    {currentStatus}
+                  </span>. 
                   Aktivitas terpantau{' '}
                   <span className="underline decoration-2 underline-offset-4">
                     {activityLevel}
@@ -96,12 +100,19 @@ export default function StatusIsland({
                 <div className="flex items-center gap-4 pt-2">
                    <div className="flex -space-x-2">
                       {[1,2,3].map(i => (
-                        <div key={i} className="w-5 h-5 rounded-full border border-black bg-gray-800 flex items-center justify-center text-[7px] font-black">
+                        <div 
+                          key={i} 
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center text-[7px] font-black
+                            ${theme.isMalam 
+                              ? 'border-white/20 bg-gray-800 text-white' 
+                              : 'border-black/20 bg-gray-200 text-slate-800'}`}
+                        >
                           {String.fromCharCode(64 + i)}
                         </div>
                       ))}
                    </div>
-                   <p className="text-[9px] font-bold opacity-40 uppercase tracking-tighter">
+                   <p className={`text-[9px] font-bold opacity-40 uppercase tracking-tighter
+                     ${theme.isMalam ? 'text-white' : 'text-slate-800'}`}>
                      Tervalidasi {jumlahWarga || 0} Warga Setempat
                    </p>
                 </div>
