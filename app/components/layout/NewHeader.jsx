@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
+import { motion } from "framer-motion";
 import { useSearch } from "../../hooks/useSearch";
 import { useLocation } from "../LocationProvider";
 import UserMenu from "./UserMenu";
@@ -15,58 +15,17 @@ export default function Header({
   isScrolled,
   onOpenLocationModal,
   onOpenAIModal,
-  onSearchResults,
-  onSearchLoading,
-  onQueryChange,
   onOpenAuthModal,
-  onSearchFocusChange,  // 🔥 PROPS BARU
-  onSearchSubmit,       // 🔥 PROPS BARU
 }) {
   const { sapaan } = useLocation();
   const theme = useTheme();
 
   const { 
     query, 
-    setQuery, 
-    results, 
-    isLoading, 
-    rekomendasiKalimat,
-    handleFocus: originalHandleFocus,
-    handleBlur: originalHandleBlur,
-    showDropdown 
+    setQuery,
   } = useSearch(locationReady, villageLocation);
   
   const [isListening, setIsListening] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    if (onSearchResults) onSearchResults(results);
-    if (onSearchLoading) onSearchLoading(isLoading);
-    if (onQueryChange) onQueryChange(query);
-  }, [results, isLoading, query, onSearchResults, onSearchLoading, onQueryChange]);
-
-  // 🔥 HANDLER FOCUS
-  const handleFocus = () => {
-    setIsFocused(true);
-    originalHandleFocus();
-    if (onSearchFocusChange) onSearchFocusChange(true);
-  };
-
-  // 🔥 HANDLER BLUR
-  const handleBlur = () => {
-    setTimeout(() => {
-      setIsFocused(false);
-      originalHandleBlur();
-      if (onSearchFocusChange) onSearchFocusChange(false);
-    }, 200);
-  };
-
-  // 🔥 HANDLER KEY DOWN (ENTER)
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && query.length >= 2) {
-      if (onSearchSubmit) onSearchSubmit();
-    }
-  };
 
   const handleVoiceSearch = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -195,9 +154,6 @@ export default function Header({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onFocus={handleFocus}
-                  onBlur={handleBlur}
-                  onKeyDown={handleKeyDown}  // 🔥 TAMBAHKAN INI
                   placeholder={locationReady && villageLocation ? `Cari di ${villageLocation}...` : "Aktifkan Lokasi.."}
                   className={`w-full border rounded-xl py-2 pl-9 pr-14 text-[13px] font-semibold focus:outline-none transition-colors duration-200 
                     ${
@@ -234,15 +190,6 @@ export default function Header({
                     </svg>
                   </motion.span>
                 </button>
-
-                {/* 🔥 DROPDOWN SEARCH - BISA DIHAPUS ATAU DIKOMENTARI */}
-                {/* <AnimatePresence>
-                  {showDropdown && (
-                    <motion.div ... >
-                      ...
-                    </motion.div>
-                  )}
-                </AnimatePresence> */}
               </div>
             </div>
           </div>
@@ -268,9 +215,6 @@ export default function Header({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}  // 🔥 TAMBAHKAN INI
               placeholder={locationReady && villageLocation ? `Cari di ${villageLocation}...` : "Aktifkan lokasi dulu..."}
               className={`w-full border rounded-xl py-3 pl-11 pr-28 text-[14px] font-medium focus:outline-none transition-colors duration-200
                 ${

@@ -1,74 +1,129 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// app/api/chat/route.js
+// Groq API — gratis, tidak butuh kartu kredit
+// Daftar: console.groq.com → API Keys → Create API Key
+// .env.local: GROQ_API_KEY=gsk_...
 
-const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey);
+// ── Rate limiting sederhana (in-memory) ──────────────────────────────────────
+// Max 10 request per IP per menit, max 30 per hari
+const rateLimitMap = new Map(); // { ip: { count, resetAt, dailyCount, dayResetAt } }
 
+const LIMIT_PER_MINUTE = 10;
+const LIMIT_PER_DAY    = 30;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || {
+    count: 0,        resetAt: now + 60_000,
+    dailyCount: 0,   dayResetAt: now + 86_400_000,
+  };
+
+  // Reset per menit
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + 60_000;
+  }
+  // Reset per hari
+  if (now > entry.dayResetAt) {
+    entry.dailyCount = 0;
+    entry.dayResetAt = now + 86_400_000;
+  }
+
+  entry.count++;
+  entry.dailyCount++;
+  rateLimitMap.set(ip, entry);
+
+  if (entry.count > LIMIT_PER_MINUTE) return "minute";
+  if (entry.dailyCount > LIMIT_PER_DAY) return "day";
+  return null;
+}
+
+// Bersihkan map setiap jam agar tidak memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap.entries()) {
+    if (now > entry.dayResetAt) rateLimitMap.delete(ip);
+  }
+}, 3_600_000);
+
+// ── Handler ───────────────────────────────────────────────────────────────────
 export async function POST(req) {
   try {
-    const { message, tempat } = await req.json();
+    // Ambil IP user
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      || req.headers.get("x-real-ip")
+      || "unknown";
 
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.0-flash", 
-      generationConfig: {
-        temperature: 0.85, 
-        maxOutputTokens: 300,
-      },
-    });
-
-    // 1. IDENTITAS LOKASI & KATEGORI
-    const nama = tempat?.name || "tempat ini";
-    const kategori = tempat?.category || "Umum";
-    const alamat = tempat?.alamat || "Pasuruan";
-    const vibe = tempat?.vibe_status || "Normal";
-    const deskripsi = tempat?.description || "";
-
-    // 2. LOGIKA KEPRIBADIAN (BEHAVIOR)
-    let instruksiKepribadian = "";
-    switch (kategori) {
-      case 'Rumah Sakit':
-        instruksiKepribadian = "Kamu asisten medis yang empati dan tenang. Fokus pada info bantuan dan operasional. Jangan terlalu banyak bercanda.";
-        break;
-      case 'Stadion':
-        instruksiKepribadian = "Kamu suporter fanatik lokal (Persekabpas). Nada bicara semangat, enerjik, dan pakai istilah bola.";
-        break;
-      case 'Stasiun Kereta Api':
-        instruksiKepribadian = "Kamu petugas informasi yang sigap. Bantu soal jadwal dan akses transportasi dengan jelas.";
-        break;
-      case 'Kuliner Legendaris':
-        instruksiKepribadian = "Kamu pecinta kuliner (foodie) lokal yang tahu sejarah rasa tempat ini. Ceritakan dengan antusias.";
-        break;
-      default:
-        instruksiKepribadian = "Kamu warga lokal yang asik, ramah, dan tahu seluk beluk tempat ini.";
+    // Cek rate limit
+    const limited = checkRateLimit(ip);
+    if (limited === "minute") {
+      return Response.json({
+        text: "Pelan-pelan, Lur! Terlalu banyak pertanyaan dalam 1 menit. Tunggu sebentar ya 😅",
+      });
+    }
+    if (limited === "day") {
+      return Response.json({
+        text: "Kuota harian AI sudah habis, Lur. Coba lagi besok ya! 🙏",
+      });
     }
 
-    // 3. LOGIKA VIBE (SITUASI REAL-TIME)
-    let instruksiVibe = "";
-    if (vibe === 'Rame Pol') instruksiVibe = "Kondisi lagi ramai banget, sarankan user untuk bersabar atau cari waktu lain.";
-    if (vibe === 'Udan Deras') instruksiVibe = "Lagi hujan lebat, ingatkan user bawa payung atau berteduh dulu.";
-    if (vibe === 'Sumuk Banget') instruksiVibe = "Cuaca lagi panas terik khas Pasuruan, sarankan cari minuman segar.";
+    const { message, context, tempat } = await req.json();
 
-    // 4. PEMBENTUKAN PROMPT FINAL
-    const prompt = `
-      PERAN: ${instruksiKepribadian}
-      LOKASI: ${nama} (${kategori}).
-      DESKRIPSI: ${deskripsi}.
-      VIBE SAAT INI: ${vibe}. ${instruksiVibe}
+    if (!message?.trim()) {
+      return Response.json({ error: "Pesan kosong" }, { status: 400 });
+    }
 
-      ATURAN BAHASA:
-      - Gunakan gaya bahasa Jawa Timuran khas Pasuruan (Suroboyoan).
-      - Gunakan sapaan: 'Cak', 'Ning', atau 'Rek'.
-      - Gunakan partikel: 'se', 'tah', 'wes', 'po'o'.
-      - Gaya bicara: To-the-point, akrab, dan informatif.
+    // Batasi panjang pesan dari user — cegah token boros
+    const safeMessage = message.trim().slice(0, 300);
 
-      Pertanyaan User: "${message}"
-    `;
+    const tempatCtx = tempat
+      ? `Tempat: ${tempat.name} (${tempat.category || "umum"}, ${tempat.alamat?.split(",")[0] || "setempat"})`
+      : "Tidak ada tempat spesifik, jawab soal kondisi wilayah umum.";
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const systemPrompt = `Kamu AI Setempat — asisten kondisi real-time lokal Indonesia.
+Panggil user "Warga Setempat". Bahasa santai Jawa Timur.
+Fokus: kondisi SEKARANG (ramai/sepi, macet/lancar, cuaca). BUKAN rekomendasi tempat.
+Jawab maksimal 2-3 kalimat singkat. Pakai emoji kondisi seperlunya.
+Kalau tidak tahu kondisi terkini, jujur dan minta user lapor.
+${tempatCtx}`;
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        max_tokens: 200,       // hemat token — cukup 2-3 kalimat
+        temperature: 0.6,      // sedikit lebih deterministic
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: safeMessage },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      console.error("Groq API error:", err);
+      if (response.status === 429) {
+        return Response.json({
+          text: "AI-nya lagi sibuk, Lur. Coba lagi sebentar ya! 🙏",
+        });
+      }
+      throw new Error(err.error?.message || "Groq API error");
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content?.trim()
+      || "Maaf, tidak ada jawaban dari AI.";
 
     return Response.json({ text });
+
   } catch (error) {
-    console.error("AI_ERROR:", error);
-    return Response.json({ text: "Waduh Rek, sistem lagi ngelu. Coba sediluk maneh yo!" }, { status: 500 });
+    console.error("Chat route error:", error.message);
+    return Response.json({
+      text: "Maaf, AI Setempat lagi gangguan sebentar. Coba lagi ya, Lur! 🙏",
+    });
   }
 }

@@ -1,7 +1,7 @@
 // hooks/useTheme.js - FINAL DENGAN STATUS TEXT UNTUK SEMUA MODE
 
 import { useMemo } from "react";
-import { useLocation } from "@/app/components/LocationProvider";
+import { useLocation } from "@/components/LocationProvider";
 
 export function useTheme() {
   const { sapaan } = useLocation(); // "Pagi", "Siang", "Sore", "Malam"

@@ -1,72 +1,59 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { supabase } from "@/lib/supabaseClient";
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export function useSearch(locationReady, villageLocation) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const debounceTimerRef = useRef(null);
 
-  // Daftar rekomendasi kalimat untuk memancing user
-  const rekomendasiKalimat = [
-    `Suasana ngopi santai di ${villageLocation || 'Pasuruan'}`,
-    "Tempat kerja dengan Wi-Fi kencang",
-    "Kuliner legendaris yang tersembunyi",
-    "Spot foto estetik buat akhir pekan",
-    "Bengkel 24 jam terdekat",
-    "Toko kelontong yang buka sampai malam"
-  ];
-
+  // Effect untuk pencarian dengan debounce
   useEffect(() => {
-    const searchQuery = query.trim();
-
-    // Jangan munculkan hasil jika kurang dari 2 karakter
+    const searchQuery = typeof query === 'string' ? query.trim() : '';
+    
+    // Hanya search jika query >= 2 karakter
     if (searchQuery.length < 2) {
       setResults([]);
       setIsLoading(false);
       return;
     }
 
-    const controller = new AbortController();
+    // Clear timer sebelumnya
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
 
-    const fetchResults = async () => {
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('feed_view')
-          .select('*')
-          .or(`name.ilike.%${searchQuery}%,category.ilike.%${searchQuery}%,alamat.ilike.%${searchQuery}%`)
-          .limit(8)
-          .abortSignal(controller.signal);
+    setIsLoading(true);
 
-        if (error) throw error;
-        setResults(data || []);
-      } catch (err) {
-        if (err.name !== 'AbortError') setResults([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    const timeoutId = setTimeout(fetchResults, 400);
+    // Simulasi pencarian
+    debounceTimerRef.current = setTimeout(() => {
+      setResults([]);
+      setIsLoading(false);
+    }, 400);
 
     return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
   }, [query]);
 
-  const selectRekomendasi = (kalimat) => {
-    setQuery(kalimat);
-    setIsFocused(false);
-  };
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+  }, []);
 
-  const handleFocus = () => setIsFocused(true);
-  const handleBlur = () => {
-    setTimeout(() => setIsFocused(false), 200);
-  };
+  const handleBlur = useCallback(() => {
+    setTimeout(() => {
+      setIsFocused(false);
+    }, 200);
+  }, []);
+
+  const resetSearch = useCallback(() => {
+    setQuery('');
+    setResults([]);
+  }, []);
 
   return {
     query,
@@ -74,10 +61,8 @@ export function useSearch(locationReady, villageLocation) {
     results,
     isLoading,
     isFocused,
-    rekomendasiKalimat,
     handleFocus,
     handleBlur,
-    selectRekomendasi,
-    showDropdown: isFocused && (query.length > 0 || rekomendasiKalimat.length > 0)
+    resetSearch,
   };
 }

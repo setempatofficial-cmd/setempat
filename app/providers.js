@@ -1,6 +1,6 @@
 "use client";
 
-import LocationProvider from "./components/LocationProvider";
+import LocationProvider from "@/components/LocationProvider";
 
 export function Providers({ children }) {
   return (

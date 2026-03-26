@@ -1,98 +1,128 @@
 // app/api/weather/route.js
-import { NextResponse } from 'next/server';
+// 🔥 MENGGUNAKAN OPENWEATHERMAP API
+
+// Mapping kode wilayah ke koordinat
+const getCoordinates = (kodeWilayah) => {
+  const mapping = {
+    '35.14.01.1001': { lat: -7.645, lon: 112.907 }, // Pasuruan Kota
+    '35.14.01.1002': { lat: -7.646, lon: 112.908 }, // Alun-Alun
+    '35.14.01.1003': { lat: -7.647, lon: 112.909 }, // Pasar Besar
+    // Tambah mapping lain sesuai kebutuhan
+  };
+  
+  return mapping[kodeWilayah] || mapping['35.14.01.1001'];
+};
+
+// Translator cuaca Inggris -> Indonesia
+const translateWeather = (desc) => {
+  const translations = {
+    'clear sky': 'Cerah',
+    'few clouds': 'Cerah Berawan',
+    'scattered clouds': 'Berawan',
+    'broken clouds': 'Berawan Tebal',
+    'overcast clouds': 'Mendung',
+    'light rain': 'Hujan Ringan',
+    'moderate rain': 'Hujan Sedang',
+    'heavy rain': 'Hujan Lebat',
+    'thunderstorm': 'Hujan Petir',
+    'mist': 'Kabut',
+    'fog': 'Kabut'
+  };
+  return translations[desc] || desc;
+};
+
+// Cache sederhana
+const cache = new Map();
+const CACHE_DURATION = 30 * 60 * 1000; // 30 menit
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const kodeWilayah = searchParams.get('kode');
+  console.log("🌤️ API Weather OpenWeatherMap dipanggil");
   
-  if (!kodeWilayah) {
-    return NextResponse.json(
-      { error: 'Kode wilayah diperlukan' },
-      { status: 400 }
-    );
-  }
-
   try {
-    // 🔥 TAMBAH TIMEOUT
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const { searchParams } = new URL(request.url);
+    const kode = searchParams.get('kode');
+    
+    if (!kode) {
+      return Response.json({ error: 'Kode wilayah diperlukan' }, { status: 400 });
+    }
 
-    const response = await fetch(
-      `https://api.bmkg.go.id/publik/prakiraan-cuaca?adm4=${kodeWilayah}`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'SetempatID/1.0'
-        },
-        signal: controller.signal,
-        next: { revalidate: 1800 } // Cache 30 menit
-      }
-    );
+    // Cek cache
+    const cached = cache.get(kode);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log("📦 Menggunakan data cache");
+      return Response.json({ weather: cached.data });
+    }
 
-    clearTimeout(timeoutId);
+    // Dapatkan koordinat
+    const coord = getCoordinates(kode);
+    console.log("📍 Koordinat:", coord);
+
+    // 🔥 PANGGIL OPENWEATHERMAP
+    const apiKey = process.env.OPENWEATHER_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('OPENWEATHER_API_KEY tidak ditemukan di .env.local');
+    }
+
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${coord.lat}&lon=${coord.lon}&units=metric&appid=${apiKey}`;
+    
+    console.log("🌐 Memanggil OpenWeatherMap");
+    
+    const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`BMKG API returned ${response.status}`);
-      // 🔥 KALAU GAGAL, KEMBALIKAN DATA DUMMY UNTUK DEVELOPMENT
-      if (process.env.NODE_ENV === 'development') {
-        return NextResponse.json({
-          weather: {
-            t: 28,
-            weather_desc: 'Cerah Berawan',
-            hu: 75,
-            ws: 12
-          },
-          source: 'BMKG (Development Mode)',
-          timestamp: new Date().toISOString()
-        });
-      }
-      
-      return NextResponse.json(
-        { error: 'Gagal mengambil data dari BMKG' },
-        { status: response.status }
-      );
+      throw new Error(`OpenWeatherMap API error: ${response.status}`);
     }
 
     const data = await response.json();
-    
-    // 🔥 CEK STRUKTUR DATA BMKG
-    if (!data || !data.data || !data.data[0]) {
-      console.warn('BMKG data format unexpected:', data);
-      return NextResponse.json(
-        { error: 'Format data BMKG tidak sesuai' },
-        { status: 500 }
-      );
-    }
-    
-    // Ambil data terkini
-    const currentWeather = data.data[0];
-    
-    return NextResponse.json({
-      weather: currentWeather,
-      source: 'BMKG',
-      timestamp: new Date().toISOString()
+    console.log("✅ Data OpenWeatherMap diterima");
+
+    // Transform ke format Anda
+    const weatherData = {
+      t: Math.round(data.main.temp),
+      weather_desc: translateWeather(data.weather[0].description),
+      hu: data.main.humidity,
+      ws: Math.round(data.wind.speed * 3.6) // konversi m/s ke km/h
+    };
+
+    // Simpan ke cache
+    cache.set(kode, {
+      data: weatherData,
+      timestamp: Date.now()
     });
 
+    return Response.json({ weather: weatherData });
+
   } catch (error) {
-    console.error('Weather API Error:', error.message);
+    console.error("❌ Error di API weather:", error);
     
-    // 🔥 DI DEVELOPMENT, KEMBALIKAN DATA DUMMY
-    if (process.env.NODE_ENV === 'development') {
-      return NextResponse.json({
-        weather: {
-          t: 28,
-          weather_desc: 'Cerah Berawan',
-          hu: 75,
-          ws: 12
-        },
-        source: 'BMKG (Fallback)',
-        timestamp: new Date().toISOString()
-      });
+    // Fallback berdasarkan waktu
+    const hour = new Date().getHours();
+    let fallbackTemp = 28;
+    let fallbackCondition = 'Cerah Berawan';
+    
+    if (hour < 10) {
+      fallbackTemp = 24;
+      fallbackCondition = 'Cerah';
+    } else if (hour < 15) {
+      fallbackTemp = 31;
+      fallbackCondition = 'Cerah Berawan';
+    } else if (hour < 18) {
+      fallbackTemp = 29;
+      fallbackCondition = 'Berawan';
+    } else {
+      fallbackTemp = 26;
+      fallbackCondition = 'Cerah Malam';
     }
     
-    return NextResponse.json(
-      { error: 'Gagal mengambil data cuaca' },
-      { status: 500 }
-    );
+    return Response.json({ 
+      weather: {
+        t: fallbackTemp,
+        weather_desc: fallbackCondition,
+        hu: 75,
+        ws: 10
+      },
+      note: 'Menggunakan data fallback'
+    });
   }
 }

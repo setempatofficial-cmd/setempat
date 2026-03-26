@@ -1,796 +1,683 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/hooks/useAuth";
 
-export default function KomentarModal({ isOpen, onClose, tempat, initialComments = [] }) {
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState("");
-  const [likedComments, setLikedComments] = useState({});
-  const [replyTo, setReplyTo] = useState(null);
-  const [expandedComments, setExpandedComments] = useState({});
-  const [expandedReplies, setExpandedReplies] = useState({});
-  const [replyPages, setReplyPages] = useState({});
-  
-  // State untuk swipe
+// ── Long press hook ───────────────────────────────────────────────────────────
+function useLongPress(callback, ms = 600) {
+  const timerRef = useRef(null);
+  const isLongRef = useRef(false);
+
+  const start = useCallback((e) => {
+    isLongRef.current = false;
+    timerRef.current = setTimeout(() => {
+      isLongRef.current = true;
+      callback(e);
+    }, ms);
+  }, [callback, ms]);
+
+  const cancel = useCallback(() => {
+    clearTimeout(timerRef.current);
+  }, []);
+
+  const handleClick = useCallback((e) => {
+    if (isLongRef.current) e.preventDefault();
+  }, []);
+
+  return { onMouseDown: start, onTouchStart: start, onMouseUp: cancel, onMouseLeave: cancel, onTouchEnd: cancel, onClick: handleClick };
+}
+
+// ── Fetch komentar dari Supabase ──────────────────────────────────────────────
+async function fetchKomentar(tempatId) {
+  const { data, error } = await supabase
+    .from("komentar")
+    .select("*")
+    .eq("tempat_id", tempatId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  // Bangun struktur nested dari flat list
+  const map = {};
+  const roots = [];
+
+  (data || []).forEach(item => {
+    map[item.id] = { ...item, replies: [] };
+  });
+
+  (data || []).forEach(item => {
+    if (item.parent_id && map[item.parent_id]) {
+      map[item.parent_id].replies.push(map[item.id]);
+    } else if (!item.parent_id) {
+      roots.push(map[item.id]);
+    }
+  });
+
+  // Sort replies oldest first agar urut
+  const sortReplies = (nodes) => {
+    nodes.forEach(n => {
+      n.replies.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      sortReplies(n.replies);
+    });
+  };
+  sortReplies(roots);
+
+  return roots;
+}
+
+// ── Format waktu relatif ──────────────────────────────────────────────────────
+function timeAgo(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60) return "Baru saja";
+  if (diff < 3600) return `${Math.floor(diff / 60)} menit lalu`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} jam lalu`;
+  return `${Math.floor(diff / 86400)} hari lalu`;
+}
+
+// ── Avatar inisial ────────────────────────────────────────────────────────────
+const COLORS = ["#E3655B","#06b6d4","#8b5cf6","#f59e0b","#10b981","#ec4899","#3b82f6"];
+function avatarColor(name = "") {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
+  return COLORS[Math.abs(h) % COLORS.length];
+}
+
+function Avatar({ name, avatar, size = 8 }) {
+  if (avatar) {
+    return <img src={avatar} className={`w-${size} h-${size} rounded-full object-cover flex-shrink-0`} alt={name} />;
+  }
+  return (
+    <div
+      className={`w-${size} h-${size} rounded-full flex items-center justify-center text-white font-black flex-shrink-0`}
+      style={{ backgroundColor: avatarColor(name), fontSize: size * 1.5 }}
+    >
+      {(name || "W")[0].toUpperCase()}
+    </div>
+  );
+}
+
+// ── Item komentar (rekursif) ──────────────────────────────────────────────────
+function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, likedIds, canDelete }) {
+  const [showReplies, setShowReplies] = useState(depth < 1);
+  const [showMore, setShowMore] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const LIMIT = 3;
+
+  const longPressProps = useLongPress(() => setShowMenu(true), 600);
+
+  const hasReplies = item.replies?.length > 0;
+  const isLiked = likedIds.has(item.id);
+  const visibleReplies = showMore ? item.replies : item.replies?.slice(0, LIMIT);
+  const hiddenCount = (item.replies?.length || 0) - LIMIT;
+
+  return (
+    <>
+      <div className={`${depth > 0 ? "ml-4 pl-3 border-l-2 border-slate-100" : ""}`}>
+        {/* Context menu — muncul saat long press */}
+        <AnimatePresence>
+          {showMenu && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[3000]"
+                onClick={() => setShowMenu(false)}
+              />
+              {/* Menu */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 8 }}
+                transition={{ type: "spring", damping: 20, stiffness: 300 }}
+                className="fixed left-1/2 -translate-x-1/2 z-[3001] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden w-64"
+                style={{ top: "40%" }}
+              >
+                {/* Preview komentar */}
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                  <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mb-1">Komentar</p>
+                  <p className="text-[13px] text-slate-700 line-clamp-2">{item.content}</p>
+                </div>
+                {/* Tombol aksi */}
+                <div className="py-1">
+                  {canDelete && (
+                    <button
+                      onClick={() => { setShowMenu(false); onDelete(item.id); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-rose-50 transition-colors text-left"
+                    >
+                      <span className="text-lg">🗑️</span>
+                      <div>
+                        <p className="text-[13px] font-bold text-rose-600">Hapus Komentar</p>
+                        <p className="text-[10px] text-slate-400">Komentar akan dihapus permanen</p>
+                      </div>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setShowMenu(false); onReport(item.id); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left"
+                  >
+                    <span className="text-lg">🚩</span>
+                    <div>
+                      <p className="text-[13px] font-bold text-amber-600">Laporkan</p>
+                      <p className="text-[10px] text-slate-400">Tandai sebagai konten tidak pantas</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setShowMenu(false)}
+                    className="w-full px-4 py-3 text-[13px] text-slate-400 font-bold hover:bg-slate-50 text-center"
+                  >
+                    Batal
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        <div
+          className={`flex items-start gap-2.5 mb-2 rounded-xl transition-colors select-none
+            ${showMenu ? "bg-slate-100" : "active:bg-slate-50"}`}
+          {...longPressProps}
+        >
+          <Avatar name={item.user_name} avatar={item.user_avatar} size={depth === 0 ? 9 : 7} />
+
+          <div className="flex-1 min-w-0">
+            {/* Nama + waktu + pending indicator */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[13px] font-bold text-slate-900">
+                {item.user_name || "Warga"}
+              </span>
+              {item._pending ? (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <span className="w-2 h-2 border border-slate-300 border-t-transparent rounded-full animate-spin inline-block" />
+                  mengirim...
+                </span>
+              ) : (
+                <span className="text-[11px] text-slate-400">{timeAgo(item.created_at)}</span>
+              )}
+            </div>
+
+            {/* Isi komentar */}
+            <p className="text-[13px] text-slate-800 leading-relaxed mt-0.5">
+              {item.content}
+            </p>
+
+            {/* Aksi */}
+            <div className="flex items-center gap-4 mt-1.5">
+              <button
+                onClick={() => onLike(item.id, isLiked)}
+                className={`flex items-center gap-1 text-[12px] transition-colors
+                  ${isLiked ? "text-rose-500" : "text-slate-400 hover:text-slate-600"}`}
+              >
+                <span>{isLiked ? "❤️" : "🤍"}</span>
+                <span className="font-semibold">{item.likes || 0}</span>
+              </button>
+              <button
+                onClick={() => onReply(item.id, item.user_name)}
+                className="text-[12px] text-slate-400 hover:text-[#E3655B] transition-colors font-semibold"
+              >
+                Balas
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Toggle + replies */}
+      {hasReplies && (
+        <div className={`${depth === 0 ? "ml-11" : "ml-9"}`}>
+          <button
+            onClick={() => setShowReplies(v => !v)}
+            className="text-[11px] text-slate-400 hover:text-[#E3655B] font-bold mb-2 transition-colors"
+          >
+            {showReplies
+              ? "▲ Sembunyikan balasan"
+              : `▼ Lihat ${item.replies.length} balasan`}
+          </button>
+
+          <AnimatePresence>
+            {showReplies && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden space-y-3"
+              >
+                {visibleReplies.map(reply => (
+                  <KomentarItem
+                    key={reply.id}
+                    item={reply}
+                    depth={depth + 1}
+                    onReply={onReply}
+                    onLike={onLike}
+                    onDelete={onDelete}
+                    onReport={onReport}
+                    likedIds={likedIds}
+                    canDelete={canDelete}
+                  />
+                ))}
+                {!showMore && hiddenCount > 0 && (
+                  <button
+                    onClick={() => setShowMore(true)}
+                    className="text-[11px] text-[#E3655B] font-bold ml-3"
+                  >
+                    + {hiddenCount} balasan lainnya
+                  </button>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── KomentarModal Utama ───────────────────────────────────────────────────────
+export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false }) {
+  const { user } = useAuth();
+  const [komentar, setKomentar] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [replyTo, setReplyTo] = useState(null); // { id, name }
+  const [likedIds, setLikedIds] = useState(new Set());
+  const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
-  const [translateY, setTranslateY] = useState(0);
-  const [dragVelocity, setDragVelocity] = useState(0);
-  const [lastDragY, setLastDragY] = useState(0);
-  const [lastDragTime, setLastDragTime] = useState(0);
-  const [isClosing, setIsClosing] = useState(false);
-  
-  const modalContentRef = useRef(null);
-  const contentRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
+
   const inputRef = useRef(null);
-  const commentRefs = useRef({});
-  const dragAnimationRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  const INITIAL_REPLIES = 3;
-  const REPLIES_PER_PAGE = 4;
-  const SWIPE_THRESHOLD = 100; // Jarak minimal untuk menutup
-  const VELOCITY_THRESHOLD = 0.5; // Kecepatan minimal untuk menutup (px/ms)
+  useEffect(() => { setMounted(true); }, []);
 
+  // ── Fetch data saat buka ──────────────────────────────────────────────────
   useEffect(() => {
-    if (isOpen && tempat) {
-      if (initialComments.length > 0) {
-        const formatted = initialComments.map((c, idx) => ({
-          id: c.id || Date.now() + idx,
-          username: c.username || "warga_" + (idx + 1),
-          content: c.content,
-          time: c.time || ["5 menit lalu", "10 menit lalu", "15 menit lalu", "30 menit lalu"][idx % 4],
-          likes: c.likes || Math.floor(Math.random() * 15) + 5,
-          isLiked: false,
-          replies: c.replies || [],
-          replyCount: c.replies?.length || 0,
-        }));
-        setComments(formatted);
-      } else {
-        const sampleReplies = [];
-        for (let i = 1; i <= 12; i++) {
-          sampleReplies.push({
-            id: 100 + i,
-            username: `user_${i}`,
-            content: `Ini adalah contoh balasan ke-${i} untuk demonstrasi fitur pagination`,
-            time: `${i} menit lalu`,
-            likes: Math.floor(Math.random() * 10),
-            isLiked: false,
-            replies: []
-          });
-        }
+    if (!isOpen || !tempat?.id) return;
+    setLoading(true);
+    fetchKomentar(tempat.id)
+      .then(setKomentar)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [isOpen, tempat?.id]);
 
-        setComments([
-          {
-            id: 1,
-            username: "budi_utomo",
-            content: "Wifi cepet banget! 50mbps, enak buat nugas dan meeting online 👍",
-            time: "5 menit lalu",
-            likes: 24,
-            isLiked: false,
-            replyCount: 12,
-            replies: sampleReplies,
-          },
-          {
-            id: 2,
-            username: "citra_dewi",
-            content: "Tempatnya nyaman banget, ada live music tiap malam minggu 🎵",
-            time: "10 menit lalu",
-            likes: 17,
-            isLiked: false,
-            replyCount: 5,
-            replies: [
-              {
-                id: 201,
-                username: "dian_permata",
-                content: "Jam berapa mulai live music-nya kak?",
-                time: "8 menit lalu",
-                likes: 2,
-                isLiked: false,
-                replies: [
-                  {
-                    id: 2011,
-                    username: "citra_dewi",
-                    content: "Mulai jam 7 malam sampai selesai",
-                    time: "7 menit lalu",
-                    likes: 4,
-                    isLiked: false,
-                    replies: []
-                  }
-                ]
-              }
-            ],
-          },
-        ]);
-      }
-    }
-  }, [isOpen, tempat, initialComments]);
+  // ── Realtime — komentar baru masuk otomatis ───────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !tempat?.id) return;
+    const channel = supabase
+      .channel(`komentar_${tempat.id}`)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "komentar",
+        filter: `tempat_id=eq.${tempat.id}`,
+      }, (payload) => {
+        // Jika komentar dari user sendiri sudah ada sebagai optimistic,
+        // skip refetch — sudah diganti saat insert selesai
+        setKomentar(prev => {
+          const hasPending = prev.some(k =>
+            k._pending && k.user_id === payload.new.user_id
+          );
+          if (hasPending) return prev; // skip, optimistic sudah handle
+          // Komentar dari user lain — refetch
+          fetchKomentar(tempat.id).then(setKomentar).catch(console.error);
+          return prev;
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [isOpen, tempat?.id]);
 
-  // Lock body scroll
+  // ── Lock scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
-      document.body.style.touchAction = "none";
     } else {
       document.body.style.overflow = "";
-      document.body.style.touchAction = "";
       setTranslateY(0);
-      setIsClosing(false);
+      setReplyTo(null);
+      setInput("");
     }
-
-    return () => {
-      document.body.style.overflow = "";
-      document.body.style.touchAction = "";
-    };
+    return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
-  // Handle touch untuk swipe down (ala Instagram)
-  const handleTouchStart = (e) => {
-    const modalContent = modalContentRef.current;
-    if (!modalContent || isClosing) return;
-
-    // Hanya aktif jika di bagian paling atas
-    if (modalContent.scrollTop <= 0) {
-      setIsDragging(true);
-      setStartY(e.touches[0].clientY);
-      setLastDragY(e.touches[0].clientY);
-      setLastDragTime(Date.now());
-      setDragVelocity(0);
-      
-      // Cancel animasi yang sedang berjalan
-      if (dragAnimationRef.current) {
-        cancelAnimationFrame(dragAnimationRef.current);
-      }
-    }
-  };
-
-  const handleTouchMove = (e) => {
-    if (!isDragging || isClosing) return;
-
-    const currentY = e.touches[0].clientY;
-    const currentTime = Date.now();
-    const diff = currentY - startY;
-    
-    // Hitung velocity
-    const timeDiff = currentTime - lastDragTime;
-    if (timeDiff > 0) {
-      const distance = currentY - lastDragY;
-      const velocity = distance / timeDiff;
-      setDragVelocity(velocity);
-    }
-    
-    if (diff > 0) {
-      e.preventDefault();
-      
-      // Efek resistance: semakin sulit ditarik ke bawah
-      const resistance = Math.max(0, 1 - (diff / 500));
-      const newTranslateY = diff * resistance;
-      
-      setTranslateY(newTranslateY);
-      
-      // Opacity backdrop berkurang saat ditarik
-      const backdrop = document.querySelector('.modal-backdrop');
-      if (backdrop) {
-        backdrop.style.opacity = Math.max(0, 0.6 - (diff / 500)).toString();
-      }
-    }
-    
-    setLastDragY(currentY);
-    setLastDragTime(currentTime);
-  };
-
-  const handleTouchEnd = () => {
-    if (!isDragging || isClosing) return;
-
-    const shouldClose = translateY > SWIPE_THRESHOLD || dragVelocity > VELOCITY_THRESHOLD;
-    
-    if (shouldClose) {
-      // Animasi menutup dengan velocity
-      setIsClosing(true);
-      
-      // Hitung jarak berdasarkan velocity untuk efek momentum
-      const momentumDistance = Math.min(dragVelocity * 100, 300);
-      const targetTranslateY = translateY + momentumDistance;
-      
-      // Animasi menutup
-      const startTime = Date.now();
-      const startTranslate = translateY;
-      
-      const animateClose = () => {
-        const now = Date.now();
-        const elapsed = now - startTime;
-        const duration = 300; // ms
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Easing function untuk efek smooth
-        const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-        const currentTranslate = startTranslate + (targetTranslateY - startTranslate) * easeOutCubic;
-        
-        setTranslateY(currentTranslate);
-        
-        const backdrop = document.querySelector('.modal-backdrop');
-        if (backdrop) {
-          backdrop.style.opacity = Math.max(0, 0.6 - (currentTranslate / 500)).toString();
-        }
-        
-        if (progress < 1) {
-          dragAnimationRef.current = requestAnimationFrame(animateClose);
-        } else {
-          onClose();
-        }
-      };
-      
-      dragAnimationRef.current = requestAnimationFrame(animateClose);
-      
-    } else {
-      // Animasi kembali ke posisi awal
-      const startTime = Date.now();
-      const startTranslate = translateY;
-      
-      const animateReset = () => {
-        const now = Date.now();
-        const elapsed = now - startTime;
-        const duration = 200; // ms
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Easing function
-        const easeOutElastic = Math.pow(2, -10 * progress) * Math.sin((progress - 0.075) * (2 * Math.PI) / 0.3) + 1;
-        const currentTranslate = startTranslate * (1 - easeOutElastic);
-        
-        setTranslateY(currentTranslate);
-        
-        const backdrop = document.querySelector('.modal-backdrop');
-        if (backdrop) {
-          backdrop.style.opacity = 0.6 - (currentTranslate / 500);
-        }
-        
-        if (progress < 1) {
-          dragAnimationRef.current = requestAnimationFrame(animateReset);
-        } else {
-          setTranslateY(0);
-        }
-      };
-      
-      dragAnimationRef.current = requestAnimationFrame(animateReset);
-    }
-    
-    setIsDragging(false);
-  };
-
-  const toggleExpandComment = (commentId) => {
-    setExpandedComments(prev => ({
-      ...prev,
-      [commentId]: !prev[commentId]
-    }));
-    
-    if (expandedComments[commentId]) {
-      setReplyPages(prev => ({
-        ...prev,
-        [commentId]: 1
-      }));
-    }
-  };
-
-  const toggleExpandReply = (replyId) => {
-    setExpandedReplies(prev => ({
-      ...prev,
-      [replyId]: !prev[replyId]
-    }));
-  };
-
-  const loadMoreReplies = (commentId) => {
-    setReplyPages(prev => ({
-      ...prev,
-      [commentId]: (prev[commentId] || 1) + 1
-    }));
-  };
-
-  const getVisibleReplies = (replies, commentId) => {
-    if (!replies) return [];
-    
-    const page = replyPages[commentId] || 1;
-    const totalReplies = replies.length;
-    
-    if (page === 1) {
-      return replies.slice(0, INITIAL_REPLIES);
-    } else {
-      const endIndex = INITIAL_REPLIES + (page - 1) * REPLIES_PER_PAGE;
-      return replies.slice(0, endIndex);
-    }
-  };
-
-  const addReplyToComment = (comments, targetId, newReply) => {
-    return comments.map(comment => {
-      if (comment.id === targetId) {
-        const updatedReplies = [...(comment.replies || []), newReply];
-        return {
-          ...comment,
-          replies: updatedReplies,
-          replyCount: updatedReplies.length
-        };
-      }
-      
-      if (comment.replies && comment.replies.length > 0) {
-        return {
-          ...comment,
-          replies: addReplyToComment(comment.replies, targetId, newReply)
-        };
-      }
-      
-      return comment;
-    });
-  };
-
+  // ── Fokus input saat reply ────────────────────────────────────────────────
   useEffect(() => {
-    if (replyTo && inputRef.current) {
-      const mentionText = `@${replyTo.username} `;
-      setNewComment(mentionText);
-      
-      setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.setSelectionRange(mentionText.length, mentionText.length);
-        }
-      }, 100);
+    if (replyTo) {
+      setInput(`@${replyTo.name} `);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [replyTo]);
 
-  const handleSubmit = () => {
-    if (!newComment.trim()) return;
-
-    let newItemId;
-    
-    if (replyTo) {
-      const newReplyObj = {
-        id: Date.now(),
-        username: "kamu",
-        content: newComment,
-        time: "Baru saja",
-        likes: 0,
-        isLiked: false,
-        replies: [],
-      };
-
-      newItemId = replyTo.commentId;
-      setComments(prev => addReplyToComment(prev, replyTo.commentId, newReplyObj));
-      
-      // Auto expand semua level balasan
-      setExpandedComments(prev => ({
-        ...prev,
-        [replyTo.commentId]: true
-      }));
-      
-      // Auto expand nested replies sampai ke level yang dibalas
-      const expandAllReplies = (replies, targetId) => {
-        replies.forEach(reply => {
-          setExpandedReplies(prev => ({
-            ...prev,
-            [reply.id]: true
-          }));
-          if (reply.replies?.length > 0) {
-            expandAllReplies(reply.replies, targetId);
-          }
-        });
-      };
-      
-      const comment = comments.find(c => c.id === replyTo.commentId);
-      if (comment) {
-        expandAllReplies(comment.replies, replyTo.commentId);
-        
-        const maxPages = Math.ceil((comment.replies.length + 1 - INITIAL_REPLIES) / REPLIES_PER_PAGE) + 1;
-        setReplyPages(prev => ({
-          ...prev,
-          [replyTo.commentId]: maxPages
-        }));
-      }
-      
-      setReplyTo(null);
-    } else {
-      newItemId = Date.now();
-      const newCommentObj = {
-        id: newItemId,
-        username: "kamu",
-        content: newComment,
-        time: "Baru saja",
-        likes: 0,
-        isLiked: false,
-        replyCount: 0,
-        replies: [],
-      };
-      setComments((prev) => [newCommentObj, ...prev]);
+  // ── Swipe down ────────────────────────────────────────────────────────────
+  const handleTouchStart = useCallback((e) => {
+    if (scrollRef.current?.scrollTop <= 0) {
+      setIsDragging(true);
+      setStartY(e.touches[0].clientY);
     }
-    
-    setNewComment("");
+  }, []);
+  const handleTouchMove = useCallback((e) => {
+    if (!isDragging) return;
+    const diff = e.touches[0].clientY - startY;
+    if (diff > 0) { e.preventDefault(); setTranslateY(Math.min(diff * 0.6, 200)); }
+  }, [isDragging, startY]);
+  const handleTouchEnd = useCallback(() => {
+    if (isDragging) {
+      if (translateY > 80) onClose(); else setTranslateY(0);
+      setIsDragging(false);
+    }
+  }, [isDragging, translateY, onClose]);
 
-    // Scroll otomatis
-    setTimeout(() => {
-      if (replyTo) {
-        const targetComment = commentRefs.current[replyTo.commentId];
-        if (targetComment) {
-          targetComment.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      } else {
-        if (contentRef.current) {
-          contentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      }
-    }, 100);
-  };
+  // ── Cek apakah user bisa hapus komentar ─────────────────────────────────
+  const canDeleteItem = useCallback((item) => {
+    if (!user) return false;
+    if (isAdmin) return true;                    // super admin & admin tempat
+    return item.user_id === user.id;             // pemilik komentar
+  }, [user, isAdmin]);
 
-  const handleLike = (commentId) => {
-    const updateLikes = (comments) => {
-      return comments.map(c => {
-        if (c.id === commentId) {
-          const newLikedState = !c.isLiked;
-          return { 
-            ...c, 
-            isLiked: newLikedState,
-            likes: c.likes + (newLikedState ? 1 : -1) 
-          };
-        }
-        if (c.replies && c.replies.length > 0) {
-          return { ...c, replies: updateLikes(c.replies) };
-        }
-        return c;
-      });
+  // ── Hapus komentar ────────────────────────────────────────────────────────
+  const handleDelete = useCallback(async (id) => {
+    // Optimistic — hapus dari UI dulu
+    const removeFromTree = (nodes) =>
+      nodes.filter(n => n.id !== id)
+           .map(n => ({ ...n, replies: removeFromTree(n.replies || []) }));
+
+    setKomentar(prev => removeFromTree(prev));
+
+    const { error } = await supabase.from("komentar").delete().eq("id", id);
+    if (error) {
+      // Rollback — refetch
+      fetchKomentar(tempat.id).then(setKomentar).catch(console.error);
+      alert("Gagal hapus: " + error.message);
+    }
+  }, [tempat?.id]);
+
+  // ── Laporkan komentar ─────────────────────────────────────────────────────
+  const handleReport = useCallback(async (id) => {
+    // Simpan ke tabel laporan (opsional — bisa pakai alert dulu)
+    alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
+    // TODO: insert ke tabel `laporan_konten` jika sudah ada
+  }, []);
+
+  // ── Submit komentar — optimistic update ─────────────────────────────────
+  const handleSubmit = async () => {
+    const text = input.trim();
+    if (!text || submitting) return;
+
+    if (!user) {
+      alert("Login dulu ya, Lur!");
+      return;
+    }
+
+    const meta = user.user_metadata || {};
+    const userName = meta.full_name || meta.name || user.email?.split("@")[0] || "Warga";
+    const userAvatar = meta.avatar_url || meta.picture || null;
+    const parentId = replyTo?.id || null;
+
+    // ── Optimistic item — tampil langsung di UI ──
+    const tempId = `temp_${Date.now()}`;
+    const optimisticItem = {
+      id: tempId,
+      tempat_id: tempat.id,
+      parent_id: parentId,
+      user_id: user.id,
+      user_name: userName,
+      user_avatar: userAvatar,
+      content: text,
+      likes: 0,
+      created_at: new Date().toISOString(),
+      replies: [],
+      _pending: true, // tandai sebagai pending
     };
 
-    setComments(prev => updateLikes(prev));
+    // Sisipkan ke state sebelum request
+    if (parentId) {
+      setKomentar(prev => insertReply(prev, parentId, optimisticItem));
+    } else {
+      setKomentar(prev => [optimisticItem, ...prev]);
+    }
+
+    setInput("");
+    setReplyTo(null);
+    setSubmitting(true);
+
+    try {
+      const { data, error } = await supabase.from("komentar").insert([{
+        tempat_id: tempat.id,
+        parent_id: parentId,
+        user_id: user.id,
+        user_name: userName,
+        user_avatar: userAvatar,
+        content: text,
+        likes: 0,
+      }]).select().single();
+
+      if (error) throw error;
+
+      // Ganti optimistic item dengan data real dari Supabase
+      if (parentId) {
+        setKomentar(prev => replaceItem(prev, tempId, { ...data, replies: [] }));
+      } else {
+        setKomentar(prev => prev.map(k =>
+          k.id === tempId ? { ...data, replies: [] } : k
+        ));
+      }
+    } catch (err) {
+      // Rollback — hapus optimistic item
+      if (parentId) {
+        setKomentar(prev => removeItem(prev, tempId));
+      } else {
+        setKomentar(prev => prev.filter(k => k.id !== tempId));
+      }
+      alert("Gagal kirim: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const ReplyItem = ({ reply, depth = 0 }) => {
-    const hasReplies = reply.replies?.length > 0;
-    const isExpanded = expandedReplies[reply.id];
-    
-    return (
-      <div className="flex items-start gap-2">
-        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-gray-400 to-gray-500 text-white font-medium text-xs flex-shrink-0">
-          {reply.username[0]?.toUpperCase()}
-        </div>
-        
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900">
-              @{reply.username}
-            </span>
-            <span className="text-xs text-gray-500">{reply.time}</span>
-          </div>
-          
-          <p className="text-sm text-gray-800 leading-relaxed mt-1">
-            {reply.content}
-          </p>
+  // ── Helper: sisipkan reply di nested tree ────────────────────────────────
+  const insertReply = (nodes, parentId, newItem) =>
+    nodes.map(n => {
+      if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
+      if (n.replies?.length) return { ...n, replies: insertReply(n.replies, parentId, newItem) };
+      return n;
+    });
 
-          <div className="flex items-center gap-4 mt-2">
-            <button
-              onClick={() => handleLike(reply.id)}
-              className={`flex items-center gap-1.5 text-sm transition-all ${
-                reply.isLiked ? "text-[#E3655B]" : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <span className="text-base">{reply.isLiked ? "❤️" : "🤍"}</span>
-              <span className="font-medium">{reply.likes}</span>
-            </button>
-            
-            <button
-              onClick={() =>
-                setReplyTo({
-                  commentId: reply.id,
-                  username: reply.username,
-                })
-              }
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <span className="text-base">💬</span>
-              <span className="font-medium">Balas</span>
-            </button>
-          </div>
+  // ── Helper: ganti item berdasarkan id ────────────────────────────────────
+  const replaceItem = (nodes, oldId, newItem) =>
+    nodes.map(n => {
+      if (n.id === oldId) return newItem;
+      if (n.replies?.length) return { ...n, replies: replaceItem(n.replies, oldId, newItem) };
+      return n;
+    });
 
-          {hasReplies && (
-            <div className="mt-2">
-              <button
-                onClick={() => toggleExpandReply(reply.id)}
-                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#E3655B] transition-colors mb-2"
-              >
-                <span className="text-xs">{isExpanded ? "🔽" : "▶️"}</span>
-                <span>
-                  {isExpanded 
-                    ? "Sembunyikan balasan" 
-                    : `Lihat ${reply.replies.length} balasan`}
-                </span>
-              </button>
+  // ── Helper: hapus item ────────────────────────────────────────────────────
+  const removeItem = (nodes, id) =>
+    nodes
+      .filter(n => n.id !== id)
+      .map(n => n.replies?.length ? { ...n, replies: removeItem(n.replies, id) } : n);
 
-              {isExpanded && (
-                <div className="space-y-2">
-                  {reply.replies.map((nestedReply) => (
-                    <ReplyItem 
-                      key={nestedReply.id} 
-                      reply={nestedReply} 
-                      depth={depth + 1}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  // ── Like ──────────────────────────────────────────────────────────────────
+  const handleLike = async (id, isLiked) => {
+    // Optimistic update
+    setLikedIds(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.delete(id); else next.add(id);
+      return next;
+    });
+    setKomentar(prev => {
+      const update = (nodes) => nodes.map(n => ({
+        ...n,
+        likes: n.id === id ? n.likes + (isLiked ? -1 : 1) : n.likes,
+        replies: update(n.replies || []),
+      }));
+      return update(prev);
+    });
+
+    try {
+      await supabase.rpc(isLiked ? "decrement_komentar_likes" : "increment_komentar_likes", {
+        komentar_id: id,
+      });
+    } catch (err) {
+      console.error("Like error:", err);
+    }
   };
 
-  const CommentItem = ({ comment }) => {
-    const hasReplies = comment.replies?.length > 0;
-    const isExpanded = expandedComments[comment.id];
-    const visibleReplies = getVisibleReplies(comment.replies, comment.id);
-    const totalReplies = comment.replies?.length || 0;
-    const remainingReplies = totalReplies - visibleReplies.length;
-    const hasMoreToShow = remainingReplies > 0;
+  if (!mounted || !isOpen) return null;
 
-    return (
-      <div 
-        ref={el => commentRefs.current[comment.id] = el}
-        className="mb-6"
-      >
-        <div className="flex items-start gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-[#E3655B] to-[#c24b45] text-white font-medium text-sm flex-shrink-0">
-            {comment.username[0]?.toUpperCase()}
-          </div>
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-semibold text-gray-900">
-                @{comment.username}
-              </span>
-              <span className="text-xs text-gray-500">{comment.time}</span>
-            </div>
-            
-            <p className="mt-1 text-sm text-gray-800 leading-relaxed">
-              {comment.content}
-            </p>
-
-            <div className="flex items-center gap-4 mt-2">
-              <button
-                onClick={() => handleLike(comment.id)}
-                className={`flex items-center gap-1.5 text-sm transition-all ${
-                  comment.isLiked
-                    ? "text-[#E3655B]"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                <span className="text-base">
-                  {comment.isLiked ? "❤️" : "🤍"}
-                </span>
-                <span className="font-medium">{comment.likes}</span>
-              </button>
-              
-              <button
-                onClick={() =>
-                  setReplyTo({
-                    commentId: comment.id,
-                    username: comment.username,
-                  })
-                }
-                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <span className="text-base">💬</span>
-                <span className="font-medium">Balas</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {hasReplies && (
-          <div className="mt-3 ml-4 pl-4 border-l-2 border-gray-200">
-            {!isExpanded && (
-              <button
-                onClick={() => toggleExpandComment(comment.id)}
-                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#E3655B] transition-colors mb-2"
-              >
-                <span className="text-base">▶️</span>
-                <span>Lihat {totalReplies} balasan</span>
-              </button>
-            )}
-
-            {isExpanded && (
-              <>
-                <div className="space-y-3">
-                  {visibleReplies.map((reply) => (
-                    <ReplyItem key={reply.id} reply={reply} />
-                  ))}
-                </div>
-
-                {hasMoreToShow && (
-                  <button
-                    onClick={() => loadMoreReplies(comment.id)}
-                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#E3655B] transition-colors mt-3"
-                  >
-                    <span className="text-base">🔽</span>
-                    <span>Lihat {remainingReplies} balasan lainnya</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => toggleExpandComment(comment.id)}
-                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#E3655B] transition-colors mt-3"
-                >
-                  <span className="text-base">🔼</span>
-                  <span>Sembunyikan balasan</span>
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
-      <div 
-        className="modal-backdrop absolute inset-0 bg-black/60 transition-opacity duration-300" 
-        style={{ opacity: 0.6 - (translateY / 500) }}
-        onClick={onClose} 
+  const modal = (
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60"
+        style={{ opacity: Math.max(0, 0.6 - translateY / 400) }}
+        onClick={onClose}
       />
-      
-      <div 
-        ref={modalContentRef}
-        className="relative w-full max-w-md h-full sm:h-[90vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-xl transition-transform duration-200 ease-out overflow-hidden"
+
+      {/* Panel */}
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 26, stiffness: 200 }}
+        className="relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col"
         style={{
+          height: "100dvh",
           transform: `translateY(${translateY}px)`,
-          transition: isDragging || isClosing ? 'none' : 'transform 0.3s ease-out'
+          transition: isDragging ? "none" : undefined,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Drag indicator dengan efek parallax */}
-        <div 
-          className="sticky top-0 z-20 flex justify-center pt-2 pb-1 bg-white rounded-t-2xl"
-          style={{
-            transform: `translateY(${Math.min(translateY * 0.3, 20)}px)`,
-            opacity: 1 - (translateY / 200)
-          }}
-        >
-          <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 bg-slate-200 rounded-full" />
         </div>
 
-        {/* Header dengan efek parallax */}
-        <div 
-          className="sticky top-[10px] z-10 bg-white px-4 py-3 border-b border-gray-200"
-          style={{
-            transform: `translateY(${Math.min(translateY * 0.2, 15)}px)`,
-            opacity: 1 - (translateY / 300)
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#E3655B]/10 flex items-center justify-center">
-                <span className="text-lg text-[#E3655B]">💬</span>
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">
-                  Kata Warga
-                </h2>
-                <p className="text-xs text-gray-600">
-                  {tempat?.name || 'Tempat'}
-                </p>
-              </div>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💬</span>
+            <div>
+              <h2 className="text-[14px] font-bold text-slate-900">Kata Warga</h2>
+              <p className="text-[11px] text-slate-400">{tempat?.name}</p>
             </div>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors"
-            >
-              <span className="text-xl text-gray-600">✕</span>
-            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-bold text-slate-400">
+              {komentar.length} komentar
+            </span>
+            <button onClick={onClose}
+              className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"
+            >✕</button>
           </div>
         </div>
 
         {/* Reply indicator */}
-        {replyTo && (
-          <div 
-            className="sticky top-[88px] z-10 flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100"
-            style={{
-              transform: `translateY(${Math.min(translateY * 0.1, 10)}px)`,
-              opacity: 1 - (translateY / 400)
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-blue-500">↩️</span>
-              <p className="text-sm text-blue-700">
-                Membalas <span className="font-semibold">@{replyTo.username}</span>
+        <AnimatePresence>
+          {replyTo && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-blue-100 flex-shrink-0 overflow-hidden"
+            >
+              <p className="text-[12px] text-blue-700">
+                ↩️ Membalas <span className="font-bold">@{replyTo.name}</span>
               </p>
+              <button onClick={() => { setReplyTo(null); setInput(""); }}
+                className="text-[11px] text-blue-500 font-bold"
+              >
+                Batal
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Komentar list */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-6 h-6 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
             </div>
-            <button
-              onClick={() => setReplyTo(null)}
-              className="text-sm text-blue-600 font-medium hover:text-blue-800"
-            >
-              Batal
-            </button>
-          </div>
-        )}
-
-        {/* Comments container */}
-        <div 
-          ref={contentRef}
-          className="overflow-y-auto scrollbar-hide"
-          style={{ 
-            height: replyTo 
-              ? 'calc(100vh - 240px)' 
-              : 'calc(100vh - 200px)',
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-            transform: `translateY(${Math.min(translateY * 0.05, 5)}px)`,
-          }}
-        >
-          <div className="p-4 space-y-4">
-            {comments.length > 0 ? (
-              comments.map((comment) => (
-                <CommentItem key={comment.id} comment={comment} />
-              ))
-            ) : (
-              <div className="py-12 text-center">
-                <div className="w-20 h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                  <span className="text-3xl text-gray-400">💬</span>
-                </div>
-                <p className="text-gray-800 font-medium mb-1">
-                  Belum ada komentar
-                </p>
-                <p className="text-sm text-gray-500">
-                  Jadi yang pertama kasih pendapat!
-                </p>
-              </div>
-            )}
-            
-            <div className="h-4" />
-          </div>
-        </div>
-
-        {/* Input section dengan efek parallax */}
-        <div 
-          className="sticky bottom-0 bg-white border-t border-gray-200 p-3"
-          style={{
-            transform: `translateY(${Math.min(translateY, 50)}px)`,
-            opacity: 1 - (translateY / 200)
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <div className="flex-1 bg-gray-100 rounded-full px-4 py-2.5 focus-within:ring-2 focus-within:ring-[#E3655B] focus-within:ring-opacity-50">
-              <input
-                ref={inputRef}
-                type="text"
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder={
-                  replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar..."
-                }
-                className="w-full bg-transparent text-sm text-gray-900 placeholder-gray-500 focus:outline-none"
-                onKeyPress={(e) => e.key === "Enter" && handleSubmit()}
+          ) : komentar.length === 0 ? (
+            <div className="flex flex-col items-center py-12 gap-2">
+              <span className="text-4xl">💬</span>
+              <p className="text-[14px] font-bold text-slate-700">Belum ada komentar</p>
+              <p className="text-[12px] text-slate-400">Jadi yang pertama kasih pendapat!</p>
+            </div>
+          ) : (
+            komentar.map(item => (
+              <KomentarItem
+                key={item.id}
+                item={item}
+                depth={0}
+                onReply={(id, name) => setReplyTo({ id, name })}
+                onLike={handleLike}
+                onDelete={handleDelete}
+                onReport={handleReport}
+                likedIds={likedIds}
+                canDelete={canDeleteItem(item)}
               />
-            </div>
-            <button
-              onClick={handleSubmit}
-              disabled={!newComment.trim()}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                newComment.trim()
-                  ? "bg-[#E3655B] text-white shadow-sm hover:bg-[#c24b45]"
-                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
-              }`}
-            >
-              <span className="text-lg">➤</span>
-            </button>
-          </div>
+            ))
+          )}
+          <div className="h-2" />
         </div>
-      </div>
 
-      <style jsx>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-      `}</style>
+        {/* Input */}
+        <div className="flex-shrink-0 border-t border-slate-100 px-3 py-3 bg-white">
+          {!user ? (
+            <div className="flex items-center gap-3 py-1 px-1">
+              <div className="flex-1 bg-slate-100 rounded-full px-4 py-2.5 flex items-center">
+                <span className="text-[13px] text-slate-400">Tulis komentar...</span>
+              </div>
+              <button
+                onClick={() => {
+                  onClose();
+                  // Beri waktu modal tutup dulu
+                  setTimeout(() => document.dispatchEvent(new CustomEvent("open-auth-modal")), 300);
+                }}
+                className="flex-shrink-0 px-4 py-2.5 bg-[#E3655B] text-white rounded-full text-[12px] font-black active:scale-95 transition-all shadow-sm"
+              >
+                Login
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Avatar name={user.user_metadata?.full_name || user.email} avatar={user.user_metadata?.avatar_url} size={8} />
+              <div className="flex-1 bg-slate-100 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-[#E3655B]/30">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  placeholder={replyTo ? `Balas @${replyTo.name}...` : "Tulis komentar..."}
+                  className="w-full bg-transparent text-[13px] text-slate-900 placeholder-slate-400 focus:outline-none"
+                  onKeyPress={e => e.key === "Enter" && handleSubmit()}
+                />
+              </div>
+              <button
+                onClick={handleSubmit}
+                disabled={!input.trim() || submitting}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all
+                  ${input.trim() && !submitting
+                    ? "bg-[#E3655B] text-white active:scale-95"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}
+              >
+                {submitting
+                  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+                }
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

@@ -2,7 +2,7 @@
 
 import { Providers } from "./providers";
 import FeedContent from "./components/feed/FeedContent";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme } from "@/app/hooks/useTheme";
 
 // Konten utama yang pakai theme
 function HomeContent() {

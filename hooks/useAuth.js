@@ -1,104 +1,112 @@
-"use client";
-
 import { useEffect, useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  
-  const supabase = getSupabaseClient();
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // FIX: Fungsi logout yang lebih "galak" untuk cegah Lock Broken
-  const logout = async () => {
+  // Helper ambil nama dari berbagai kemungkinan metadata Google/Magic Link
+  const extractName = (user) => {
+    if (!user) return "Warga";
+    const meta = user.user_metadata || {};
+    return (
+      meta.full_name ||
+      meta.name ||           // Google kadang pakai 'name' bukan 'full_name'
+      meta.preferred_username ||
+      user.email?.split("@")[0] ||
+      "Warga"
+    );
+  };
+
+  const checkAdmin = async (user) => {
+    if (!user) { setIsAdmin(false); return; }
     try {
-      // 1. Sign out dari Supabase secara internal
-      await supabase.auth.signOut();
-      
-      // 2. Bersihkan storage secara manual jika ada yang tersangkut
-      if (typeof window !== "undefined") {
-        localStorage.clear(); 
-        sessionStorage.clear();
-        
-        // 3. Hard Refresh ke home untuk mereset semua instance Client
-        // Ini adalah obat paling ampuh buat AbortError
-        window.location.href = "/";
-      }
-    } catch (error) {
-      console.error("Logout error:", error);
-      // Fallback: jika error tetap paksa pindah halaman
-      window.location.href = "/";
+      const { data, error } = await supabase
+        .from('admins')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle(); // maybeSingle tidak throw error jika tidak ada hasil
+      setIsAdmin(!!data && !error);
+    } catch {
+      setIsAdmin(false);
     }
   };
 
   useEffect(() => {
-    let mounted = true;
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+      if (session?.user) await checkAdmin(session.user);
+      setLoading(false);
+    };
 
-    const getInitialUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!mounted) return;
-        
+    getUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setUser(session?.user ?? null);
         if (session?.user) {
-          await handleUserData(session.user);
+          await checkAdmin(session.user);
+        } else {
+          setIsAdmin(false);
         }
-      } catch (error) {
-        console.error("Error fetching auth:", error);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    // Fungsi pembantu agar kode tidak duplikat
-    const handleUserData = async (currentUser) => {
-      const avatarUrl = currentUser.user_metadata?.avatar_url || 
-                       currentUser.user_metadata?.picture || 
-                       null;
-      
-      if (mounted) {
-        setUser({ ...currentUser, avatar_url: avatarUrl });
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', currentUser.id)
-        .single();
-      
-      if (mounted && profile) {
-        setIsAdmin(profile.role === 'admin');
-      }
-    };
-
-    getInitialUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-
-      // Jika event SIGNED_OUT, langsung reset state
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setIsAdmin(false);
         setLoading(false);
-        return;
       }
+    );
 
-      if (session?.user) {
-        await handleUserData(session.user);
-      } else {
-        setUser(null);
-        setIsAdmin(false);
-      }
-      
-      if (mounted) setLoading(false);
-    });
+    return () => subscription.unsubscribe();
+  }, []);
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []); 
+  const logout = async () => {
+    try {
+      // Scope 'local' — hanya hapus session di browser ini, tidak semua device
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+      setUser(null);
+      setIsAdmin(false);
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Force clear jika signOut gagal
+      setUser(null);
+      setIsAdmin(false);
+      throw error;
+    }
+  };
 
-  return { user, isAdmin, loading, supabase, logout };
+  const login = async (email, password) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      setUser(data.user);
+      await checkAdmin(data.user);
+      return { data, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  };
+
+  const register = async (email, password, metadata = {}) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: metadata },
+      });
+      if (error) throw error;
+      return { data, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  };
+
+  return {
+    user,
+    loading,
+    isAdmin,
+    logout,
+    login,
+    register,
+    extractName, // Export helper ini agar bisa dipakai Uploader
+  };
 }
