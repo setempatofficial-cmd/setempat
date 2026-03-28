@@ -2,7 +2,13 @@
 import { motion } from "framer-motion";
 import Uploader from "@/components/Uploader";
 
-export default function StoryCircle({ laporanWarga = [], tempatId, namaTempat, openStoryModal }) {
+export default function StoryCircle({ 
+  laporanWarga = [], 
+  tempatId, 
+  namaTempat, 
+  tempatKategori,  // ← Tambahkan prop ini
+  openStoryModal 
+}) {
   // Filter: hanya laporan dengan foto (photo_url tidak boleh null)
   const laporanDenganFoto = laporanWarga.filter(l => l?.photo_url);
   const laporanTerbaru = laporanDenganFoto[0];
@@ -51,7 +57,6 @@ export default function StoryCircle({ laporanWarga = [], tempatId, namaTempat, o
             />
             {/* ── LIVE badge di tengah thumbnail ── */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              {/* Titik merah berdenyut */}
               <motion.div
                 animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
                 transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
@@ -75,7 +80,11 @@ export default function StoryCircle({ laporanWarga = [], tempatId, namaTempat, o
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-5 h-5 flex items-center justify-center rounded-full bg-black border border-white/20 shadow-md overflow-hidden [&_button]:!w-5 [&_button]:!h-5 [&_button]:!text-[11px]">
-          <Uploader tempatId={tempatId} namaTempat={namaTempat} variant="mini-circle" />
+          <Uploader 
+            tempatId={tempatId} 
+            namaTempat={namaTempat} 
+            tempatKategori={tempatKategori}  // ← Kirim kategori
+          />
         </div>
       </div>
 

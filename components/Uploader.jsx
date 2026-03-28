@@ -1,18 +1,45 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
+// KATEGORI YANG MEMILIKI ANTRIAN
+const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
+
+// KATEGORI YANG MEMILIKI LALU LINTAS (jalan)
+const TRAFFIC_CATEGORIES = ['jalan', 'jalan raya', 'simpang', 'tol', 'bypass', 'lingkar'];
+
+export default function Uploader({ 
+  tempatId, 
+  namaTempat, 
+  tempatKategori, 
+  onUploadSuccess 
+}) {
   const [status, setStatus] = useState("idle");
   const [tempMediaUrl, setTempMediaUrl] = useState(null);
   const [mediaType, setMediaType] = useState(null);
   const [showSurvey, setShowSurvey] = useState(false);
   const [selectedCondition, setSelectedCondition] = useState(null);
+  const [selectedWaitTime, setSelectedWaitTime] = useState(null);
+  const [selectedTraffic, setSelectedTraffic] = useState(null); // untuk lalu lintas
   const [content, setContent] = useState("");
   const [mounted, setMounted] = useState(false);
+  
+  // Cek kategori
+  const kategoriLower = (tempatKategori || "").toLowerCase();
+  const namaLower = (namaTempat || "").toLowerCase();
+  
+  const hasQueue = useMemo(() => 
+    QUEUE_CATEGORIES.some(k => kategoriLower.includes(k)), 
+    [kategoriLower]
+  );
+  
+  const hasTraffic = useMemo(() => 
+    TRAFFIC_CATEGORIES.some(k => kategoriLower.includes(k) || namaLower.includes(k)), 
+    [kategoriLower, namaLower]
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -26,17 +53,53 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
     return "Malam";
   };
 
+  // SISTEM MENENTUKAN ESTIMASI ORANG OTOMATIS
+  const getEstimatedPeople = (condition, timeTag) => {
+    const defaults = {
+      Sepi: { Pagi: 3, Siang: 5, Sore: 4, Malam: 2 },
+      Ramai: { Pagi: 12, Siang: 25, Sore: 20, Malam: 15 },
+      Antri: { Pagi: 8, Siang: 15, Sore: 12, Malam: 10 }
+    };
+    
+    return defaults[condition]?.[timeTag] || 
+           (condition === "Sepi" ? 4 : condition === "Ramai" ? 20 : 12);
+  };
+
+  // DESKRIPSI OTOMATIS
+  const getConditionDescription = (condition, waitTime, traffic) => {
+    if (condition === "Sepi") return `Suasana tenang di ${namaTempat || "sini"}.`;
+    if (condition === "Ramai") return `Suasana ramai di ${namaTempat || "sini"}.`;
+    if (condition === "Antri") {
+      const waitText = waitTime === 5 ? "pendek (<5 menit)" : 
+                       waitTime === 15 ? "sedang (5-15 menit)" : 
+                       "panjang (>15 menit)";
+      return `Antrian ${waitText} di ${namaTempat || "sini"}.`;
+    }
+    if (traffic) {
+      const trafficText = traffic === 'Lancar' ? 'lancar' : 
+                          traffic === 'Ramai' ? 'ramai' : 
+                          'macet';
+      return `Lalu lintas ${trafficText} di ${namaTempat || "sini"}.`;
+    }
+    return `Update dari ${namaTempat || "sini"}.`;
+  };
+
   const finalizeUpload = async () => {
-    if (!selectedCondition || status === "uploading") return;
+    // Validasi
+    if (!selectedCondition && !selectedTraffic) return;
+    if (selectedCondition === "Antri" && !selectedWaitTime) return;
+    if (status === "uploading") return;
 
     const currentTimeTag = getCurrentTimeTag();
-    const autoDesc = `Kondisi ${selectedCondition.toLowerCase()} di ${namaTempat || "sini"}.`;
+    const estimatedPeople = selectedCondition ? getEstimatedPeople(selectedCondition, currentTimeTag) : null;
+    const estimatedWaitTime = selectedCondition === "Antri" ? selectedWaitTime : null;
+    const trafficCondition = selectedTraffic || null;
+    
+    // Tentukan tipe utama (prioritas: kondisi > lalu lintas)
+    const mainType = selectedCondition || (selectedTraffic ? "Lalu Lintas" : null);
+    
+    const autoDesc = getConditionDescription(selectedCondition, selectedWaitTime, selectedTraffic);
     const finalDescription = content.trim() !== "" ? content.trim() : autoDesc;
-
-    const capturedContent = content;
-    const capturedCondition = selectedCondition;
-    const capturedMedia = tempMediaUrl;
-    const capturedType = mediaType;
 
     setShowSurvey(false);
     setStatus("uploading");
@@ -47,7 +110,7 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         setStatus("idle");
         alert("Upload sedang lambat. Coba lagi dalam beberapa saat.");
       }
-    }, 20000); // 20 detik timeout otomatis
+    }, 20000);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -60,15 +123,18 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         user_id: user.id,
         user_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "Warga",
         user_avatar: user.user_metadata?.avatar_url || null,
-        photo_url: capturedType === "video"
-          ? capturedMedia.replace(/\.[^/.]+$/, ".jpg")
-          : capturedMedia,
-        video_url: capturedType === "video" ? capturedMedia : null,
-        media_type: capturedType,
+        photo_url: mediaType === "video"
+          ? tempMediaUrl.replace(/\.[^/.]+$/, ".jpg")
+          : tempMediaUrl,
+        video_url: mediaType === "video" ? tempMediaUrl : null,
+        media_type: mediaType,
         time_tag: currentTimeTag,
-        tipe: capturedCondition,
+        tipe: mainType,
+        estimated_people: estimatedPeople,
+        estimated_wait_time: estimatedWaitTime,
+        traffic_condition: trafficCondition,
         deskripsi: finalDescription,
-        content: capturedContent,
+        content: content,
         status: "approved",
       }]).select();
 
@@ -82,6 +148,8 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         setTempMediaUrl(null);
         setContent("");
         setSelectedCondition(null);
+        setSelectedWaitTime(null);
+        setSelectedTraffic(null);
       }, 3000);
 
     } catch (err) {
@@ -108,8 +176,14 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         }}
         options={{
           maxFiles: 1,
-          resourceType: "image",        // hanya foto
-          sources: ["local", "camera"], // hanya galeri + kamera
+          resourceType: "auto",
+          sources: ["camera", "local"], 
+          defaultSource: "camera",
+          multiple: false,
+          cropping: false,
+          showAdvancedOptions: false,
+          clientAllowedFormats: ["image", "video"],
+          maxFileSize: 50000000,
           styles: {
             palette: {
               window: "#0a0a0a",
@@ -137,7 +211,6 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
             {status === "uploading" ? (
               <div className="w-3 h-3 border-[1.5px] border-cyan-400 border-t-transparent rounded-full animate-spin" />
             ) : (
-              // Plus icon SVG — lebih presisi dari teks "+"
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M6 1v10M1 6h10" stroke="#22d3ee" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
@@ -146,7 +219,7 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         )}
       </CldUploadWidget>
 
-      {/* ── TOAST UPLOADING ── */}
+      {/* TOAST UPLOADING */}
       <AnimatePresence>
         {status === "uploading" && (
           <motion.div
@@ -173,7 +246,7 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         )}
       </AnimatePresence>
 
-      {/* ── TOAST SUCCESS ── */}
+      {/* TOAST SUCCESS */}
       <AnimatePresence>
         {status === "success" && (
           <motion.div
@@ -190,12 +263,10 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
         )}
       </AnimatePresence>
 
-      {/* ── MODAL SURVEY ── */}
+      {/* MODAL SURVEY */}
       {showSurvey && createPortal(
         <AnimatePresence>
           <div className="fixed inset-0 z-[1000000] flex justify-center items-end sm:items-center p-4">
-
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -204,7 +275,6 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
               onClick={() => setShowSurvey(false)}
             />
 
-            {/* Sheet */}
             <motion.div
               initial={{ y: 80, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -212,12 +282,9 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
               transition={{ type: "spring", damping: 28, stiffness: 180 }}
               className="relative z-[1000001] bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl overflow-hidden"
             >
-              {/* Strip warna atas */}
               <div className="h-1.5 bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 w-full" />
 
               <div className="p-5">
-
-                {/* Header */}
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">
@@ -241,11 +308,11 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
                     {mediaType === "image" ? (
                       <img src={tempMediaUrl} className="w-full h-full object-cover" alt="preview" />
                     ) : (
-                      <video src={tempMediaUrl} className="w-full h-full object-cover" muted autoPlay loop />
+                      <video src={tempMediaUrl} className="w-full h-full object-cover" muted autoPlay loop playsInline />
                     )}
                   </div>
                   <textarea
-                    placeholder="Ceritakan kondisinya, Lur..."
+                    placeholder="Ceritakan kondisinya, Lur... (contoh: hujan gerimis, ramai pengunjung, macet panjang, dll)"
                     className="w-full bg-transparent border-none p-1 text-[13px] font-medium focus:ring-0 outline-none resize-none text-slate-700 placeholder:text-slate-300"
                     rows={3}
                     value={content}
@@ -253,19 +320,23 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
                   />
                 </div>
 
-                {/* Pilihan kondisi */}
+                {/* ============================================ */}
+                {/* BAGIAN LAPORAN UTAMA (kondisi tempat) */}
+                {/* ============================================ */}
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
-                  Kondisi sekarang
+                  📍 Kondisi Tempat
                 </p>
-                <div className="grid grid-cols-3 gap-2 mb-5">
+                <div className="grid grid-cols-3 gap-2 mb-4">
                   {[
-                    { emoji: "🍃", label: "Sepi", val: "Tenang", active: "bg-emerald-500 border-emerald-500 text-white shadow-emerald-100" },
+                    { emoji: "🍃", label: "Sepi", val: "Sepi", active: "bg-emerald-500 border-emerald-500 text-white shadow-emerald-100" },
                     { emoji: "🏃", label: "Ramai", val: "Ramai", active: "bg-yellow-400 border-yellow-400 text-white shadow-yellow-100" },
-                    { emoji: "⏳", label: "Antri", val: "Antri", active: "bg-rose-500 border-rose-500 text-white shadow-rose-100" },
                   ].map((btn) => (
                     <button
                       key={btn.val}
-                      onClick={() => setSelectedCondition(btn.val)}
+                      onClick={() => {
+                        setSelectedCondition(btn.val);
+                        setSelectedWaitTime(null);
+                      }}
                       className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
                         ${selectedCondition === btn.val
                           ? btn.active + " scale-[1.04] shadow-lg"
@@ -276,21 +347,136 @@ export default function Uploader({ tempatId, namaTempat, onUploadSuccess }) {
                       <span className="uppercase tracking-wider">{btn.label}</span>
                     </button>
                   ))}
+                  
+                  {/* Tombol Antri - hanya untuk tempat dengan antrian */}
+                  {hasQueue && (
+                    <button
+                      onClick={() => {
+                        setSelectedCondition("Antri");
+                        setSelectedWaitTime(null);
+                      }}
+                      className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
+                        ${selectedCondition === "Antri"
+                          ? "bg-rose-500 border-rose-500 text-white shadow-rose-100 scale-[1.04] shadow-lg"
+                          : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"
+                        }`}
+                    >
+                      <span className="text-lg">⏳</span>
+                      <span className="uppercase tracking-wider">Antri</span>
+                    </button>
+                  )}
                 </div>
+
+                {/* Pilihan waktu antri - hanya jika pilih Antri */}
+                {selectedCondition === "Antri" && (
+                  <div className="mb-5">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                      ⏱️ Estimasi waktu antri
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 5, label: "< 5 menit", desc: "Pendek", icon: "⚡" },
+                        { value: 15, label: "5-15 menit", desc: "Sedang", icon: "⏱️" },
+                        { value: 20, label: "> 15 menit", desc: "Panjang", icon: "🐢" },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setSelectedWaitTime(option.value)}
+                          className={`py-2 px-1 rounded-xl text-[10px] font-bold border-2 transition-all text-center
+                            ${selectedWaitTime === option.value
+                              ? "bg-cyan-500 border-cyan-500 text-white"
+                              : "bg-white text-slate-500 border-slate-200 hover:border-cyan-300"
+                            }`}
+                        >
+                          <div className="text-base">{option.icon}</div>
+                          <div>{option.label}</div>
+                          <div className="text-[8px] opacity-80">{option.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ============================================ */}
+                {/* BAGIAN LALU LINTAS - KHUSUS TEMPAT JALAN */}
+                {/* ============================================ */}
+                {hasTraffic && (
+                  <>
+                    <div className="flex items-center gap-2 mt-2 mb-2">
+                      <div className="h-px flex-1 bg-slate-200" />
+                      <span className="text-[8px] font-black text-slate-300 uppercase tracking-wider">atau</span>
+                      <div className="h-px flex-1 bg-slate-200" />
+                    </div>
+                    
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                      🚦 Kondisi Lalu Lintas
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      {[
+                        { emoji: "🛵", label: "Lancar", val: "Lancar", color: "bg-emerald-500", desc: "Jalanan lengang" },
+                        { emoji: "🚗", label: "Ramai", val: "Ramai", color: "bg-yellow-500", desc: "Kendaraan mulai padat" },
+                        { emoji: "🚦", label: "Macet", val: "Macet", color: "bg-rose-500", desc: "Antrean panjang" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.val}
+                          onClick={() => {
+                            setSelectedTraffic(opt.val);
+                            // Reset kondisi tempat jika memilih lalu lintas
+                            if (selectedTraffic !== opt.val) {
+                              setSelectedCondition(null);
+                              setSelectedWaitTime(null);
+                            }
+                          }}
+                          className={`py-2.5 rounded-xl text-[10px] font-bold border-2 transition-all flex flex-col items-center gap-0.5
+                            ${selectedTraffic === opt.val
+                              ? opt.color + " text-white border-transparent shadow-md scale-[1.02]"
+                              : "bg-white text-slate-500 border-slate-200"
+                            }`}
+                        >
+                          <span className="text-base">{opt.emoji}</span>
+                          <span className="uppercase tracking-wide">{opt.label}</span>
+                          <span className="text-[8px] opacity-80">{opt.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Informasi bahwa user bisa pilih salah satu */}
+                {(hasQueue || hasTraffic) && (
+                  <p className="text-[8px] text-center text-slate-400 mb-3">
+                    💡 Pilih kondisi tempat ATAU lalu lintas (sesuai yang kamu lihat)
+                  </p>
+                )}
 
                 {/* Tombol kirim */}
                 <button
                   onClick={finalizeUpload}
-                  disabled={!selectedCondition || status === "uploading"}
+                  disabled={
+                    (!selectedCondition && !selectedTraffic) || 
+                    (selectedCondition === "Antri" && !selectedWaitTime) || 
+                    status === "uploading"
+                  }
                   className={`w-full py-4 rounded-2xl font-black uppercase text-[12px] tracking-widest transition-all
-                    ${!selectedCondition
+                    ${(!selectedCondition && !selectedTraffic) || (selectedCondition === "Antri" && !selectedWaitTime)
                       ? "bg-slate-100 text-slate-300 cursor-not-allowed"
                       : "bg-gradient-to-r from-cyan-500 to-blue-600 text-white active:scale-[0.98] shadow-lg shadow-cyan-500/20"
                     }`}
                 >
                   {status === "uploading" ? "Mengirim..." : "Posting Sekarang"}
                 </button>
-
+                
+                {/* Informasi tambahan */}
+                {selectedCondition === "Antri" && !selectedWaitTime && (
+                  <p className="text-[9px] text-amber-600 text-center mt-2">
+                    *Pilih estimasi waktu antri untuk melanjutkan
+                  </p>
+                )}
+                {!selectedCondition && !selectedTraffic && (
+                  <p className="text-[9px] text-slate-400 text-center mt-2">
+                    *Pilih kondisi tempat atau lalu lintas
+                  </p>
+                )}
               </div>
             </motion.div>
           </div>

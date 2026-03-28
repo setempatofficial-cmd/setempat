@@ -1,27 +1,39 @@
-// hooks/useClock.js
-import { useState, useEffect } from "react";
+// hooks/useClock.js 
+
+import { useState, useEffect, useRef } from 'react';
 
 export function useClock() {
-  const [currentTime, setCurrentTime] = useState("");
-  const [timeLabel, setTimeLabel] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  });
+  
+  const [timeLabel, setTimeLabel] = useState(() => {
+    const hour = new Date().getHours();
+    if (hour < 11) return 'Pagi';
+    if (hour < 15) return 'Siang';
+    if (hour < 18) return 'Sore';
+    return 'Malam';
+  });
 
   useEffect(() => {
-    const updateTime = () => {
+    // Update hanya setiap menit, bukan setiap detik
+    const interval = setInterval(() => {
       const now = new Date();
-      const hh = String(now.getHours()).padStart(2, "0");
-      const mm = String(now.getMinutes()).padStart(2, "0");
-      setCurrentTime(`${hh}:${mm}`);
-
-      const hour = now.getHours();
-      if (hour >= 5 && hour < 11) setTimeLabel("Pagi");
-      else if (hour >= 11 && hour < 15) setTimeLabel("Siang");
-      else if (hour >= 15 && hour < 18) setTimeLabel("Sore");
-      else setTimeLabel("Malam");
-    };
-
-    updateTime();
-    const timer = setInterval(updateTime, 60000); // Update setiap 1 menit saja
-    return () => clearInterval(timer);
+      const newTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const newLabel = (() => {
+        const hour = now.getHours();
+        if (hour < 11) return 'Pagi';
+        if (hour < 15) return 'Siang';
+        if (hour < 18) return 'Sore';
+        return 'Malam';
+      })();
+      
+      setCurrentTime(newTime);
+      setTimeLabel(newLabel);
+    }, 60000); // Update setiap 60 detik, bukan 1 detik
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { currentTime, timeLabel };

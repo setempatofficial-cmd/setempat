@@ -23,6 +23,7 @@ const translateWeather = (desc) => {
     'overcast clouds': 'Mendung',
     'light rain': 'Hujan Ringan',
     'moderate rain': 'Hujan Sedang',
+    'heavy intensity rain': 'Hujan Deras',
     'heavy rain': 'Hujan Lebat',
     'thunderstorm': 'Hujan Petir',
     'mist': 'Kabut',

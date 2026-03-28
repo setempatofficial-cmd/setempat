@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import AuthModal from "@/app/components/auth/AuthModal";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +9,7 @@ import { useTheme } from "@/app/hooks/useTheme";
 import { supabase } from "../../../lib/supabaseClient";
 import { getGreeting } from "../../../lib/greeting";
 import { processFeedItem } from "../../../lib/feedEngine";
+import { calculateScore } from "../../../lib/ranking";
 import { useLocation } from "@/components/LocationProvider";
 
 import FeedCard from "./FeedCard";
@@ -17,23 +18,146 @@ import LocationModal from "@/components/LocationModal";
 import LaporanWarga from "../layout/LaporanWarga";
 import FormLaporanAktif from "@/app/components/modals/FormLaporanAktif";
 
-// ─ Lazy load heavy modals
+// Lazy load heavy modals
 const AIModal = React.lazy(() => import("./AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
-const LIMIT = 10;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 menit
-const DEFAULT_RADIUS = 10; // Radius default 10km
-const LOCATION_TRANSITION_DELAY = 400; // Delay smooth transition (ms)
+const LIMIT = 8;
+const CACHE_DURATION = 5 * 60 * 1000;
+const DEFAULT_RADIUS = 10;
+const LOCATION_TRANSITION_DELAY = 300;
+const RANKING_WEIGHT = 0.7;  // Bobot ranking
+const DISTANCE_WEIGHT = 0.3; // Bobot jarak
 
+// ── HAVERSINE FORMULA ──
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
+// Fungsi untuk menghitung skor jarak (0-100)
+const getDistanceScore = (distance) => {
+  if (distance === null || distance === undefined) return 20; // Default jika tidak ada lokasi
+  if (distance <= 0.5) return 100;      // < 500m
+  if (distance <= 1) return 90;         // < 1km
+  if (distance <= 2) return 80;         // < 2km
+  if (distance <= 3) return 70;         // < 3km
+  if (distance <= 5) return 50;         // < 5km
+  if (distance <= 10) return 30;        // < 10km
+  return 10;                            // > 10km
+};
+
+// Fungsi untuk menghitung skor hybrid (ranking + jarak)
+const calculateHybridScore = (item, userLocation) => {
+  // Dapatkan ranking score dari item (sudah di-process oleh feedEngine)
+  const rankingScore = item.realtimeScore || 50;
+  
+  // Hitung jarak
+  let distance = null;
+  if (userLocation && item.latitude && item.longitude) {
+    distance = haversineDistance(
+      userLocation.latitude,
+      userLocation.longitude,
+      item.latitude,
+      item.longitude
+    );
+  }
+  
+  const distanceScore = getDistanceScore(distance);
+  
+  // Hybrid score: ranking lebih dominan (70%) + jarak (30%)
+  const hybridScore = (rankingScore * RANKING_WEIGHT) + (distanceScore * DISTANCE_WEIGHT);
+  
+  return {
+    hybridScore,
+    rankingScore,
+    distanceScore,
+    distance
+  };
+};
+
+// ── MEMOIZED COMPONENTS (sama seperti sebelumnya) ──
+const SkeletonLoader = memo(() => (
+  <div className="space-y-6 px-4">
+    {[1, 2, 3].map(i => (
+      <div key={i} className="h-[400px] w-full rounded-[40px] animate-pulse bg-white/5 border border-white/5" />
+    ))}
+  </div>
+));
+
+const ErrorState = memo(({ error, onRetry }) => (
+  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-12 px-4">
+    <div className="text-6xl mb-4">⚠️</div>
+    <h3 className="text-white/80 text-lg font-semibold mb-2">Gagal memuat data</h3>
+    <p className="text-white/40 text-sm mb-4">{error}</p>
+    <button onClick={onRetry} className="px-6 py-2 bg-white/10 rounded-xl text-white/80 hover:bg-white/20 transition-colors">Coba Lagi</button>
+  </motion.div>
+));
+
+const EmptyState = memo(({ radius, locationName, onExpandRadius }) => (
+  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-12 px-4">
+    <div className="text-6xl mb-4">📍</div>
+    <h3 className="text-white/80 text-lg font-semibold mb-2">Tidak ada tempat di sekitar</h3>
+    <p className="text-white/40 text-sm">Tidak ditemukan tempat dalam radius {radius}km dari {locationName}</p>
+    <button onClick={onExpandRadius} className="mt-4 px-6 py-2 bg-white/10 rounded-xl text-white/80 hover:bg-white/20 transition-colors text-sm">Perluas radius ke {radius + 5}km</button>
+  </motion.div>
+));
+
+const LoadingMore = memo(() => (
+  <div className="flex justify-center py-8">
+    <div className="flex flex-col items-center gap-2">
+      <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+      <p className="text-white/40 text-xs">Memuat lebih banyak...</p>
+    </div>
+  </div>
+));
+
+const EndOfFeed = memo(() => (
+  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
+    <p className="text-white/40 text-xs">✨ Semua konten di sekitar telah dimuat ✨</p>
+  </motion.div>
+));
+
+const PullToRefreshIndicator = memo(({ refreshing }) => (
+  <AnimatePresence>
+    {refreshing && (
+      <motion.div initial={{ y: -60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -60, opacity: 0 }} className="fixed top-0 left-0 right-0 bg-gradient-to-r from-emerald-600/95 to-teal-600/95 backdrop-blur-md py-3 text-center text-white text-sm z-50 shadow-lg">
+        <div className="flex items-center justify-center gap-2">
+          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          <span>Memperbarui feed...</span>
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+));
+
+const ToastMessage = memo(({ show, message }) => (
+  <AnimatePresence>
+    {show && (
+      <motion.div initial={{ y: 50, x: "-50%", opacity: 0 }} animate={{ y: 0, x: "-50%", opacity: 1 }} exit={{ y: 50, x: "-50%", opacity: 0 }} className="fixed bottom-10 left-1/2 z-[100]">
+        <div className="bg-black/80 backdrop-blur-lg text-white px-5 py-2.5 rounded-full shadow-2xl text-sm font-medium border border-white/20">{message}</div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+));
+
+// ── MAIN COMPONENT ──
 export default function FeedContent() {
   const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
   const { user, isAdmin } = useAuth();
   const theme = useTheme();
 
-  const [tempat, setTempat] = useState([]);
-  const [page, setPage] = useState(0);
+  // --- STABIL DATA STRUCTURE ---
+  const [itemsMap, setItemsMap] = useState(new Map());
+  const [orderedIds, setOrderedIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [comments, setComments] = useState({});
@@ -44,11 +168,13 @@ export default function FeedContent() {
   const [toast, setToast] = useState({ show: false, message: "" });
   const [forceRefresh, setForceRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchRadius, setSearchRadius] = useState(DEFAULT_RADIUS); // Radius pencarian
-  const [isTransitioningLocation, setIsTransitioningLocation] = useState(false); // Track location change
-  const [feedOpacity, setFeedOpacity] = useState(1); // Fade effect saat transition
+  const [searchRadius, setSearchRadius] = useState(DEFAULT_RADIUS);
+  const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
+  const [feedOpacity, setFeedOpacity] = useState(1);
 
+  // Modal states
   const [selectedTempat, setSelectedTempat] = useState(null);
+  const [selectedLaporanWarga, setSelectedLaporanWarga] = useState([]);
   const [selectedUploadSuccess, setSelectedUploadSuccess] = useState(null);
   const [aiContext, setAiContext] = useState("general");
   const [showAIModal, setShowAIModal] = useState(false);
@@ -59,290 +185,262 @@ export default function FeedContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [forceShowLaporan, setForceShowLaporan] = useState(false);
   const [showFormLaporan, setShowFormLaporan] = useState(false);
+  
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50);
+    };
+    
+    window.addEventListener('scroll', handleScroll);
+    handleScroll();
+    
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
-  const fetchIdRef = useRef(0);
-  const initialLoadDoneRef = useRef(false);
-  const scrollTimeoutRef = useRef(null);
-  const observerRef = useRef(null);
-  const lastCardRef = useRef(null);
-  const existingIdsRef = useRef(new Set());
-  const lastLocationRef = useRef(null);
-  const touchStartY = useRef(0);
-  const pullDistanceRef = useRef(0);
 
-  // Simpan comments di ref
-  const commentsRef = useRef(comments);
-  useEffect(() => { commentsRef.current = comments; }, [comments]);
-
-  // Simpan state di ref
-  const loadingRef = useRef(false);
-  const hasMoreRef = useRef(true);
-  const errorRef = useRef(null);
-
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
-  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
-  useEffect(() => { errorRef.current = error; }, [error]);
-
-  const isMalam = useMemo(() => getGreeting().text === "Malam", []);
-
-  const locationReady = useMemo(() =>
-    status === "granted" && !!location?.latitude && !!location?.longitude,
-    [status, location]
-  );
-
+  // Memoized values
+  const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
   const { villageLocation, districtLocation } = useMemo(() => {
     if (!placeName) return { villageLocation: "Pilih Lokasi", districtLocation: "" };
     const parts = placeName.split(",").map(p => p.trim());
     return { villageLocation: parts[0] || "Lokasi", districtLocation: parts[1] || "" };
   }, [placeName]);
+  const isMalam = useMemo(() => getGreeting().text === "Malam", []);
 
+  // Refs
+  const fetchIdRef = useRef(0);
+  const initialLoadDoneRef = useRef(false);
+  const lastCardRef = useRef(null);
+  const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const errorRef = useRef(null);
+  const commentsRef = useRef(comments);
   const locationReadyRef = useRef(locationReady);
   const locationRef = useRef(location);
+  const lastLocationRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const lastLoadedIdRef = useRef(null);
+  const existingIdsRef = useRef(new Set());
+
+  // Update refs
+  useEffect(() => { commentsRef.current = comments; }, [comments]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { errorRef.current = error; }, [error]);
   useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
   useEffect(() => { locationRef.current = location; }, [location]);
 
-  // ── CACHE MANAGER dengan lokasi ──────────────────────────────────────────
+  // Derived values
+  const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
+
+  // --- RESET FEED FUNCTION ---
+  const resetFeed = useCallback(async () => {
+    setOrderedIds([]);
+    setItemsMap(new Map());
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
+    lastLoadedIdRef.current = null;
+    existingIdsRef.current.clear();
+  }, []);
+
+  // --- CACHE MANAGER (menyimpan hybrid score) ---
   const cacheManager = useMemo(() => ({
     getKey: () => {
-      if (status !== "granted" || !location?.latitude || !location?.longitude) {
-        return 'feed_default';
-      }
-      // Cache per lokasi dengan radius
-      const lat = Math.round(location.latitude * 100) / 100;
-      const lng = Math.round(location.longitude * 100) / 100;
-      return `feed_${lat}_${lng}_${searchRadius}`;
+      if (!locationReadyRef.current || !locationRef.current) return 'feed_default';
+      const lat = Math.round(locationRef.current.latitude * 100) / 100;
+      const lng = Math.round(locationRef.current.longitude * 100) / 100;
+      return `feed_hybrid_${lat}_${lng}_${searchRadius}`;
     },
-
     get: (key) => {
       try {
         const cached = localStorage.getItem(key);
         if (!cached) return null;
-        const { data, timestamp, version } = JSON.parse(cached);
-        const maxAge = status === "granted" ? CACHE_DURATION : CACHE_DURATION * 2;
-        if (Date.now() - timestamp > maxAge) return null;
-        if (version !== (window.FEED_VERSION || 1)) return null;
-        return data;
-      } catch {
-        return null;
-      }
+        const parsed = JSON.parse(cached);
+        if (!parsed || !parsed.items || !parsed.ids) return null;
+        if (Date.now() - parsed.timestamp > CACHE_DURATION) return null;
+        return { itemsMap: new Map(parsed.items), orderedIds: parsed.ids };
+      } catch { return null; }
     },
-
-    set: (key, data) => {
+    set: (key, itemsMap, orderedIds) => {
       try {
+        if (!orderedIds || orderedIds.length === 0) return;
         localStorage.setItem(key, JSON.stringify({
-          data,
-          timestamp: Date.now(),
-          version: window.FEED_VERSION || 1
+          items: Array.from(itemsMap.entries()),
+          ids: orderedIds,
+          timestamp: Date.now()
         }));
-      } catch (e) {
-        console.warn('Cache save failed:', e);
-      }
+      } catch (e) { console.warn('Cache save failed:', e); }
     },
-
     invalidate: () => {
       const keys = Object.keys(localStorage);
-      keys.forEach(key => {
-        if (key.startsWith('feed_')) localStorage.removeItem(key);
-      });
-      window.FEED_VERSION = (window.FEED_VERSION || 1) + 1;
+      keys.forEach(key => { if (key.startsWith('feed_')) localStorage.removeItem(key); });
     }
-  }), [location, status, searchRadius]);
+  }), [searchRadius]);
 
-  // ── FUNGSI LOAD PLACES DENGAN FILTER LOKASI ──────────────────────────────
+  // --- LOAD PLACES DENGAN HYBRID SCORING ---
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
     const currentFetchId = ++fetchIdRef.current;
-
-    if (loading && !reset) return;
+    if (loadingRef.current && !reset) return;
 
     if (reset) {
-      setPage(0);
       setInitialLoad(true);
       setHasMore(true);
       setError(null);
+      setOrderedIds([]);
+      setItemsMap(new Map());
+      lastLoadedIdRef.current = null;
       existingIdsRef.current.clear();
 
-      // Smooth transition saat location berubah - jangan langsung clear
       if (isLocationChange) {
         setIsTransitioningLocation(true);
         setFeedOpacity(0.5);
-        // Fade out dulu sebelum clear
         await new Promise(resolve => setTimeout(resolve, LOCATION_TRANSITION_DELAY / 2));
-      } else {
-        // Reset normal (bukan location change) - clear langsung
-        setTempat([]);
       }
     }
 
     setLoading(true);
 
     try {
-      // Cek cache untuk initial load
-      if (reset && !forceRefresh) {
+      // Cek cache
+      if (reset && !forceRefresh && !isLocationChange) {
         const cacheKey = cacheManager.getKey();
-        const cachedData = cacheManager.get(cacheKey);
-        if (cachedData && cachedData.length > 0) {
-          setTempat(cachedData);
+        const cached = cacheManager.get(cacheKey);
+        if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
+          setItemsMap(cached.itemsMap || new Map());
+          setOrderedIds(cached.orderedIds);
           setInitialLoad(false);
           setLoading(false);
+          if (cached.orderedIds.length > 0) {
+            lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
+          }
           return;
         }
       }
 
-      const currentPage = reset ? 0 : page;
-      const from = currentPage * LIMIT;
-      const to = from + LIMIT - 1;
-
-      const params = new URLSearchParams(window.location.search);
-      const priorityId = reset ? params.get("tempat") : null;
-
-      // Filter 30 hari terakhir
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
+      // Build query dengan bounding box
       let query = supabase
         .from("feed_view")
         .select("*")
-        .gte("created_at", thirtyDaysAgo.toISOString())
-        .range(from, to)
         .order("created_at", { ascending: false });
 
-      // 🔥 KRUSIAL: FILTER BERDASARKAN LOKASI!
-      if (locationReady && location?.latitude && location?.longitude) {
-        // Gunakan PostGIS atau filter radius
-        // Asumsi: tabel feed_view memiliki kolom latitude dan longitude
-        // Atau menggunakan earthdistance untuk PostgreSQL
-
-        // Metode 1: Filter menggunakan bounding box (lebih cepat)
-        const lat = location.latitude;
-        const lng = location.longitude;
-        const latDelta = searchRadius / 111; // 1 derajat ≈ 111km
-        const lngDelta = searchRadius / (111 * Math.cos(lat * Math.PI / 180));
+      if (locationReadyRef.current && locationRef.current) {
+        const lat = locationRef.current.latitude;
+        const lng = locationRef.current.longitude;
+        const bufferRadius = searchRadius * 1.2;
+        const latDelta = bufferRadius / 111;
+        const lngDelta = bufferRadius / (111 * Math.cos(lat * Math.PI / 180));
 
         query = query
           .gte('latitude', lat - latDelta)
           .lte('latitude', lat + latDelta)
           .gte('longitude', lng - lngDelta)
           .lte('longitude', lng + lngDelta);
-
-        console.log(`🔍 Mencari tempat dalam radius ${searchRadius}km dari (${lat}, ${lng})`);
-      } else {
-        console.log('📍 Lokasi tidak tersedia, menampilkan semua konten');
       }
 
-      const { data, error: fetchError } = await query;
+      if (!reset && lastLoadedIdRef.current) {
+        query = query.lt('id', lastLoadedIdRef.current);
+      }
 
+      const { data, error: fetchError } = await query.limit(LIMIT * 2);
       if (fetchError) throw fetchError;
       if (currentFetchId !== fetchIdRef.current) return;
 
       let items = data || [];
-      console.log(`📦 Ditemukan ${items.length} tempat di radius ${searchRadius}km`);
 
-      // Prioritaskan item dari URL parameter
-      if (priorityId && reset) {
-        const alreadyLoaded = items.some(i => String(i.id) === String(priorityId));
-        if (!alreadyLoaded) {
-          const { data: pd } = await supabase
-            .from("feed_view")
-            .select("*")
-            .eq("id", parseInt(priorityId))
-            .single();
-          if (pd) items = [pd, ...items];
-        }
-      }
-
-      // Filter duplicates
-      const uniqueItems = [];
-      const newIds = new Set();
+      // Filter berdasarkan radius akurat dan hitung hybrid score
+      const processedItems = [];
+      const userLocation = locationReadyRef.current && locationRef.current ? {
+        latitude: locationRef.current.latitude,
+        longitude: locationRef.current.longitude
+      } : null;
 
       for (const item of items) {
-        if (!existingIdsRef.current.has(item.id) && !newIds.has(item.id)) {
-          newIds.add(item.id);
-          uniqueItems.push(item);
+        // Hitung jarak
+        let distance = null;
+        if (userLocation && item.latitude && item.longitude) {
+          distance = haversineDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            item.latitude,
+            item.longitude
+          );
         }
-      }
-
-      // Process items
-      const commentsMap = {};
-      const processedItems = [];
-
-      for (const item of uniqueItems) {
-        commentsMap[item.id] = item.testimonial_terbaru || [];
-        const processed = processFeedItem({
-          item,
-          locationReady: locationReadyRef.current,
-          location: locationRef.current,
-          comments: commentsRef.current,
+        
+        // Filter radius
+        if (distance !== null && distance > searchRadius) continue;
+        
+        // Process dengan feedEngine untuk mendapatkan ranking score
+        const processedItem = processFeedItem({ 
+          item, 
+          locationReady: !!userLocation, 
+          location: userLocation,
+          comments: commentsRef.current 
         });
-        processedItems.push(processed);
-        existingIdsRef.current.add(item.id);
+        
+        // Hitung hybrid score
+        const hybridScoreData = calculateHybridScore(processedItem, userLocation);
+        
+        // Simpan semua data
+        const finalItem = {
+          ...processedItem,
+          _distance: distance,
+          _distanceScore: hybridScoreData.distanceScore,
+          _rankingScore: hybridScoreData.rankingScore,
+          _hybridScore: hybridScoreData.hybridScore
+        };
+        
+        processedItems.push(finalItem);
       }
 
-      // SORTING dengan prioritas jarak
-      processedItems.sort((a, b) => {
-        if (priorityId) {
-          if (String(a.id) === String(priorityId)) return -1;
-          if (String(b.id) === String(priorityId)) return 1;
-        }
+      if (processedItems.length === 0) {
+        setHasMore(false);
+        setLoading(false);
+        setInitialLoad(false);
+        return;
+      }
 
-        const now = new Date();
-        const oneHourAgo = now - (60 * 60 * 1000);
-
-        const aRecent = a.lastActivityAt && new Date(a.lastActivityAt).getTime() > oneHourAgo;
-        const bRecent = b.lastActivityAt && new Date(b.lastActivityAt).getTime() > oneHourAgo;
-
-        if (aRecent && !bRecent) return -1;
-        if (!aRecent && bRecent) return 1;
-
-        // Prioritas tempat dengan jarak terdekat
-        const aHasLocation = locationReadyRef.current && a.distance !== null && a.distance !== Infinity;
-        const bHasLocation = locationReadyRef.current && b.distance !== null && b.distance !== Infinity;
-
-        if (aHasLocation && !bHasLocation) return -1;
-        if (!aHasLocation && bHasLocation) return 1;
-
-        if (aHasLocation && bHasLocation) {
-          return (a.distance || Infinity) - (b.distance || Infinity);
-        }
-
-        if (a.sortScore && b.sortScore) {
-          return b.sortScore - a.sortScore;
-        }
-
-        if (a.hasOfficialExternal && !b.hasOfficialExternal) return -1;
-        if (!a.hasOfficialExternal && b.hasOfficialExternal) return 1;
-
-        if (a.lastActivityAt && b.lastActivityAt) {
-          return new Date(b.lastActivityAt) - new Date(a.lastActivityAt);
-        }
-
-        return 0;
-      });
+      // Urutkan berdasarkan HYBRID SCORE (ranking + jarak)
+      processedItems.sort((a, b) => b._hybridScore - a._hybridScore);
 
       // Update state
-      setComments(prev => ({ ...prev, ...commentsMap }));
-      setTempat(processedItems);
-      setPage(currentPage + 1);
-      setHasMore(items.length === LIMIT);
+      const newItemsMap = new Map(reset ? [] : itemsMap.entries());
+      const newOrderedIds = reset ? [] : [...orderedIds];
+      const newComments = { ...comments };
 
-      // Simpan ke cache
-      if (reset) {
+      for (const item of processedItems) {
+        if (!newItemsMap.has(item.id)) {
+          newItemsMap.set(item.id, item);
+          newOrderedIds.push(item.id);
+          newComments[item.id] = item.testimonial_terbaru || [];
+          existingIdsRef.current.add(item.id);
+        }
+      }
+
+      if (processedItems.length > 0) {
+        lastLoadedIdRef.current = processedItems[processedItems.length - 1].id;
+      }
+
+      setItemsMap(newItemsMap);
+      setOrderedIds(newOrderedIds);
+      setComments(newComments);
+      setHasMore(processedItems.length === LIMIT * 2);
+
+      if (reset && newOrderedIds.length > 0) {
         const cacheKey = cacheManager.getKey();
-        cacheManager.set(cacheKey, processedItems);
+        cacheManager.set(cacheKey, newItemsMap, newOrderedIds);
 
-        // Smooth fade in saat location change
         if (isLocationChange) {
           setFeedOpacity(1);
           setIsTransitioningLocation(false);
-          setTimeout(() => setFeedOpacity(1), LOCATION_TRANSITION_DELAY / 2);
         }
 
-        // Tampilkan notifikasi radius
-        if (locationReady) {
-          setToast({
-            show: true,
-            message: `📍 Menampilkan tempat dalam radius ${searchRadius}km dari ${villageLocation}`
+        if (locationReadyRef.current) {
+          setToast({ 
+            show: true, 
+            message: `📍 ${newOrderedIds.length} tempat dalam radius ${searchRadius}km (diurutkan berdasarkan aktivitas terbaru)` 
           });
-          setTimeout(() => setToast({ show: false, message: "" }), 3000);
+          setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
       }
     } catch (err) {
@@ -356,55 +454,130 @@ export default function FeedContent() {
         setInitialLoad(false);
       }
     }
-  }, [page, loading, forceRefresh, cacheManager, locationReady, location, searchRadius, villageLocation]);
+  }, [forceRefresh, cacheManager, searchRadius, itemsMap, orderedIds, comments]);
 
-  // ── HANDLE PERUBAHAN RADIUS ──────────────────────────────────────────────
-  const handleRadiusChange = useCallback((newRadius) => {
-    setSearchRadius(newRadius);
+  // ── HANDLE MANUAL LOCATION CHANGE (User pilih lokasi B) ──
+  const handleManualLocationSelect = useCallback(async (selectedLocation) => {
+    console.log("📍 User pilih lokasi baru:", selectedLocation);
+    setManualLocation(selectedLocation);
     cacheManager.invalidate();
-    loadPlaces(true);
-    setToast({
-      show: true,
-      message: `🔍 Radius pencarian diubah menjadi ${newRadius}km`
-    });
-    setTimeout(() => setToast({ show: false, message: "" }), 2000);
-  }, [cacheManager, loadPlaces]);
+    await resetFeed();
+    setIsTransitioningLocation(true);
+    setFeedOpacity(0.5);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await loadPlaces(true, true);
+    const locationName = selectedLocation?.address || selectedLocation?.name || "lokasi baru";
+    setToast({ show: true, message: `📍 Feed diperbarui untuk ${locationName}` });
+    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+  }, [cacheManager, loadPlaces, setManualLocation, resetFeed]);
 
-  // ── INFINITE SCROLL ──────────────────────────────────────────────────────
+  // ── HANDLE GPS LOCATION (User kembali ke lokasi A) ──
+  const handleGPSActivation = useCallback(async () => {
+    console.log("📍 Aktifkan GPS location...");
+    await requestLocation();
+    await new Promise(resolve => setTimeout(resolve, 800));
+    cacheManager.invalidate();
+    await resetFeed();
+    setIsTransitioningLocation(true);
+    setFeedOpacity(0.5);
+    await loadPlaces(true, true);
+    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi GPS: ${villageLocation}` });
+    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+  }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
+
+  // ── INFINITE SCROLL ──
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+    if (!lastCardRef.current || !hasMore || loading) return;
 
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 900 &&
-        !loadingRef.current && hasMoreRef.current && !errorRef.current) {
-        loadPlaces(false);
-      }
-    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          loadPlaces(false);
+        }
+      },
+      { threshold: 0.1, rootMargin: "200px" }
+    );
 
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [loadPlaces]);
+    observer.observe(lastCardRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadPlaces, tempat.length]);
 
-  // ── SUBSCRIBE REAL-TIME CHANGES ──────────────────────────────────────────
+  // ── REAL-TIME SUBSCRIPTION dengan hybrid score update ──
   useEffect(() => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
     const channel = supabase
       .channel('feed_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'feed_view' },
-        () => {
-          cacheManager.invalidate();
-          loadPlaces(true);
-          setToast({ show: true, message: "📢 Konten baru tersedia di area ini" });
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_view' }, (payload) => {
+        const newItem = payload.new;
+        if (!newItem) return;
+
+        const userLocation = locationReadyRef.current && locationRef.current ? {
+          latitude: locationRef.current.latitude,
+          longitude: locationRef.current.longitude
+        } : null;
+
+        let inRadius = false;
+        let distance = null;
+        
+        if (userLocation && newItem.latitude && newItem.longitude) {
+          distance = haversineDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            newItem.latitude,
+            newItem.longitude
+          );
+          inRadius = distance <= searchRadius;
+        }
+
+        if (inRadius && !itemsMap.has(newItem.id)) {
+          // Process dengan feedEngine untuk ranking
+          const processedItem = processFeedItem({ 
+            item: newItem, 
+            locationReady: !!userLocation, 
+            location: userLocation,
+            comments: commentsRef.current 
+          });
+          
+          // Hitung hybrid score
+          const hybridScoreData = calculateHybridScore(processedItem, userLocation);
+          
+          const finalItem = {
+            ...processedItem,
+            _distance: distance,
+            _distanceScore: hybridScoreData.distanceScore,
+            _rankingScore: hybridScoreData.rankingScore,
+            _hybridScore: hybridScoreData.hybridScore
+          };
+          
+          setItemsMap(prev => new Map(prev).set(finalItem.id, finalItem));
+          
+          // Masukkan ke dalam orderedIds sesuai hybrid score
+          setOrderedIds(prev => {
+            const newIds = [...prev, finalItem.id];
+            newIds.sort((a, b) => {
+              const scoreA = itemsMap.get(a)?._hybridScore || 0;
+              const scoreB = itemsMap.get(b)?._hybridScore || 0;
+              return scoreB - scoreA;
+            });
+            return newIds;
+          });
+          
+          setComments(prev => ({ ...prev, [finalItem.id]: finalItem.testimonial_terbaru || [] }));
+          setToast({ show: true, message: `📢 ${finalItem.name} menambahkan update baru!` });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
-      )
+      })
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
-  }, [cacheManager, loadPlaces]);
+    return () => {
+      supabase.removeChannel(channel);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, [searchRadius, itemsMap]);
 
-  // ── PULL TO REFRESH ──────────────────────────────────────────────────────
+  // ── PULL TO REFRESH ──
   useEffect(() => {
     let startY = 0;
     let isPulling = false;
@@ -440,7 +613,6 @@ export default function FeedContent() {
     window.addEventListener('touchstart', handleTouchStart);
     window.addEventListener('touchmove', handleTouchMove);
     window.addEventListener('touchend', handleTouchEnd);
-
     return () => {
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
@@ -448,33 +620,41 @@ export default function FeedContent() {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-  // ── RELOAD KETIKA LOKASI BERUBAH ─────────────────────────────────────────
+  // ── INITIAL LOAD ──
   useEffect(() => {
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
       loadPlaces(true, false);
-      return;
     }
+  }, [loadPlaces]);
 
+  // ── LOCATION CHANGE HANDLER (GPS otomatis) ──
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) return;
     if (!locationReady) return;
 
     const currentKey = location ? `${location.latitude.toFixed(3)},${location.longitude.toFixed(3)}` : '';
     if (lastLocationRef.current === currentKey) return;
 
+    console.log(`📍 Lokasi berubah: ${lastLocationRef.current} -> ${currentKey}`);
     lastLocationRef.current = currentKey;
-    console.log(`📍 Lokasi berubah ke: ${villageLocation}, memuat ulang feed...`);
+    
     cacheManager.invalidate();
-    loadPlaces(true, true); // Pass true = location change
+    loadPlaces(true, true);
 
-    // Notifikasi perubahan lokasi
-    setToast({
-      show: true,
-      message: `📍 Lokasi berubah ke ${villageLocation}. Menampilkan tempat terdekat.`
-    });
+    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [location?.latitude, location?.longitude, locationReady, cacheManager, loadPlaces, villageLocation]);
 
-  // ── MODAL HANDLERS ────────────────────────────────────────────────────────
+  // ── HANDLERS ──
+  const handleRadiusChange = useCallback((newRadius) => {
+    setSearchRadius(newRadius);
+    cacheManager.invalidate();
+    loadPlaces(true);
+    setToast({ show: true, message: `🔍 Radius ${newRadius}km` });
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+  }, [cacheManager, loadPlaces]);
+
   const handleSearchSelect = useCallback((item) => {
     setSelectedTempat(item);
     setAiContext("search");
@@ -483,6 +663,7 @@ export default function FeedContent() {
 
   const openAICardModal = useCallback((item, onUploadSuccess, initialQuery = "") => {
     setSelectedTempat(item);
+    setSelectedLaporanWarga(item?.laporan_terbaru || []);
     setSelectedUploadSuccess(() => onUploadSuccess);
     setInitialQuery(initialQuery);
     setAiContext("card");
@@ -506,6 +687,7 @@ export default function FeedContent() {
     setShowAIModal(false);
     setShowKomentarModal(false);
     setSelectedTempat(null);
+    setSelectedLaporanWarga([]);
     setInitialQuery("");
   }, []);
 
@@ -528,25 +710,13 @@ export default function FeedContent() {
     loadPlaces(true);
   }, [loadPlaces, cacheManager]);
 
+  const handleExpandRadius = useCallback(() => {
+    handleRadiusChange(searchRadius + 5);
+  }, [handleRadiusChange, searchRadius]);
+
   return (
     <main className="relative min-h-screen mx-auto w-[92%] max-w-[400px] bg-transparent">
-
-      {/* Pull to refresh indicator */}
-      <AnimatePresence>
-        {refreshing && (
-          <motion.div
-            initial={{ y: -60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -60, opacity: 0 }}
-            className="fixed top-0 left-0 right-0 bg-gradient-to-r from-primary/90 to-secondary/90 backdrop-blur-md py-3 text-center text-white text-sm z-50 shadow-lg"
-          >
-            <div className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <span>Memperbarui feed...</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <PullToRefreshIndicator refreshing={refreshing} />
 
       <Header
         user={user}
@@ -569,96 +739,39 @@ export default function FeedContent() {
       />
 
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-
-      <LaporanWarga
-        tempat={tempat}
-        locationReady={locationReady}
-        displayLocation={villageLocation}
-        location={location}
-        forceShow={forceShowLaporan}
-        onHide={() => setForceShowLaporan(false)}
-      />
-
-      <FormLaporanAktif
-        isOpen={showFormLaporan}
-        onClose={() => setShowFormLaporan(false)}
-        villageLocation={villageLocation}
-        theme={theme}
-        user={user}
-      />
-
+      <LaporanWarga tempat={tempat} locationReady={locationReady} displayLocation={villageLocation} location={location} forceShow={forceShowLaporan} onHide={() => setForceShowLaporan(false)} />
+      <FormLaporanAktif isOpen={showFormLaporan} onClose={() => setShowFormLaporan(false)} villageLocation={villageLocation} theme={theme} user={user} />
+      
       <LocationModal
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
         locationReady={locationReady}
         isMalam={isMalam}
-        onActivateGPS={requestLocation}
-        onSelectManual={setManualLocation}
+        onActivateGPS={handleGPSActivation}
+        onSelectManual={handleManualLocationSelect}
       />
 
-      {/* ── FEED ── */}
-      <motion.div
-        className="mt-4 space-y-2 min-h-[60vh] relative"
-        animate={{ opacity: feedOpacity }}
-        transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}
-      >
+      {/* FEED */}
+      <motion.div className="mt-4 space-y-2 min-h-[60vh] relative" animate={{ opacity: feedOpacity }} transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}>
         {initialLoad ? (
-          <div className="space-y-6 px-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-[400px] w-full rounded-[40px] animate-pulse bg-white/5 border border-white/5" />
-            ))}
-          </div>
+          <SkeletonLoader />
         ) : error ? (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center py-12 px-4"
-          >
-            <div className="text-6xl mb-4">⚠️</div>
-            <h3 className="text-white/80 text-lg font-semibold mb-2">Gagal memuat data</h3>
-            <p className="text-white/40 text-sm mb-4">{error}</p>
-            <button
-              onClick={retryLoad}
-              className="px-6 py-2 bg-white/10 rounded-xl text-white/80 hover:bg-white/20 transition-colors"
-            >
-              Coba Lagi
-            </button>
-          </motion.div>
+          <ErrorState error={error} onRetry={retryLoad} />
         ) : tempat.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center py-12 px-4"
-          >
-            <div className="text-6xl mb-4">📍</div>
-            <h3 className="text-white/80 text-lg font-semibold mb-2">Tidak ada tempat di sekitar</h3>
-            <p className="text-white/40 text-sm">
-              Tidak ditemukan tempat dalam radius {searchRadius}km dari {villageLocation}
-            </p>
-            <button
-              onClick={() => handleRadiusChange(searchRadius + 5)}
-              className="mt-4 px-6 py-2 bg-white/10 rounded-xl text-white/80 hover:bg-white/20 transition-colors text-sm"
-            >
-              Perluas radius ke {searchRadius + 5}km
-            </button>
-          </motion.div>
+          <EmptyState radius={searchRadius} locationName={villageLocation} onExpandRadius={handleExpandRadius} />
         ) : (
-          <React.Suspense fallback={null}>
+          <React.Suspense fallback={<SkeletonLoader />}>
             <LayoutGroup>
               <motion.div layout className="space-y-2">
                 <AnimatePresence mode="popLayout" initial={false}>
-                  {tempat.slice(0, 15).map((item, index) => (
+                  {tempat.map((item, index) => (
                     <motion.div
-                      key={`feed-${item.id}`}
+                      key={item.id}
                       layout
-                      initial={{ opacity: 0, y: 30 }}
+                      initial={false}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: 0.5,
-                        ease: [0.22, 1, 0.36, 1],
-                        delay: Math.min(index * 0.05, 0.2)
-                      }}
-                      ref={index === Math.min(tempat.length, 15) - 1 ? lastCardRef : null}
+                      transition={{ duration: 0.3 }}
+                      ref={index === tempat.length - 1 ? lastCardRef : null}
                     >
                       <FeedCard
                         item={item}
@@ -679,85 +792,31 @@ export default function FeedContent() {
           </React.Suspense>
         )}
 
-        {loading && !initialLoad && !error && (
-          <div className="flex justify-center py-8">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
-              <p className="text-white/40 text-xs">Memuat lebih banyak...</p>
-            </div>
-          </div>
-        )}
+        {loading && !initialLoad && !error && <LoadingMore />}
+        {!hasMore && tempat.length > 0 && !error && <EndOfFeed />}
 
-        {!hasMore && tempat.length > 0 && !error && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-8"
-          >
-            <p className="text-white/40 text-xs">✨ Semua konten di sekitar telah dimuat ✨</p>
-          </motion.div>
-        )}
-
-        {/* Location Transition Loading Overlay */}
         {isTransitioningLocation && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40"
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40">
             <div className="flex flex-col items-center gap-3">
               <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <p className="text-white/60 text-xs font-medium">Memperbarui lokasi...</p>
+              <p className="text-white/60 text-xs font-medium">Memperbarui feed untuk lokasi baru...</p>
             </div>
           </motion.div>
         )}
       </motion.div>
 
-      {/* ── MODALS ── */}
+      {/* MODALS */}
       <React.Suspense fallback={null}>
-        <SearchModal
-          isOpen={showSearchModal}
-          onClose={() => setShowSearchModal(false)}
-          onSelectTempat={handleSearchSelect}
-        />
+        <SearchModal isOpen={showSearchModal} onClose={() => setShowSearchModal(false)} onSelectTempat={handleSearchSelect} />
+      </React.Suspense>
+      <React.Suspense fallback={null}>
+        <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} context={aiContext} onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={selectedUploadSuccess} initialQuery={initialQuery} item={selectedTempat} laporanWarga={selectedLaporanWarga} />
+      </React.Suspense>
+      <React.Suspense fallback={null}>
+        <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} isAdmin={isAdmin} />
       </React.Suspense>
 
-      <React.Suspense fallback={null}>
-        <AIModal
-          isOpen={showAIModal}
-          onClose={closeModals}
-          tempat={selectedTempat}
-          context={aiContext}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onUploadSuccess={selectedUploadSuccess}
-          initialQuery={initialQuery}
-        />
-      </React.Suspense>
-
-      <React.Suspense fallback={null}>
-        <KomentarModal
-          isOpen={showKomentarModal}
-          onClose={closeModals}
-          tempat={selectedTempat}
-          isAdmin={isAdmin}
-        />
-      </React.Suspense>
-
-      <AnimatePresence>
-        {toast.show && (
-          <motion.div
-            initial={{ y: 50, x: "-50%", opacity: 0 }}
-            animate={{ y: 0, x: "-50%", opacity: 1 }}
-            exit={{ y: 50, x: "-50%", opacity: 0 }}
-            className="fixed bottom-10 left-1/2 z-[100]"
-          >
-            <div className="bg-black/80 backdrop-blur-lg text-white px-5 py-2.5 rounded-full shadow-2xl text-sm font-medium border border-white/20">
-              {toast.message}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ToastMessage show={toast.show} message={toast.message} />
     </main>
   );
 }
