@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import UserMenu from "@/app/components/layout/UserMenu";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useWeather } from "@/hooks/useWeather";
-import SearchModal from "@/app/components/feed/SearchModal";
+import { useRouter } from "next/navigation";
 
 // ── 1. LUXURY LIVE CAPSULE ────────────────────────────────────────────────
 function LiveStatus({ weather, theme, onShowStatistik }) {
@@ -29,7 +29,7 @@ function LiveStatus({ weather, theme, onShowStatistik }) {
     <motion.button
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
-      onClick={onShowStatistik}
+       onClick={onShowStatistik} 
       className={`group flex items-center gap-2.5 px-4 py-2 rounded-full backdrop-blur-xl border transition-all duration-500 ${
         theme.isMalam
           ? "bg-white/[0.03] border-white/10 text-white/80 hover:bg-white/[0.08]"
@@ -68,8 +68,9 @@ export default function Header({
   onOpenAuthModal,
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const { weather } = useWeather(villageLocation);
-  const [showSearchModal, setShowSearchModal] = useState(false);
+
 
   // FIX: Tambahkan fungsi handleSelectTempat yang sempat hilang
   const handleSelectTempat = (tempat) => {
@@ -164,7 +165,7 @@ export default function Header({
             <motion.button
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => setShowSearchModal(true)}
+              onClick={() => router.push('/search')}
               className={`w-11 h-11 flex items-center justify-center rounded-2xl transition-all duration-500 ${
                 theme.isMalam
                   ? "bg-white/[0.03] border border-white/10 hover:bg-white/[0.08]"
@@ -189,13 +190,6 @@ export default function Header({
 
         </div>
       </header>
-
-      <SearchModal
-        isOpen={showSearchModal}
-        onClose={() => setShowSearchModal(false)}
-        onSelectTempat={handleSelectTempat}
-        theme={theme}
-      />
     </>
   );
 }

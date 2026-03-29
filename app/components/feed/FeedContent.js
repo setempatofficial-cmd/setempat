@@ -656,10 +656,26 @@ export default function FeedContent() {
   }, [cacheManager, loadPlaces]);
 
   const handleSearchSelect = useCallback((item) => {
+    if (!item) return;
+    setShowSearchModal(false);
+    setItemsMap(prev => {
+	  const newMap = new Map(prev);
+	  newMap.set(item.id, item);
+	  return newMap;
+	});
+	
+	setOrderedIds(prev => {
+	  const filtered = prev.filter(id => id !== item.id);
+	  return [item.id, ...filtered];
+        });
     setSelectedTempat(item);
-    setAiContext("search");
-    setShowAIModal(true);
-  }, []);
+   
+    
+	window.scrollTo({ top: 0, behavior: 'smooth' });
+	
+	setToast({ show: true, message: `📍 Menampilkan ${item.name}` });
+	setTimeout(() => setToast({ show: false, message: "" }), 2000);
+  }, []); //
 
   const openAICardModal = useCallback((item, onUploadSuccess, initialQuery = "") => {
     setSelectedTempat(item);
@@ -807,7 +823,15 @@ export default function FeedContent() {
 
       {/* MODALS */}
       <React.Suspense fallback={null}>
-        <SearchModal isOpen={showSearchModal} onClose={() => setShowSearchModal(false)} onSelectTempat={handleSearchSelect} />
+        <SearchModal
+          isOpen={showSearchModal}
+          onClose={() => setShowSearchModal(false)}
+          onSelectTempat={handleSearchSelect}
+          onOpenAIModal={handleSearchWithQuery}
+          allData={tempat}
+          theme={theme}
+          villageLocation={villageLocation}
+/>
       </React.Suspense>
       <React.Suspense fallback={null}>
         <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} context={aiContext} onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={selectedUploadSuccess} initialQuery={initialQuery} item={selectedTempat} laporanWarga={selectedLaporanWarga} />
@@ -815,7 +839,7 @@ export default function FeedContent() {
       <React.Suspense fallback={null}>
         <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} isAdmin={isAdmin} />
       </React.Suspense>
-
+{/* Tambahkan ToastMessage dan tutup main & function di sini */}
       <ToastMessage show={toast.show} message={toast.message} />
     </main>
   );

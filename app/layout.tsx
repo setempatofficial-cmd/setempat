@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Setempat - Pantau Kondisi Sekitar",
-  description: "Aplikasi untuk memantau kondisi terkini di lingkungan sekitar",
+  title: "SetempatID - Melihat Kehidupan Sekitar",
+  description: "Aplikasi untuk menampilkan kondisi terkini di lingkungan sekitar secara real-time",
 };
 
 export default function RootLayout({

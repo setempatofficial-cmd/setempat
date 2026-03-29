@@ -252,7 +252,9 @@ function FeedCard({
       className="relative mb-6 w-full will-change-transform" 
       style={{ isolation: "isolate" }}
     >
-      <motion.div 
+      <motion.div
+        layoutId={`card-container-${safeItem.id}`}
+        layout="position" 
         initial={false} 
         animate={{ opacity: 1 }} 
         className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.border} shadow-xl flex flex-col`}
