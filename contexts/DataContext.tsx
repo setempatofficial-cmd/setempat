@@ -9,7 +9,7 @@ interface LaporanData {
   user_id: string;
   user_name: string;
   user_avatar?: string;
-  tipe: string; // 'Sepi', 'Ramai', 'Antri'
+  tipe: string; // 'Sepi', 'Ramai', 'Antri', 'Lalu Lintas'
   deskripsi: string;
   content?: string;
   photo_url?: string;
@@ -19,14 +19,16 @@ interface LaporanData {
   created_at: string;
   status: string;
   // FIELD BARU untuk estimasi
-  estimated_people?: number; // estimasi jumlah orang (sistem tentukan)
-  estimated_wait_time?: number; // estimasi waktu antri dalam menit (khusus Antri)
+  estimated_people?: number;
+  estimated_wait_time?: number;
+  // FIELD untuk lalu lintas
+  traffic_condition?: string; // 'Lancar', 'Ramai', 'Macet'
 }
 
 // Interface untuk statistik yang lebih detail
 interface TodayStats {
   ramai: number;
-  tenang: number;
+  sepi: number;        // 🔥 ubah dari tenang ke sepi
   antri: number;
   total: number;
   // Statistik tambahan untuk estimasi
@@ -34,9 +36,15 @@ interface TodayStats {
   avgEstimatedPeople: number;
   maxEstimatedPeople: number;
   // Statistik antrian
-  antrianPendek: number; // < 5 menit
-  antrianSedang: number; // 5-15 menit
-  antrianPanjang: number; // > 15 menit
+  antrianPendek: number;   // < 5 menit
+  antrianSedang: number;   // 5-15 menit
+  antrianPanjang: number;  // > 15 menit
+  // Statistik lalu lintas
+  laluLintas: {
+    lancar: number;
+    ramai: number;
+    macet: number;
+  };
 }
 
 // Interface untuk laporan terbaru dengan informasi estimasi
@@ -107,7 +115,6 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
       ? feedData.filter(item => item.tempat_id === tempatId)
       : feedData;
     
-    // Urutkan berdasarkan created_at terbaru
     const sortedData = [...filteredData].sort((a, b) => 
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
@@ -120,7 +127,7 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
     );
     
     // ============================================
-    // STATISTIK HARI INI (dengan estimasi)
+    // STATISTIK HARI INI
     // ============================================
     const reportsWithEstimasi = todayReports.filter(r => r.estimated_people !== undefined && r.estimated_people !== null);
     
@@ -132,15 +139,22 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
       ? Math.max(...reportsWithEstimasi.map(r => r.estimated_people || 0)) 
       : 0;
     
-    // Statistik antrian berdasarkan waktu
     const antrianReports = todayReports.filter(r => r.tipe === 'Antri');
     const antrianPendek = antrianReports.filter(r => (r.estimated_wait_time || 0) <= 5).length;
     const antrianSedang = antrianReports.filter(r => (r.estimated_wait_time || 0) > 5 && (r.estimated_wait_time || 0) <= 15).length;
     const antrianPanjang = antrianReports.filter(r => (r.estimated_wait_time || 0) > 15).length;
     
+    // 🔥 Statistik lalu lintas
+    const laluLintasReports = todayReports.filter(r => r.traffic_condition);
+    const laluLintas = {
+      lancar: laluLintasReports.filter(r => r.traffic_condition === 'Lancar').length,
+      ramai: laluLintasReports.filter(r => r.traffic_condition === 'Ramai').length,
+      macet: laluLintasReports.filter(r => r.traffic_condition === 'Macet').length
+    };
+    
     const stats: TodayStats = {
       ramai: todayReports.filter(r => r.tipe === 'Ramai').length,
-      tenang: todayReports.filter(r => r.tipe === 'Sepi').length,
+      sepi: todayReports.filter(r => r.tipe === 'Sepi').length,  // 🔥 ubah dari tenang
       antri: antrianReports.length,
       total: todayReports.length,
       totalEstimatedPeople,
@@ -148,27 +162,29 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
       maxEstimatedPeople,
       antrianPendek,
       antrianSedang,
-      antrianPanjang
+      antrianPanjang,
+      laluLintas
     };
     
     // ============================================
-    // TRENDING CONDITION (berdasarkan estimasi)
+    // TRENDING CONDITION
     // ============================================
     let trendingCondition = 'normal';
     if (stats.total > 0) {
-      // Prioritaskan antrian karena lebih urgent
-      if (stats.antri > 0 && (stats.antri >= stats.ramai || stats.antri >= stats.tenang)) {
+      if (stats.antri > 0 && (stats.antri >= stats.ramai || stats.antri >= stats.sepi)) {
         trendingCondition = 'antri';
+      } else if (stats.laluLintas.macet > 0) {
+        trendingCondition = 'macet';
       } else {
-        const max = Math.max(stats.ramai, stats.tenang, stats.antri);
+        const max = Math.max(stats.ramai, stats.sepi, stats.antri);
         if (max === stats.ramai) trendingCondition = 'ramai';
         else if (max === stats.antri) trendingCondition = 'antri';
-        else if (max === stats.tenang) trendingCondition = 'tenang';
+        else if (max === stats.sepi) trendingCondition = 'sepi';
       }
     }
     
     // ============================================
-    // LAPORAN TERBARU dengan informasi estimasi
+    // LAPORAN TERBARU
     // ============================================
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     
@@ -211,7 +227,7 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
     };
     
     // ============================================
-    // KONDISI TERKINI (untuk ditampilkan di StatusIsland)
+    // KONDISI TERKINI
     // ============================================
     const getCurrentConditionBadge = () => {
       if (!latestEstimasi.condition) {
@@ -224,30 +240,26 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
       
       if (condition === 'Antri') {
         if (waitTime && waitTime > 15) {
-          return { status: 'Antri Panjang', badge: `🐢 Antri ${waitTime}m • ~${people || '?'} org`, icon: '🐢' };
+          return { status: 'Antri Panjang', badge: `🐢 Antri ${waitTime}m`, icon: '🐢' };
         } else if (waitTime && waitTime > 5) {
-          return { status: 'Antri Sedang', badge: `⏱️ Antri ${waitTime}m • ~${people || '?'} org`, icon: '⏱️' };
-        } else {
-          return { status: 'Antri Pendek', badge: `⚡ Antri ${waitTime || '?'}m • ~${people || '?'} org`, icon: '⚡' };
+          return { status: 'Antri Sedang', badge: `⏱️ Antri ${waitTime}m`, icon: '⏱️' };
+        } else if (waitTime) {
+          return { status: 'Antri Pendek', badge: `⚡ Antri ${waitTime}m`, icon: '⚡' };
         }
+        return { status: 'Ada Antrian', badge: '⏳ Ada Antrian', icon: '⏳' };
       }
       
       if (condition === 'Ramai') {
         if (people && people > 25) {
-          return { status: 'Sangat Ramai', badge: `🔥 Sangat Ramai • ~${people} org`, icon: '🔥' };
+          return { status: 'Sangat Ramai', badge: '🔥 Sangat Ramai', icon: '🔥' };
         } else if (people && people > 12) {
-          return { status: 'Ramai', badge: `👥 Ramai • ~${people} org`, icon: '👥' };
-        } else if (people) {
-          return { status: 'Mulai Ramai', badge: `👌 Mulai Ramai • ~${people} org`, icon: '👌' };
+          return { status: 'Ramai', badge: '👥 Ramai', icon: '👥' };
         }
-        return { status: 'Ramai', badge: '👥 Ramai', icon: '👥' };
+        return { status: 'Ramai', badge: '🏃 Ramai', icon: '🏃' };
       }
       
       if (condition === 'Sepi') {
-        if (people && people <= 3) {
-          return { status: 'Sepi Sekali', badge: `🍃 Sepi • ~${people} org`, icon: '🍃' };
-        }
-        return { status: 'Sepi', badge: `🍃 Sepi • ~${people || '?'} org`, icon: '🍃' };
+        return { status: 'Sepi', badge: '🍃 Sepi', icon: '🍃' };
       }
       
       return { status: 'Normal', badge: '📍 Normal', icon: '📍' };
@@ -256,7 +268,7 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
     const currentCondition = getCurrentConditionBadge();
     
     // ============================================
-    // LAPORAN DENGAN ESTIMASI (untuk analisis)
+    // LAPORAN DENGAN ESTIMASI
     // ============================================
     const reportsWithEstimasiList = filteredData.filter(r => r.estimated_people !== undefined && r.estimated_people !== null);
     
@@ -267,7 +279,6 @@ export function DataProvider({ children, initialData = [] }: { children: React.R
       lastUpdate: sortedData[0]?.created_at || new Date().toISOString(),
       userViewedReports: getUserViewedReports(),
       allReports: filteredData,
-      // DATA BARU
       latestEstimasi,
       reportsWithEstimasi: reportsWithEstimasiList,
       currentCondition
