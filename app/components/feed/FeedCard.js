@@ -2,40 +2,50 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+
 import PhotoSlider from "./PhotoSlider";
-import { processFeedItem } from "../../../lib/feedEngine";
 import LiveInsight from "./LiveInsight";
-import { useClock } from "../../../hooks/useClock";
-import { supabase } from "@/lib/supabaseClient";
 import FeedActions from "./FeedActions";
 import StatusIsland from "./StatusIsland";
-import { useTheme } from "@/app/hooks/useTheme";
-import { useAuth } from "@/hooks/useAuth";
 import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
 
-// --- ANIMATION CONSTANTS (dipindahkan ke luar komponen agar tidak re-created) ---
-const PING_ANIM = { 
-  animate: { opacity: [0.5, 1, 0.5] }, 
-  transition: { repeat: Infinity, duration: 2 } 
+import { processFeedItem } from "../../../lib/feedEngine";
+import { useClock } from "../../../hooks/useClock";
+import { useTheme } from "@/app/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabaseClient";
+
+// ==================== ANIMATION CONSTANTS ====================
+const PING_ANIM = {
+  animate: { opacity: [0.5, 1, 0.5] },
+  transition: { repeat: Infinity, duration: 2 },
 };
 
-const BLINK_ANIM = { 
-  animate: { opacity: [1, 0, 1] }, 
-  transition: { repeat: Infinity, duration: 1, ease: "linear" } 
+const BLINK_ANIM = {
+  animate: { opacity: [1, 0, 1] },
+  transition: { repeat: Infinity, duration: 1, ease: "linear" },
 };
 
-const SHIMMER_ANIM = { 
-  animate: { x: ['-100%', '200%'] }, 
-  transition: { repeat: Infinity, duration: 2.5, ease: "linear" } 
+const SHIMMER_ANIM = {
+  animate: { x: ["-100%", "200%"] },
+  transition: { repeat: Infinity, duration: 2.5, ease: "linear" },
 };
 
-const DEFAULT_ITEM = { 
-  id: 0, name: '', alamat: '', category: '', vibe_count: 0, 
-  photos: [], laporan_terbaru: [], status: '', isViral: false, isRamai: false 
+const DEFAULT_ITEM = {
+  id: 0,
+  name: "",
+  alamat: "",
+  category: "",
+  vibe_count: 0,
+  photos: [],
+  laporan_terbaru: [],
+  status: "",
+  isViral: false,
+  isRamai: false,
 };
 
-// --- MAIN COMPONENT ---
+// ==================== MAIN COMPONENT ====================
 function FeedCard({
   item = DEFAULT_ITEM,
   locationReady,
@@ -49,32 +59,34 @@ function FeedCard({
   openKomentarModal,
   onShare,
 }) {
-  // --- STATE (minimal dan terpisah) ---
+  // --- State ---
   const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [activeStories, setActiveStories] = useState([]);
   const [isVisible, setIsVisible] = useState(false);
-  const [localLaporanWarga, setLocalLaporanWarga] = useState(() => item?.laporan_terbaru || []);
-  
-  // --- HOOKS ---
+  const [localLaporanWarga, setLocalLaporanWarga] = useState(
+    () => item?.laporan_terbaru || []
+  );
+
+  // --- Hooks ---
   const { user } = useAuth();
   const { currentTime, timeLabel: clockLabel } = useClock();
   const theme = useTheme();
-  
-  // --- REFS (untuk menghindari re-render) ---
+
+  // --- Refs ---
   const cardRef = useRef(null);
   const observerRef = useRef(null);
   const channelRef = useRef(null);
   const prevLaporanRef = useRef(item?.laporan_terbaru);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
-  
+
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
-  
-  // --- CLEANUP ON UNMOUNT ---
+
+  // --- Cleanup ---
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -84,64 +96,72 @@ function FeedCard({
       if (observerRef.current) observerRef.current.disconnect();
     };
   }, []);
-  
-  // --- INTERSECTION OBSERVER (hanya untuk card yang terlihat) ---
+
+  // --- Intersection Observer ---
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
-    
-    // Gunakan requestAnimationFrame untuk delay agar tidak blocking scroll
+
     const initObserver = () => {
-      observerRef.current = new IntersectionObserver(([entry]) => {
-        if (entry.isIntersecting && isMounted.current) {
-          setIsVisible(true);
-          if (observerRef.current) {
-            observerRef.current.disconnect();
+      observerRef.current = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting && isMounted.current) {
+            setIsVisible(true);
+            observerRef.current?.disconnect();
             observerRef.current = null;
           }
-        }
-      }, { threshold: 0.05, rootMargin: "200px" });
-      
+        },
+        { threshold: 0.05, rootMargin: "200px" }
+      );
+
       observerRef.current.observe(currentCard);
     };
-    
+
     timeoutRef.current = setTimeout(initObserver, 0);
+
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (observerRef.current) observerRef.current.disconnect();
     };
   }, []);
-  
-  // --- UPDATE LOCAL LAPORAN (hanya jika props berubah) ---
+
+  // --- Update local laporan ---
   useEffect(() => {
     if (prevLaporanRef.current !== safeItem.laporan_terbaru) {
       prevLaporanRef.current = safeItem.laporan_terbaru;
       setLocalLaporanWarga(safeItem.laporan_terbaru || []);
     }
   }, [safeItem.laporan_terbaru]);
-  
-  // --- SUPABASE SUBSCRIPTION (hanya jika card visible) ---
+
+  // --- Supabase Subscription ---
   useEffect(() => {
     if (!tempatId || !isVisible || !isMounted.current) return;
-    
+
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
     }
-    
-    channelRef.current = supabase.channel(`lw_${tempatId}`)
+
+    channelRef.current = supabase
+      .channel(`lw_${tempatId}`)
       .on(
-        "postgres_changes", 
-        { event: "INSERT", schema: "public", table: "laporan_warga", filter: `tempat_id=eq.${tempatId}` }, 
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "laporan_warga",
+          filter: `tempat_id=eq.${tempatId}`,
+        },
         ({ new: n }) => {
           if (!n || !isMounted.current) return;
-          setLocalLaporanWarga(prev => {
-            if (prev.some(l => l.id === n.id)) return prev;
+
+          setLocalLaporanWarga((prev) => {
+            if (prev.some((l) => l.id === n.id)) return prev;
             return [n, ...prev].slice(0, 50);
           });
         }
       )
       .subscribe();
-    
+
     return () => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
@@ -149,119 +169,150 @@ function FeedCard({
       }
     };
   }, [tempatId, isVisible]);
-  
-  // --- MEMOIZED COMPUTATIONS (dengan dependency minimal) ---
+
+  // --- Memoized Values ---
   const totalSaksi = useMemo(
-    () => localValidationCount + (safeItem.vibe_count || 0), 
+    () => localValidationCount + (safeItem.vibe_count || 0),
     [localValidationCount, safeItem.vibe_count]
   );
-  
+
   const validatedLocationName = useMemo(() => {
     if (!locationReady || !location) return displayLocation || "Pasuruan";
-    const sourceAlamat = (tempat?.length > 0 ? tempat[0]?.alamat : safeItem.alamat) || "";
-    const parts = sourceAlamat.split(",").map(p => p.trim());
-    const district = parts.find(p => p.includes("Kec.") || p.includes("Kecamatan"));
-    return district 
-      ? district.replace(/Kec\.|Kecamatan/g, "").trim() 
+
+    const sourceAlamat =
+      (tempat?.length > 0 ? tempat[0]?.alamat : safeItem.alamat) || "";
+    const parts = sourceAlamat.split(",").map((p) => p.trim());
+    const district = parts.find(
+      (p) => p.includes("Kec.") || p.includes("Kecamatan")
+    );
+
+    return district
+      ? district.replace(/Kec\.|Kecamatan/g, "").trim()
       : (parts[1] || parts[0] || displayLocation || "Area Aktif");
-  }, [locationReady, location?.latitude, location?.longitude, tempat, safeItem.alamat, displayLocation]);
-  
-  const feed = useMemo(() => {
-    return processFeedItem({ 
-      item: safeItem, 
-      comments, 
-      locationReady, 
-      location 
-    });
-  }, [
-    safeItem.id, 
-    safeItem.vibe_count, 
-    safeItem.status, 
-    safeItem.isViral, 
-    safeItem.isRamai, 
-    comments, 
-    locationReady, 
-    location?.latitude, 
-    location?.longitude
-  ]);
-  
+  }, [locationReady, location, tempat, safeItem.alamat, displayLocation]);
+
+  const feed = useMemo(
+    () =>
+      processFeedItem({
+        item: safeItem,
+        comments,
+        locationReady,
+        location,
+      }),
+    [
+      safeItem.id,
+      safeItem.vibe_count,
+      safeItem.status,
+      safeItem.isViral,
+      safeItem.isRamai,
+      comments,
+      locationReady,
+      location?.latitude,
+      location?.longitude,
+    ]
+  );
+
   const photoUrls = useMemo(() => {
     const photos = Array.isArray(safeItem.photos) ? safeItem.photos : [];
     return photos
-      .filter(p => p && typeof p === "string" && p.startsWith("http"))
-      .map(p => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
+      .filter((p) => p && typeof p === "string" && p.startsWith("http"))
+      .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
   }, [safeItem.photos]);
-  
-  // --- CALLBACKS (stabil dengan useCallback) ---
+
+  // --- Callbacks ---
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
     setIsSesuai(true);
-    setLocalValidationCount(v => v + 1);
+    setLocalValidationCount((v) => v + 1);
+
     try {
       await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
     } catch (e) {
       console.error(e);
     }
   }, [isSesuai, safeItem.id]);
-  
+
   const handleOpenStoryModal = useCallback((id, stories) => {
-    setActiveStories((stories || []).map(s => ({ 
-      ...s, 
-      url: s.url || s.photo_url || s.image_url 
-    })));
+    setActiveStories(
+      (stories || []).map((s) => ({
+        ...s,
+        url: s.url || s.photo_url || s.image_url,
+      }))
+    );
     setIsStoryModalOpen(true);
   }, []);
-  
+
   const handleUploadSuccess = useCallback((newLaporan) => {
-    setLocalLaporanWarga(prev => {
-      if (prev.some(l => l.id === newLaporan.id)) return prev;
+    setLocalLaporanWarga((prev) => {
+      if (prev.some((l) => l.id === newLaporan.id)) return prev;
       return [newLaporan, ...prev].slice(0, 50);
     });
+
     requestAnimationFrame(() => {
-      setActiveStories(prev => [newLaporan, ...prev].map(s => ({ 
-        ...s, 
-        url: s.url || s.photo_url || s.image_url 
-      })));
+      setActiveStories((prev) =>
+        [newLaporan, ...prev].map((s) => ({
+          ...s,
+          url: s.url || s.photo_url || s.image_url,
+        }))
+      );
       setIsStoryModalOpen(true);
     });
   }, []);
-  
+
   const handleOpenAIModal = useCallback(() => {
-    if (openAIModal) openAIModal(safeItem, handleUploadSuccess);
+    openAIModal?.(safeItem, handleUploadSuccess);
   }, [openAIModal, safeItem, handleUploadSuccess]);
-  
-  const handleCloseStoryModal = useCallback(() => setIsStoryModalOpen(false), []);
-  
-  // --- EARLY RETURN (jika tidak ada item) ---
+
+  const handleCloseStoryModal = useCallback(
+    () => setIsStoryModalOpen(false),
+    []
+  );
+
+  // --- Early Return ---
   if (!item?.id) return null;
-  
-  // --- RENDER OPTIMIZATION (gunakan variabel lokal untuk menghindari re-compute) ---
-  const [currentHour, currentMinute] = currentTime.split(':');
+
+  // --- Local Variables for Render ---
+  const [currentHour, currentMinute] = currentTime.split(":");
   const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
-  const activePhoto = photoUrls[currentPhotoIndex];
-  const headline = feed?.headline?.text || feed?.narasiCerita?.split('.')[0] || "UPDATE SEKITAR";
-  const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM DARI ANDA` : "LIVE SEKITAR";
+  const headline =
+    feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
+  const distanceText = feed?.distance
+    ? `${feed.distance.toFixed(1)} KM DARI ANDA`
+    : "LIVE SEKITAR";
   const categoryText = safeItem.category || "GENERAL";
   const alamatText = safeItem.alamat || "AREA SETEMPAT";
-  const itemStatusClass = safeItem.isViral ? "viral" : safeItem.isRamai ? "ramai" : "biasa";
-  
+  const itemStatusClass = safeItem.isViral
+    ? "viral"
+    : safeItem.isRamai
+    ? "ramai"
+    : "biasa";
+
   return (
-    <div 
-      ref={cardRef} 
-      id={`feed-card-${safeItem.id}`} 
-      className="relative mb-6 w-full will-change-transform" 
+    <div
+      ref={cardRef}
+      id={`feed-card-${safeItem.id}`}
+      className="relative mb-6 w-full will-change-transform"
       style={{ isolation: "isolate" }}
     >
       <motion.div
+        layout
         layoutId={`card-container-${safeItem.id}`}
-        layout="position" 
-        initial={false} 
-        animate={{ opacity: 1 }} 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{
+          type: "spring",
+          damping: 25,
+          stiffness: 200,
+          layout: { duration: 0.5 },
+        }}
         className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.border} shadow-xl flex flex-col`}
       >
         {/* Title */}
         <div className="px-6 pt-5 pb-1">
-          <h2 className={`text-[17px] font-[1000] italic leading-tight tracking-tight uppercase ${theme.text} line-clamp-2`}>
+          <h2
+            className={`text-[17px] font-[1000] italic leading-tight tracking-tight uppercase ${theme.text} line-clamp-2`}
+          >
             {headline}
           </h2>
         </div>
@@ -270,44 +321,56 @@ function FeedCard({
         <div className="flex justify-between items-center px-6 pb-3">
           <div className="flex items-center gap-2">
             <span className="relative flex h-1.5 w-1.5">
-              <motion.span 
-                {...PING_ANIM} 
-                className={`absolute inset-0 rounded-full ${theme.isMalam ? 'bg-emerald-400' : 'bg-emerald-500'}`} 
+              <motion.span
+                {...PING_ANIM}
+                className={`absolute inset-0 rounded-full ${theme.isMalam ? "bg-emerald-400" : "bg-emerald-500"}`}
               />
-              <span className={`relative rounded-full h-1.5 w-1.5 ${theme.isMalam ? 'bg-emerald-500' : 'bg-emerald-600'}`} />
+              <span
+                className={`relative rounded-full h-1.5 w-1.5 ${theme.isMalam ? "bg-emerald-500" : "bg-emerald-600"}`}
+              />
             </span>
-            <span className={`text-[9px] font-black tracking-[0.05em] ${theme.accent} italic uppercase`}>
+            <span
+              className={`text-[9px] font-black tracking-[0.05em] ${theme.accent} italic uppercase`}
+            >
               {distanceText}
             </span>
           </div>
+
           <div className="flex items-center gap-2">
-            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${theme.isMalam ? 'bg-white/10' : 'bg-black/5'} ${theme.text} opacity-50 tracking-tighter uppercase`}>
+            <span
+              className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${theme.isMalam ? "bg-white/10" : "bg-black/5"} ${theme.text} opacity-50 tracking-tighter uppercase`}
+            >
               {categoryText}
             </span>
-            <div className={`flex items-center font-mono text-[9px] font-bold ${theme.text} opacity-70`}>
+            <div
+              className={`flex items-center font-mono text-[9px] font-bold ${theme.text} opacity-70`}
+            >
               <span>{currentHour}</span>
-              <motion.span {...BLINK_ANIM} className="mx-0.5">:</motion.span>
+              <motion.span {...BLINK_ANIM} className="mx-0.5" />
               <span>{currentMinute}</span>
             </div>
           </div>
         </div>
 
-        {/* Status Island */}
+        {/* Status Island + Live Insight */}
         <div className="px-5 mb-3 space-y-1.5">
-          <StatusIsland 
-            item={safeItem} 
-            theme={theme} 
-            isExpanded={isExpanded} 
-            setIsExpanded={setIsExpanded} 
-            jumlahWarga={totalSaksi} 
+          <StatusIsland
+            item={safeItem}
+            theme={theme}
+            isExpanded={isExpanded}
+            setIsExpanded={setIsExpanded}
+            jumlahWarga={totalSaksi}
           />
-          <div className={`${theme.statusBg} rounded-[20px] p-1.5 pl-3 border ${theme.border} flex items-center justify-between gap-3 shadow-inner`}>
+
+          <div
+            className={`${theme.statusBg} rounded-[20px] p-1.5 pl-3 border ${theme.border} flex items-center justify-between gap-3 shadow-inner`}
+          >
             <div className="flex-1 min-w-0 overflow-hidden scale-95 origin-left">
-              <LiveInsight 
-                signals={feed?.allSignals || []} 
-                theme={theme} 
-                isCompact={true} 
-                currentUser={user} 
+              <LiveInsight
+                signals={feed?.allSignals || []}
+                theme={theme}
+                isCompact={true}
+                currentUser={user}
               />
             </div>
           </div>
@@ -315,43 +378,106 @@ function FeedCard({
 
         {/* Media Section */}
         <div className="relative px-3.5 mb-3.5">
-          <div className="relative aspect-[16/10.5] rounded-[26px] overflow-hidden border ${theme.border} shadow-lg" style={{ zIndex: 1 }}>
+          <div
+            className={`relative aspect-[16/10.5] rounded-[26px] overflow-hidden border ${theme.border} shadow-lg`}
+            style={{ zIndex: 1 }}
+          >
             <PhotoSlider
               photos={photoUrls}
               timeLabel={clockLabel}
               tempatId={safeItem.id}
               namaTempat={safeItem.name}
-              isHujan={safeItem.status === 'hujan'}
+              isHujan={safeItem.status === "hujan"}
               itemStatus={itemStatusClass}
               theme={theme}
               selectedPhotoIndex={currentPhotoIndex}
               setSelectedPhotoIndex={setSelectedPhotoIndex}
               onUploadSuccess={handleUploadSuccess}
             />
-          </div>
-          
-          {/* Overlays */}
-          <div className="absolute top-4 left-1 z-50 scale-90">
-            <StoryCircle 
-              laporanWarga={localLaporanWarga} 
-              tempatId={safeItem.id} 
-              namaTempat={safeItem.name} 
-              tempatKategori={safeItem.category}  
-              theme={theme} 
-              openStoryModal={handleOpenStoryModal} 
-            />
-          </div>
-          <div className="absolute -right-1 top-2.5 z-50 scale-90">
-            <FeedActions 
-              item={{ ...safeItem, activePhoto }} 
-              comments={comments} 
-              openKomentarModal={openKomentarModal} 
-              onShare={onShare} 
-              variant="floating-sidebar" 
-              theme={theme} 
-              handleSesuai={handleSesuai} 
-              isSesuai={isSesuai} 
-            />
+
+            {/* Dynamic Stamp Validator - Versi Kecil & Proporsional */}
+<div className="absolute bottom-4 left-4 z-50 select-none">
+  <AnimatePresence mode="wait">
+    {!isSesuai ? (
+      /* === TOMBOL STEMPEL KECIL === */
+      <motion.button
+        key="stamp-btn"
+        onClick={handleSesuai}
+        whileTap={{ scale: 0.9, y: 4 }}
+        initial={{ opacity: 0, scale: 0.85 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 1.1, filter: "blur(8px)" }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+        className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/70 border border-white/20 backdrop-blur-lg text-white shadow-xl hover:bg-black/80 transition-all active:scale-95"
+      >
+        <div className="text-2xl">🗃️</div>
+        <div className="flex flex-col leading-none text-left">
+          <span className="text-[11px] font-[1000] uppercase tracking-[0.12em]">
+            STEMPEL?
+          </span>
+          <span className="text-[7.5px] font-bold text-white/60">
+            {totalSaksi} Saksi
+          </span>
+        </div>
+      </motion.button>
+    ) : (
+      /* === WATERMARK SAH KECIL === */
+      <motion.div
+        key="sah-watermark"
+        initial={{ opacity: 0, scale: 1.8, rotate: -25 }}
+        animate={{ opacity: 1, scale: 1, rotate: -12 }}
+        transition={{ type: "spring", stiffness: 350, damping: 18, delay: 0.1 }}
+        className="relative w-20 h-20 flex items-center justify-center rounded-full border-[3px] border-violet-500/70 backdrop-blur-md shadow-inner"
+        style={{ isolation: "isolate" }}
+      >
+        {/* Background tinta */}
+        <motion.div
+          animate={{ opacity: [0.3, 0.6, 0.3] }}
+          transition={{ repeat: Infinity, duration: 2.2 }}
+          className="absolute inset-0 rounded-full bg-violet-600/10"
+        />
+
+        <div className="flex flex-col items-center text-center -rotate-[12deg] scale-90">
+          <span className="text-[15px] font-black uppercase tracking-wider text-violet-400 drop-shadow-sm">
+            SAH!
+          </span>
+          <div className="w-10 h-px bg-violet-500/40 my-1" />
+          <span className="text-[7.5px] font-bold text-violet-300/90 tracking-tighter">
+            SETEMPAT.ID
+          </span>
+          <span className="text-[6.5px] text-violet-500/70 -mt-0.5">PASURUAN</span>
+        </div>
+
+        <div className="absolute bottom-1 text-base opacity-70">💮</div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</div>
+
+            {/* Story Circle & Actions */}
+            <div className="absolute top-4 left-1 z-50 scale-90">
+              <StoryCircle
+                laporanWarga={localLaporanWarga}
+                tempatId={safeItem.id}
+                namaTempat={safeItem.name}
+                tempatKategori={safeItem.category}
+                theme={theme}
+                openStoryModal={handleOpenStoryModal}
+              />
+            </div>
+
+            <div className="absolute -right-1 top-2.5 z-50 scale-90">
+              <FeedActions
+                item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
+                comments={comments}
+                openKomentarModal={openKomentarModal}
+                onShare={onShare}
+                variant="floating-sidebar"
+                theme={theme}
+                handleSesuai={handleSesuai}
+                isSesuai={isSesuai}
+              />
+            </div>
           </div>
         </div>
 
@@ -359,14 +485,20 @@ function FeedCard({
         <div className="px-6 pb-6 space-y-3.5">
           <div className="flex justify-between items-end px-0.5">
             <div className="min-w-0">
-              <h3 className={`text-[13px] font-[1000] ${theme.text} uppercase truncate tracking-tight`}>
+              <h3
+                className={`text-[13px] font-[1000] ${theme.text} uppercase truncate tracking-tight`}
+              >
                 {safeItem.name}
               </h3>
-              <p className={`text-[8px] font-bold ${theme.textMuted} uppercase tracking-wider opacity-40 truncate mt-0.5`}>
+              <p
+                className={`text-[8px] font-bold ${theme.textMuted} uppercase tracking-wider opacity-40 truncate mt-0.5`}
+              >
                 📍 {alamatText}
               </p>
             </div>
-            <span className={`text-[7px] font-mono font-bold ${theme.textMuted} opacity-20 shrink-0`}>
+            <span
+              className={`text-[7px] font-mono font-bold ${theme.textMuted} opacity-20 shrink-0`}
+            >
               ID_{String(safeItem.id).slice(-4)}
             </span>
           </div>
@@ -378,58 +510,64 @@ function FeedCard({
             onClick={handleOpenAIModal}
             className={`group relative w-full flex items-center justify-between px-4 py-3 rounded-[22px] border transition-all duration-300 shadow-md hover:shadow-xl overflow-hidden ${theme.accentBg} border-white/20 text-white`}
           >
-            <motion.div 
-              {...SHIMMER_ANIM} 
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent skew-x-12 pointer-events-none" 
+            <motion.div
+              {...SHIMMER_ANIM}
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent skew-x-12 pointer-events-none"
             />
-            
+
             <div className="flex items-center gap-3 relative z-10">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-base bg-white/20 backdrop-blur-md shadow-inner">
                 ✨
               </div>
               <div className="flex flex-col items-start leading-tight">
-                <span className="text-[11px] font-[900] uppercase tracking-wider">TANYA AKAMSI AI</span>
-                <span className="text-[7.5px] font-bold opacity-70 uppercase tracking-tight">Ringkasan & Analisis Lokasi</span>
+                <span className="text-[11px] font-[900] uppercase tracking-wider">
+                  TANYA AKAMSI AI
+                </span>
+                <span className="text-[7.5px] font-bold opacity-70 uppercase tracking-tight">
+                  Ringkasan & Analisis Lokasi
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 relative z-10 bg-black/20 px-2.5 py-1.5 rounded-xl border border-white/10 group-hover:bg-black/30 transition-colors">
-              <span className="text-[9px] font-black italic tracking-tighter uppercase">ASK</span>
-              <motion.div 
-                animate={{ opacity: [0.4, 1, 0.4] }} 
-                transition={{ repeat: Infinity, duration: 1.5 }} 
-                className="w-1 h-1 rounded-full bg-emerald-400" 
+              <span className="text-[9px] font-black italic tracking-tighter uppercase">
+                ASK
+              </span>
+              <motion.div
+                animate={{ opacity: [0.4, 1, 0.4] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+                className="w-1 h-1 rounded-full bg-emerald-400"
               />
             </div>
           </motion.button>
         </div>
       </motion.div>
 
-      <StoryModal 
-        isOpen={isStoryModalOpen} 
-        onClose={handleCloseStoryModal} 
-        stories={activeStories} 
-        theme={theme} 
-        namaTempat={safeItem.name} 
-        
+      <StoryModal
+        isOpen={isStoryModalOpen}
+        onClose={handleCloseStoryModal}
+        stories={activeStories}
+        theme={theme}
+        namaTempat={safeItem.name}
       />
     </div>
   );
 }
 
-// --- MEMO COMPARISON (optimasi render) ---
+// ==================== MEMO COMPARISON ====================
 const areEqual = (prevProps, nextProps) => {
-  // Bandingkan hanya props yang penting untuk re-render
   return (
     prevProps.item?.id === nextProps.item?.id &&
     prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
     prevProps.item?.photos?.length === nextProps.item?.photos?.length &&
-    prevProps.item?.laporan_terbaru?.length === nextProps.item?.laporan_terbaru?.length &&
+    prevProps.item?.laporan_terbaru?.length ===
+      nextProps.item?.laporan_terbaru?.length &&
     prevProps.comments === nextProps.comments &&
     prevProps.locationReady === nextProps.locationReady &&
     prevProps.location?.latitude === nextProps.location?.latitude &&
     prevProps.location?.longitude === nextProps.location?.longitude &&
-    prevProps.selectedPhotoIndex?.[prevProps.item?.id] === nextProps.selectedPhotoIndex?.[nextProps.item?.id]
+    prevProps.selectedPhotoIndex?.[prevProps.item?.id] ===
+      nextProps.selectedPhotoIndex?.[nextProps.item?.id]
   );
 };
 

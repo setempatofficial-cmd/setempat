@@ -433,9 +433,9 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
               )}
 
               {/* Caption */}
-              {currentStory?.konten && (
+              {currentStory?.content && (
                 <p className="text-white text-[15px] font-semibold leading-snug mb-3 drop-shadow-lg">
-                  {currentStory.konten}
+                  {currentStory.content}
                 </p>
               )}
 

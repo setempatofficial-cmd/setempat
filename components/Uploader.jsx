@@ -5,17 +5,16 @@ import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 
-// KATEGORI YANG MEMILIKI ANTRIAN
+// KATEGORI KHUSUS
 const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
-
-// KATEGORI YANG MEMILIKI LALU LINTAS (jalan)
 const TRAFFIC_CATEGORIES = ['jalan', 'jalan raya', 'simpang', 'tol', 'bypass', 'lingkar'];
 
-export default function Uploader({ 
-  tempatId, 
-  namaTempat, 
-  tempatKategori, 
-  onUploadSuccess 
+export default function Uploader({
+  tempatId,
+  namaTempat,
+  tempatKategori,
+  onUploadSuccess,
+  onRefreshNeeded,        // ← Prop untuk refresh Search Page
 }) {
   const [status, setStatus] = useState("idle");
   const [tempMediaUrl, setTempMediaUrl] = useState(null);
@@ -23,21 +22,25 @@ export default function Uploader({
   const [showSurvey, setShowSurvey] = useState(false);
   const [selectedCondition, setSelectedCondition] = useState(null);
   const [selectedWaitTime, setSelectedWaitTime] = useState(null);
-  const [selectedTraffic, setSelectedTraffic] = useState(null); // untuk lalu lintas
+  const [selectedTraffic, setSelectedTraffic] = useState(null);
   const [content, setContent] = useState("");
   const [mounted, setMounted] = useState(false);
-  
+  const [uploadProgress, setUploadProgress] = useState({
+    cloudinary: false,
+    supabase: false,
+  });
+
   // Cek kategori
   const kategoriLower = (tempatKategori || "").toLowerCase();
   const namaLower = (namaTempat || "").toLowerCase();
-  
-  const hasQueue = useMemo(() => 
-    QUEUE_CATEGORIES.some(k => kategoriLower.includes(k)), 
+
+  const hasQueue = useMemo(() =>
+    QUEUE_CATEGORIES.some(k => kategoriLower.includes(k)),
     [kategoriLower]
   );
-  
-  const hasTraffic = useMemo(() => 
-    TRAFFIC_CATEGORIES.some(k => kategoriLower.includes(k) || namaLower.includes(k)), 
+
+  const hasTraffic = useMemo(() =>
+    TRAFFIC_CATEGORIES.some(k => kategoriLower.includes(k) || namaLower.includes(k)),
     [kategoriLower, namaLower]
   );
 
@@ -53,39 +56,33 @@ export default function Uploader({
     return "Malam";
   };
 
-  // SISTEM MENENTUKAN ESTIMASI ORANG OTOMATIS
   const getEstimatedPeople = (condition, timeTag) => {
     const defaults = {
       Sepi: { Pagi: 3, Siang: 5, Sore: 4, Malam: 2 },
       Ramai: { Pagi: 12, Siang: 25, Sore: 20, Malam: 15 },
-      Antri: { Pagi: 8, Siang: 15, Sore: 12, Malam: 10 }
+      Antri: { Pagi: 8, Siang: 15, Sore: 12, Malam: 10 },
     };
-    
-    return defaults[condition]?.[timeTag] || 
+    return defaults[condition]?.[timeTag] ||
            (condition === "Sepi" ? 4 : condition === "Ramai" ? 20 : 12);
   };
 
-  // DESKRIPSI OTOMATIS
   const getConditionDescription = (condition, waitTime, traffic) => {
     if (condition === "Sepi") return `Suasana tenang di ${namaTempat || "sini"}.`;
     if (condition === "Ramai") return `Suasana ramai di ${namaTempat || "sini"}.`;
     if (condition === "Antri") {
-      const waitText = waitTime === 5 ? "pendek (<5 menit)" : 
-                       waitTime === 15 ? "sedang (5-15 menit)" : 
-                       "panjang (>15 menit)";
+      const waitText = waitTime === 5 ? "pendek (<5 menit)" :
+                       waitTime === 15 ? "sedang (5-15 menit)" : "panjang (>15 menit)";
       return `Antrian ${waitText} di ${namaTempat || "sini"}.`;
     }
     if (traffic) {
-      const trafficText = traffic === 'Lancar' ? 'lancar' : 
-                          traffic === 'Ramai' ? 'ramai' : 
-                          'macet';
+      const trafficText = traffic === 'Lancar' ? 'lancar' :
+                          traffic === 'Ramai' ? 'ramai' : 'macet';
       return `Lalu lintas ${trafficText} di ${namaTempat || "sini"}.`;
     }
     return `Update dari ${namaTempat || "sini"}.`;
   };
 
   const finalizeUpload = async () => {
-    // Validasi
     if (!selectedCondition && !selectedTraffic) return;
     if (selectedCondition === "Antri" && !selectedWaitTime) return;
     if (status === "uploading") return;
@@ -94,21 +91,18 @@ export default function Uploader({
     const estimatedPeople = selectedCondition ? getEstimatedPeople(selectedCondition, currentTimeTag) : null;
     const estimatedWaitTime = selectedCondition === "Antri" ? selectedWaitTime : null;
     const trafficCondition = selectedTraffic || null;
-    
-    // Tentukan tipe utama (prioritas: kondisi > lalu lintas)
     const mainType = selectedCondition || (selectedTraffic ? "Lalu Lintas" : null);
-    
     const autoDesc = getConditionDescription(selectedCondition, selectedWaitTime, selectedTraffic);
     const finalDescription = content.trim() !== "" ? content.trim() : autoDesc;
 
     setShowSurvey(false);
+    setUploadProgress({ cloudinary: true, supabase: false });
     setStatus("uploading");
 
     const timeoutId = window.setTimeout(() => {
       if (status === "uploading") {
-        console.warn("Upload terlalu lama, timeout dipicu");
         setStatus("idle");
-        alert("Upload sedang lambat. Coba lagi dalam beberapa saat.");
+        alert("Upload terlalu lama. Coba lagi.");
       }
     }, 20000);
 
@@ -116,33 +110,45 @@ export default function Uploader({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Login diperlukan");
 
-      const user = session.user;
+      setUploadProgress(prev => ({ ...prev, supabase: true }));
 
-      const { data, error } = await supabase.from("laporan_warga").insert([{
-        tempat_id: parseInt(tempatId),
-        user_id: user.id,
-        user_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "Warga",
-        user_avatar: user.user_metadata?.avatar_url || null,
-        photo_url: mediaType === "video"
-          ? tempMediaUrl.replace(/\.[^/.]+$/, ".jpg")
-          : tempMediaUrl,
-        video_url: mediaType === "video" ? tempMediaUrl : null,
-        media_type: mediaType,
-        time_tag: currentTimeTag,
-        tipe: mainType,
-        estimated_people: estimatedPeople,
-        estimated_wait_time: estimatedWaitTime,
-        traffic_condition: trafficCondition,
-        deskripsi: finalDescription,
-        content: content,
-        status: "approved",
-      }]).select();
+      const { data, error } = await supabase
+        .from("laporan_warga")
+        .insert([{
+          tempat_id: parseInt(tempatId),
+          user_id: session.user.id,
+          user_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Warga",
+          user_avatar: session.user.user_metadata?.avatar_url || null,
+          photo_url: mediaType === "video" ? tempMediaUrl.replace(/\.[^/.]+$/, ".jpg") : tempMediaUrl,
+          video_url: mediaType === "video" ? tempMediaUrl : null,
+          media_type: mediaType,
+          time_tag: currentTimeTag,
+          tipe: mainType,
+          estimated_people: estimatedPeople,
+          estimated_wait_time: estimatedWaitTime,
+          traffic_condition: trafficCondition,
+          deskripsi: finalDescription,
+          content: content,
+          status: "approved",
+        }])
+        .select();
 
       if (error) throw error;
+
+      // Tunggu toast terlihat
+      await new Promise(resolve => setTimeout(resolve, 1400));
 
       setStatus("success");
       onUploadSuccess?.(data[0]);
 
+      // 🔥 Trigger refresh Search Page
+      if (onRefreshNeeded) {
+        setTimeout(() => {
+          onRefreshNeeded();
+        }, 800);
+      }
+
+      // Reset form
       setTimeout(() => {
         setStatus("idle");
         setTempMediaUrl(null);
@@ -150,7 +156,7 @@ export default function Uploader({
         setSelectedCondition(null);
         setSelectedWaitTime(null);
         setSelectedTraffic(null);
-      }, 3000);
+      }, 1800);
 
     } catch (err) {
       console.error("Upload Error:", err);
@@ -177,27 +183,21 @@ export default function Uploader({
         options={{
           maxFiles: 1,
           resourceType: "auto",
-          sources: ["camera", "local"], 
+          sources: ["camera", "local"],
           defaultSource: "camera",
           multiple: false,
-          cropping: false,
-          showAdvancedOptions: false,
           clientAllowedFormats: ["image", "video"],
-          maxFileSize: 50000000,
+          maxImageFileSize: 5000000,
+          maxVideoFileSize: 20000000,
+          transformations: [
+            { quality: "auto", fetch_format: "auto", width: 1200, height: 1200, crop: "limit" }
+          ],
           styles: {
             palette: {
               window: "#0a0a0a",
               windowBorder: "#22d3ee",
               tabIcon: "#22d3ee",
-              menuIcons: "#ffffff",
-              textDark: "#ffffff",
-              textLight: "#0a0a0a",
-              link: "#22d3ee",
               action: "#22d3ee",
-              inactiveTabIcon: "#444444",
-              error: "#f44235",
-              inProgress: "#22d3ee",
-              complete: "#22d3ee",
               sourceBg: "#111111",
             },
           },
@@ -219,51 +219,51 @@ export default function Uploader({
         )}
       </CldUploadWidget>
 
-      {/* TOAST UPLOADING */}
+      {/* Toast Uploading */}
       <AnimatePresence>
-        {status === "uploading" && (
+        {status === "uploading" && createPortal(
           <motion.div
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 50, opacity: 0 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-zinc-900 border border-cyan-500/30 text-white px-5 py-3 rounded-2xl shadow-2xl flex flex-col gap-2 min-w-[200px]"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-zinc-900 border border-cyan-500/30 text-white px-5 py-3 rounded-2xl shadow-2xl flex flex-col gap-2 min-w-[260px]"
           >
             <div className="flex items-center gap-2.5">
               <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shrink-0" />
               <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
-                Sedang Mengirim...
+                {uploadProgress.supabase ? "Menyimpan ke database..." : "Sedang Mengirim..."}
               </span>
             </div>
             <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
               <motion.div
-                initial={{ width: "0%" }}
-                animate={{ width: "95%" }}
-                transition={{ duration: 8 }}
+                animate={{ width: uploadProgress.supabase ? "95%" : "65%" }}
                 className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
               />
             </div>
-          </motion.div>
+          </motion.div>,
+          document.body
         )}
       </AnimatePresence>
 
-      {/* TOAST SUCCESS */}
+      {/* Toast Success */}
       <AnimatePresence>
-        {status === "success" && (
+        {status === "success" && createPortal(
           <motion.div
             initial={{ y: 50, opacity: 0, scale: 0.9 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 50, opacity: 0, scale: 0.9 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-emerald-950 border border-emerald-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 min-w-[200px]"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-emerald-950 border border-emerald-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5"
           >
             <span className="text-lg">✅</span>
             <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
               Berhasil Dikirim!
             </span>
-          </motion.div>
+          </motion.div>,
+          document.body
         )}
       </AnimatePresence>
 
-      {/* MODAL SURVEY */}
+      {/* Modal Survey */}
       {showSurvey && createPortal(
         <AnimatePresence>
           <div className="fixed inset-0 z-[1000000] flex justify-center items-end sm:items-center p-4">
@@ -274,7 +274,6 @@ export default function Uploader({
               className="absolute inset-0 bg-black/70 backdrop-blur-sm"
               onClick={() => setShowSurvey(false)}
             />
-
             <motion.div
               initial={{ y: 80, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -287,9 +286,7 @@ export default function Uploader({
               <div className="p-5">
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">
-                      Kirim Laporan
-                    </h3>
+                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Kirim Laporan</h3>
                     <p className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest mt-0.5">
                       {namaTempat} · {getCurrentTimeTag()}
                     </p>
@@ -302,7 +299,7 @@ export default function Uploader({
                   </button>
                 </div>
 
-                {/* Preview foto + textarea */}
+                {/* Preview + Textarea */}
                 <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 mb-4 flex gap-3">
                   <div className="w-14 h-18 rounded-xl overflow-hidden bg-slate-200 flex-shrink-0 aspect-[3/4]">
                     {mediaType === "image" ? (
@@ -320,12 +317,11 @@ export default function Uploader({
                   />
                 </div>
 
-                {/* ============================================ */}
-                {/* BAGIAN LAPORAN UTAMA (kondisi tempat) */}
-                {/* ============================================ */}
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
-                  📍 Kondisi Tempat
-                </p>
+                {/* Kondisi Tempat, Antri, Lalu Lintas, Tombol Kirim */}
+                {/* (Bagian ini sama persis dengan kode asli kamu) */}
+                {/* Silakan copy-paste seluruh isi modal survey dari kode kamu yang paling lengkap */}
+
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">📍 Kondisi Tempat</p>
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   {[
                     { emoji: "🍃", label: "Sepi", val: "Sepi", active: "bg-emerald-500 border-emerald-500 text-white shadow-emerald-100" },
@@ -333,33 +329,20 @@ export default function Uploader({
                   ].map((btn) => (
                     <button
                       key={btn.val}
-                      onClick={() => {
-                        setSelectedCondition(btn.val);
-                        setSelectedWaitTime(null);
-                      }}
+                      onClick={() => { setSelectedCondition(btn.val); setSelectedWaitTime(null); }}
                       className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
-                        ${selectedCondition === btn.val
-                          ? btn.active + " scale-[1.04] shadow-lg"
-                          : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"
-                        }`}
+                        ${selectedCondition === btn.val ? btn.active + " scale-[1.04] shadow-lg" : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
                     >
                       <span className="text-lg">{btn.emoji}</span>
                       <span className="uppercase tracking-wider">{btn.label}</span>
                     </button>
                   ))}
-                  
-                  {/* Tombol Antri - hanya untuk tempat dengan antrian */}
+
                   {hasQueue && (
                     <button
-                      onClick={() => {
-                        setSelectedCondition("Antri");
-                        setSelectedWaitTime(null);
-                      }}
+                      onClick={() => { setSelectedCondition("Antri"); setSelectedWaitTime(null); }}
                       className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
-                        ${selectedCondition === "Antri"
-                          ? "bg-rose-500 border-rose-500 text-white shadow-rose-100 scale-[1.04] shadow-lg"
-                          : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"
-                        }`}
+                        ${selectedCondition === "Antri" ? "bg-rose-500 border-rose-500 text-white shadow-rose-100 scale-[1.04] shadow-lg" : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
                     >
                       <span className="text-lg">⏳</span>
                       <span className="uppercase tracking-wider">Antri</span>
@@ -367,7 +350,7 @@ export default function Uploader({
                   )}
                 </div>
 
-                {/* Pilihan waktu antri - hanya jika pilih Antri */}
+                {/* Waktu Antri */}
                 {selectedCondition === "Antri" && (
                   <div className="mb-5">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
@@ -397,9 +380,7 @@ export default function Uploader({
                   </div>
                 )}
 
-                {/* ============================================ */}
-                {/* BAGIAN LALU LINTAS - KHUSUS TEMPAT JALAN */}
-                {/* ============================================ */}
+                {/* Lalu Lintas */}
                 {hasTraffic && (
                   <>
                     <div className="flex items-center gap-2 mt-2 mb-2">
@@ -421,7 +402,6 @@ export default function Uploader({
                           key={opt.val}
                           onClick={() => {
                             setSelectedTraffic(opt.val);
-                            // Reset kondisi tempat jika memilih lalu lintas
                             if (selectedTraffic !== opt.val) {
                               setSelectedCondition(null);
                               setSelectedWaitTime(null);
@@ -442,7 +422,6 @@ export default function Uploader({
                   </>
                 )}
 
-                {/* Informasi bahwa user bisa pilih salah satu */}
                 {(hasQueue || hasTraffic) && (
                   <p className="text-[8px] text-center text-slate-400 mb-3">
                     💡 Pilih kondisi tempat ATAU lalu lintas (sesuai yang kamu lihat)
@@ -466,7 +445,6 @@ export default function Uploader({
                   {status === "uploading" ? "Mengirim..." : "Posting Sekarang"}
                 </button>
                 
-                {/* Informasi tambahan */}
                 {selectedCondition === "Antri" && !selectedWaitTime && (
                   <p className="text-[9px] text-amber-600 text-center mt-2">
                     *Pilih estimasi waktu antri untuk melanjutkan

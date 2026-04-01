@@ -1,29 +1,76 @@
-'use server'
-import { createClient } from '@supabase/supabase-js'
+// app/actions/tempat.js
+"use server";
 
-export async function updatePhotos(tempatId, newPhoto) {
-  const supabase = createClient()
+import { supabase } from "@/lib/supabaseClient";
+import { revalidatePath } from "next/cache";
 
-  // 1. Ambil data photos yang sudah ada dulu (agar tidak menimpa foto lama)
-  const { data: tempat, error: fetchError } = await supabase
-    .from('tempat')
-    .select('photos')
-    .eq('id', tempatId)
-    .single()
+export async function updateWajahLokasi(tempatId, timeLabel, data) {
+  console.log("📥 Server action received:", { tempatId, timeLabel, data });
 
-  if (fetchError) return { success: false, error: fetchError.message }
+  try {
+    // Validasi
+    if (!tempatId) {
+      return { success: false, error: "ID tempat tidak ditemukan" };
+    }
+    if (!timeLabel) {
+      return { success: false, error: "Waktu tidak valid" };
+    }
+    if (!data?.url) {
+      return { success: false, error: "URL gambar tidak ditemukan" };
+    }
 
-  // 2. Gabungkan foto lama dengan foto baru dari Cloudinary
-  // Jika photos masih kosong (null), buat array baru
-  const updatedPhotos = tempat.photos ? [...tempat.photos, newPhoto] : [newPhoto]
+    // Caption boleh kosong
+    const caption = data?.caption || "";
 
-  // 3. Simpan kembali ke database
-  const { error: updateError } = await supabase
-    .from('tempat')
-    .update({ photos: updatedPhotos })
-    .eq('id', tempatId)
+    // Ambil data photos saat ini
+    const { data: currentData, error: fetchError } = await supabase
+      .from("tempat")
+      .select("photos")
+      .eq("id", tempatId)
+      .single();
 
-  if (updateError) return { success: false, error: updateError.message }
+    if (fetchError) {
+      console.error("Fetch error:", fetchError);
+      return { success: false, error: "Gagal mengambil data: " + fetchError.message };
+    }
 
-  return { success: true }
+    // Update JSONB photos
+    const currentPhotos = currentData?.photos || {};
+    const updatedPhotos = {
+      ...currentPhotos,
+      [timeLabel]: {
+        url: data.url,
+        caption: caption,
+        updated_at: new Date().toISOString(),
+      },
+    };
+
+    // Simpan ke database
+    const { error: updateError } = await supabase
+      .from("tempat")
+      .update({ photos: updatedPhotos })
+      .eq("id", tempatId);
+
+    if (updateError) {
+      console.error("Update error:", updateError);
+      return { success: false, error: "Gagal menyimpan: " + updateError.message };
+    }
+
+    // Revalidate path
+    revalidatePath("/");
+    revalidatePath(`/tempat/${tempatId}`);
+
+    return { 
+      success: true, 
+      data: { 
+        id: tempatId, 
+        timeLabel, 
+        photos: updatedPhotos 
+      } 
+    };
+
+  } catch (error) {
+    console.error("Unexpected error:", error);
+    return { success: false, error: error.message || "Terjadi kesalahan" };
+  }
 }

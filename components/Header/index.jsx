@@ -46,7 +46,7 @@ function LiveStatus({ weather, theme, onShowStatistik }) {
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -5 }}
-          className="text-[8px] font-black uppercase tracking-[0.2em]"
+          className="text-[9px] font-black uppercase tracking-[0.2em]"
         >
           {current.label}
         </motion.span>
@@ -153,11 +153,16 @@ export default function Header({
 
           {/* CENTER: FLOATING STATUS */}
           <div className="flex justify-center flex-shrink-0">
+            <motion.div
+              animate={{ scale: isScrolled ? 1.15 : 1 }}     
+              transition={{ duration: 0.4 }}
+            >
             <LiveStatus
               weather={weather}
               theme={theme}
               onShowStatistik={onShowStatistik}
             />
+            </motion.div>
           </div>
 
           {/* RIGHT: ACTIONS */}
