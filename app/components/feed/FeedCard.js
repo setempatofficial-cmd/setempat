@@ -413,7 +413,7 @@ function FeedCard({
         <div className="text-2xl">🗃️</div>
         <div className="flex flex-col leading-none text-left">
           <span className="text-[11px] font-[1000] uppercase tracking-[0.12em]">
-            STEMPEL?
+            SESUAI?
           </span>
           <span className="text-[7.5px] font-bold text-white/60">
             {totalSaksi} Saksi
@@ -445,7 +445,7 @@ function FeedCard({
           <span className="text-[7.5px] font-bold text-violet-300/90 tracking-tighter">
             SETEMPAT.ID
           </span>
-          <span className="text-[6.5px] text-violet-500/70 -mt-0.5">PASURUAN</span>
+          <span className="text-[6.5px] text-violet-500/70 -mt-0.5">INDONESIA</span>
         </div>
 
         <div className="absolute bottom-1 text-base opacity-70">💮</div>

@@ -172,6 +172,7 @@ export default function Uploader({
   return (
     <>
       <CldUploadWidget
+        cloudName="dlluhhe83"
         uploadPreset="setempat_preset"
         onSuccess={(res) => {
           if (res?.event === "success") {
