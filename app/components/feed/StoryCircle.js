@@ -6,13 +6,16 @@ export default function StoryCircle({
   laporanWarga = [], 
   tempatId, 
   namaTempat, 
-  tempatKategori,  // ← Tambahkan prop ini
+  tempatKategori, 
   openStoryModal 
 }) {
-  // Filter: hanya laporan dengan foto (photo_url tidak boleh null)
-  const laporanDenganFoto = laporanWarga.filter(l => l?.photo_url);
+  const laporanDenganFoto = laporanWarga.filter(l => l?.photo_url || l?.image_url);
   const laporanTerbaru = laporanDenganFoto[0];
   const jumlahStory = laporanDenganFoto.length;
+
+  const inisial = namaTempat
+    ? namaTempat.split(" ").map(word => word[0]).join("").substring(0, 2).toUpperCase()
+    : "??";
 
   return (
     <div className="relative flex items-center justify-center w-16 h-16 group isolate select-none [-webkit-tap-highlight-color:transparent]">
@@ -20,8 +23,11 @@ export default function StoryCircle({
       {/* ── RING ANIMASI ── */}
       {jumlahStory > 0 && (
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+          animate={{ rotate: 360, scale: [1, 1.05, 1] }} // Ditambah sedikit pulsasi scale
+          transition={{ 
+            rotate: { duration: 4, repeat: Infinity, ease: "linear" },
+            scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+          }}
           className="absolute inset-[-3px] rounded-full pointer-events-none z-0"
           style={{
             background: "conic-gradient(from 0deg, #22d3ee, #d946ef, #22d3ee)",
@@ -34,7 +40,7 @@ export default function StoryCircle({
         />
       )}
 
-      {/* ── LINGKARAN FOTO ── */}
+      {/* ── LINGKARAN UTAMA ── */}
       <motion.div
         onClick={(e) => {
           e.preventDefault();
@@ -43,50 +49,67 @@ export default function StoryCircle({
             openStoryModal(tempatId, laporanDenganFoto);
           }
         }}
+        whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.93 }}
         className={`relative w-full h-full rounded-full z-10 bg-zinc-950 cursor-pointer overflow-hidden
           border-[2.5px] ${jumlahStory > 0 ? "border-black" : "border-white/10"}
-          shadow-[0_2px_12px_rgba(0,0,0,0.5)]`}
+          shadow-[0_2px_12px_rgba(0,0,0,0.5)] transition-all duration-300`}
       >
         {laporanTerbaru?.photo_url || laporanTerbaru?.image_url ? (
           <>
-            <img
+            <motion.img
+              whileHover={{ scale: 1.1 }} // Zoom halus saat hover
               src={laporanTerbaru.photo_url || laporanTerbaru.image_url}
-              className="w-full h-full object-cover brightness-75 group-hover:brightness-90 transition-all duration-300 pointer-events-none"
+              className="w-full h-full object-cover brightness-75 group-hover:brightness-100 transition-all duration-500 pointer-events-none"
               alt="latest-story"
             />
-            {/* ── LIVE badge di tengah thumbnail ── */}
+            {/* LIVE Badge */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <motion.div
-                animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)] mb-0.5"
+                animate={{ scale: [1, 1.4, 1], opacity: [1, 0.4, 1] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+                className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)] mb-0.5"
               />
-              <span className="text-[7px] font-black text-white tracking-[0.15em] uppercase drop-shadow-lg">
+              <span className="text-[7px] font-black text-white tracking-[0.15em] uppercase drop-shadow-md">
                 LIVE
               </span>
             </div>
           </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center pointer-events-none">
-            <span className="text-xl opacity-60">📸</span>
+          /* PLACEHOLDER DENGAN EFEK PULSE (JIKA KOSONG) */
+          <div className="w-full h-full flex flex-col items-center justify-center relative bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
+            {/* Efek Lingkaran Dalam yang Berkedip Halus */}
+            <motion.div 
+              animate={{ opacity: [0.1, 0.3, 0.1] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="absolute inset-0 bg-cyan-500/20" 
+            />
+            
+            <span className="text-[13px] font-bold text-zinc-100 z-10">{inisial}</span>
+            <div className="w-3 h-[1px] bg-cyan-500/50 my-1 z-10" />
+            <span className="text-[6px] text-cyan-400/80 font-bold uppercase z-10 tracking-widest animate-pulse">
+              ISI FOTO
+            </span>
           </div>
         )}
       </motion.div>
 
       {/* ── TOMBOL UPLOAD ── */}
-      <div
+      <motion.div
+        whileHover={{ scale: 1.2 }}
         className="absolute -bottom-1 -right-1 z-30 pointer-events-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-5 h-5 flex items-center justify-center rounded-full bg-black border border-white/20 shadow-md overflow-hidden [&_button]:!w-5 [&_button]:!h-5 [&_button]:!text-[11px]">
-          <Uploader 
-            tempatId={tempatId} 
-            namaTempat={namaTempat} 
-            tempatKategori={tempatKategori}  // ← Kirim kategori
-          />
+        <div className="w-6 h-6 flex items-center justify-center rounded-full bg-gradient-to-tr from-cyan-500 to-fuchsia-500 p-[1.5px] shadow-lg">
+          <div className="w-full h-full rounded-full bg-black flex items-center justify-center overflow-hidden [&_button]:!w-full [&_button]:!h-full [&_button]:!text-[12px] [&_button]:!bg-transparent">
+            <Uploader 
+              tempatId={tempatId} 
+              namaTempat={namaTempat} 
+              tempatKategori={tempatKategori} 
+            />
+          </div>
         </div>
-      </div>
+      </motion.div>
 
     </div>
   );

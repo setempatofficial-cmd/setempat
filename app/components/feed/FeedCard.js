@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 import PhotoSlider from "./PhotoSlider";
 import LiveInsight from "./LiveInsight";
@@ -58,7 +59,10 @@ function FeedCard({
   openAIModal,
   openKomentarModal,
   onShare,
+  onRefreshNeeded,
 }) {
+  const router = useRouter();
+  
   // --- State ---
   const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
@@ -85,6 +89,15 @@ function FeedCard({
 
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
+
+  // 🔥 Fungsi refresh lokal
+  const handleLocalRefresh = useCallback(() => {
+    console.log("🔄 FeedCard refresh triggered");
+    if (onRefreshNeeded) {
+      onRefreshNeeded();
+    }
+    router.refresh();
+  }, [onRefreshNeeded, router]);
 
   // --- Cleanup ---
   useEffect(() => {
@@ -257,7 +270,10 @@ function FeedCard({
       );
       setIsStoryModalOpen(true);
     });
-  }, []);
+    
+    // 🔥 Trigger refresh setelah upload sukses
+    handleLocalRefresh();
+  }, [handleLocalRefresh]);
 
   const handleOpenAIModal = useCallback(() => {
     openAIModal?.(safeItem, handleUploadSuccess);
@@ -393,68 +409,63 @@ function FeedCard({
               selectedPhotoIndex={currentPhotoIndex}
               setSelectedPhotoIndex={setSelectedPhotoIndex}
               onUploadSuccess={handleUploadSuccess}
+              onRefreshNeeded={handleLocalRefresh}
             />
 
-            {/* Dynamic Stamp Validator - Versi Kecil & Proporsional */}
-<div className="absolute bottom-4 left-4 z-50 select-none">
-  <AnimatePresence mode="wait">
-    {!isSesuai ? (
-      /* === TOMBOL STEMPEL KECIL === */
-      <motion.button
-        key="stamp-btn"
-        onClick={handleSesuai}
-        whileTap={{ scale: 0.9, y: 4 }}
-        initial={{ opacity: 0, scale: 0.85 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 1.1, filter: "blur(8px)" }}
-        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/70 border border-white/20 backdrop-blur-lg text-white shadow-xl hover:bg-black/80 transition-all active:scale-95"
-      >
-        <div className="text-2xl">🗃️</div>
-        <div className="flex flex-col leading-none text-left">
-          <span className="text-[11px] font-[1000] uppercase tracking-[0.12em]">
-            SESUAI?
-          </span>
-          <span className="text-[7.5px] font-bold text-white/60">
-            {totalSaksi} Saksi
-          </span>
-        </div>
-      </motion.button>
-    ) : (
-      /* === WATERMARK SAH KECIL === */
-      <motion.div
-        key="sah-watermark"
-        initial={{ opacity: 0, scale: 1.8, rotate: -25 }}
-        animate={{ opacity: 1, scale: 1, rotate: -12 }}
-        transition={{ type: "spring", stiffness: 350, damping: 18, delay: 0.1 }}
-        className="relative w-20 h-20 flex items-center justify-center rounded-full border-[3px] border-violet-500/70 backdrop-blur-md shadow-inner"
-        style={{ isolation: "isolate" }}
-      >
-        {/* Background tinta */}
-        <motion.div
-          animate={{ opacity: [0.3, 0.6, 0.3] }}
-          transition={{ repeat: Infinity, duration: 2.2 }}
-          className="absolute inset-0 rounded-full bg-violet-600/10"
-        />
+            {/* Dynamic Stamp Validator */}
+            <div className="absolute bottom-4 left-4 z-50 select-none">
+              <AnimatePresence mode="wait">
+                {!isSesuai ? (
+                  <motion.button
+                    key="stamp-btn"
+                    onClick={handleSesuai}
+                    whileTap={{ scale: 0.9, y: 4 }}
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.1, filter: "blur(8px)" }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/70 border border-white/20 backdrop-blur-lg text-white shadow-xl hover:bg-black/80 transition-all active:scale-95"
+                  >
+                    <div className="text-2xl">🗃️</div>
+                    <div className="flex flex-col leading-none text-left">
+                      <span className="text-[11px] font-[1000] uppercase tracking-[0.12em]">
+                        SESUAI?
+                      </span>
+                      <span className="text-[7.5px] font-bold text-white/60">
+                        {totalSaksi} Saksi
+                      </span>
+                    </div>
+                  </motion.button>
+                ) : (
+                  <motion.div
+                    key="sah-watermark"
+                    initial={{ opacity: 0, scale: 1.8, rotate: -25 }}
+                    animate={{ opacity: 1, scale: 1, rotate: -12 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 18, delay: 0.1 }}
+                    className="relative w-20 h-20 flex items-center justify-center rounded-full border-[3px] border-violet-500/70 backdrop-blur-md shadow-inner"
+                  >
+                    <motion.div
+                      animate={{ opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 2.2 }}
+                      className="absolute inset-0 rounded-full bg-violet-600/10"
+                    />
+                    <div className="flex flex-col items-center text-center -rotate-[12deg] scale-90">
+                      <span className="text-[15px] font-black uppercase tracking-wider text-violet-400 drop-shadow-sm">
+                        SAH!
+                      </span>
+                      <div className="w-10 h-px bg-violet-500/40 my-1" />
+                      <span className="text-[7.5px] font-bold text-violet-300/90 tracking-tighter">
+                        SETEMPAT.ID
+                      </span>
+                      <span className="text-[6.5px] text-violet-500/70 -mt-0.5">INDONESIA</span>
+                    </div>
+                    <div className="absolute bottom-1 text-base opacity-70">💮</div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
-        <div className="flex flex-col items-center text-center -rotate-[12deg] scale-90">
-          <span className="text-[15px] font-black uppercase tracking-wider text-violet-400 drop-shadow-sm">
-            SAH!
-          </span>
-          <div className="w-10 h-px bg-violet-500/40 my-1" />
-          <span className="text-[7.5px] font-bold text-violet-300/90 tracking-tighter">
-            SETEMPAT.ID
-          </span>
-          <span className="text-[6.5px] text-violet-500/70 -mt-0.5">INDONESIA</span>
-        </div>
-
-        <div className="absolute bottom-1 text-base opacity-70">💮</div>
-      </motion.div>
-    )}
-  </AnimatePresence>
-</div>
-
-            {/* Story Circle & Actions */}
+            {/* Story Circle */}
             <div className="absolute top-4 left-1 z-50 scale-90">
               <StoryCircle
                 laporanWarga={localLaporanWarga}
@@ -463,9 +474,11 @@ function FeedCard({
                 tempatKategori={safeItem.category}
                 theme={theme}
                 openStoryModal={handleOpenStoryModal}
+                onRefreshNeeded={handleLocalRefresh}
               />
             </div>
 
+            {/* Feed Actions */}
             <div className="absolute -right-1 top-2.5 z-50 scale-90">
               <FeedActions
                 item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
@@ -491,7 +504,7 @@ function FeedCard({
                 {safeItem.name}
               </h3>
               <p
-                className={`text-[8px] font-bold ${theme.textMuted} uppercase tracking-wider opacity-40 truncate mt-0.5`}
+                className={`text-[8px] font-bold ${theme.textMuted} uppercase tracking-wider truncate opacity-40 mt-0.5`}
               >
                 📍 {alamatText}
               </p>

@@ -228,7 +228,7 @@ function SearchContent() {
     };
   }, [fetchFreshData]);
 
-  // ==================== AI & SUGGESTIONS (tetap sama) ====================
+  // ==================== AI & SUGGESTIONS ====================
   const callGroqAI = useCallback(async (prompt, context = {}) => {
     if (!aiRateLimiter.canCall()) return [];
     const cacheKey = `${prompt}_${JSON.stringify(context)}`;
@@ -350,6 +350,7 @@ function SearchContent() {
   }, [updateTrendingKeywords]);
 
   const handleSelectSuggestion = useCallback((suggestion) => handleSearch(suggestion), [handleSearch]);
+  
   const handleOpenExplore = useCallback((item) => {
     handleSearch(item.name);
     setExploreItems([item]);
@@ -418,6 +419,7 @@ function SearchContent() {
               </div>
             )}
           </div>
+
           {/* SUGGESTIONS SECTION */}
           {isTyping && query.length === 0 && (
             <div className="px-4 py-3">
@@ -535,12 +537,12 @@ function SearchContent() {
             </>
           )}
 
-          {/* EXPLORE MODE */}
+          {/* EXPLORE MODE - FeedCard akan handle realtime sendiri */}
           {exploreMode && (
             <div className="flex flex-col gap-5 py-4 pb-20 px-4">
               {exploreItems.map((item) => (
                 <FeedCard 
-                  key={item.id} 
+                  key={item.id}
                   item={item} 
                   location={location} 
                   locationReady={locationStatus === "granted"} 

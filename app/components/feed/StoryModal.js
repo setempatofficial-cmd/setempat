@@ -42,6 +42,7 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
   const [localStories, setLocalStories] = useState([]);
   const [viewCounts, setViewCounts] = useState({});
   const [dragY, setDragY] = useState(0);
+  const [shouldClose, setShouldClose] = useState(false); // ✅ TAMBAHKAN STATE INI
 
   const shouldAdvanceRef = useRef(false);
   const holdTimerRef = useRef(null);
@@ -56,6 +57,14 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
 
   const storyCount = localStories.length;
   const currentStory = localStories[currentIndex];
+
+  // ✅ TAMBAHKAN useEffect UNTUK HANDLE CLOSE
+  useEffect(() => {
+    if (shouldClose) {
+      onClose();
+      setShouldClose(false);
+    }
+  }, [shouldClose, onClose]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -86,7 +95,7 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
         window.history.go(-1);
       }
     };
-  }, [isOpen]); // sengaja tidak include onClose
+  }, [isOpen, onClose]);
 
   // ── View count ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,16 +192,20 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
     }
   }, [progress, handleNextStory]);
 
-  // ── Hapus story ───────────────────────────────────────────────────────────
+  // ── Hapus story (✅ DIPERBAIKI) ───────────────────────────────────────────
   const handleDelete = async () => {
     if (!currentStory?.id || isDeleting) return;
     setIsDeleting(true);
     try {
       const { error } = await supabase.from("laporan_warga").delete().eq("id", currentStory.id);
       if (error) throw error;
+      
       setLocalStories(prev => {
         const updated = prev.filter(s => s.id !== currentStory.id);
-        if (updated.length === 0) { onClose(); return []; }
+        if (updated.length === 0) {
+          setShouldClose(true); // ✅ PAKAI FLAG, BUKAN PANGGIL onClose LANGSUNG
+          return [];
+        }
         setCurrentIndex(i => Math.min(i, updated.length - 1));
         setProgress(0);
         return updated;
@@ -200,7 +213,9 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
       setShowMenu(false);
     } catch (err) {
       alert("Gagal menghapus: " + err.message);
-    } finally { setIsDeleting(false); }
+    } finally { 
+      setIsDeleting(false);
+    }
   };
 
   // ── Bagikan ───────────────────────────────────────────────────────────────
