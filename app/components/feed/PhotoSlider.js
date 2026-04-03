@@ -247,7 +247,7 @@ export default function PhotoSlider({
           <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/50 backdrop-blur-sm">
             <MapPin className="text-zinc-700 mb-2" size={24} />
             <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold italic">
-              Belum Ada Pantauan
+              Hasil Pantuan AI Setempat
             </p>
           </div>
         )}

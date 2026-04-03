@@ -72,38 +72,64 @@ export default function FeedActions({
   // --- VARIANT: FLOATING SIDEBAR (Interaksi Cepat) ---
   if (variant === "floating-sidebar") {
     return (
-      <div className="flex flex-col gap-3.5 items-center select-none py-2">
+      <div className="flex flex-col gap-5 items-center select-none py-2">
         {/* LIKE */}
         <div className="flex flex-col items-center relative group">
-          <button onClick={handleLikeClick} 
-            className={`w-11 h-11 rounded-full backdrop-blur-2xl flex items-center justify-center transition-all border active:scale-90
-            ${isLiked ? "bg-rose-500/90 border-rose-400 shadow-lg shadow-rose-500/30" : "bg-black/30 border-white/10 hover:border-white/30"}`}>
-            <span className="text-xl">{isLiked ? "❤️" : "🤍"}</span>
+          <button 
+            onClick={handleLikeClick} 
+            className="flex items-center justify-center transition-transform active:scale-125 duration-200"
+          >
+            <span className="text-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
+              {isLiked ? "❤️" : "🤍"}
+            </span>
           </button>
+          
           <AnimatePresence>
             {showHeart && (
-              <motion.span initial={{ opacity: 1, y: 0 }} animate={{ opacity: 0, y: -40, scale: 2 }} className="absolute text-xl pointer-events-none z-50">❤️</motion.span>
+              <motion.span 
+                initial={{ opacity: 1, y: 0, scale: 1 }} 
+                animate={{ opacity: 0, y: -50, scale: 2.5 }} 
+                className="absolute text-2xl pointer-events-none z-50"
+              >
+                ❤️
+              </motion.span>
             )}
           </AnimatePresence>
-          <span className="text-[10px] font-black mt-1 text-white drop-shadow-md">{likeCount}</span>
+          <span className="text-[11px] font-black mt-1 text-white drop-shadow-md">{likeCount}</span>
         </div>
 
         {/* KOMENTAR */}
         <div className="flex flex-col items-center">
-          <button onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
-            className="w-11 h-11 rounded-full bg-black/30 backdrop-blur-2xl border border-white/10 flex items-center justify-center text-xl active:scale-95 transition-all relative">
-            💬
+          <button 
+            onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
+            className="flex items-center justify-center text-3xl active:scale-110 transition-transform relative"
+          >
+            <span className="drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">💬</span>
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{unreadCount}</span>
+              <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-black">
+                {unreadCount}
+              </span>
             )}
           </button>
-          <span className="text-[10px] font-black mt-1 text-white drop-shadow-md">{jumlahKomentar}</span>
+          <span className="text-[11px] font-black mt-1 text-white drop-shadow-md">{jumlahKomentar}</span>
         </div>
 
         {/* SHARE */}
-        <button onClick={() => onShare?.(item)} 
-          className="w-11 h-11 rounded-full bg-black/30 backdrop-blur-2xl border border-white/10 flex items-center justify-center text-white active:scale-95">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        <button 
+          onClick={() => onShare?.(item)} 
+          className="flex items-center justify-center text-white active:scale-110 transition-transform"
+        >
+          <svg 
+            width="26" 
+            height="26" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2.5" 
+            className="drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+          >
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+          </svg>
         </button>
       </div>
     );
