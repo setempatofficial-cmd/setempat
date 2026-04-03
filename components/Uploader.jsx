@@ -172,7 +172,6 @@ export default function Uploader({
   return (
     <>
       <CldUploadWidget
-        cloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}
         uploadPreset="setempat_preset"
         onSuccess={(res) => {
           if (res?.event === "success") {
