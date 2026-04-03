@@ -154,7 +154,7 @@ export default function UploaderAdmin({
 
       {/* TOMBOL UPLOAD */}
       <CldUploadWidget
-        uploadPreset="setempat_preset"
+        uploadPreset="setempat_test"
         onSuccess={handleUploadSuccess}
         onError={() => showToast("Gagal upload gambar", true)}
         options={{

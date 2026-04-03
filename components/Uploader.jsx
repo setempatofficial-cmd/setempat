@@ -173,7 +173,7 @@ export default function Uploader({
     <>
       <CldUploadWidget
         cloudName="dlluhhe83"
-        uploadPreset="setempat_preset"
+        uploadPreset="setempat_test"
         onSuccess={(res) => {
           if (res?.event === "success") {
             setMediaType(res.info?.resource_type);
