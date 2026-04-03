@@ -154,7 +154,8 @@ export default function UploaderAdmin({
 
       {/* TOMBOL UPLOAD */}
       <CldUploadWidget
-        uploadPreset="setempat_test"
+        cloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}
+        uploadPreset="setempat_preset"
         onSuccess={handleUploadSuccess}
         onError={() => showToast("Gagal upload gambar", true)}
         options={{

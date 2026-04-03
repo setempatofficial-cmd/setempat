@@ -405,6 +405,7 @@ export default function LaporPanel({
                 </div>
               )}
               <CldUploadWidget
+                cloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}
                 uploadPreset="setempat_preset"
                 onSuccess={handleUploadDone}
                 onError={(error) => {
