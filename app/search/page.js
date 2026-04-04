@@ -56,6 +56,33 @@ class AICache {
 const aiRateLimiter = new RateLimiter(5, 10 * 60 * 1000);
 const aiCache = new AICache(30, 120);
 
+// ── Helper: Ambil thumbnail dari item ─────────────────────────────────
+const getThumbnail = (item) => {
+  if (item.laporan_terbaru?.[0]?.photo_url) {
+    return item.laporan_terbaru[0].photo_url;
+  }
+  if (item.photos && Array.isArray(item.photos) && item.photos[0] && typeof item.photos[0] === 'string') {
+    return item.photos[0];
+  }
+  if (item.photos && Array.isArray(item.photos) && item.photos[0]?.url) {
+    return item.photos[0].url;
+  }
+  if (item.image_url) return item.image_url;
+  if (item.photos && typeof item.photos === 'object') {
+    const jam = new Date().getHours();
+    let timeKey = "pagi";
+    if (jam >= 11 && jam < 15) timeKey = "siang";
+    else if (jam >= 15 && jam < 18) timeKey = "sore";
+    else if (jam >= 18 || jam < 5) timeKey = "malam";
+    
+    const photoData = item.photos[timeKey];
+    if (photoData && typeof photoData === 'object') return photoData.url;
+    if (photoData && typeof photoData === 'string') return photoData;
+    if (item.photos.official) return item.photos.official;
+  }
+  return '/placeholder.jpg';
+};
+
 // ── StableGridCard ─────────────────────────────────────────────────
 const StableGridCard = memo(({ item, onCardClick, showDistance = false, isNewReportTab = false }) => {
   const handleClick = useCallback(() => onCardClick(item), [onCardClick, item]);
@@ -71,6 +98,7 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false, isNewRep
 
   const hasLaporan = item.laporan_terbaru?.length > 0;
   const latestReport = hasLaporan ? item.laporan_terbaru[0] : null;
+  const thumbnail = getThumbnail(item);
 
   const isNewReport = useMemo(() => {
     if (!hasLaporan) return false;
@@ -88,7 +116,13 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false, isNewRep
       )}
 
       <div className="aspect-video bg-zinc-800">
-        <img src={item.photos?.[0] || '/placeholder.jpg'} className="w-full h-full object-cover" loading="lazy" alt={item.name} />
+        <img 
+          src={thumbnail} 
+          className="w-full h-full object-cover" 
+          loading="lazy" 
+          alt={item.name}
+          onError={(e) => { e.target.src = '/placeholder.jpg'; }}
+        />
       </div>
 
       <div className="p-3">
@@ -125,26 +159,61 @@ function SearchContent() {
   const debounceTimerRef = useRef(null);
   const isMountedRef = useRef(true);
   const channelRef = useRef(null);
+  const intervalIdRef = useRef(null);
 
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isKomentarModalOpen, setIsKomentarModalOpen] = useState(false);
   const [selectedForAI, setSelectedForAI] = useState(null);
   const [selectedForKomentar, setSelectedForKomentar] = useState(null);
 
+  // ==================== UPDATE TRENDING KEYWORDS ====================
+  const updateTrendingKeywords = useCallback((keyword) => {
+    setTrendingKeywords(prev => {
+      const updated = [keyword, ...prev.filter(k => k !== keyword)].slice(0, 10);
+      localStorage.setItem("trending_keywords", JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   // ==================== FETCH FRESH DATA ====================
   const fetchFreshData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("feed_view")
-        .select("id, name, category, alamat, photos, latitude, longitude, created_at, laporan_terbaru")
+      const { data: tempatData, error: tempatError } = await supabase
+        .from("tempat")
+        .select(`
+          id, 
+          name, 
+          category, 
+          alamat, 
+          photos, 
+          latitude, 
+          longitude, 
+          created_at,
+          image_url
+        `)
         .order("name", { ascending: true })
         .limit(80);
 
-      if (error) throw error;
-      if (data && isMountedRef.current) {
-        setAllData(data);
-        sessionStorage.setItem('feed_view_cache', JSON.stringify(data));
+      if (tempatError) throw tempatError;
+
+      const { data: laporanData, error: laporanError } = await supabase
+        .from("laporan_warga")
+        .select("id, tempat_id, photo_url, video_url, content, created_at, user_name, tipe, time_tag")
+        .order("created_at", { ascending: false });
+
+      if (laporanError) throw laporanError;
+
+      const mergedData = tempatData.map(tempat => ({
+        ...tempat,
+        laporan_terbaru: (laporanData || [])
+          .filter(l => l.tempat_id === tempat.id)
+          .slice(0, 30)
+      }));
+
+      if (isMountedRef.current) {
+        setAllData(mergedData);
+        sessionStorage.setItem('feed_view_cache', JSON.stringify(mergedData));
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -153,24 +222,77 @@ function SearchContent() {
     }
   }, []);
 
-  // ==================== GLOBAL REFRESH FUNCTION ====================
-  const handleGlobalRefresh = useCallback(() => {
-    console.log("🔄 Search page refreshed from upload");
-    fetchFreshData();
+  // ==================== GLOBAL REFRESH ====================
+  const handleGlobalRefresh = useCallback(async () => {
+    console.log("🔄 Search page manual refresh");
+    await fetchFreshData(true);
     router.refresh();
   }, [fetchFreshData, router]);
 
-  // ==================== EXPOSE TO WINDOW ====================
+  // ==================== HANDLE SEARCH ====================
+  const handleSearch = useCallback((searchQuery) => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    setRecentSearches(prev => {
+      const updated = [trimmed, ...prev.filter(s => s !== trimmed)].slice(0, 10);
+      localStorage.setItem("recent_searches", JSON.stringify(updated));
+      return updated;
+    });
+    updateTrendingKeywords(trimmed);
+    setQuery(trimmed);
+    setIsTyping(false);
+    setExploreMode(false);
+  }, [updateTrendingKeywords]);
+
+  // ==================== HANDLE OPEN EXPLORE ====================
+  const handleOpenExplore = useCallback((item) => {
+    handleSearch(item.name);
+    setExploreItems([item]);
+    setExploreMode(true);
+  }, [handleSearch]);
+
+  // ==================== HANDLE SELECT SUGGESTION ====================
+  const handleSelectSuggestion = useCallback((suggestion) => handleSearch(suggestion), [handleSearch]);
+
+  // ==================== HANDLE CLEAR RECENT SEARCHES ====================
+  const handleClearRecentSearches = useCallback(() => {
+    setRecentSearches([]);
+    localStorage.removeItem("recent_searches");
+  }, []);
+
+  // ==================== EVENT LISTENER ====================
   useEffect(() => {
+    const handleLaporanUpdated = (event) => {
+      console.log("📢 Received laporan-updated event:", event?.detail);
+      fetchFreshData(false);
+    };
+    
+    window.addEventListener('laporan-updated', handleLaporanUpdated);
     window.refreshSearchPage = handleGlobalRefresh;
+    
     return () => {
+      window.removeEventListener('laporan-updated', handleLaporanUpdated);
       if (window.refreshSearchPage === handleGlobalRefresh) {
         delete window.refreshSearchPage;
       }
     };
-  }, [handleGlobalRefresh]);
+  }, [handleGlobalRefresh, fetchFreshData]);
 
-  // ==================== INITIAL LOAD + REALTIME ====================
+  // ==================== UPDATE EXPLORE ITEMS ====================
+  useEffect(() => {
+    if (!exploreMode || exploreItems.length === 0) return;
+    
+    const updatedItems = exploreItems.map(exploreItem => {
+      const freshData = allData.find(d => d.id === exploreItem.id);
+      return freshData || exploreItem;
+    });
+    
+    if (JSON.stringify(updatedItems) !== JSON.stringify(exploreItems)) {
+      setExploreItems(updatedItems);
+    }
+  }, [allData, exploreMode, exploreItems]);
+
+  // ==================== INITIAL LOAD + REALTIME + PERIODIC REFRESH ====================
   useEffect(() => {
     if (initialLoadDone.current) return;
     initialLoadDone.current = true;
@@ -187,7 +309,6 @@ function SearchContent() {
 
     loadInitialData();
 
-    // Realtime Subscription
     const setupRealtime = () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
 
@@ -195,19 +316,22 @@ function SearchContent() {
         .channel('search-laporan-updates')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'laporan_warga' },
-          (payload) => {
-            console.log(`📢 Laporan ${payload.eventType} detected`);
-            if (payload.eventType === 'INSERT' && payload.new) {
-              setAllData(prev =>
-                prev.map(tempat =>
-                  tempat.id === payload.new.tempat_id
-                    ? { ...tempat, laporan_terbaru: [payload.new, ...(tempat.laporan_terbaru || [])].slice(0, 30) }
-                    : tempat
-                )
-              );
-            }
-            setTimeout(() => fetchFreshData(), 800);
+          { event: 'INSERT', schema: 'public', table: 'laporan_warga' },
+          async (payload) => {
+            console.log(`📢 New laporan for tempat_id: ${payload.new.tempat_id}`);
+            
+            setAllData(prev =>
+              prev.map(tempat =>
+                tempat.id === payload.new.tempat_id
+                  ? { 
+                      ...tempat, 
+                      laporan_terbaru: [payload.new, ...(tempat.laporan_terbaru || [])].slice(0, 30) 
+                    }
+                  : tempat
+              )
+            );
+            
+            setTimeout(() => fetchFreshData(false), 1000);
           }
         )
         .subscribe();
@@ -215,16 +339,24 @@ function SearchContent() {
 
     setupRealtime();
 
-    // Load saved searches
+    intervalIdRef.current = setInterval(() => {
+      if (isMountedRef.current) {
+        console.log("🔄 Periodic refresh search page");
+        fetchFreshData(false);
+      }
+    }, 30000);
+
     const saved = localStorage.getItem("recent_searches");
     if (saved) setRecentSearches(JSON.parse(saved));
 
     const trending = localStorage.getItem("trending_keywords");
     if (trending) setTrendingKeywords(JSON.parse(trending));
+    else setTrendingKeywords(["kopi", "kuliner", "cafe"]);
 
     return () => {
       isMountedRef.current = false;
       if (channelRef.current) supabase.removeChannel(channelRef.current);
+      if (intervalIdRef.current) clearInterval(intervalIdRef.current);
     };
   }, [fetchFreshData]);
 
@@ -287,14 +419,6 @@ function SearchContent() {
     return () => clearTimeout(debounceTimerRef.current);
   }, [query, isTyping, generateSmartSuggestions]);
 
-  const updateTrendingKeywords = useCallback((keyword) => {
-    setTrendingKeywords(prev => {
-      const updated = [keyword, ...prev.filter(k => k !== keyword)].slice(0, 10);
-      localStorage.setItem("trending_keywords", JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
   // ==================== RESULTS ====================
   const results = useMemo(() => {
     if (activeFilter === "Sekitarmu") {
@@ -334,33 +458,6 @@ function SearchContent() {
     }
     return filtered.slice(0, 20);
   }, [query, allData, activeFilter, location]);
-
-  const handleSearch = useCallback((searchQuery) => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed) return;
-    setRecentSearches(prev => {
-      const updated = [trimmed, ...prev.filter(s => s !== trimmed)].slice(0, 10);
-      localStorage.setItem("recent_searches", JSON.stringify(updated));
-      return updated;
-    });
-    updateTrendingKeywords(trimmed);
-    setQuery(trimmed);
-    setIsTyping(false);
-    setExploreMode(false);
-  }, [updateTrendingKeywords]);
-
-  const handleSelectSuggestion = useCallback((suggestion) => handleSearch(suggestion), [handleSearch]);
-  
-  const handleOpenExplore = useCallback((item) => {
-    handleSearch(item.name);
-    setExploreItems([item]);
-    setExploreMode(true);
-  }, [handleSearch]);
-
-  const handleClearRecentSearches = useCallback(() => {
-    setRecentSearches([]);
-    localStorage.removeItem("recent_searches");
-  }, []);
 
   const getBackgroundColor = useCallback(() => isMalam ? "bg-[#09090b]" : isSore ? "bg-[#fff5f0]" : "bg-white", [isMalam, isSore]);
   const getBorderColor = useCallback(() => isMalam ? "border-white/[0.05]" : "border-black/[0.03]", [isMalam]);
@@ -537,7 +634,7 @@ function SearchContent() {
             </>
           )}
 
-          {/* EXPLORE MODE - FeedCard akan handle realtime sendiri */}
+          {/* EXPLORE MODE */}
           {exploreMode && (
             <div className="flex flex-col gap-5 py-4 pb-20 px-4">
               {exploreItems.map((item) => (

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"; 
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
@@ -25,7 +25,7 @@ function filterAndSortStories(stories) {
     .sort((a, b) => {
       const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
       const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
-      return ta - tb; // terlama di depan
+      return ta - tb;
     });
 }
 
@@ -42,7 +42,9 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
   const [localStories, setLocalStories] = useState([]);
   const [viewCounts, setViewCounts] = useState({});
   const [dragY, setDragY] = useState(0);
-  const [shouldClose, setShouldClose] = useState(false); // ✅ TAMBAHKAN STATE INI
+  const [shouldClose, setShouldClose] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const videoRef = useRef(null);
 
   const shouldAdvanceRef = useRef(false);
   const holdTimerRef = useRef(null);
@@ -58,7 +60,17 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
   const storyCount = localStories.length;
   const currentStory = localStories[currentIndex];
 
-  // ✅ TAMBAHKAN useEffect UNTUK HANDLE CLOSE
+  // Cek apakah story berupa video
+  const isVideo = useMemo(() => {
+    return currentStory?.video_url || 
+           currentStory?.media_type === "video" ||
+           (currentStory?.url && (currentStory.url.includes('.mp4') || currentStory.url.includes('.mov')));
+  }, [currentStory]);
+
+  const mediaUrl = useMemo(() => {
+    return currentStory?.video_url || currentStory?.photo_url || currentStory?.url || currentStory?.image_url;
+  }, [currentStory]);
+
   useEffect(() => {
     if (shouldClose) {
       onClose();
@@ -116,16 +128,45 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
     recordView();
   }, [currentStory?.id, isOpen, currentUserId]);
 
+  // ── Kontrol video ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !isVideo || !videoRef.current) return;
+    
+    if (!isPaused && !showMenu) {
+      videoRef.current.play().catch(e => console.log("Video play error:", e));
+      setIsVideoPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsVideoPlaying(false);
+    }
+  }, [isOpen, isVideo, isPaused, showMenu, currentIndex]);
+
+  // Reset video saat ganti story
+  useEffect(() => {
+    if (!isVideo || !videoRef.current) return;
+    videoRef.current.currentTime = 0;
+    if (!isPaused && !showMenu) {
+      videoRef.current.play().catch(e => console.log("Video play error:", e));
+    }
+  }, [currentIndex, isVideo]);
+
   // ── Navigasi ──────────────────────────────────────────────────────────────
   const handleNextStory = useCallback(() => {
     if (currentIndex < storyCount - 1) {
-      setCurrentIndex(v => v + 1); setProgress(0); setShowMenu(false);
-    } else { onClose(); }
+      setCurrentIndex(v => v + 1); 
+      setProgress(0); 
+      setShowMenu(false);
+      setIsPaused(false);
+    } else { 
+      onClose(); 
+    }
   }, [currentIndex, storyCount, onClose]);
 
   const handlePrevStory = useCallback(() => {
     if (currentIndex > 0) {
-      setCurrentIndex(v => v - 1); setProgress(0); setShowMenu(false);
+      setCurrentIndex(v => v - 1); 
+      setProgress(0); 
+      setShowMenu(false);
     }
   }, [currentIndex]);
 
@@ -164,15 +205,39 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
   // ── Reset saat buka ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen) {
-      setCurrentIndex(0); setProgress(0);
-      setShowMenu(false); setIsPaused(false);
+      setCurrentIndex(0); 
+      setProgress(0);
+      setShowMenu(false); 
+      setIsPaused(false);
       shouldAdvanceRef.current = false;
+      setIsVideoPlaying(false);
     }
   }, [isOpen]);
 
-  // ── Progress bar ──────────────────────────────────────────────────────────
+  // ── Progress bar (hanya untuk gambar, video dikontrol durasinya) ──────────
   useEffect(() => {
     if (!isOpen || storyCount === 0 || showMenu || isPaused) return;
+    
+    // Untuk video, gunakan event timeupdate
+    if (isVideo && videoRef.current) {
+      const handleTimeUpdate = () => {
+        if (videoRef.current && videoRef.current.duration) {
+          const newProgress = (videoRef.current.currentTime / videoRef.current.duration) * 100;
+          setProgress(newProgress);
+          if (newProgress >= 99.5) {
+            shouldAdvanceRef.current = true;
+          }
+        }
+      };
+      videoRef.current.addEventListener('timeupdate', handleTimeUpdate);
+      return () => {
+        if (videoRef.current) {
+          videoRef.current.removeEventListener('timeupdate', handleTimeUpdate);
+        }
+      };
+    }
+    
+    // Untuk gambar, pakai interval
     const intervalTime = 40;
     const increment = (intervalTime / STORY_DURATION) * 100;
     const timer = setInterval(() => {
@@ -183,7 +248,7 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
       });
     }, intervalTime);
     return () => clearInterval(timer);
-  }, [isOpen, currentIndex, storyCount, showMenu, isPaused]);
+  }, [isOpen, currentIndex, storyCount, showMenu, isPaused, isVideo]);
 
   useEffect(() => {
     if (progress >= 100 && shouldAdvanceRef.current) {
@@ -192,7 +257,7 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
     }
   }, [progress, handleNextStory]);
 
-  // ── Hapus story (✅ DIPERBAIKI) ───────────────────────────────────────────
+  // ── Hapus story ───────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!currentStory?.id || isDeleting) return;
     setIsDeleting(true);
@@ -203,7 +268,7 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
       setLocalStories(prev => {
         const updated = prev.filter(s => s.id !== currentStory.id);
         if (updated.length === 0) {
-          setShouldClose(true); // ✅ PAKAI FLAG, BUKAN PANGGIL onClose LANGSUNG
+          setShouldClose(true);
           return [];
         }
         setCurrentIndex(i => Math.min(i, updated.length - 1));
@@ -225,8 +290,8 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
       ? `${baseUrl}/?tempat=${currentStory.tempat_id}`
       : baseUrl;
     const title = `${namaTempat || "Setempat"} — ${currentStory?.tipe || "Live Report"}`;
-    const text = currentStory?.konten
-      ? `📍 ${namaTempat || "Setempat"} — ${currentStory.konten}`
+    const text = currentStory?.content
+      ? `📍 ${namaTempat || "Setempat"} — ${currentStory.content}`
       : `📍 Cek kondisi terkini di ${namaTempat || "Setempat"}!`;
     try {
       if (navigator.share) {
@@ -241,13 +306,11 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
 
   if (!mounted || !isOpen || storyCount === 0) return null;
 
-  const fotoUrl = currentStory?.url || currentStory?.photo_url || currentStory?.image_url;
   const displayName = currentStory?.user_name || currentStory?.username || "Warga Anonim";
   const isOwner = currentUserId && currentStory?.user_id === currentUserId;
   const canDelete = isOwner || isAdmin;
   const viewCount = viewCounts[currentStory?.id] || 0;
 
-  // Warna badge berdasarkan tipe
   const badgeColor = currentStory?.tipe === "Ramai"
     ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
     : currentStory?.tipe === "Antri"
@@ -265,7 +328,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[9999] bg-black flex items-center justify-center select-none"
         >
-          {/* Overlay tap + hold + swipe */}
           <div
             className="absolute inset-0 z-10 cursor-pointer"
             onClick={handleTapNavigation}
@@ -288,10 +350,20 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
             className="relative h-[100dvh] w-full md:h-[90vh] md:w-[420px] bg-zinc-950 md:rounded-[32px] overflow-hidden shadow-2xl"
             style={{ borderRadius: dragY > 40 ? "24px" : undefined }}
           >
-            {/* ── FOTO ── */}
+            {/* ── MEDIA (Gambar atau Video) ── */}
             <div className="absolute inset-0">
-              {fotoUrl ? (
-                <img src={fotoUrl} className="w-full h-full object-cover" alt="story" />
+              {isVideo ? (
+                <video
+                  ref={videoRef}
+                  src={mediaUrl}
+                  className="w-full h-full object-cover"
+                  playsInline
+                  muted={false}
+                  loop={false}
+                  controls={false}
+                />
+              ) : mediaUrl ? (
+                <img src={mediaUrl} className="w-full h-full object-cover" alt="story" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-zinc-900">
                   <span className="text-5xl opacity-20">📸</span>
@@ -322,7 +394,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
 
             {/* ── HEADER ── */}
             <div className="absolute top-0 left-0 right-0 z-30 pt-12 md:pt-6 px-4 pb-2">
-              {/* Progress bars */}
               <div className="flex gap-1.5 mb-4">
                 {localStories.map((_, idx) => (
                   <div key={idx} className="h-[3px] flex-1 bg-white/20 rounded-full overflow-hidden">
@@ -338,7 +409,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
                 ))}
               </div>
 
-              {/* Profil + titik tiga */}
               <div className="flex items-center justify-between no-tap">
                 <div className="flex items-center gap-2.5">
                   <div className="p-[2px] rounded-full bg-gradient-to-tr from-yellow-400 via-fuchsia-500 to-cyan-400 shrink-0">
@@ -365,7 +435,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
                   </div>
                 </div>
 
-                {/* Titik tiga */}
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }}
                   className="no-tap w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md transition-all active:scale-90 z-50"
@@ -386,7 +455,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
                     initial={{ opacity: 0, scale: 0.88, y: -8 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.88, y: -8 }}
-                    transition={{ type: "spring", damping: 22, stiffness: 220 }}
                     className="absolute top-[7rem] md:top-24 right-4 z-50 no-tap bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl min-w-[170px]"
                   >
                     <button onClick={(e) => { e.stopPropagation(); handleShare(); }}
@@ -427,11 +495,9 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
               className="absolute bottom-0 left-0 right-0 z-20 px-5 pt-4 no-tap"
               style={{ paddingBottom: "max(1.75rem, env(safe-area-inset-bottom, 1.75rem))" }}
             >
-              {/* Badge kondisi + nama tempat */}
               {currentStory?.tipe && (
                 <div className="mb-3">
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider border ${badgeColor}`}>
-                    {/* Nama tempat */}
                     {namaTempat && (
                       <>
                         <span className="text-white/70 font-bold normal-case tracking-normal">
@@ -440,27 +506,23 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
                         <span className="text-white/30 font-normal">|</span>
                       </>
                     )}
-                    {/* Emoji + tipe */}
                     <span>{tipeEmoji}</span>
                     <span>{currentStory.tipe}</span>
                   </span>
                 </div>
               )}
 
-              {/* Caption */}
               {currentStory?.content && (
                 <p className="text-white text-[15px] font-semibold leading-snug mb-3 drop-shadow-lg">
                   {currentStory.content}
                 </p>
               )}
 
-              {/* Footer: counter + viewer + waktu */}
               <div className="flex items-center justify-between mt-2">
                 <p className="text-white/30 text-[11px] font-medium tracking-widest uppercase">
                   {currentIndex + 1} / {storyCount}
                 </p>
 
-                {/* Viewer count */}
                 <div className="flex items-center gap-1.5">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -471,7 +533,6 @@ export default function StoryModal({ isOpen, onClose, stories = [], theme, namaT
                   </span>
                 </div>
 
-                {/* Waktu */}
                 {currentStory?.created_at && (
                   <p className="text-white/25 text-[10px] font-medium">
                     {new Date(currentStory.created_at).toLocaleTimeString("id-ID", {

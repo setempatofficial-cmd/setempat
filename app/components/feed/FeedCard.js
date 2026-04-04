@@ -16,7 +16,7 @@ import { useClock } from "../../../hooks/useClock";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
-
+import { useExternalSignals } from '@/hooks/useExternalSignals';
 // ==================== ANIMATION CONSTANTS ====================
 const PING_ANIM = {
   animate: { opacity: [0.5, 1, 0.5] },
@@ -89,7 +89,11 @@ function FeedCard({
 
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
-
+  // 🔥 Fetch external signals dari tabel external_signals
+const { externalSignals, loading: externalLoading, count: externalCount } = useExternalSignals(tempatId, {
+  limit: 10,
+  verifiedOnly: false
+});
   // 🔥 Fungsi refresh lokal
   const handleLocalRefresh = useCallback(() => {
     console.log("🔄 FeedCard refresh triggered");
@@ -231,7 +235,16 @@ function FeedCard({
       .filter((p) => p && typeof p === "string" && p.startsWith("http"))
       .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
   }, [safeItem.photos]);
-
+  // 🔥 Gabungkan laporan warga (internal) + external signals
+const allSignals = useMemo(() => {
+  const internal = localLaporanWarga || [];
+  const external = externalSignals || [];
+  
+  const combined = [...internal, ...external];
+  return combined.sort((a, b) => 
+    new Date(b.created_at) - new Date(a.created_at)
+  );
+}, [localLaporanWarga, externalSignals]);
   // --- Callbacks ---
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
@@ -383,7 +396,7 @@ function FeedCard({
           >
             <div className="flex-1 min-w-0 overflow-hidden scale-95 origin-left">
               <LiveInsight
-                signals={feed?.allSignals || []}
+                signals={allSignals}
                 theme={theme}
                 isCompact={true}
                 currentUser={user}

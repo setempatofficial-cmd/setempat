@@ -23,12 +23,26 @@ const AIModal = React.lazy(() => import("./AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
-const LIMIT = 8;
+// Dynamic LIMIT based on network
+const getDynamicLimit = () => {
+  if (typeof navigator === 'undefined') return 8;
+  const connection = navigator.connection;
+  if (!connection) return 8;
+  
+  switch(connection.effectiveType) {
+    case '4g': return 12;
+    case '3g': return 6;
+    case '2g':
+    case 'slow-2g': return 3;
+    default: return 8;
+  }
+};
+
 const CACHE_DURATION = 5 * 60 * 1000;
 const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
-const RANKING_WEIGHT = 0.7;  // Bobot ranking
-const DISTANCE_WEIGHT = 0.3; // Bobot jarak
+const RANKING_WEIGHT = 0.7;
+const DISTANCE_WEIGHT = 0.3;
 
 // ── HAVERSINE FORMULA ──
 const haversineDistance = (lat1, lon1, lat2, lon2) => {
@@ -43,24 +57,20 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Fungsi untuk menghitung skor jarak (0-100)
 const getDistanceScore = (distance) => {
-  if (distance === null || distance === undefined) return 20; // Default jika tidak ada lokasi
-  if (distance <= 0.5) return 100;      // < 500m
-  if (distance <= 1) return 90;         // < 1km
-  if (distance <= 2) return 80;         // < 2km
-  if (distance <= 3) return 70;         // < 3km
-  if (distance <= 5) return 50;         // < 5km
-  if (distance <= 10) return 30;        // < 10km
-  return 10;                            // > 10km
+  if (distance === null || distance === undefined) return 20;
+  if (distance <= 0.5) return 100;
+  if (distance <= 1) return 90;
+  if (distance <= 2) return 80;
+  if (distance <= 3) return 70;
+  if (distance <= 5) return 50;
+  if (distance <= 10) return 30;
+  return 10;
 };
 
-// Fungsi untuk menghitung skor hybrid (ranking + jarak)
 const calculateHybridScore = (item, userLocation) => {
-  // Dapatkan ranking score dari item (sudah di-process oleh feedEngine)
   const rankingScore = item.realtimeScore || 50;
   
-  // Hitung jarak
   let distance = null;
   if (userLocation && item.latitude && item.longitude) {
     distance = haversineDistance(
@@ -72,8 +82,6 @@ const calculateHybridScore = (item, userLocation) => {
   }
   
   const distanceScore = getDistanceScore(distance);
-  
-  // Hybrid score: ranking lebih dominan (70%) + jarak (30%)
   const hybridScore = (rankingScore * RANKING_WEIGHT) + (distanceScore * DISTANCE_WEIGHT);
   
   return {
@@ -84,7 +92,7 @@ const calculateHybridScore = (item, userLocation) => {
   };
 };
 
-// ── MEMOIZED COMPONENTS (sama seperti sebelumnya) ──
+// ── MEMOIZED COMPONENTS ──
 const SkeletonLoader = memo(() => (
   <div className="space-y-6 px-4">
     {[1, 2, 3].map(i => (
@@ -155,6 +163,42 @@ export default function FeedContent() {
   const { user, isAdmin } = useAuth();
   const theme = useTheme();
 
+  // --- NETWORK DETECTION & OPTIMIZATION ---
+  const [networkInfo, setNetworkInfo] = useState({
+    effectiveType: '4g',
+    saveData: false,
+    isSlowConnection: false
+  });
+  
+  const [dynamicLimit, setDynamicLimit] = useState(() => getDynamicLimit());
+  const [useRealtime, setUseRealtime] = useState(true);
+  const [pollingInterval, setPollingInterval] = useState(null);
+
+  // Monitor network changes
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.connection) return;
+    
+    const updateNetworkInfo = () => {
+      const conn = navigator.connection;
+      const effectiveType = conn?.effectiveType || '4g';
+      const saveData = conn?.saveData || false;
+      const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
+      
+      setNetworkInfo({ effectiveType, saveData, isSlowConnection });
+      setDynamicLimit(getDynamicLimit());
+      
+      // Matikan realtime untuk koneksi lambat atau saveData mode
+      setUseRealtime(!isSlowConnection && !saveData);
+    };
+    
+    updateNetworkInfo();
+    navigator.connection.addEventListener('change', updateNetworkInfo);
+    
+    return () => {
+      navigator.connection.removeEventListener('change', updateNetworkInfo);
+    };
+  }, []);
+
   // --- STABIL DATA STRUCTURE ---
   const [itemsMap, setItemsMap] = useState(new Map());
   const [orderedIds, setOrderedIds] = useState([]);
@@ -197,7 +241,6 @@ export default function FeedContent() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-
   // Memoized values
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
   const { villageLocation, districtLocation } = useMemo(() => {
@@ -233,7 +276,6 @@ export default function FeedContent() {
   // Derived values
   const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
 
-  // --- RESET FEED FUNCTION ---
   const resetFeed = useCallback(async () => {
     setOrderedIds([]);
     setItemsMap(new Map());
@@ -244,30 +286,37 @@ export default function FeedContent() {
     existingIdsRef.current.clear();
   }, []);
 
-  // --- CACHE MANAGER (menyimpan hybrid score) ---
+  // --- OPTIMIZED CACHE MANAGER (hanya simpan data penting) ---
   const cacheManager = useMemo(() => ({
     getKey: () => {
       if (!locationReadyRef.current || !locationRef.current) return 'feed_default';
       const lat = Math.round(locationRef.current.latitude * 100) / 100;
       const lng = Math.round(locationRef.current.longitude * 100) / 100;
-      return `feed_hybrid_${lat}_${lng}_${searchRadius}`;
+      return `feed_hybrid_${lat}_${lng}_${searchRadius}_${networkInfo.effectiveType}`;
     },
     get: (key) => {
       try {
         const cached = localStorage.getItem(key);
         if (!cached) return null;
         const parsed = JSON.parse(cached);
-        if (!parsed || !parsed.items || !parsed.ids) return null;
-        if (Date.now() - parsed.timestamp > CACHE_DURATION) return null;
+        if (!parsed || !parsed.ids) return null;
+        // Cache lebih lama untuk koneksi lambat
+        const cacheDuration = networkInfo.isSlowConnection ? CACHE_DURATION * 2 : CACHE_DURATION;
+        if (Date.now() - parsed.timestamp > cacheDuration) return null;
         return { itemsMap: new Map(parsed.items), orderedIds: parsed.ids };
       } catch { return null; }
     },
     set: (key, itemsMap, orderedIds) => {
       try {
         if (!orderedIds || orderedIds.length === 0) return;
+        // Untuk koneksi lambat, hanya cache 30 item pertama
+        const itemsToCache = networkInfo.isSlowConnection 
+          ? Array.from(itemsMap.entries()).slice(0, 30)
+          : Array.from(itemsMap.entries());
+        
         localStorage.setItem(key, JSON.stringify({
-          items: Array.from(itemsMap.entries()),
-          ids: orderedIds,
+          items: itemsToCache,
+          ids: orderedIds.slice(0, networkInfo.isSlowConnection ? 30 : undefined),
           timestamp: Date.now()
         }));
       } catch (e) { console.warn('Cache save failed:', e); }
@@ -276,13 +325,15 @@ export default function FeedContent() {
       const keys = Object.keys(localStorage);
       keys.forEach(key => { if (key.startsWith('feed_')) localStorage.removeItem(key); });
     }
-  }), [searchRadius]);
+  }), [searchRadius, networkInfo.isSlowConnection, networkInfo.effectiveType]);
 
-  // --- LOAD PLACES DENGAN HYBRID SCORING ---
+  // --- LOAD PLACES WITH NETWORK AWARENESS ---
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
     const currentFetchId = ++fetchIdRef.current;
     if (loadingRef.current && !reset) return;
 
+    const currentLimit = dynamicLimit;
+    
     if (reset) {
       setInitialLoad(true);
       setHasMore(true);
@@ -302,7 +353,6 @@ export default function FeedContent() {
     setLoading(true);
 
     try {
-      // Cek cache
       if (reset && !forceRefresh && !isLocationChange) {
         const cacheKey = cacheManager.getKey();
         const cached = cacheManager.get(cacheKey);
@@ -318,7 +368,6 @@ export default function FeedContent() {
         }
       }
 
-      // Build query dengan bounding box
       let query = supabase
         .from("feed_view")
         .select("*")
@@ -327,7 +376,7 @@ export default function FeedContent() {
       if (locationReadyRef.current && locationRef.current) {
         const lat = locationRef.current.latitude;
         const lng = locationRef.current.longitude;
-        const bufferRadius = searchRadius * 1.2;
+        const bufferRadius = searchRadius * (networkInfo.isSlowConnection ? 1.5 : 1.2);
         const latDelta = bufferRadius / 111;
         const lngDelta = bufferRadius / (111 * Math.cos(lat * Math.PI / 180));
 
@@ -342,13 +391,13 @@ export default function FeedContent() {
         query = query.lt('id', lastLoadedIdRef.current);
       }
 
-      const { data, error: fetchError } = await query.limit(LIMIT * 2);
+      // Gunakan limit yang lebih kecil untuk koneksi lambat
+      const { data, error: fetchError } = await query.limit(currentLimit * (networkInfo.isSlowConnection ? 1 : 2));
       if (fetchError) throw fetchError;
       if (currentFetchId !== fetchIdRef.current) return;
 
       let items = data || [];
 
-      // Filter berdasarkan radius akurat dan hitung hybrid score
       const processedItems = [];
       const userLocation = locationReadyRef.current && locationRef.current ? {
         latitude: locationRef.current.latitude,
@@ -356,7 +405,6 @@ export default function FeedContent() {
       } : null;
 
       for (const item of items) {
-        // Hitung jarak
         let distance = null;
         if (userLocation && item.latitude && item.longitude) {
           distance = haversineDistance(
@@ -367,10 +415,8 @@ export default function FeedContent() {
           );
         }
         
-        // Filter radius
         if (distance !== null && distance > searchRadius) continue;
         
-        // Process dengan feedEngine untuk mendapatkan ranking score
         const processedItem = processFeedItem({ 
           item, 
           locationReady: !!userLocation, 
@@ -378,10 +424,8 @@ export default function FeedContent() {
           comments: commentsRef.current 
         });
         
-        // Hitung hybrid score
         const hybridScoreData = calculateHybridScore(processedItem, userLocation);
         
-        // Simpan semua data
         const finalItem = {
           ...processedItem,
           _distance: distance,
@@ -400,10 +444,8 @@ export default function FeedContent() {
         return;
       }
 
-      // Urutkan berdasarkan HYBRID SCORE (ranking + jarak)
       processedItems.sort((a, b) => b._hybridScore - a._hybridScore);
 
-      // Update state
       const newItemsMap = new Map(reset ? [] : itemsMap.entries());
       const newOrderedIds = reset ? [] : [...orderedIds];
       const newComments = { ...comments };
@@ -424,7 +466,7 @@ export default function FeedContent() {
       setItemsMap(newItemsMap);
       setOrderedIds(newOrderedIds);
       setComments(newComments);
-      setHasMore(processedItems.length === LIMIT * 2);
+      setHasMore(processedItems.length === currentLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
       if (reset && newOrderedIds.length > 0) {
         const cacheKey = cacheManager.getKey();
@@ -436,9 +478,10 @@ export default function FeedContent() {
         }
 
         if (locationReadyRef.current) {
+          const connectionText = networkInfo.isSlowConnection ? " (mode hemat data)" : "";
           setToast({ 
             show: true, 
-            message: `📍 ${newOrderedIds.length} tempat dalam radius ${searchRadius}km (diurutkan berdasarkan aktivitas terbaru)` 
+            message: `📍 ${newOrderedIds.length} tempat dalam radius ${searchRadius}km${connectionText}` 
           });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
@@ -454,9 +497,122 @@ export default function FeedContent() {
         setInitialLoad(false);
       }
     }
-  }, [forceRefresh, cacheManager, searchRadius, itemsMap, orderedIds, comments]);
+  }, [forceRefresh, cacheManager, searchRadius, itemsMap, orderedIds, comments, dynamicLimit, networkInfo.isSlowConnection]);
 
-  // ── HANDLE MANUAL LOCATION CHANGE (User pilih lokasi B) ──
+  // ── POLLING INSTEAD OF REALTIME FOR SLOW CONNECTIONS ──
+  const pollForUpdates = useCallback(() => {
+    if (!locationReadyRef.current || !hasMoreRef.current) return;
+    
+    const checkNewContent = async () => {
+      try {
+        const lastItemId = orderedIds[0];
+        if (!lastItemId) return;
+        
+        const { data, error } = await supabase
+          .from("feed_view")
+          .select("id")
+          .gt('id', lastItemId)
+          .limit(1);
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          // Ada konten baru, refresh feed
+          loadPlaces(true);
+          setToast({ show: true, message: "📢 Ada konten baru! Feed diperbarui." });
+          setTimeout(() => setToast({ show: false, message: "" }), 2000);
+        }
+      } catch (err) {
+        console.warn("Polling error:", err);
+      }
+    };
+    
+    const interval = setInterval(checkNewContent, networkInfo.isSlowConnection ? 60000 : 30000);
+    return interval;
+  }, [orderedIds, loadPlaces, networkInfo.isSlowConnection]);
+
+  // ── REAL-TIME SUBSCRIPTION (hanya untuk koneksi cepat) ──
+  useEffect(() => {
+    if (!useRealtime) {
+      // Gunakan polling untuk koneksi lambat
+      const interval = pollForUpdates();
+      setPollingInterval(interval);
+      return () => {
+        if (interval) clearInterval(interval);
+      };
+    }
+    
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
+    const channel = supabase
+      .channel('feed_changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_view' }, (payload) => {
+        const newItem = payload.new;
+        if (!newItem) return;
+
+        const userLocation = locationReadyRef.current && locationRef.current ? {
+          latitude: locationRef.current.latitude,
+          longitude: locationRef.current.longitude
+        } : null;
+
+        let inRadius = false;
+        let distance = null;
+        
+        if (userLocation && newItem.latitude && newItem.longitude) {
+          distance = haversineDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            newItem.latitude,
+            newItem.longitude
+          );
+          inRadius = distance <= searchRadius;
+        }
+
+        if (inRadius && !itemsMap.has(newItem.id)) {
+          const processedItem = processFeedItem({ 
+            item: newItem, 
+            locationReady: !!userLocation, 
+            location: userLocation,
+            comments: commentsRef.current 
+          });
+          
+          const hybridScoreData = calculateHybridScore(processedItem, userLocation);
+          
+          const finalItem = {
+            ...processedItem,
+            _distance: distance,
+            _distanceScore: hybridScoreData.distanceScore,
+            _rankingScore: hybridScoreData.rankingScore,
+            _hybridScore: hybridScoreData.hybridScore
+          };
+          
+          setItemsMap(prev => new Map(prev).set(finalItem.id, finalItem));
+          
+          setOrderedIds(prev => {
+            const newIds = [...prev, finalItem.id];
+            newIds.sort((a, b) => {
+              const scoreA = itemsMap.get(a)?._hybridScore || 0;
+              const scoreB = itemsMap.get(b)?._hybridScore || 0;
+              return scoreB - scoreA;
+            });
+            return newIds;
+          });
+          
+          setComments(prev => ({ ...prev, [finalItem.id]: finalItem.testimonial_terbaru || [] }));
+          setToast({ show: true, message: `📢 ${finalItem.name} menambahkan update baru!` });
+          setTimeout(() => setToast({ show: false, message: "" }), 2000);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, [searchRadius, itemsMap, useRealtime, pollForUpdates]);
+
+  // ── HANDLE MANUAL LOCATION CHANGE ──
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
     setManualLocation(selectedLocation);
@@ -471,7 +627,7 @@ export default function FeedContent() {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [cacheManager, loadPlaces, setManualLocation, resetFeed]);
 
-  // ── HANDLE GPS LOCATION (User kembali ke lokasi A) ──
+  // ── HANDLE GPS LOCATION ──
   const handleGPSActivation = useCallback(async () => {
     console.log("📍 Aktifkan GPS location...");
     await requestLocation();
@@ -501,81 +657,6 @@ export default function FeedContent() {
     observer.observe(lastCardRef.current);
     return () => observer.disconnect();
   }, [hasMore, loading, loadPlaces, tempat.length]);
-
-  // ── REAL-TIME SUBSCRIPTION dengan hybrid score update ──
-  useEffect(() => {
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
-
-    const channel = supabase
-      .channel('feed_changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_view' }, (payload) => {
-        const newItem = payload.new;
-        if (!newItem) return;
-
-        const userLocation = locationReadyRef.current && locationRef.current ? {
-          latitude: locationRef.current.latitude,
-          longitude: locationRef.current.longitude
-        } : null;
-
-        let inRadius = false;
-        let distance = null;
-        
-        if (userLocation && newItem.latitude && newItem.longitude) {
-          distance = haversineDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            newItem.latitude,
-            newItem.longitude
-          );
-          inRadius = distance <= searchRadius;
-        }
-
-        if (inRadius && !itemsMap.has(newItem.id)) {
-          // Process dengan feedEngine untuk ranking
-          const processedItem = processFeedItem({ 
-            item: newItem, 
-            locationReady: !!userLocation, 
-            location: userLocation,
-            comments: commentsRef.current 
-          });
-          
-          // Hitung hybrid score
-          const hybridScoreData = calculateHybridScore(processedItem, userLocation);
-          
-          const finalItem = {
-            ...processedItem,
-            _distance: distance,
-            _distanceScore: hybridScoreData.distanceScore,
-            _rankingScore: hybridScoreData.rankingScore,
-            _hybridScore: hybridScoreData.hybridScore
-          };
-          
-          setItemsMap(prev => new Map(prev).set(finalItem.id, finalItem));
-          
-          // Masukkan ke dalam orderedIds sesuai hybrid score
-          setOrderedIds(prev => {
-            const newIds = [...prev, finalItem.id];
-            newIds.sort((a, b) => {
-              const scoreA = itemsMap.get(a)?._hybridScore || 0;
-              const scoreB = itemsMap.get(b)?._hybridScore || 0;
-              return scoreB - scoreA;
-            });
-            return newIds;
-          });
-          
-          setComments(prev => ({ ...prev, [finalItem.id]: finalItem.testimonial_terbaru || [] }));
-          setToast({ show: true, message: `📢 ${finalItem.name} menambahkan update baru!` });
-          setTimeout(() => setToast({ show: false, message: "" }), 2000);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, [searchRadius, itemsMap]);
 
   // ── PULL TO REFRESH ──
   useEffect(() => {
@@ -628,7 +709,7 @@ export default function FeedContent() {
     }
   }, [loadPlaces]);
 
-  // ── LOCATION CHANGE HANDLER (GPS otomatis) ──
+  // ── LOCATION CHANGE HANDLER ──
   useEffect(() => {
     if (!initialLoadDoneRef.current) return;
     if (!locationReady) return;
@@ -659,23 +740,22 @@ export default function FeedContent() {
     if (!item) return;
     setShowSearchModal(false);
     setItemsMap(prev => {
-	  const newMap = new Map(prev);
-	  newMap.set(item.id, item);
-	  return newMap;
-	});
-	
-	setOrderedIds(prev => {
-	  const filtered = prev.filter(id => id !== item.id);
-	  return [item.id, ...filtered];
-        });
-    setSelectedTempat(item);
-   
+      const newMap = new Map(prev);
+      newMap.set(item.id, item);
+      return newMap;
+    });
     
-	window.scrollTo({ top: 0, behavior: 'smooth' });
-	
-	setToast({ show: true, message: `📍 Menampilkan ${item.name}` });
-	setTimeout(() => setToast({ show: false, message: "" }), 2000);
-  }, []); //
+    setOrderedIds(prev => {
+      const filtered = prev.filter(id => id !== item.id);
+      return [item.id, ...filtered];
+    });
+    setSelectedTempat(item);
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setToast({ show: true, message: `📍 Menampilkan ${item.name}` });
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+  }, []);
 
   const openAICardModal = useCallback((item, onUploadSuccess, initialQuery = "") => {
     setSelectedTempat(item);
@@ -767,7 +847,6 @@ export default function FeedContent() {
         onSelectManual={handleManualLocationSelect}
       />
 
-      {/* FEED */}
       <motion.div className="mt-4 space-y-2 min-h-[60vh] relative" animate={{ opacity: feedOpacity }} transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}>
         {initialLoad ? (
           <SkeletonLoader />
@@ -821,7 +900,6 @@ export default function FeedContent() {
         )}
       </motion.div>
 
-      {/* MODALS */}
       <React.Suspense fallback={null}>
         <SearchModal
           isOpen={showSearchModal}
@@ -831,7 +909,7 @@ export default function FeedContent() {
           allData={tempat}
           theme={theme}
           villageLocation={villageLocation}
-/>
+        />
       </React.Suspense>
       <React.Suspense fallback={null}>
         <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} context={aiContext} onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={selectedUploadSuccess} initialQuery={initialQuery} item={selectedTempat} laporanWarga={selectedLaporanWarga} />
@@ -839,7 +917,7 @@ export default function FeedContent() {
       <React.Suspense fallback={null}>
         <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} isAdmin={isAdmin} />
       </React.Suspense>
-{/* Tambahkan ToastMessage dan tutup main & function di sini */}
+      
       <ToastMessage show={toast.show} message={toast.message} />
     </main>
   );

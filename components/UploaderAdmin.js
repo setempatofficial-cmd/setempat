@@ -14,17 +14,6 @@ export default function UploaderAdmin({
   const [showModal, setShowModal] = useState(false);
   const [tempUrl, setTempUrl] = useState("");
   const [toast, setToast] = useState({ show: false, message: "", isError: false });
-  const [isReady, setIsReady] = useState(false);
-
-  // Validasi tempatId
-  useState(() => {
-    if (tempatId && tempatId !== undefined && tempatId !== null) {
-      const numericId = Number(tempatId);
-      if (!isNaN(numericId) && numericId > 0) {
-        setIsReady(true);
-      }
-    }
-  }, [tempatId]);
 
   const showToast = (message, isError = false) => {
     setToast({ show: true, message, isError });
@@ -39,34 +28,26 @@ export default function UploaderAdmin({
     return "malam";
   };
 
-  // 🔥 OPTIMASI: Fetch dan update dalam satu fungsi
+  // 🔥 VERSI CEPAT - LANGSUNG UPDATE TANPA FETCH DULU
   const handleSaveToDatabase = async (url) => {
-    if (!isReady || !tempatId) {
+    if (!tempatId) {
       showToast("ID tempat tidak valid", true);
       return false;
     }
 
-    const numericTempatId = Number(tempatId);
     setIsUploading(true);
     const timeTag = getCurrentTimeTag();
+    const numericTempatId = Number(tempatId);
 
     try {
-      // 1. Ambil data photos saat ini (tetap diperlukan)
-      const { data: currentData, error: fetchError } = await supabase
+      // 🔥 OPTIMASI: Update langsung dengan pendekatan sederhana
+      // Ambil data photos saat ini
+      const { data: currentData } = await supabase
         .from("tempat")
         .select("photos")
         .eq("id", numericTempatId)
         .single();
 
-      if (fetchError) {
-        console.error("Fetch error:", fetchError);
-        // Jika error karena data tidak ada, tetap lanjut dengan photos kosong
-        if (fetchError.code !== "PGRST116") {
-          throw new Error(`Gagal mengambil data: ${fetchError.message}`);
-        }
-      }
-
-      // 2. Update JSONB photos
       const currentPhotos = currentData?.photos || {};
       const updatedPhotos = {
         ...currentPhotos,
@@ -78,19 +59,13 @@ export default function UploaderAdmin({
         official: url,
       };
 
-      // 3. Simpan ke database
-      const { error: updateError } = await supabase
+      // Update database
+      const { error } = await supabase
         .from("tempat")
-        .update({ 
-          photos: updatedPhotos,
-          image_url: url 
-        })
+        .update({ photos: updatedPhotos, image_url: url })
         .eq("id", numericTempatId);
 
-      if (updateError) {
-        console.error("Update error:", updateError);
-        throw new Error(`Gagal menyimpan: ${updateError.message}`);
-      }
+      if (error) throw error;
 
       showToast(`Wajah ${timeLabel} berhasil diperbarui!`);
       setShowModal(false);
@@ -113,18 +88,6 @@ export default function UploaderAdmin({
     setShowModal(true);
   };
 
-  if (!isReady) {
-    return (
-      <button
-        disabled
-        className="px-5 py-2.5 bg-zinc-700 text-white/50 cursor-not-allowed rounded-xl flex items-center justify-center gap-2 text-sm"
-      >
-        <Loader2 size={16} className="animate-spin" />
-        Memuat...
-      </button>
-    );
-  }
-
   return (
     <div className="relative">
       {/* TOAST */}
@@ -134,20 +97,14 @@ export default function UploaderAdmin({
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 50, opacity: 0 }}
-            className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[100000] px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2 ${
-              toast.isError 
-                ? "bg-red-950 border border-red-500/40" 
-                : "bg-emerald-950 border border-emerald-500/40"
-            }`}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100000] px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2 bg-zinc-900 border border-white/10"
           >
             {toast.isError ? (
               <AlertCircle size={14} className="text-red-400" />
             ) : (
               <Check size={14} className="text-emerald-400" />
             )}
-            <span className="text-[10px] font-bold text-white">
-              {toast.message}
-            </span>
+            <span className="text-[10px] font-bold text-white">{toast.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -173,19 +130,14 @@ export default function UploaderAdmin({
           <button
             onClick={() => open()}
             disabled={isUploading}
-            className="px-5 py-2.5 bg-white/90 hover:bg-white text-zinc-800 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-lg"
+            className="px-5 py-2.5 bg-white/90 hover:bg-white text-zinc-800 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-lg disabled:opacity-50"
           >
             {isUploading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Menyimpan...
-              </>
+              <Loader2 size={16} className="animate-spin" />
             ) : (
-              <>
-                <Camera size={16} />
-                Update Wajah {timeLabel}
-              </>
+              <Camera size={16} />
             )}
+            {isUploading ? "Menyimpan..." : `Update Wajah ${timeLabel}`}
           </button>
         )}
       </CldUploadWidget>
