@@ -15,16 +15,13 @@ export default function StatusIsland({
   
   const { getAIContext } = useDataContext();
   
-  // 🔥 Ambil data real-time
   const realtimeData = useMemo(() => {
     const targetId = item?.id || tempatId;
     if (!targetId) return null;
     return getAIContext(targetId);
   }, [item?.id, tempatId, getAIContext]);
   
-  // 🔥 Ambil laporan terbaru (dari Uploader)
   const latestReport = useMemo(() => {
-    // Prioritaskan laporan recent dari realtimeData
     if (realtimeData?.recentReports?.length > 0) {
       return realtimeData.recentReports[0];
     }
@@ -34,7 +31,6 @@ export default function StatusIsland({
     return null;
   }, [realtimeData, item]);
   
-  // 🔥 Data dari laporan
   const kondisi = latestReport?.tipe || item?.latest_condition || "Normal";
   const deskripsi = latestReport?.deskripsi || latestReport?.content;
   const trafficCondition = latestReport?.traffic_condition;
@@ -44,36 +40,34 @@ export default function StatusIsland({
     (new Date() - new Date(latestReport.created_at)) < (2 * 60 * 60 * 1000);
   const totalLaporanHariIni = realtimeData?.todayStats?.total || 0;
   
-  // 🔥 Tentukan tampilan berdasarkan kondisi
+  // 🔥 UPGRADE: Narasi lebih hidup (tanpa ubah logic)
   const getDisplay = () => {
-    // Prioritas: Lalu lintas > Antri > Ramai > Sepi > Normal
     if (trafficCondition) {
       if (trafficCondition === "Macet") {
-        return { icon: "🚦", text: "Macet", desc: "Waspada di jalan", color: "text-rose-500" };
+        return { icon: "🚦", text: "Lalu lintas padat sekarang", desc: "Waspada, kendaraan tersendat", color: "text-rose-500" };
       }
       if (trafficCondition === "Ramai") {
-        return { icon: "🚗", text: "Lalu lintas ramai", desc: "Volume kendaraan tinggi", color: "text-amber-500" };
+        return { icon: "🚗", text: "Lalu lintas mulai ramai", desc: "Volume kendaraan meningkat", color: "text-amber-500" };
       }
       if (trafficCondition === "Lancar") {
-        return { icon: "🛵", text: "Lalu lintas lancar", desc: "Jalanan lengang", color: "text-emerald-500" };
+        return { icon: "🛵", text: "Jalanan masih lancar", desc: "Belum terlihat kepadatan", color: "text-emerald-500" };
       }
     }
     
     if (kondisi === "Sepi") {
-      return { icon: "🍃", text: "Suasana tenang", desc: "Cocok buat yang mau santai", color: "text-emerald-500" };
+      return { icon: "🍃", text: "Lagi sepi sekarang", desc: "Belum banyak aktivitas terlihat", color: "text-emerald-500" };
     }
     if (kondisi === "Ramai") {
-      return { icon: "🏃", text: "Lagi rame", desc: "Banyak warga nongkrong", color: "text-amber-500" };
+      return { icon: "🏃", text: "Ramai nongkrong sekarang", desc: "Banyak warga lagi kumpul di sini", color: "text-amber-500" };
     }
     if (kondisi === "Antri") {
-      return { icon: "⏳", text: "Ada antrian", desc: "Siap-siap sabar ya", color: "text-rose-500" };
+      return { icon: "⏳", text: "Antrian mulai terlihat", desc: "Beberapa warga sudah menunggu", color: "text-rose-500" };
     }
-    return { icon: "📍", text: "Normal", desc: "Kondisi seperti biasa", color: "text-gray-500" };
+    return { icon: "📍", text: "Kondisi masih normal", desc: "Belum ada perubahan signifikan", color: "text-gray-500" };
   };
   
   const display = getDisplay();
   
-  // Helper fungsi
   function getWaktuRelative(createdAt) {
     if (!createdAt) return null;
     const now = new Date();
@@ -99,8 +93,10 @@ export default function StatusIsland({
     >
       <div className="w-full">
         <div className={`flex items-center justify-between ${isExpanded ? 'mb-4 border-b border-white/5 pb-3' : ''}`}>
+          
           <div className="flex items-center gap-3 overflow-hidden flex-1">
-            {/* Indikator warna */}
+            
+            {/* indikator */}
             <div className="relative shrink-0">
               <div className={`h-2 w-2 rounded-full ${display.color.replace('text', 'bg')}`} />
               <div className={`absolute inset-0 h-2 w-2 rounded-full ${display.color.replace('text', 'bg')} animate-ping opacity-75`} />
@@ -112,20 +108,20 @@ export default function StatusIsland({
             
             {showLiveBadge && (
               <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-cyan-500 text-white animate-pulse">
-                LIVE
+                🔴 LANGSUNG
               </span>
             )}
             
             {totalLaporanHariIni > 0 && !isExpanded && (
               <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full ${theme?.isMalam ? 'bg-white/10 text-white/60' : 'bg-gray-100 text-gray-500'}`}>
-                {totalLaporanHariIni} laporan
+                👥 {totalLaporanHariIni}
               </span>
             )}
           </div>
           
           <div className={`flex items-center gap-2 px-2 py-1 rounded-lg shrink-0 ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
             <span className={`text-[8px] font-black uppercase opacity-60 ${theme.statusText || 'text-gray-500'}`}>
-              {isExpanded ? 'Tutup' : 'Detail'}
+              {isExpanded ? 'Sembunyikan' : 'Lihat'}
             </span>
             <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} className="text-[10px]">▼</motion.span>
           </div>
@@ -140,54 +136,58 @@ export default function StatusIsland({
               transition={{ duration: 0.3 }}
             >
               <div className="space-y-3 py-1">
-                {/* Badge sumber */}
+                
+                {/* sumber */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border border-cyan-500/50 text-cyan-500`}>
-                    {latestReport?.user_id ? "LIVE WARGA" : "SISTEM"}
+                  <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-cyan-500/50 text-cyan-500">
+                    {latestReport?.user_id ? "LAPORAN WARGA" : "SISTEM"}
                   </span>
                   
                   {showLiveBadge && (
                     <span className="text-[7px] font-black px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-500 animate-pulse">
-                      ● UPDATE BARU
+                      ● BARU SAJA
                     </span>
                   )}
                 </div>
                 
-                {/* Nama pelapor */}
+                {/* user */}
                 {userName && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-bold uppercase tracking-wider opacity-60">Dari:</span>
+                    <span className="text-[9px] font-bold uppercase opacity-60">👤 Dilaporkan oleh</span>
                     <span className={`text-[11px] font-bold ${display.color}`}>@{userName}</span>
                   </div>
                 )}
                 
-                {/* Deskripsi cerita dari Uploader */}
+                {/* cerita */}
                 {deskripsi && (
-                  <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText || 'text-gray-700'}`}>
-                    "{deskripsi}"
-                  </p>
+                  <div>
+                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Cerita dari lapangan</p>
+                    <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText || 'text-gray-700'}`}>
+                      "{deskripsi}"
+                    </p>
+                  </div>
                 )}
                 
-                {/* Info tambahan */}
+                {/* footer */}
                 <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
-                  <p className={`text-[9px] font-bold opacity-40 uppercase tracking-tighter ${theme.statusText || 'text-gray-500'}`}>
-                    Update {waktuUpdate}
+                  <p className={`text-[9px] font-bold opacity-40 uppercase ${theme.statusText || 'text-gray-500'}`}>
+                    🕒 Dilaporkan {waktuUpdate}
                   </p>
-                  <span className={`text-[9px] font-black underline opacity-60 uppercase ${display.color}`}>
+                  <span className={`text-[9px] font-black opacity-60 uppercase ${display.color}`}>
                     {display.icon} {display.desc}
                   </span>
                 </div>
                 
-                {/* Statistik hari ini */}
+                {/* statistik */}
                 {totalLaporanHariIni > 1 && (
                   <div className={`mt-3 pt-2 border-t ${theme.isMalam ? 'border-white/10' : 'border-gray-100'}`}>
-                    <p className="text-[8px] font-bold uppercase tracking-wider opacity-50 mb-1">
-                      📊 {totalLaporanHariIni} laporan hari ini
+                    <p className="text-[8px] font-bold uppercase opacity-50 mb-1">
+                      👥 {totalLaporanHariIni} warga melaporkan hari ini
                     </p>
                     <div className="flex gap-2 text-[9px] flex-wrap">
-                      {realtimeData?.todayStats?.ramai > 0 && <span className="text-amber-500">🏃 {realtimeData.todayStats.ramai} ramai</span>}
-                      {realtimeData?.todayStats?.antri > 0 && <span className="text-rose-500">⏳ {realtimeData.todayStats.antri} antri</span>}
-                      {realtimeData?.todayStats?.tenang > 0 && <span className="text-emerald-500">🍃 {realtimeData.todayStats.tenang} tenang</span>}
+                      {realtimeData?.todayStats?.ramai > 0 && <span className="text-amber-500">🏃 {realtimeData.todayStats.ramai}</span>}
+                      {realtimeData?.todayStats?.antri > 0 && <span className="text-rose-500">⏳ {realtimeData.todayStats.antri}</span>}
+                      {realtimeData?.todayStats?.tenang > 0 && <span className="text-emerald-500">🍃 {realtimeData.todayStats.tenang}</span>}
                     </div>
                   </div>
                 )}
