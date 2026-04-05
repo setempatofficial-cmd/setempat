@@ -25,6 +25,9 @@ export default function StatusIsland({
     if (realtimeData?.recentReports?.length > 0) {
       return realtimeData.recentReports[0];
     }
+    if (item?.laporan_terbaru?.[0]) {
+      return item.laporan_terbaru[0];
+    }
     if (item?.laporan_warga?.[0]) {
       return item.laporan_warga[0];
     }
@@ -40,7 +43,6 @@ export default function StatusIsland({
     (new Date() - new Date(latestReport.created_at)) < (2 * 60 * 60 * 1000);
   const totalLaporanHariIni = realtimeData?.todayStats?.total || 0;
   
-  // 🔥 UPGRADE: Narasi lebih hidup (tanpa ubah logic)
   const getDisplay = () => {
     if (trafficCondition) {
       if (trafficCondition === "Macet") {
@@ -82,24 +84,31 @@ export default function StatusIsland({
   }
   
   const showLiveBadge = isRecent && latestReport?.user_id;
+
+  // Variabel bantu untuk warna background indikator
+  const bgColorIndicator = display.color.replace('text', 'bg');
   
   return (
     <div 
       onClick={() => setIsExpanded(!isExpanded)}
       className={`relative overflow-hidden transition-all duration-500 cursor-pointer
         ${theme.statusBg || theme?.card || 'bg-white'} border ${theme.softBorder || theme.border || 'border-gray-100'} rounded-[28px]
-        ${isExpanded ? 'p-6 shadow-inner' : 'h-14 px-5 flex items-center shadow-sm'}
+        ${isExpanded ? 'p-6 shadow-xl' : 'h-14 px-5 flex items-center shadow-sm'}
       `}
     >
-      <div className="w-full">
+      {/* Glow Effect Tersembunyi (Hanya muncul saat Malam) */}
+      {theme.isMalam && (
+        <div className={`absolute -right-4 -top-4 w-20 h-20 blur-3xl opacity-20 ${bgColorIndicator} pointer-events-none`} />
+      )}
+
+      <div className="w-full relative z-10">
         <div className={`flex items-center justify-between ${isExpanded ? 'mb-4 border-b border-white/5 pb-3' : ''}`}>
           
           <div className="flex items-center gap-3 overflow-hidden flex-1">
-            
-            {/* indikator */}
+            {/* Indikator: Tetap pakai logika replace text ke bg kamu */}
             <div className="relative shrink-0">
-              <div className={`h-2 w-2 rounded-full ${display.color.replace('text', 'bg')}`} />
-              <div className={`absolute inset-0 h-2 w-2 rounded-full ${display.color.replace('text', 'bg')} animate-ping opacity-75`} />
+              <div className={`h-2.5 w-2.5 rounded-full ${bgColorIndicator} shadow-sm`} />
+              <div className={`absolute inset-0 h-2.5 w-2.5 rounded-full ${bgColorIndicator} animate-ping opacity-60`} />
             </div>
             
             <p className={`text-[11px] font-[1000] uppercase tracking-wider truncate ${display.color}`}>
@@ -119,9 +128,9 @@ export default function StatusIsland({
             )}
           </div>
           
-          <div className={`flex items-center gap-2 px-2 py-1 rounded-lg shrink-0 ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
+          <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl shrink-0 ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
             <span className={`text-[8px] font-black uppercase opacity-60 ${theme.statusText || 'text-gray-500'}`}>
-              {isExpanded ? 'Sembunyikan' : 'Lihat'}
+              {isExpanded ? 'Hide' : 'Lihat'}
             </span>
             <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} className="text-[10px]">▼</motion.span>
           </div>
@@ -136,13 +145,10 @@ export default function StatusIsland({
               transition={{ duration: 0.3 }}
             >
               <div className="space-y-3 py-1">
-                
-                {/* sumber */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-cyan-500/50 text-cyan-500">
-                    {latestReport?.user_id ? "LAPORAN WARGA" : "SISTEM"}
+                    {latestReport?.user_id ? "LAPORAN WARGA" : (latestReport?.source_platform === "news" ? "BERITA" : "SISTEM")}
                   </span>
-                  
                   {showLiveBadge && (
                     <span className="text-[7px] font-black px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-500 animate-pulse">
                       ● BARU SAJA
@@ -150,7 +156,6 @@ export default function StatusIsland({
                   )}
                 </div>
                 
-                {/* user */}
                 {userName && (
                   <div className="flex items-center gap-2">
                     <span className="text-[9px] font-bold uppercase opacity-60">👤 Dilaporkan oleh</span>
@@ -158,9 +163,8 @@ export default function StatusIsland({
                   </div>
                 )}
                 
-                {/* cerita */}
                 {deskripsi && (
-                  <div>
+                  <div className={`p-3 rounded-2xl ${theme.isMalam ? 'bg-white/5' : 'bg-gray-50'}`}>
                     <p className="text-[9px] font-black uppercase opacity-40 mb-1">Cerita dari lapangan</p>
                     <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText || 'text-gray-700'}`}>
                       "{deskripsi}"
@@ -168,7 +172,6 @@ export default function StatusIsland({
                   </div>
                 )}
                 
-                {/* footer */}
                 <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
                   <p className={`text-[9px] font-bold opacity-40 uppercase ${theme.statusText || 'text-gray-500'}`}>
                     🕒 Dilaporkan {waktuUpdate}
@@ -178,7 +181,6 @@ export default function StatusIsland({
                   </span>
                 </div>
                 
-                {/* statistik */}
                 {totalLaporanHariIni > 1 && (
                   <div className={`mt-3 pt-2 border-t ${theme.isMalam ? 'border-white/10' : 'border-gray-100'}`}>
                     <p className="text-[8px] font-bold uppercase opacity-50 mb-1">

@@ -10,13 +10,14 @@ import FeedActions from "./FeedActions";
 import StatusIsland from "./StatusIsland";
 import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
-
+import AIButton from "@/components/AIButton";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useClock } from "../../../hooks/useClock";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
+
 // ==================== ANIMATION CONSTANTS ====================
 const PING_ANIM = {
   animate: { opacity: [0.5, 1, 0.5] },
@@ -90,10 +91,10 @@ function FeedCard({
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
   // 🔥 Fetch external signals dari tabel external_signals
-const { externalSignals, loading: externalLoading, count: externalCount } = useExternalSignals(tempatId, {
-  limit: 10,
-  verifiedOnly: false
-});
+  const { externalSignals, loading: externalLoading, count: externalCount } = useExternalSignals(tempatId, {
+    limit: 10,
+    verifiedOnly: false
+  });
   // 🔥 Fungsi refresh lokal
   const handleLocalRefresh = useCallback(() => {
     console.log("🔄 FeedCard refresh triggered");
@@ -235,16 +236,18 @@ const { externalSignals, loading: externalLoading, count: externalCount } = useE
       .filter((p) => p && typeof p === "string" && p.startsWith("http"))
       .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
   }, [safeItem.photos]);
+
   // 🔥 Gabungkan laporan warga (internal) + external signals
-const allSignals = useMemo(() => {
-  const internal = localLaporanWarga || [];
-  const external = externalSignals || [];
-  
-  const combined = [...internal, ...external];
-  return combined.sort((a, b) => 
-    new Date(b.created_at) - new Date(a.created_at)
-  );
-}, [localLaporanWarga, externalSignals]);
+  const allSignals = useMemo(() => {
+    const internal = localLaporanWarga || [];
+    const external = externalSignals || [];
+    
+    const combined = [...internal, ...external];
+    return combined.sort((a, b) => 
+      new Date(b.created_at) - new Date(a.created_at)
+    );
+  }, [localLaporanWarga, externalSignals]);
+
   // --- Callbacks ---
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
@@ -316,6 +319,31 @@ const allSignals = useMemo(() => {
     ? "ramai"
     : "biasa";
 
+  // 🔥 Definisi statusDisplay untuk AIButton berdasarkan itemStatusClass
+  const statusDisplay = useMemo(() => {
+    const statusMap = {
+      viral: {
+        text: "VIRAL",
+        bg: "bg-red-500/20",
+        border: "border-red-500/30",
+        dot: "bg-red-500",
+      },
+      ramai: {
+        text: "RAME",
+        bg: "bg-yellow-500/20",
+        border: "border-yellow-500/30",
+        dot: "bg-yellow-500",
+      },
+      biasa: {
+        text: "NORMAL",
+        bg: "bg-emerald-500/20",
+        border: "border-emerald-500/30",
+        dot: "bg-emerald-500",
+      },
+    };
+    return statusMap[itemStatusClass] || statusMap.biasa;
+  }, [itemStatusClass]);
+
   return (
     <div
       ref={cardRef}
@@ -337,10 +365,21 @@ const allSignals = useMemo(() => {
         }}
         className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.border} shadow-xl flex flex-col`}
       >
-        {/* Title */}
-        <div className="px-6 pt-5 pb-1">
+        {/* STATUS ISLAND - Paling Atas (sebagai Headline utama) */}
+        <div className="px-5 pt-5">
+          <StatusIsland
+            item={safeItem}
+            theme={theme}
+            isExpanded={isExpanded}
+            setIsExpanded={setIsExpanded}
+            jumlahWarga={totalSaksi}
+          />
+        </div>
+
+        {/* Title - Diperkecil */}
+        <div className="px-6 pt-3 pb-2">
           <h2
-            className={`text-[17px] font-[1000] italic leading-tight tracking-tight uppercase ${theme.text} line-clamp-2`}
+            className={`text-[14px] font-semibold leading-snug ${theme.text} opacity-80 line-clamp-2`}
           >
             {headline}
           </h2>
@@ -381,16 +420,8 @@ const allSignals = useMemo(() => {
           </div>
         </div>
 
-        {/* Status Island + Live Insight */}
-        <div className="px-5 mb-3 space-y-1.5">
-          <StatusIsland
-            item={safeItem}
-            theme={theme}
-            isExpanded={isExpanded}
-            setIsExpanded={setIsExpanded}
-            jumlahWarga={totalSaksi}
-          />
-
+        {/* Live Insight - Dipisah di paling bawah */}
+        <div className="px-5 pb-5">
           <div
             className={`${theme.statusBg} rounded-[20px] p-1.5 pl-3 border ${theme.border} flex items-center justify-between gap-3 shadow-inner`}
           >
@@ -426,25 +457,25 @@ const allSignals = useMemo(() => {
             />
 
             {/* Dynamic Stamp Validator */}
-            <div className="absolute bottom-4 left-4 z-50 select-none">
+            <div className="absolute bottom-3 left-4 z-50 select-none">
               <AnimatePresence mode="wait">
                 {!isSesuai ? (
                   <motion.button
                     key="stamp-btn"
                     onClick={handleSesuai}
-                    whileTap={{ scale: 0.9, y: 4 }}
-                    initial={{ opacity: 0, scale: 0.85 }}
+                    whileTap={{ scale: 0.95, y: 2 }}
+                    initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 1.1, filter: "blur(8px)" }}
+                    exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                    className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/70 border border-white/20 backdrop-blur-lg text-white shadow-xl hover:bg-black/80 transition-all active:scale-95"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/60 border border-white/10 backdrop-blur-md text-white shadow-lg active:bg-black/80 transition-all"
                   >
-                    <div className="text-2xl">🗃️</div>
+                    <div className="text-Lg">🗃️</div>
                     <div className="flex flex-col leading-none text-left">
-                      <span className="text-[11px] font-[1000] uppercase tracking-[0.12em]">
-                        SESUAI?
+                      <span className="text-[9px] font-[1000] uppercase tracking-[0.12em]">
+                        KONDISI SESUAI?
                       </span>
-                      <span className="text-[7.5px] font-bold text-white/60">
+                      <span className="text-[6.5px] font-bold text-white/50">
                         {totalSaksi} Saksi
                       </span>
                     </div>
@@ -452,27 +483,27 @@ const allSignals = useMemo(() => {
                 ) : (
                   <motion.div
                     key="sah-watermark"
-                    initial={{ opacity: 0, scale: 1.8, rotate: -25 }}
+                    initial={{ opacity: 0, scale: 1.5, rotate: -25 }}
                     animate={{ opacity: 1, scale: 1, rotate: -12 }}
-                    transition={{ type: "spring", stiffness: 350, damping: 18, delay: 0.1 }}
-                    className="relative w-20 h-20 flex items-center justify-center rounded-full border-[3px] border-violet-500/70 backdrop-blur-md shadow-inner"
+                    transition={{ type: "spring", stiffness: 350, damping: 20 }}
+                    className="relative w-14 h-14 flex items-center justify-center rounded-full border-[2px] border-violet-500/60 backdrop-blur-md shadow-inner"
                   >
                     <motion.div
-                      animate={{ opacity: [0.3, 0.6, 0.3] }}
+                      animate={{ opacity: [0.2, 0.4, 0.2] }}
                       transition={{ repeat: Infinity, duration: 2.2 }}
-                      className="absolute inset-0 rounded-full bg-violet-600/10"
+                      className="absolute inset-0 rounded-full bg-violet-600/5"
                     />
                     <div className="flex flex-col items-center text-center -rotate-[12deg] scale-90">
-                      <span className="text-[15px] font-black uppercase tracking-wider text-violet-400 drop-shadow-sm">
+                      <span className="text-[14px] font-black uppercase tracking-wider text-violet-400 drop-shadow-sm">
                         SAH!
                       </span>
-                      <div className="w-10 h-px bg-violet-500/40 my-1" />
-                      <span className="text-[7.5px] font-bold text-violet-300/90 tracking-tighter">
+                      <div className="w-8 h-px bg-violet-500/30 my-0.5" />
+                      <span className="text-[7px] font-bold text-violet-300/80 tracking-tighter">
                         SETEMPAT.ID
                       </span>
                       <span className="text-[6.5px] text-violet-500/70 -mt-0.5">INDONESIA</span>
                     </div>
-                    <div className="absolute bottom-1 text-base opacity-70">💮</div>
+                    <div className="absolute -bottom-0.5 text-[10px] opacity-60">💮</div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -529,53 +560,21 @@ const allSignals = useMemo(() => {
             </span>
           </div>
 
-          {/* AI Button */}
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            whileHover={{ y: -1 }}
-            onClick={handleOpenAIModal}
-            className={`group relative w-full flex items-center justify-between px-4 py-3 rounded-[22px] border transition-all duration-300 shadow-md hover:shadow-xl overflow-hidden ${theme.accentBg} border-white/20 text-white`}
-          >
-            <motion.div
-              {...SHIMMER_ANIM}
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent skew-x-12 pointer-events-none"
-            />
+          <AIButton 
+            display={statusDisplay}
+            theme={theme}
+            handleOpenAIModal={handleOpenAIModal}
+          />
 
-            <div className="flex items-center gap-3 relative z-10">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-base bg-white/20 backdrop-blur-md shadow-inner">
-                ✨
-              </div>
-              <div className="flex flex-col items-start leading-tight">
-                <span className="text-[11px] font-[900] uppercase tracking-wider">
-                  TANYA AKAMSI AI
-                </span>
-                <span className="text-[7.5px] font-bold opacity-70 uppercase tracking-tight">
-                  Ringkasan & Analisis Lokasi
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 relative z-10 bg-black/20 px-2.5 py-1.5 rounded-xl border border-white/10 group-hover:bg-black/30 transition-colors">
-              <span className="text-[9px] font-black italic tracking-tighter uppercase">
-                ASK
-              </span>
-              <motion.div
-                animate={{ opacity: [0.4, 1, 0.4] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-                className="w-1 h-1 rounded-full bg-emerald-400"
-              />
-            </div>
-          </motion.button>
+          <StoryModal
+            isOpen={isStoryModalOpen}
+            onClose={handleCloseStoryModal}
+            stories={activeStories}
+            theme={theme}
+            namaTempat={safeItem.name}
+          />
         </div>
       </motion.div>
-
-      <StoryModal
-        isOpen={isStoryModalOpen}
-        onClose={handleCloseStoryModal}
-        stories={activeStories}
-        theme={theme}
-        namaTempat={safeItem.name}
-      />
     </div>
   );
 }

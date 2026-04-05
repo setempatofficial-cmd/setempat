@@ -17,6 +17,7 @@ import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
 import LaporanWarga from "../layout/LaporanWarga";
 import FormLaporanAktif from "@/app/components/modals/FormLaporanAktif";
+import FeedCardWrapper from "@/components/FeedCardWrapper";
 
 // Lazy load heavy modals
 const AIModal = React.lazy(() => import("./AIModal"));
@@ -859,29 +860,35 @@ export default function FeedContent() {
             <LayoutGroup>
               <motion.div layout className="space-y-2">
                 <AnimatePresence mode="popLayout" initial={false}>
-                  {tempat.map((item, index) => (
-                    <motion.div
-                      key={item.id}
-                      layout
-                      initial={false}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                      ref={index === tempat.length - 1 ? lastCardRef : null}
-                    >
-                      <FeedCard
-                        item={item}
-                        locationReady={locationReady}
-                        location={location}
-                        comments={comments}
-                        selectedPhotoIndex={selectedPhotoIndex}
-                        setSelectedPhotoIndex={setSelectedPhotoIndex}
-                        openAIModal={openAICardModal}
-                        openKomentarModal={openKomentarModal}
-                        onShare={handleShare}
-                      />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+  {tempat.map((item, index) => {
+    const isLast = index === tempat.length - 1;
+    return (
+      <motion.div
+        key={item.id}
+        layout
+        initial={false}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        ref={isLast ? lastCardRef : null}
+        className="mb-6"
+      >
+        <FeedCardWrapper theme={theme}>
+          <FeedCard
+            item={item}
+            locationReady={locationReady}
+            location={location}
+            comments={comments}
+            selectedPhotoIndex={selectedPhotoIndex}
+            setSelectedPhotoIndex={setSelectedPhotoIndex}
+            openAIModal={openAICardModal}
+            openKomentarModal={openKomentarModal}
+            onShare={handleShare}
+          />
+        </FeedCardWrapper>
+      </motion.div>
+    );
+  })}
+</AnimatePresence>
               </motion.div>
             </LayoutGroup>
           </React.Suspense>

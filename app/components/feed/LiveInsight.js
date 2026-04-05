@@ -3,13 +3,15 @@
 import { useState, useEffect, useMemo } from "react";
 import { formatRelativeTime } from "@/lib/feedEngine";
 import { useDataContext } from "@/contexts/DataContext";
+import { generateFallbackInsight } from "@/lib/insightTone";
 
 export default function LiveInsight({ 
   signals, 
   theme, 
   locationName = "Sekitar", 
   currentUser = null,
-  tempatId = null
+  tempatId = null,
+  placeCategory = "umum"  // tambahan prop untuk kategori tempat
 }) {
   const [index, setIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
@@ -58,23 +60,25 @@ export default function LiveInsight({
       };
     };
 
+    // Jika tidak ada sinyal sama sekali, gunakan fallback AI dengan carousel
     if (!effectiveSignals?.length) {
-      return [{
-        text: `Monitor Kondisi di ${locationName || "Sekitar"}. Ada info baru?`,
-        author: "AI SETEMPAT",
-        icon: "✨",
-        time: "Live",
-        isAi: true,
-        sourceLabel: "SYSTEM",
-        sourceType: "system"
-      }];
+      return [generateFallbackInsight(locationName)];
+
     }
 
-    return effectiveSignals
-      .filter(item => {
-        const date = new Date(item.created_at || item.timestamp);
-        return !isNaN(date) && (Date.now() - date.getTime()) <= 86400000;
-      })
+    // Filter sinyal 24 jam terakhir
+    const recentSignals = effectiveSignals.filter(item => {
+      const date = new Date(item.created_at || item.timestamp);
+      return !isNaN(date) && (Date.now() - date.getTime()) <= 86400000;
+    });
+
+    // Jika setelah filter kosong, gunakan fallback AI juga
+    if (recentSignals.length === 0) {
+      return [generateFallbackInsight(locationName)];
+    }
+
+    // Ada sinyal, proses seperti biasa
+    return recentSignals
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 5)
       .map(s => {
@@ -100,7 +104,7 @@ export default function LiveInsight({
           isAi: !!(s.is_ai || s.deskripsi_ai)
         };
       });
-  }, [effectiveSignals, locationName, currentUser]);
+  }, [effectiveSignals, locationName, currentUser, placeCategory]);
 
   // --- LOGIC: AUTO-SLIDE ---
   useEffect(() => {
@@ -120,7 +124,6 @@ export default function LiveInsight({
 
   // --- STYLING HELPERS ---
   const getThemeColor = () => {
-    // Optional chaining (?.) digunakan di sini untuk keamanan ekstra
     if (current?.tipe === 'Ramai') return 'bg-yellow-500';
     if (current?.tipe === 'Antri') return 'bg-rose-500';
     if (current?.tipe === 'Sepi') return 'bg-emerald-500';
@@ -167,7 +170,6 @@ export default function LiveInsight({
           {/* Footer Area: Info & Progress Bar */}
           <div className="mt-4 flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              {/* Sumber Info (Di bawah) */}
               <div className="flex items-center gap-1.5 opacity-80">
                 <span className="text-xs">{current?.icon}</span>
                 <span className={`text-[9px] font-black tracking-[0.1em] ${
@@ -179,8 +181,6 @@ export default function LiveInsight({
                   {current?.sourceLabel}
                 </span>
               </div>
-
-              {/* Status / People Count */}
               <span className={`text-[9px] font-black tracking-widest ${
                 current?.tipe === 'Ramai' ? 'text-yellow-500' : 
                 current?.tipe === 'Antri' ? 'text-rose-500' : 
@@ -190,7 +190,6 @@ export default function LiveInsight({
               </span>
             </div>
 
-            {/* Progress Bar Dinamis */}
             <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
               <div
                 key={index}
