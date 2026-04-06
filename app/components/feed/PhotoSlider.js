@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin, Zap, ChevronLeft, ChevronRight } from "lucide-react";
 import Uploader from "@/components/Uploader";
@@ -7,26 +7,7 @@ import UploaderAdmin from "@/components/UploaderAdmin";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
 import { useClock } from "@/hooks/useClock";
-
-// ── KOMPONEN GAMBAR OPTIMAL ──
-const OptimizedImage = ({ src, alt, className }) => {
-  const [isLoaded, setIsLoaded] = useState(false);
-  if (!src) return <div className={`${className} bg-zinc-900`} />;
-  
-  return (
-    <div className="relative w-full h-full overflow-hidden">
-      {!isLoaded && <div className="absolute inset-0 bg-zinc-800 animate-pulse" />}
-      <img
-        src={src}
-        alt={alt}
-        className={`${className} ${isLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-105'} transition-all duration-700 ease-out`}
-        style={{ objectFit: 'cover' }}
-        loading="lazy"
-        onLoad={() => setIsLoaded(true)}
-      />
-    </div>
-  );
-};
+import OptimizedMedia from "@/components/OptimizedMedia";
 
 // Helper untuk mendapatkan timeKey berdasarkan label waktu
 const getTimeKeyFromLabel = (timeLabel) => {
@@ -42,7 +23,7 @@ const getTimeKeyFromLabel = (timeLabel) => {
   return 'malam';
 };
 
-// Fungsi untuk menormalisasi foto official (mendukung array dan objek)
+// Fungsi untuk menormalisasi foto official
 const normalizeOfficialPhotos = (photos) => {
   if (!photos) return { pagi: [], siang: [], sore: [], malam: [] };
   
@@ -70,6 +51,7 @@ export default function PhotoSlider({
   namaTempat = "",
   isHujan = false,
   onUploadSuccess,
+  priority = false, // 🔥 NEW: card pertama langsung load
 }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -78,26 +60,47 @@ export default function PhotoSlider({
   const [isLoading, setIsLoading] = useState(true);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [shouldLoad, setShouldLoad] = useState(priority); // 🔥 NEW
+  const sliderRef = useRef(null); // 🔥 NEW
   
-  // 🔥 Dapatkan timeKey dari label waktu
-  const currentTimeKey = useMemo(() => {
-    return getTimeKeyFromLabel(currentTimeLabel);
-  }, [currentTimeLabel]);
+  const currentTimeKey = useMemo(() => getTimeKeyFromLabel(currentTimeLabel), [currentTimeLabel]);
   
-  // Reset index saat waktu berubah
   useEffect(() => {
     setCurrentPhotoIndex(0);
   }, [currentTimeKey]);
 
-  // CEK AKSES ADMIN
+  // 🔥 INTERSECTION OBSERVER
+  useEffect(() => {
+    if (priority) {
+      setShouldLoad(true);
+      return;
+    }
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !shouldLoad) {
+            setShouldLoad(true);
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: "300px" }
+    );
+    
+    if (sliderRef.current) observer.observe(sliderRef.current);
+    return () => {
+      if (sliderRef.current) observer.unobserve(sliderRef.current);
+    };
+  }, [priority, shouldLoad]);
+
   const hasControl = useMemo(() => {
     const emailTarget = "setempatofficial@gmail.com";
     return user?.email?.toLowerCase().trim() === emailTarget;
   }, [user]);
 
-  // FETCH DATA OFFICIAL PHOTOS
   const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId) return;
+    if (!tempatId || !shouldLoad) return;
     try {
       const { data, error } = await supabase
         .from("tempat")
@@ -113,53 +116,43 @@ export default function PhotoSlider({
     } finally {
       setIsLoading(false);
     }
-  }, [tempatId]);
+  }, [tempatId, shouldLoad]);
 
   useEffect(() => {
+    if (!shouldLoad) return;
     setIsLoading(true);
     fetchOfficialPhotos();
-  }, [fetchOfficialPhotos, refreshKey]);
+  }, [fetchOfficialPhotos, refreshKey, shouldLoad]);
 
-  // 🔥 REAL-TIME: Subscribe ke perubahan tabel tempat
   useEffect(() => {
-    if (!tempatId) return;
+    if (!tempatId || !shouldLoad) return;
     
     const channel = supabase
       .channel(`tempat_${tempatId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'tempat',
-          filter: `id=eq.${tempatId}`
-        },
-        (payload) => {
-          // Refresh foto saat ada update
-          if (payload.new?.photos) {
-            const normalized = normalizeOfficialPhotos(payload.new.photos);
-            setOfficialPhotos(normalized);
-          }
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'tempat',
+        filter: `id=eq.${tempatId}`
+      }, (payload) => {
+        if (payload.new?.photos) {
+          const normalized = normalizeOfficialPhotos(payload.new.photos);
+          setOfficialPhotos(normalized);
         }
-      )
+      })
       .subscribe();
     
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [tempatId]);
+    return () => supabase.removeChannel(channel);
+  }, [tempatId, shouldLoad]);
 
-  // 🔥 Handler untuk refresh setelah upload
   const handleUploadSuccess = useCallback((newPhoto) => {
-    // Trigger refresh official photos
     setRefreshKey(prev => prev + 1);
-    // Panggil callback parent jika ada
     onUploadSuccess?.(newPhoto);
   }, [onUploadSuccess]);
 
-  // 🔥 Dapatkan daftar foto berdasarkan waktu saat ini (TANPA FALLBACK)
   const currentPhotos = useMemo(() => {
-    // PRIORITAS 1: Foto warga (story) fresh < 24 jam
+    if (!shouldLoad) return [];
+    
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -167,7 +160,6 @@ export default function PhotoSlider({
         return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
       });
       if (freshWargaPhotos.length > 0) {
-        // Urutkan dari terbaru
         const sorted = [...freshWargaPhotos].sort((a, b) => {
           const dateA = a.created_at ? new Date(a.created_at) : 0;
           const dateB = b.created_at ? new Date(b.created_at) : 0;
@@ -182,10 +174,8 @@ export default function PhotoSlider({
       }
     }
     
-    // PRIORITAS 2: Foto official sesuai waktu saat ini
     const timePhotos = officialPhotos[currentTimeKey];
     if (timePhotos && Array.isArray(timePhotos) && timePhotos.length > 0) {
-      // Urutkan dari terbaru (jika ada created_at)
       const sorted = [...timePhotos].sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at) : 0;
         const dateB = b.created_at ? new Date(b.created_at) : 0;
@@ -199,12 +189,9 @@ export default function PhotoSlider({
       }));
     }
     
-    // 🔥 TIDAK ADA FALLBACK KE official
-    // Kembalikan array kosong -> tampilkan placeholder
     return [];
-  }, [photos, officialPhotos, currentTimeKey]);
+  }, [photos, officialPhotos, currentTimeKey, shouldLoad]);
 
-  // 🔥 Handler slider
   const nextPhoto = useCallback(() => {
     if (currentPhotos.length <= 1) return;
     setCurrentPhotoIndex((prev) => (prev + 1) % currentPhotos.length);
@@ -218,27 +205,55 @@ export default function PhotoSlider({
   const currentPhoto = currentPhotos[currentPhotoIndex];
   const hasMultiplePhotos = currentPhotos.length > 1;
 
+  // 🔥 SKELETON saat belum waktunya load
+  if (!shouldLoad) {
+    return (
+      <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-800/50 animate-pulse flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+          <p className="text-[8px] text-zinc-500">Mempersiapkan...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) return (
-    <div className="relative h-full w-full rounded-[30px] bg-zinc-900 animate-pulse flex items-center justify-center">
+    <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-900 animate-pulse flex items-center justify-center">
       <Zap className="text-zinc-700" size={18} />
     </div>
   );
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
-      
-      {/* BACKGROUND / SLIDER */}
+    <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
       <div className="absolute inset-0 z-0">
         {currentPhoto?.url ? (
           <>
-            <OptimizedImage src={currentPhoto.url} className="w-full h-full" alt={namaTempat} />
+            <OptimizedMedia 
+              src={currentPhoto.url} 
+              className="w-full h-full" 
+              alt={namaTempat}
+              autoPlay={true}
+              muted={true}
+              loop={true}
+            />
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
-            
-            {/* CAPTION jika ada */}
             {currentPhoto.caption && (
-              <div className="absolute bottom-4 left-4 right-4 z-10">
-                <p className="text-white/80 text-xs font-medium bg-black/40 backdrop-blur-sm px-2 py-1 rounded-lg inline-block">
-                  {currentPhoto.caption}
+  <div className="absolute bottom-3 right-3 z-10 max-w-[80%]">
+    <p className="
+      text-white 
+      text-[10px] 
+      tracking-wide
+      font-medium 
+      bg-white/10 
+      backdrop-blur-md 
+      border border-white/20
+      px-2.5 
+      py-1 
+      rounded-full 
+      shadow-sm
+      inline-block
+    ">
+      {currentPhoto.caption}
                 </p>
               </div>
             )}
@@ -253,72 +268,38 @@ export default function PhotoSlider({
         )}
       </div>
 
-      {/* 🔥 SLIDER NAVIGATION */}
       {hasMultiplePhotos && currentPhoto?.url && (
         <>
-          <button
-            onClick={prevPhoto}
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all"
-          >
+          <button onClick={prevPhoto} className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all">
             <ChevronLeft size={16} />
           </button>
-          <button
-            onClick={nextPhoto}
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all"
-          >
+          <button onClick={nextPhoto} className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all">
             <ChevronRight size={16} />
           </button>
-          
-          {/* Indikator titik */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
             {currentPhotos.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentPhotoIndex(idx)}
-                className={`w-1.5 h-1.5 rounded-full transition-all ${
-                  idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'
-                }`}
-              />
+              <button key={idx} onClick={() => setCurrentPhotoIndex(idx)} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`} />
             ))}
           </div>
         </>
       )}
 
-      {/* TOMBOL UPLOAD WARGA (KIRI ATAS) */}
       {!hasControl && (
         <div className="absolute top-4 left-4 z-20">
-          <Uploader 
-            tempatId={tempatId} 
-            namaTempat={namaTempat} 
-            onUploadSuccess={handleUploadSuccess} 
-          />
+          <Uploader tempatId={tempatId} namaTempat={namaTempat} onUploadSuccess={handleUploadSuccess} />
         </div>
       )}
 
-      {/* TOMBOL ADMIN DI TENGAH */}
       {hasControl && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-1">
-            <UploaderAdmin 
-              tempatId={tempatId} 
-              timeLabel={timeLabel} 
-              onRefreshNeeded={() => {
-                setRefreshKey(prev => prev + 1);
-                router.refresh();
-              }} 
-            />
+            <UploaderAdmin tempatId={tempatId} timeLabel={timeLabel} onRefreshNeeded={() => { setRefreshKey(prev => prev + 1); router.refresh(); }} />
           </div>
         </div>
       )}
 
-      {/* HUJAN EFFECT */}
-      {isHujan && (
-        <div className="absolute inset-0 pointer-events-none z-[5] bg-blue-500/5 mix-blend-overlay animate-pulse" />
-      )}
-      
-      {/* Shadow bawah */}
+      {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-blue-500/5 mix-blend-overlay animate-pulse" />}
       <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
-
     </div>
   );
 }

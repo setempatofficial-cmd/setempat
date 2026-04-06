@@ -862,6 +862,7 @@ export default function FeedContent() {
                 <AnimatePresence mode="popLayout" initial={false}>
   {tempat.map((item, index) => {
     const isLast = index === tempat.length - 1;
+    const isPriority = index < 3; 
     return (
       <motion.div
         key={item.id}
@@ -883,6 +884,7 @@ export default function FeedContent() {
             openAIModal={openAICardModal}
             openKomentarModal={openKomentarModal}
             onShare={handleShare}
+            priority={isPriority} 
           />
         </FeedCardWrapper>
       </motion.div>

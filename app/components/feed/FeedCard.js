@@ -61,6 +61,7 @@ function FeedCard({
   openKomentarModal,
   onShare,
   onRefreshNeeded,
+  priority = false,
 }) {
   const router = useRouter();
   
@@ -469,6 +470,7 @@ function FeedCard({
               itemStatus={itemStatusClass}
               theme={theme}
               selectedPhotoIndex={currentPhotoIndex}
+              priority={priority} 
               setSelectedPhotoIndex={setSelectedPhotoIndex}
               onUploadSuccess={handleUploadSuccess}
               onRefreshNeeded={handleLocalRefresh}

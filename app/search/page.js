@@ -56,19 +56,83 @@ class AICache {
 const aiRateLimiter = new RateLimiter(5, 10 * 60 * 1000);
 const aiCache = new AICache(30, 120);
 
-// ── Helper: Ambil thumbnail dari item ─────────────────────────────────
+// ── Helper: Deteksi apakah URL adalah video ─────────────────────────────────
+const isVideoUrl = (url) => {
+  if (!url) return false;
+  const urlLower = url.toLowerCase();
+  return urlLower.includes('.mp4') || 
+         urlLower.includes('.m3u8') || 
+         urlLower.includes('cctv') ||
+         urlLower.includes('stream') ||
+         urlLower.includes('youtube.com') ||
+         urlLower.includes('youtu.be');
+};
+
+// ── Helper: Extract YouTube ID untuk thumbnail ─────────────────────────────────
+const extractYouTubeId = (url) => {
+  if (!url) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([^&?#]+)/,
+    /youtube\.com\/embed\/([^/?]+)/
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+};
+
+// ── Helper: Ambil thumbnail dari item (SUPPORT VIDEO/CCTV dengan placeholder online) ─────────────────────────────────
 const getThumbnail = (item) => {
-  if (item.laporan_terbaru?.[0]?.photo_url) {
+  // Helper untuk mendapatkan URL thumbnail terbaik dari video
+  const getVideoThumbnail = (url) => {
+    if (!url) return null;
+    
+    // YouTube: ambil thumbnail dari YouTube
+    const youtubeId = extractYouTubeId(url);
+    if (youtubeId) {
+      return `https://img.youtube.com/vi/${youtubeId}/mqdefault.jpg`;
+    }
+    
+    // CCTV/Stream/MP4: pakai placeholder ONLINE (tidak perlu file gambar)
+    const urlLower = url.toLowerCase();
+    if (urlLower.includes('.m3u8') || urlLower.includes('cctv') || urlLower.includes('stream')) {
+      return 'https://placehold.co/400x225/1a1a1a/ff0000?text=LIVE+CCTV';
+    }
+    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
+      return 'https://placehold.co/400x225/1a1a1a/3b82f6?text=VIDEO';
+    }
+    
+    return null;
+  };
+  
+  // PRIORITAS 1: Photo dari laporan terbaru (jika bukan video)
+  if (item.laporan_terbaru?.[0]?.photo_url && !isVideoUrl(item.laporan_terbaru[0].photo_url)) {
     return item.laporan_terbaru[0].photo_url;
   }
-  if (item.photos && Array.isArray(item.photos) && item.photos[0] && typeof item.photos[0] === 'string') {
-    return item.photos[0];
+  
+  // PRIORITAS 2: Video dari laporan terbaru (ambil thumbnail)
+  if (item.laporan_terbaru?.[0]?.video_url) {
+    const videoThumb = getVideoThumbnail(item.laporan_terbaru[0].video_url);
+    if (videoThumb) return videoThumb;
   }
-  if (item.photos && Array.isArray(item.photos) && item.photos[0]?.url) {
-    return item.photos[0].url;
+  
+  // PRIORITAS 3: image_url (jika bukan video)
+  if (item.image_url && !isVideoUrl(item.image_url)) {
+    return item.image_url;
   }
-  if (item.image_url) return item.image_url;
-  if (item.photos && typeof item.photos === 'object') {
+  
+  // PRIORITAS 4: Dari photos array (jika ada URL gambar)
+  if (item.photos && Array.isArray(item.photos) && item.photos[0]) {
+    const firstPhoto = item.photos[0];
+    const photoUrl = typeof firstPhoto === 'string' ? firstPhoto : firstPhoto.url;
+    if (photoUrl && !isVideoUrl(photoUrl)) {
+      return photoUrl;
+    }
+  }
+  
+  // PRIORITAS 5: Dari photos berdasarkan waktu (untuk struktur JSONB dengan pagi/siang/sore/malam)
+  if (item.photos && typeof item.photos === 'object' && !Array.isArray(item.photos)) {
     const jam = new Date().getHours();
     let timeKey = "pagi";
     if (jam >= 11 && jam < 15) timeKey = "siang";
@@ -76,11 +140,48 @@ const getThumbnail = (item) => {
     else if (jam >= 18 || jam < 5) timeKey = "malam";
     
     const photoData = item.photos[timeKey];
-    if (photoData && typeof photoData === 'object') return photoData.url;
-    if (photoData && typeof photoData === 'string') return photoData;
-    if (item.photos.official) return item.photos.official;
+    if (photoData) {
+      // Coba ambil URL gambar (bukan video)
+      if (Array.isArray(photoData)) {
+        for (const p of photoData) {
+          const url = typeof p === 'string' ? p : p.url;
+          if (url && !isVideoUrl(url)) {
+            return url;
+          }
+        }
+      } else if (typeof photoData === 'string' && !isVideoUrl(photoData)) {
+        return photoData;
+      } else if (photoData.url && !isVideoUrl(photoData.url)) {
+        return photoData.url;
+      }
+      
+      // Jika semua isinya video, ambil yang pertama (akan dapat placeholder)
+      if (Array.isArray(photoData) && photoData[0]) {
+        const first = photoData[0];
+        const videoUrl = typeof first === 'string' ? first : first.url;
+        const videoThumb = getVideoThumbnail(videoUrl);
+        if (videoThumb) return videoThumb;
+      }
+    }
+    
+    // Fallback ke official
+    if (item.photos.official && !isVideoUrl(item.photos.official)) {
+      return item.photos.official;
+    }
   }
-  return '/placeholder.jpg';
+  
+  // PRIORITAS 6: Cek video_url di laporan lain
+  if (item.laporan_terbaru) {
+    for (const laporan of item.laporan_terbaru) {
+      if (laporan.video_url) {
+        const videoThumb = getVideoThumbnail(laporan.video_url);
+        if (videoThumb) return videoThumb;
+      }
+    }
+  }
+  
+  // LAST RESORT: Placeholder default online
+  return 'https://placehold.co/400x225/1a1a1a/666666?text=NO+IMAGE';
 };
 
 // ── StableGridCard ─────────────────────────────────────────────────
@@ -121,7 +222,7 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false, isNewRep
           className="w-full h-full object-cover" 
           loading="lazy" 
           alt={item.name}
-          onError={(e) => { e.target.src = '/placeholder.jpg'; }}
+          onError={(e) => { e.target.src = 'https://placehold.co/400x225/1a1a1a/666666?text=ERROR'; }}
         />
       </div>
 

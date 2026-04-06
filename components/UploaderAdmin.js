@@ -53,7 +53,7 @@ export default function UploaderAdmin({
         ...currentPhotos,
         [timeTag]: {
           url: url,
-          caption: `Update official ${timeTag}`,
+          caption: `Suasana • ${timeTag}`,
           updated_at: new Date().toISOString(),
         },
         official: url,

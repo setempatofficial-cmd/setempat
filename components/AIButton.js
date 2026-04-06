@@ -20,26 +20,23 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
     const traffic = latestReport?.traffic_condition;
 
     // 3. Mapping kondisi lalu lintas
-    if (traffic === "Macet") return { text: "Carikan jalur alternatif?", isLaporMode: false };
-    if (traffic === "Ramai") return { text: "Cek kenapa jalan ramai?", isLaporMode: false };
-    if (traffic === "Lancar") return { text: "Yakin jalanan lancar?", isLaporMode: false };
+    if (traffic === "Macet") return { text: "Cari jalur alternatif?", isLaporMode: false };
+    if (traffic === "Ramai") return { text: "Kenapa ramai?", isLaporMode: false };
+    if (traffic === "Lancar") return { text: "Yakin lancar?", isLaporMode: false };
 
     // 4. Fallback ke kondisi tempat (Sepi/Ramai/Antri/Normal)
     const qMap = {
-      "Sepi": "Kapan mulai ramai?",
-      "Ramai": "Cek ada acara apa?",
-      "Antri": "Berapa lama antri?",
-      "Normal": "Ada info menarik apa?"
+      "Sepi": "Kenapa sepi ya?",
+      "Ramai": "Ada acara apa?",
+      "Antri": "Lama antrinya?",
+      "Normal": "Ada infokah?"
     };
     const key = kondisi?.charAt(0).toUpperCase() + kondisi?.slice(1).toLowerCase();
     const question = qMap[key] || qMap["Normal"];
     
-    // Jika kondisi Sepi, sekalian ajak lapor juga? Terserah, kita tetap pakai tanya dulu.
-    // Tapi jika mau ubah jadi ajakan lapor untuk Sepi, bisa di sini.
     return { text: question, isLaporMode: false };
   }, [kondisi, item]);
 
-  // 🔥 Fungsi klik: jika mode lapor, kirim "quick_lapor", selain itu kirim teks pertanyaan
   const handleClick = () => {
     if (handleOpenAIModal) {
       const query = isLaporMode ? "quick_lapor" : contextualText;
@@ -47,7 +44,7 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
     }
   };
 
-  // Framer Motion Logic (tetap sama)
+  // Framer Motion Logic
   const { scrollYProgress } = useScroll({
     target: buttonRef,
     offset: ["start 150px", "end 60px"]
@@ -60,12 +57,12 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
   const translateX = useTransform(smoothProgress, [0, 0.7, 1], [0, 0, -25]);
 
   return (
-    <div className="px-6 pb-6 pt-2">
+    <div className="px-4 pb-5 pt-2">
       <motion.button
         ref={buttonRef}
         style={{ filter: blurEffect, opacity, scale, x: translateX }}
         onClick={handleClick}
-        className={`group relative w-full flex items-center justify-between px-4 py-3.5 rounded-[28px] border overflow-hidden transition-all active:scale-[0.98]
+        className={`group relative w-full flex items-center justify-between gap-2 px-3 py-3 rounded-[28px] border overflow-hidden transition-all active:scale-[0.98]
           ${isMalam 
             ? 'bg-gradient-to-br from-white/10 to-white/[0.02] backdrop-blur-2xl border-white/10 shadow-2xl' 
             : 'bg-gradient-to-br from-white to-gray-50/50 border-gray-100 shadow-xl shadow-black/5'
@@ -74,36 +71,40 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
         {/* Glow Effect */}
         <div className={`absolute -right-4 -top-4 w-20 h-20 blur-3xl opacity-20 ${display?.dot || 'bg-cyan-500'} rounded-full`} />
 
-        <div className="flex items-center gap-3 relative z-10">
+        {/* Icon Section - lebih kecil di mobile */}
+        <div className="flex items-center gap-2 relative z-10 flex-shrink-0">
           <div className="relative">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl border shadow-inner transition-transform group-hover:rotate-12
+            <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-lg sm:text-xl border shadow-inner transition-transform group-hover:rotate-12
               ${isMalam ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-200'}`}>
               {isLaporMode ? "📸" : "✨"}
             </div>
-            <div className="absolute -top-1 -right-1 w-3 h-3 bg-cyan-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-cyan-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
           </div>
 
-          <div className="flex flex-col items-start leading-tight">
-            <div className="flex items-center gap-2">
-              <h4 className={`text-[11px] font-[1000] uppercase tracking-wider ${isMalam ? 'text-white' : 'text-gray-950'}`}>
+          {/* Text Section - dengan truncate untuk mobile */}
+          <div className="flex flex-col items-start leading-tight min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <h4 className={`text-[10px] sm:text-[11px] font-[1000] uppercase tracking-wider ${isMalam ? 'text-white' : 'text-gray-950'}`}>
                 AKAMSI AI
               </h4>
-              <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 border border-cyan-500/20">
+              <span className={`text-[7px] sm:text-[8px] font-black px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 whitespace-nowrap`}>
                 {isLaporMode ? "SAY" : "ASK"}
               </span>
             </div>
-            <span className={`text-[10px] font-bold ${isMalam ? 'text-white/60' : 'text-gray-500'} italic mt-0.5 text-left`}>
+            {/* Teks CTA dengan ellipsis dan max-width */}
+            <span className={`text-[9px] sm:text-[10px] font-bold ${isMalam ? 'text-white/60' : 'text-gray-500'} italic mt-0.5 text-left truncate max-w-[140px] sm:max-w-[200px] block`}>
               "{contextualText}"
             </span>
           </div>
         </div>
 
+        {/* Button Action - lebih kecil di mobile */}
         <div className={`
-          flex items-center gap-2 px-4 py-2 rounded-2xl font-black text-[10px] tracking-widest transition-all
+          flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl font-black text-[9px] sm:text-[10px] tracking-widest transition-all whitespace-nowrap flex-shrink-0
           group-hover:translate-x-1
           ${isMalam ? 'bg-white text-black shadow-lg shadow-white/10' : 'bg-gray-900 text-white shadow-lg shadow-black/20'}
         `}>
-          {isLaporMode ? "LAPOR" : "TANYA"} <span className="opacity-40">→</span>
+          {isLaporMode ? "LAPOR" : "TANYA"} <span className="opacity-40 text-[8px] sm:text-[10px]">→</span>
         </div>
 
         {/* Shine Animation */}

@@ -40,7 +40,6 @@ async function fetchKomentar(tempatId) {
 
   if (error) throw error;
 
-  // Bangun struktur nested dari flat list
   const map = {};
   const roots = [];
 
@@ -56,7 +55,6 @@ async function fetchKomentar(tempatId) {
     }
   });
 
-  // Sort replies oldest first agar urut
   const sortReplies = (nodes) => {
     nodes.forEach(n => {
       n.replies.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -116,17 +114,14 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
   return (
     <>
       <div className={`${depth > 0 ? "ml-4 pl-3 border-l-2 border-slate-100" : ""}`}>
-        {/* Context menu — muncul saat long press */}
         <AnimatePresence>
           {showMenu && (
             <>
-              {/* Backdrop */}
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 z-[3000]"
                 onClick={() => setShowMenu(false)}
               />
-              {/* Menu */}
               <motion.div
                 initial={{ opacity: 0, scale: 0.9, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -135,12 +130,10 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
                 className="fixed left-1/2 -translate-x-1/2 z-[3001] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden w-64"
                 style={{ top: "40%" }}
               >
-                {/* Preview komentar */}
                 <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
                   <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mb-1">Komentar</p>
                   <p className="text-[13px] text-slate-700 line-clamp-2">{item.content}</p>
                 </div>
-                {/* Tombol aksi */}
                 <div className="py-1">
                   {canDelete && (
                     <button
@@ -184,7 +177,6 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
           <Avatar name={item.user_name} avatar={item.user_avatar} size={depth === 0 ? 9 : 7} />
 
           <div className="flex-1 min-w-0">
-            {/* Nama + waktu + pending indicator */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[13px] font-bold text-slate-900">
                 {item.user_name || "Warga"}
@@ -199,12 +191,10 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
               )}
             </div>
 
-            {/* Isi komentar */}
             <p className="text-[13px] text-slate-800 leading-relaxed mt-0.5">
               {item.content}
             </p>
 
-            {/* Aksi */}
             <div className="flex items-center gap-4 mt-1.5">
               <button
                 onClick={() => onLike(item.id, isLiked)}
@@ -225,16 +215,13 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
         </div>
       </div>
 
-      {/* Toggle + replies */}
       {hasReplies && (
         <div className={`${depth === 0 ? "ml-11" : "ml-9"}`}>
           <button
             onClick={() => setShowReplies(v => !v)}
             className="text-[11px] text-slate-400 hover:text-[#E3655B] font-bold mb-2 transition-colors"
           >
-            {showReplies
-              ? "▲ Sembunyikan balasan"
-              : `▼ Lihat ${item.replies.length} balasan`}
+            {showReplies ? "▲ Sembunyikan balasan" : `▼ Lihat ${item.replies.length} balasan`}
           </button>
 
           <AnimatePresence>
@@ -283,7 +270,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   const [loading, setLoading] = useState(false);
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [replyTo, setReplyTo] = useState(null); // { id, name }
+  const [replyTo, setReplyTo] = useState(null);
   const [likedIds, setLikedIds] = useState(new Set());
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -291,7 +278,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   const [mounted, setMounted] = useState(false);
 
   const inputRef = useRef(null);
-  const scrollRef = useRef(null);
+  const modalRef = useRef(null); // 🔥 Ganti scrollRef dengan modalRef
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -314,14 +301,9 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         event: "INSERT", schema: "public", table: "komentar",
         filter: `tempat_id=eq.${tempat.id}`,
       }, (payload) => {
-        // Jika komentar dari user sendiri sudah ada sebagai optimistic,
-        // skip refetch — sudah diganti saat insert selesai
         setKomentar(prev => {
-          const hasPending = prev.some(k =>
-            k._pending && k.user_id === payload.new.user_id
-          );
-          if (hasPending) return prev; // skip, optimistic sudah handle
-          // Komentar dari user lain — refetch
+          const hasPending = prev.some(k => k._pending && k.user_id === payload.new.user_id);
+          if (hasPending) return prev;
           fetchKomentar(tempat.id).then(setKomentar).catch(console.error);
           return prev;
         });
@@ -351,21 +333,27 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   }, [replyTo]);
 
-  // ── Swipe down ────────────────────────────────────────────────────────────
+  // 🔥 SWIPE DOWN - Gaya seperti AI Modal
   const handleTouchStart = useCallback((e) => {
-    if (scrollRef.current?.scrollTop <= 0) {
+    if (modalRef.current?.scrollTop <= 0) {
       setIsDragging(true);
       setStartY(e.touches[0].clientY);
     }
   }, []);
+
   const handleTouchMove = useCallback((e) => {
     if (!isDragging) return;
     const diff = e.touches[0].clientY - startY;
-    if (diff > 0) { e.preventDefault(); setTranslateY(Math.min(diff * 0.6, 200)); }
+    if (diff > 0) {
+      e.preventDefault();
+      setTranslateY(Math.min(diff, 150));
+    }
   }, [isDragging, startY]);
+
   const handleTouchEnd = useCallback(() => {
     if (isDragging) {
-      if (translateY > 80) onClose(); else setTranslateY(0);
+      if (translateY > 80) onClose();
+      else setTranslateY(0);
       setIsDragging(false);
     }
   }, [isDragging, translateY, onClose]);
@@ -373,13 +361,12 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   // ── Cek apakah user bisa hapus komentar ─────────────────────────────────
   const canDeleteItem = useCallback((item) => {
     if (!user) return false;
-    if (isAdmin) return true;                    // super admin & admin tempat
-    return item.user_id === user.id;             // pemilik komentar
+    if (isAdmin) return true;
+    return item.user_id === user.id;
   }, [user, isAdmin]);
 
   // ── Hapus komentar ────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id) => {
-    // Optimistic — hapus dari UI dulu
     const removeFromTree = (nodes) =>
       nodes.filter(n => n.id !== id)
            .map(n => ({ ...n, replies: removeFromTree(n.replies || []) }));
@@ -388,7 +375,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
     const { error } = await supabase.from("komentar").delete().eq("id", id);
     if (error) {
-      // Rollback — refetch
       fetchKomentar(tempat.id).then(setKomentar).catch(console.error);
       alert("Gagal hapus: " + error.message);
     }
@@ -396,9 +382,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
   // ── Laporkan komentar ─────────────────────────────────────────────────────
   const handleReport = useCallback(async (id) => {
-    // Simpan ke tabel laporan (opsional — bisa pakai alert dulu)
     alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
-    // TODO: insert ke tabel `laporan_konten` jika sudah ada
   }, []);
 
   // ── Submit komentar — optimistic update ─────────────────────────────────
@@ -416,7 +400,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     const userAvatar = meta.avatar_url || meta.picture || null;
     const parentId = replyTo?.id || null;
 
-    // ── Optimistic item — tampil langsung di UI ──
     const tempId = `temp_${Date.now()}`;
     const optimisticItem = {
       id: tempId,
@@ -429,10 +412,9 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       likes: 0,
       created_at: new Date().toISOString(),
       replies: [],
-      _pending: true, // tandai sebagai pending
+      _pending: true,
     };
 
-    // Sisipkan ke state sebelum request
     if (parentId) {
       setKomentar(prev => insertReply(prev, parentId, optimisticItem));
     } else {
@@ -456,16 +438,12 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
       if (error) throw error;
 
-      // Ganti optimistic item dengan data real dari Supabase
       if (parentId) {
         setKomentar(prev => replaceItem(prev, tempId, { ...data, replies: [] }));
       } else {
-        setKomentar(prev => prev.map(k =>
-          k.id === tempId ? { ...data, replies: [] } : k
-        ));
+        setKomentar(prev => prev.map(k => k.id === tempId ? { ...data, replies: [] } : k));
       }
     } catch (err) {
-      // Rollback — hapus optimistic item
       if (parentId) {
         setKomentar(prev => removeItem(prev, tempId));
       } else {
@@ -477,7 +455,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   };
 
-  // ── Helper: sisipkan reply di nested tree ────────────────────────────────
+  // ── Helper functions untuk tree ───────────────────────────────────────────
   const insertReply = (nodes, parentId, newItem) =>
     nodes.map(n => {
       if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
@@ -485,7 +463,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       return n;
     });
 
-  // ── Helper: ganti item berdasarkan id ────────────────────────────────────
   const replaceItem = (nodes, oldId, newItem) =>
     nodes.map(n => {
       if (n.id === oldId) return newItem;
@@ -493,7 +470,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       return n;
     });
 
-  // ── Helper: hapus item ────────────────────────────────────────────────────
   const removeItem = (nodes, id) =>
     nodes
       .filter(n => n.id !== id)
@@ -501,7 +477,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
   // ── Like ──────────────────────────────────────────────────────────────────
   const handleLike = async (id, isLiked) => {
-    // Optimistic update
     setLikedIds(prev => {
       const next = new Set(prev);
       if (isLiked) next.delete(id); else next.add(id);
@@ -536,17 +511,14 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ type: "spring", damping: 26, stiffness: 200 }}
+      {/* Panel - dengan swipe down gaya AI Modal */}
+      <div
+        ref={modalRef}
         className="relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col"
         style={{
           height: "100dvh",
           transform: `translateY(${translateY}px)`,
-          transition: isDragging ? "none" : undefined,
+          transition: isDragging ? "none" : "transform 0.3s ease-out",
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -598,7 +570,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         </AnimatePresence>
 
         {/* Komentar list */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {loading ? (
             <div className="flex justify-center py-12">
               <div className="w-6 h-6 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
@@ -637,7 +609,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
               <button
                 onClick={() => {
                   onClose();
-                  // Beri waktu modal tutup dulu
                   setTimeout(() => document.dispatchEvent(new CustomEvent("open-auth-modal")), 300);
                 }}
                 className="flex-shrink-0 px-4 py-2.5 bg-[#E3655B] text-white rounded-full text-[12px] font-black active:scale-95 transition-all shadow-sm"
@@ -675,7 +646,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
             </div>
           )}
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 
