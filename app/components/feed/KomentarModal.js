@@ -275,10 +275,13 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
+  const [startTranslateY, setStartTranslateY] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [scrollPosition, setScrollPosition] = useState(0);
 
   const inputRef = useRef(null);
-  const modalRef = useRef(null); // 🔥 Ganti scrollRef dengan modalRef
+  const modalRef = useRef(null);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -312,18 +315,47 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     return () => { supabase.removeChannel(channel); };
   }, [isOpen, tempat?.id]);
 
-  // ── Lock scroll ───────────────────────────────────────────────────────────
+  // ── Lock scroll body ── (REVISI FINAL - PALING STABIL)
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = "hidden";
+      // Simpan posisi scroll saat ini
+      const scrollY = window.scrollY;
+      setScrollPosition(scrollY);
+      // Lock body
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
     } else {
-      document.body.style.overflow = "";
+      // Unlock body dan kembalikan posisi scroll
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, scrollPosition);
+      
+      // Reset state
       setTranslateY(0);
       setReplyTo(null);
       setInput("");
+      setStartTranslateY(0);
+      setIsDragging(false);
+      isDraggingRef.current = false;
     }
-    return () => { document.body.style.overflow = ""; };
-  }, [isOpen]);
+    
+    return () => {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, scrollPosition]);
 
   // ── Fokus input saat reply ────────────────────────────────────────────────
   useEffect(() => {
@@ -333,30 +365,43 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   }, [replyTo]);
 
-  // 🔥 SWIPE DOWN - Gaya seperti AI Modal
+  // 🔥 SWIPE DOWN - Stabil dan tidak ganggu feed
   const handleTouchStart = useCallback((e) => {
-    if (modalRef.current?.scrollTop <= 0) {
+    if (modalRef.current && modalRef.current.scrollTop <= 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      isDraggingRef.current = true;
       setIsDragging(true);
       setStartY(e.touches[0].clientY);
+      setStartTranslateY(translateY);
     }
-  }, []);
+  }, [translateY]);
 
   const handleTouchMove = useCallback((e) => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
     const diff = e.touches[0].clientY - startY;
     if (diff > 0) {
-      e.preventDefault();
-      setTranslateY(Math.min(diff, 150));
+      const newTranslateY = Math.min(startTranslateY + diff, 200);
+      setTranslateY(newTranslateY);
     }
-  }, [isDragging, startY]);
+  }, [startY, startTranslateY]);
 
   const handleTouchEnd = useCallback(() => {
-    if (isDragging) {
-      if (translateY > 80) onClose();
-      else setTranslateY(0);
+    if (isDraggingRef.current) {
+      if (translateY > 80) {
+        onClose();
+      } else {
+        setTranslateY(0);
+      }
+      isDraggingRef.current = false;
       setIsDragging(false);
+      setStartTranslateY(0);
     }
-  }, [isDragging, translateY, onClose]);
+  }, [translateY, onClose]);
 
   // ── Cek apakah user bisa hapus komentar ─────────────────────────────────
   const canDeleteItem = useCallback((item) => {
@@ -385,7 +430,27 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
   }, []);
 
-  // ── Submit komentar — optimistic update ─────────────────────────────────
+  // ── Helper functions untuk tree ───────────────────────────────────────────
+  const insertReply = (nodes, parentId, newItem) =>
+    nodes.map(n => {
+      if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
+      if (n.replies?.length) return { ...n, replies: insertReply(n.replies, parentId, newItem) };
+      return n;
+    });
+
+  const replaceItem = (nodes, oldId, newItem) =>
+    nodes.map(n => {
+      if (n.id === oldId) return newItem;
+      if (n.replies?.length) return { ...n, replies: replaceItem(n.replies, oldId, newItem) };
+      return n;
+    });
+
+  const removeItem = (nodes, id) =>
+    nodes
+      .filter(n => n.id !== id)
+      .map(n => n.replies?.length ? { ...n, replies: removeItem(n.replies, id) } : n);
+
+  // ── Submit komentar ───────────────────────────────────────────────────────
   const handleSubmit = async () => {
     const text = input.trim();
     if (!text || submitting) return;
@@ -455,26 +520,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   };
 
-  // ── Helper functions untuk tree ───────────────────────────────────────────
-  const insertReply = (nodes, parentId, newItem) =>
-    nodes.map(n => {
-      if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
-      if (n.replies?.length) return { ...n, replies: insertReply(n.replies, parentId, newItem) };
-      return n;
-    });
-
-  const replaceItem = (nodes, oldId, newItem) =>
-    nodes.map(n => {
-      if (n.id === oldId) return newItem;
-      if (n.replies?.length) return { ...n, replies: replaceItem(n.replies, oldId, newItem) };
-      return n;
-    });
-
-  const removeItem = (nodes, id) =>
-    nodes
-      .filter(n => n.id !== id)
-      .map(n => n.replies?.length ? { ...n, replies: removeItem(n.replies, id) } : n);
-
   // ── Like ──────────────────────────────────────────────────────────────────
   const handleLike = async (id, isLiked) => {
     setLikedIds(prev => {
@@ -511,7 +556,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         onClick={onClose}
       />
 
-      {/* Panel - dengan swipe down gaya AI Modal */}
+      {/* Panel */}
       <div
         ref={modalRef}
         className="relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col"
@@ -519,6 +564,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
           height: "100dvh",
           transform: `translateY(${translateY}px)`,
           transition: isDragging ? "none" : "transform 0.3s ease-out",
+          touchAction: isDragging ? "none" : "auto",
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
