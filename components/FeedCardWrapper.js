@@ -38,9 +38,7 @@ export default function FeedCardWrapper({ children, theme }) {
         willChange: "transform, filter, opacity" 
       }}
       // PENTING: p-4 dihapus agar padding tidak dobel (sesuai request kamu)
-      className={`relative overflow-hidden mb-8 transition-colors duration-500
-        ${isMalam ? 'bg-[#1e293b]/50 border-white/5 shadow-2xl' : 'bg-white border-gray-100 shadow-xl'} 
-        rounded-[40px] border`}
+      className="relative w-full mb-8 overflow-visible"
     >
       {children}
     </motion.div>

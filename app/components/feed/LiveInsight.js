@@ -150,7 +150,7 @@ export default function LiveInsight({
           {/* Header: Author & Time */}
           <div className={`flex items-center gap-2 mb-2 transition-all duration-500 ${isVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"}`}>
             <span className={`text-[10px] font-black uppercase tracking-[0.2em] truncate ${current?.isAi ? 'text-cyan-500' : isDark ? 'text-slate-300' : 'text-slate-500'}`}>
-              {current?.isAi ? "✨ AI INSIGHT" : current?.author}
+              {current?.isAi ? "✨ AI WARGA LOKAL" : current?.author}
             </span>
             {current?.isVerified && (
               <svg className="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">

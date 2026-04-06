@@ -74,6 +74,8 @@ function FeedCard({
   const [localLaporanWarga, setLocalLaporanWarga] = useState(
     () => item?.laporan_terbaru || []
   );
+  const laporanTerbaru = localLaporanWarga[0];
+  const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
   // --- Hooks ---
   const { user } = useAuth();
@@ -291,8 +293,8 @@ function FeedCard({
     handleLocalRefresh();
   }, [handleLocalRefresh]);
 
-  const handleOpenAIModal = useCallback(() => {
-    openAIModal?.(safeItem, handleUploadSuccess);
+  const handleOpenAIModal = useCallback((query) => {
+    openAIModal?.(safeItem, handleUploadSuccess, query);
   }, [openAIModal, safeItem, handleUploadSuccess]);
 
   const handleCloseStoryModal = useCallback(
@@ -376,14 +378,30 @@ function FeedCard({
           />
         </div>
 
-        {/* Title - Diperkecil */}
-        <div className="px-6 pt-3 pb-2">
-          <h2
-            className={`text-[14px] font-semibold leading-snug ${theme.text} opacity-80 line-clamp-2`}
-          >
-            {headline}
-          </h2>
-        </div>
+        {/* Title - The Passive Narrative (Light & Fast) */}
+<div className="px-6 pt-1 pb-3">
+  <div className="flex items-center gap-2">
+    {/* Aksen Garis Pendek - Eyecatching tanpa gambar/icon berat */}
+    <div className={`w-1 h-3 rounded-full ${theme.accentBg || 'bg-cyan-500'} opacity-60 shadow-[0_0_8px_rgba(6,182,212,0.3)]`} />
+    
+    <h2
+      className={`
+        text-[11.5px] 
+        font-[1000] 
+        italic 
+        tracking-tighter 
+        leading-tight
+        ${theme.text} 
+        opacity-70
+        line-clamp-2
+        select-none
+      `}
+      style={{ letterSpacing: '-0.03em' }}
+    >
+      {headline}
+    </h2>
+  </div>
+</div>
 
         {/* Header */}
         <div className="flex justify-between items-center px-6 pb-3">
@@ -560,7 +578,9 @@ function FeedCard({
             </span>
           </div>
 
-          <AIButton 
+          <AIButton
+            item={safeItem}
+            kondisi={kondisi} 
             display={statusDisplay}
             theme={theme}
             handleOpenAIModal={handleOpenAIModal}

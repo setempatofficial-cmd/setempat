@@ -38,7 +38,7 @@ export default function StatusIsland({
   const deskripsi = latestReport?.deskripsi || latestReport?.content;
   const trafficCondition = latestReport?.traffic_condition;
   const userName = latestReport?.user_name;
-  const waktuUpdate = latestReport?.time_tag || getWaktuRelative(latestReport?.created_at) || "Terkini";
+  const waktuUpdate = getWaktuRelative(latestReport?.created_at) || "Terkini";
   const isRecent = latestReport?.created_at && 
     (new Date() - new Date(latestReport.created_at)) < (2 * 60 * 60 * 1000);
   const totalLaporanHariIni = realtimeData?.todayStats?.total || 0;
@@ -60,12 +60,12 @@ export default function StatusIsland({
       return { icon: "🍃", text: "Lagi sepi sekarang", desc: "Belum banyak aktivitas terlihat", color: "text-emerald-500" };
     }
     if (kondisi === "Ramai") {
-      return { icon: "🏃", text: "Ramai nongkrong sekarang", desc: "Banyak warga lagi kumpul di sini", color: "text-amber-500" };
+      return { icon: "🏃", text: "Ramai sekarang", desc: "Banyak warga lagi kumpul di sini", color: "text-amber-500" };
     }
     if (kondisi === "Antri") {
-      return { icon: "⏳", text: "Antrian mulai terlihat", desc: "Beberapa warga sudah menunggu", color: "text-rose-500" };
+      return { icon: "⏳", text: "Antrian terlihat", desc: "Beberapa warga sudah menunggu", color: "text-rose-500" };
     }
-    return { icon: "📍", text: "Kondisi masih normal", desc: "Belum ada perubahan signifikan", color: "text-gray-500" };
+    return { icon: "📍", text: "Suasana normal", desc: "Belum ada perubahan signifikan", color: "text-gray-500" };
   };
   
   const display = getDisplay();
@@ -111,13 +111,13 @@ export default function StatusIsland({
               <div className={`absolute inset-0 h-2.5 w-2.5 rounded-full ${bgColorIndicator} animate-ping opacity-60`} />
             </div>
             
-            <p className={`text-[11px] font-[1000] uppercase tracking-wider truncate ${display.color}`}>
+            <p className={`text-[15px] font-[1000] uppercase tracking-wider truncate ${display.color}`}>
               {display.icon} {display.text}
             </p>
             
             {showLiveBadge && (
               <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-cyan-500 text-white animate-pulse">
-                🔴 LANGSUNG
+                🔴 LIVE
               </span>
             )}
             
@@ -165,7 +165,7 @@ export default function StatusIsland({
                 
                 {deskripsi && (
                   <div className={`p-3 rounded-2xl ${theme.isMalam ? 'bg-white/5' : 'bg-gray-50'}`}>
-                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Cerita dari lapangan</p>
+                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Cerita dari lokasi</p>
                     <p className={`text-[13px] leading-relaxed font-bold italic opacity-90 ${theme.statusText || 'text-gray-700'}`}>
                       "{deskripsi}"
                     </p>
@@ -174,7 +174,7 @@ export default function StatusIsland({
                 
                 <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
                   <p className={`text-[9px] font-bold opacity-40 uppercase ${theme.statusText || 'text-gray-500'}`}>
-                    🕒 Dilaporkan {waktuUpdate}
+                    🕒 {waktuUpdate}
                   </p>
                   <span className={`text-[9px] font-black opacity-60 uppercase ${display.color}`}>
                     {display.icon} {display.desc}
