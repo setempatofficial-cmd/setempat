@@ -15,14 +15,21 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
       return { text: "📢 Yuk, pertama lapor!", isLaporMode: true };
     }
 
-    // 2. Ambil laporan terbaru untuk cek traffic
+    // 2. Ambil laporan terbaru untuk cek traffic dan tipe
     const latestReport = item?.laporan_terbaru?.[0] || item?.laporan_warga?.[0];
     const traffic = latestReport?.traffic_condition;
+    const tipe = latestReport?.tipe;
 
-    // 3. Mapping kondisi lalu lintas
-    if (traffic === "Macet") return { text: "Cari jalur alternatif?", isLaporMode: false };
-    if (traffic === "Ramai") return { text: "Kenapa ramai?", isLaporMode: false };
-    if (traffic === "Lancar") return { text: "Yakin lancar?", isLaporMode: false };
+    // 3. 🔥 PERBAIKAN: Mapping kondisi lalu lintas DAN tipe laporan
+    if (traffic === "Macet" || tipe === "Antri") {
+      return { text: "Cari jalur alternatif?", isLaporMode: false };
+    }
+    if (traffic === "Ramai" || tipe === "Ramai") {
+      return { text: "Ada acara apa?", isLaporMode: false };
+    }
+    if (traffic === "Lancar" || tipe === "Sepi") {
+      return { text: "Yakin lancar?", isLaporMode: false };
+    }
 
     // 4. Fallback ke kondisi tempat (Sepi/Ramai/Antri/Normal)
     const qMap = {

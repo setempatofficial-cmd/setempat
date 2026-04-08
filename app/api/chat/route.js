@@ -57,7 +57,55 @@ async function getWeatherFromAPI(kodeWilayah) {
 }
 
 // ============================================
-// SUPABASE DATA (dengan error handling environment)
+// FORMAT JAM BUKA DARI JSONB
+// ============================================
+// app/api/chat/route.js - Perbaiki fungsi formatJamBuka
+
+function formatJamBuka(jamBuka, tempatName) {
+  if (!jamBuka) return null;
+  
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const today = days[new Date().getDay()];
+  
+  // 🔥 Buat array kemungkinan format nama hari (capitalized, lowercase, dll)
+  const possibleDayKeys = [today, today.toLowerCase(), today.toUpperCase()];
+  
+  // Jika jam_buka adalah string langsung
+  if (typeof jamBuka === 'string') {
+    return `Jam buka ${tempatName}: ${jamBuka}`;
+  }
+  
+  // Jika jam_buka adalah object JSONB
+  if (typeof jamBuka === 'object') {
+    // 🔥 Cek dengan berbagai format nama hari
+    let todaySchedule = null;
+    for (const key of possibleDayKeys) {
+      if (jamBuka[key]) {
+        todaySchedule = jamBuka[key];
+        break;
+      }
+    }
+    
+    if (todaySchedule) {
+      return `Jam buka ${tempatName} hari ${today}: ${todaySchedule}`;
+    }
+    
+    // Cek jadwal default/umum
+    if (jamBuka.default || jamBuka.umum) {
+      return `Jam buka ${tempatName}: ${jamBuka.default || jamBuka.umum}`;
+    }
+    
+    // Jika tidak ada, coba ambil jadwal pertama yang tersedia
+    const firstDay = Object.keys(jamBuka)[0];
+    if (firstDay && jamBuka[firstDay]) {
+      return `Jam buka ${tempatName} (contoh ${firstDay}): ${jamBuka[firstDay]}`;
+    }
+  }
+  
+  return null;
+}
+// ============================================
+// SUPABASE DATA (dengan jam_buka)
 // ============================================
 async function getDataFromSupabase(tempatId) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -77,7 +125,7 @@ async function getDataFromSupabase(tempatId) {
 
     let recentQuery = supabase
       .from('laporan_warga')
-      .select('id, user_name, tipe, deskripsi, content, estimated_people, estimated_wait_time, created_at')
+      .select('id, user_name, tipe, deskripsi, content, estimated_people, estimated_wait_time, created_at, time_tag')
       .order('created_at', { ascending: false })
       .limit(8);
     
@@ -87,12 +135,19 @@ async function getDataFromSupabase(tempatId) {
       .gte('created_at', today.toISOString())
       .limit(50);
     
+    // 🔥 Query untuk ambil jam_buka dari tabel tempat
+    let tempatQuery = supabase
+      .from('tempat')
+      .select('jam_buka, name, cctv_url')
+      .eq('id', tempatId)
+      .single();
+    
     if (tempatId) {
       recentQuery = recentQuery.eq('tempat_id', tempatId);
       statsQuery = statsQuery.eq('tempat_id', tempatId);
     }
 
-    const [recentResult, statsResult] = await Promise.all([recentQuery, statsQuery]);
+    const [recentResult, statsResult, tempatResult] = await Promise.all([recentQuery, statsQuery, tempatQuery]);
 
     const recentReports = recentResult.data || [];
     const todayReports = statsResult.data || [];
@@ -119,6 +174,11 @@ async function getDataFromSupabase(tempatId) {
 
     const latest = recentReports.find(r => new Date(r.created_at) >= twoHoursAgo) || recentReports[0];
     
+    // 🔥 Ambil data jam_buka
+    const jamBuka = tempatResult.data?.jam_buka || null;
+    const cctvUrl = tempatResult.data?.cctv_url || null;
+    const tempatName = tempatResult.data?.name || null;
+    
     return {
       success: true,
       data: {
@@ -127,7 +187,10 @@ async function getDataFromSupabase(tempatId) {
         todayStats: stats,
         avgEstimasi,
         trending,
-        hasData: stats.total > 0
+        hasLaporan: stats.total > 0,
+        jamBuka: jamBuka,
+        cctvUrl: cctvUrl,
+        tempatName: tempatName
       }
     };
   } catch (error) {
@@ -137,21 +200,40 @@ async function getDataFromSupabase(tempatId) {
 }
 
 // ============================================
-// QUICK RESPONSE (FIXED WEATHER DETECTION)
+// QUICK RESPONSE (LENGKAP DENGAN JAM BUKA)
 // ============================================
 function getQuickResponse(message, weatherData, supabaseData, tempatName) {
   const lowerMsg = message.toLowerCase();
-  const { todayStats, latest, trending, avgEstimasi } = supabaseData || {};
-  const hasLaporan = todayStats?.total > 0;
+  const { todayStats, latest, trending, avgEstimasi, hasLaporan, jamBuka } = supabaseData || {};
   const latestReport = latest;
   
-  // === CUACA (FIXED) ===
-  if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas')) {
+  // === JAM BUKA ===
+  if (lowerMsg.includes('jam buka') || lowerMsg.includes('buka jam') || lowerMsg.includes('jam operasional') || 
+      lowerMsg.includes('sampai jam') || lowerMsg.includes('buka sampai') || lowerMsg.includes('jam berapa')) {
+    
+    const jamBukaText = formatJamBuka(jamBuka, tempatName);
+    if (jamBukaText) {
+      return jamBukaText;
+    }
+    return `Maaf, belum ada info jam buka untuk ${tempatName}. Coba cek langsung atau tanya warga sekitar ya! 📍`;
+  }
+  
+  // === CCTV / LIVE STREAM ===
+  if (lowerMsg.includes('cctv') || lowerMsg.includes('live') || lowerMsg.includes('pantau') || lowerMsg.includes('lihat langsung')) {
+    const cctvUrl = supabaseData?.cctvUrl;
+    if (cctvUrl) {
+      return `🎥 Anda bisa memantau langsung ${tempatName} melalui tautan ini: ${cctvUrl}`;
+    }
+    return `Maaf, belum ada tautan CCTV untuk ${tempatName}. Coba pantau lewat laporan warga ya! 📸`;
+  }
+  
+  // === CUACA ===
+  if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas') || 
+      lowerMsg.includes('cerah') || lowerMsg.includes('mendung') || lowerMsg.includes('angin')) {
     if (weatherData) {
       const { t, weather_desc } = weatherData;
       const descLower = weather_desc.toLowerCase();
       
-      // Deteksi kondisi cuaca dengan case-insensitive
       let emoji = '🌤️';
       let responseText = '';
       
@@ -190,7 +272,6 @@ function getQuickResponse(message, weatherData, supabaseData, tempatName) {
       return responseText;
     }
     
-    // Fallback cuaca
     const hour = new Date().getHours();
     if (hour < 11) return "Pagi cerah 🌤️ segar buat jalan!";
     if (hour < 15) return "Siang panas ☀️ siapin topi ya!";
@@ -199,7 +280,7 @@ function getQuickResponse(message, weatherData, supabaseData, tempatName) {
   }
   
   // === ANTRIAN ===
-  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre')) {
+  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre') || lowerMsg.includes('queue')) {
     if (latestReport?.tipe === 'Antri') {
       const wait = latestReport.estimated_wait_time;
       const people = latestReport.estimated_people;
@@ -211,8 +292,9 @@ function getQuickResponse(message, weatherData, supabaseData, tempatName) {
     return `Nggak ada laporan antrian nih. Kondisi ${trending === 'ramai' ? 'ramai' : 'normal'}.`;
   }
   
-  // === RAMAI/SEPI ===
-  if (lowerMsg.includes('ramai') || lowerMsg.includes('rame') || lowerMsg.includes('sepi') || lowerMsg.includes('kondisi')) {
+  // === RAMAI/SEPI/KONDISI ===
+  if (lowerMsg.includes('ramai') || lowerMsg.includes('rame') || lowerMsg.includes('sepi') || 
+      lowerMsg.includes('kondisi') || lowerMsg.includes('suasana') || lowerMsg.includes('gimana')) {
     if (!hasLaporan) return `Belum ada laporan hari ini. Kamu bisa jadi yang pertama cerita! 📸`;
     
     if (trending === 'ramai') {
@@ -228,26 +310,32 @@ function getQuickResponse(message, weatherData, supabaseData, tempatName) {
   }
   
   // === CERITA WARGA ===
-  if (lowerMsg.includes('cerita') || lowerMsg.includes('warga')) {
+  if (lowerMsg.includes('cerita') || lowerMsg.includes('warga') || lowerMsg.includes('laporan')) {
     if (!latestReport) return "Belum ada cerita warga nih. Kamu bisa jadi yang pertama! 📸";
     const nama = latestReport.user_name?.split(' ')[0] || 'Warga';
     const cerita = latestReport.deskripsi || latestReport.content;
     const estimasi = latestReport.estimated_people ? ` (~${latestReport.estimated_people} org)` : '';
-    return `Dari @${nama}: "${cerita?.substring(0, 80)}"${estimasi}. Mau cerita juga? 📸`;
+    const waktu = latestReport.time_tag ? ` (${latestReport.time_tag})` : '';
+    return `Dari @${nama}: "${cerita?.substring(0, 80)}"${estimasi}${waktu}. Mau cerita juga? 📸`;
   }
   
   // === DEFAULT ===
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
-  return `${greeting}, Lur! 👋 Ada yang bisa dibantu? Tanya cuaca, kondisi, atau cerita warga!`;
+  
+  if (hasLaporan && latestReport) {
+    const ceritaSingkat = latestReport.deskripsi?.substring(0, 60) || 'Ada update baru nih!';
+    return `${greeting}, Lur! 👋 ${ceritaSingkat} Mau tanya lebih detail?`;
+  }
+  
+  return `${greeting}, Lur! 👋 Ada yang bisa dibantu? Tanya cuaca, kondisi, jam buka, atau cerita warga!`;
 }
 
 // ============================================
-// AI PROMPT (MINIMAL & IRIT TOKEN)
+// AI PROMPT
 // ============================================
 function buildAIPrompt(message, supabaseData, weatherData, tempatName) {
-  const { todayStats, trending, latest, avgEstimasi } = supabaseData || {};
-  const hasLaporan = todayStats?.total > 0;
+  const { todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka } = supabaseData || {};
   
   let prompt = `Lokasi: ${tempatName || 'sini'}\n`;
   
@@ -262,11 +350,16 @@ function buildAIPrompt(message, supabaseData, weatherData, tempatName) {
   if (latest) {
     prompt += `Laporan terbaru: ${latest.tipe} - "${latest.deskripsi?.substring(0, 100)}"`;
     if (latest.estimated_people) prompt += ` (${latest.estimated_people} org)`;
+    if (latest.estimated_wait_time) prompt += ` (antri ${latest.estimated_wait_time} menit)`;
     prompt += `\n`;
   }
   
   if (weatherData) {
     prompt += `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C\n`;
+  }
+  
+  if (jamBuka) {
+    prompt += `Jam buka: ${JSON.stringify(jamBuka)}\n`;
   }
   
   prompt += `\nPertanyaan: "${message}"\n`;
@@ -302,12 +395,18 @@ export async function POST(req) {
     const supabaseData = supabaseResult?.success ? supabaseResult.data : null;
     
     const quickResponse = getQuickResponse(safeMsg, weatherData, supabaseData, tempatName);
-    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|antri|ngantre|ramai|sepi|kondisi|cerita|warga)/);
     
-    if (isQuickIntent || (supabaseData?.hasLaporan === false && safeMsg.length < 50)) {
+    // Quick intent: cuaca, antrian, ramai, sepi, cerita, jam buka, cctv
+    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau)/);
+    
+    // Gunakan quick response jika:
+    // 1. Ini quick intent, ATAU
+    // 2. Tidak ada laporan (hasLaporan false)
+    if (isQuickIntent || !supabaseData?.hasLaporan) {
       return Response.json({ text: quickResponse });
     }
     
+    // Untuk pertanyaan kompleks, coba AI
     const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName);
     
     const controller = new AbortController();

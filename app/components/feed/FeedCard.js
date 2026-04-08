@@ -373,6 +373,7 @@ function FeedCard({
           <StatusIsland
             item={safeItem}
             theme={theme}
+            allReports={allSignals} 
             isExpanded={isExpanded}
             setIsExpanded={setIsExpanded}
             jumlahWarga={totalSaksi}

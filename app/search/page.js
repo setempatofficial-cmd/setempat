@@ -753,7 +753,7 @@ function SearchContent() {
         </div>
       </main>
 
-      <AIModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} item={selectedForAI} />
+      <AIModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} tempat={selectedForAI} />
       <KomentarModal isOpen={isKomentarModalOpen} onClose={() => setIsKomentarModalOpen(false)} tempat={selectedForKomentar} />
       
       <style jsx global>{`

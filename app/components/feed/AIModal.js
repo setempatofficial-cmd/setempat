@@ -35,17 +35,85 @@ const isLaporIntent = (text) => {
   return keywords.some(k => lower.includes(k));
 };
 
-const generateFallbackResponse = (laporanWarga, tempatName) => {
-  const latest = laporanWarga?.[0];
-  if (latest) {
-    const kondisi = latest.tipe === 'Sepi' ? 'sepi' : latest.tipe === 'Ramai' ? 'ramai' : 'ada antrian';
-    const estimasi = latest.estimated_people ? ` sekitar ${latest.estimated_people} orang` : '';
-    return `Dari laporan warga, kondisi di ${tempatName || 'sini'} sedang ${kondisi}${estimasi}. ${latest.deskripsi || ''}`;
+// 🔥 FUNGSI RINGKASAN DARI DATA CARD (TANPA AJAKAN KETIK IYA)
+const generateRingkasanDariData = (reports, stats, tempatName, jarak) => {
+  const hasLaporan = reports.length > 0;
+  const waktuTag = getCurrentTimeTag();
+  const greeting = getGreeting();
+  const emoji = getRandomEmoji();
+  
+  if (!hasLaporan) {
+    return `${greeting}, Lur! ${emoji}\n\nBelum ada laporan terbaru di **${tempatName}**${jarak ? ` (${jarak} dari sini)` : ''}.\n\n**📸 Yuk jadi yang pertama lapor!**`;
   }
-  return `Belum ada laporan untuk ${tempatName || 'tempat ini'}. Kamu bisa jadi yang pertama cerita! 📸`;
+  
+  const latest = reports[0];
+  const kondisi = latest.tipe === 'Sepi' ? 'sepi' : latest.tipe === 'Ramai' ? 'ramai' : latest.tipe === 'Antri' ? 'ada antrian' : 'normal';
+  const estimasi = latest.estimated_people ? ` sekitar ${latest.estimated_people} orang` : '';
+  const cerita = latest.deskripsi || latest.content;
+  const waktuLaporan = latest.time_tag ? ` (${waktuLaporan})` : '';
+  const userName = latest.user_name?.split(' ')[0] || 'Warga';
+  
+  let ringkasan = `${greeting}, Lur! ${emoji}\n\n`;
+  ringkasan += `📍 **${tempatName}**${jarak ? ` (${jarak} dari sini)` : ''}\n`;
+  ringkasan += `🕐 ${waktuTag} ini kondisi **${kondisi}**${estimasi}.\n\n`;
+  
+  if (cerita) {
+    ringkasan += `🗣️ **Cerita terbaru dari @${userName}**:\n"${cerita.substring(0, 100)}${cerita.length > 100 ? '...' : ''}"\n\n`;
+  }
+  
+  if (stats.total > 1) {
+    ringkasan += `📊 **Hari ini**: ${stats.total} laporan (${stats.ramai} ramai, ${stats.sepi} sepi, ${stats.antri} antri)\n\n`;
+  }
+  
+  ringkasan += `**📢 Ada yang mau kamu ceritakan tentang ${tempatName}?**`;
+  
+  return ringkasan;
 };
 
-// ── MAIN AIMODAL (REVISI FINAL) ──────────────────────────────────────────────
+// 🔥 QUICK ACTIONS DINAMIS
+const getQuickActionsByCategory = (category, hasLaporan) => {
+  const categoryLower = category?.toLowerCase() || '';
+  
+  const baseActions = [
+    { label: "🍃 Kondisi", query: "Kondisi di sini gimana?" },
+    { label: "🌧️ Cuaca", query: "Cuaca di sana gimana?" },
+  ];
+  
+  let categoryActions = [];
+  
+  if (categoryLower.includes('kuliner') || categoryLower.includes('cafe')) {
+    categoryActions = [
+      { label: "🍽️ Rekomendasi", query: "Menu rekomendasi di sini apa?" },
+      { label: "⏰ Jam Ramai", query: "Jam berapa biasanya ramai?" },
+    ];
+  } 
+  else if (categoryLower.includes('wisata') || categoryLower.includes('taman')) {
+    categoryActions = [
+      { label: "🎟️ Tiket", query: "Berapa harga tiket masuk?" },
+      { label: "⏰ Jam Buka", query: "Jam buka sampai jam berapa?" },
+    ];
+  }
+  else if (categoryLower.includes('jalan') || categoryLower.includes('simpang')) {
+    categoryActions = [
+      { label: "🚗 Lalin", query: "Lalu lintas di sini gimana?" },
+      { label: "🚦 Macet", query: "Sekitar sini macet?" },
+    ];
+  }
+  else {
+    categoryActions = [
+      { label: "👥 Ramai?", query: "Sekitar sini ramai?" },
+      { label: "⏳ Antrian?", query: "Ada antrian?" },
+    ];
+  }
+  
+  if (hasLaporan) {
+    categoryActions.unshift({ label: "📢 Cerita Terbaru", query: "Apa cerita warga terbaru?" });
+  }
+  
+  return [...baseActions, ...categoryActions].slice(0, 5);
+};
+
+// ── MAIN AIMODAL ──────────────────────────────────────────────────────────────
 export default function AIModal({
   isOpen,
   onClose,
@@ -66,7 +134,6 @@ export default function AIModal({
   const [isTyping, setIsTyping] = useState(false);
   const [showLaporPanel, setShowLaporPanel] = useState(false);
   
-  // Data fresh dari Supabase
   const [freshReports, setFreshReports] = useState([]);
   const [freshStats, setFreshStats] = useState(null);
   
@@ -79,6 +146,12 @@ export default function AIModal({
   const hasInitialized = useRef(false);
   const messageCounter = useRef(0);
   
+  // 🔥 Stabilkan getAIContext dengan ref
+  const getAIContextRef = useRef(getAIContext);
+  useEffect(() => {
+    getAIContextRef.current = getAIContext;
+  }, [getAIContext]);
+  
   const activeItem = item || tempat;
   const activeLocationName = locationName || tempat?.name || "Sekitar";
   const jarak = distance || (activeItem?.distance ? `${activeItem.distance.toFixed(1)} km` : null);
@@ -87,7 +160,6 @@ export default function AIModal({
   const getUniqueId = useCallback(() => {
     messageCounter.current += 1;
     return `${Date.now()}-${messageCounter.current}`;
- 
   }, []);
    
   const scrollToBottom = () => {
@@ -98,7 +170,6 @@ export default function AIModal({
     if (messages.length > 0) setTimeout(scrollToBottom, 100);
   }, [messages]);
   
-  // Fetch data langsung dari Supabase setiap modal terbuka atau tempat berubah
   const fetchFreshLaporan = useCallback(async (tempatId) => {
     if (!tempatId) return;
     try {
@@ -111,7 +182,6 @@ export default function AIModal({
       if (error) throw error;
       setFreshReports(data || []);
       
-      // Hitung statistik hari ini
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayData = (data || []).filter(l => new Date(l.created_at) >= today);
@@ -123,118 +193,60 @@ export default function AIModal({
       });
     } catch (err) {
       console.error('Gagal fetch laporan terbaru:', err);
-      // Fallback ke context jika gagal
-      const contextData = getAIContext(tempatId);
+      const contextData = getAIContextRef.current(tempatId);
       setFreshReports(contextData?.recentReports || []);
       setFreshStats(contextData?.todayStats || null);
     }
-  }, [getAIContext]);
+  }, []);
   
-  // Panggil fetch setiap modal terbuka
   useEffect(() => {
     if (isOpen && activeItem?.id) {
       fetchFreshLaporan(activeItem.id);
     }
   }, [isOpen, activeItem?.id, fetchFreshLaporan]);
   
-  // 🔥 Generate opening message (dengan atau tanpa initialQuery)
+  const quickActions = useMemo(() => {
+    const hasLaporan = (freshStats?.total || 0) > 0;
+    return getQuickActionsByCategory(activeItem?.category, hasLaporan);
+  }, [activeItem?.category, freshStats?.total]);
+  
+  // 🔥 OPENING MESSAGE - LANGSUNG DENGAN TOMBOL LAPOR
   useEffect(() => {
     if (!isOpen || !activeItem?.id) return;
     if (hasInitialized.current) return;
     
     hasInitialized.current = true;
     
-    // Gunakan data fresh (lebih update) atau fallback ke context
-    const reports = freshReports.length > 0 ? freshReports : getAIContext(activeItem.id)?.recentReports || [];
-    const stats = freshStats || getAIContext(activeItem.id)?.todayStats || { total: 0, ramai: 0, sepi: 0, antri: 0 };
-    const hasLaporan = stats.total > 0;
-    const suasana = hasLaporan 
-      ? `ada ${stats.total} laporan hari ini.`
-      : "belum ada laporan hari ini.";
+    const reports = freshReports.length > 0 ? freshReports : getAIContextRef.current(activeItem.id)?.recentReports || [];
+    const stats = freshStats || getAIContextRef.current(activeItem.id)?.todayStats || { total: 0, ramai: 0, sepi: 0, antri: 0 };
     
-    // 🔥 Jika ada initialQuery dan bukan "quick_lapor", buat jawaban langsung di pesan pembuka
-    if (initialQuery && initialQuery !== "quick_lapor") {
-      let jawabanAwal = `🤖 Jika kamu tanya: "${initialQuery}"\n\n`;
-      
-      const qLower = initialQuery.toLowerCase();
-      if (qLower.includes("alternatif") || qLower.includes("jalur")) {
-        jawabanAwal += `Dari pantauan, kondisi di **${activeItem.name}** sedang ${suasana}. Saran saya cek jalur alternatif via Google Maps atau Waze. Ada yang updatekah?`;
-      } 
-      else if (qLower.includes("ramai") || qLower.includes("macet")) {
-        const latestReport = reports[0];
-        const detail = latestReport?.deskripsi ? `\n🗣️ Warga melaporkan: "${latestReport.deskripsi.substring(0, 100)}"` : "";
-        jawabanAwal += `Saat ini ${activeItem.name} sedang ramai.${detail}\n\nAda yang ingin dibagikan kondisi terbarunya?`;
-      }
-      else if (qLower.includes("antri") || qLower.includes("antrian")) {
-        jawabanAwal += `Berdasarkan laporan, antrean di ${activeItem.name} ${suasana}. Mau saya bantu cek waktu terbaik?`;
-      }
-      else {
-        jawabanAwal += `Berdasarkan data terkini, ${suasana} ${reports.length > 0 ? `Contoh cerita: "${reports[0].deskripsi?.substring(0, 80)}"` : "Belum ada laporan detail."}`;
-        jawabanAwal += `\n\nMau berbagi cerita? 😊`;
-      }
-      
-      setMessages([{
-        id: getUniqueId(),
-        type: "ai",
-        isOpening: true,
-        text: jawabanAwal,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }]);
-      return;
-    }
-    
-    // Jika tidak ada initialQuery, gunakan opening message normal
-    let message = `${getGreeting()}, Lur! ${getRandomEmoji()}\n\n`;
-    message += `Ngomong-ngomong soal **${activeItem.name}** nih, `;
-    if (jarak) message += `sekitar ${jarak} dari sini. `;
-    message += `${getCurrentTimeTag()} ini ${suasana} `;
-    
-    if (reports.length > 0) {
-      const latest = reports[0];
-      const cerita = latest.deskripsi || latest.content;
-      if (cerita) message += `\n\n🗣️ **Cerita warga**: "${cerita.substring(0, 100)}..."`;
-    } else {
-      message += `\n\n📢 Belum ada cerita dari warga nih. Jadi yang pertama cerita yuk!`;
-    }
-    message += `\n\nAda yang mau ditanyain? 😊`;
+    let ringkasan = generateRingkasanDariData(reports, stats, activeItem.name, jarak);
     
     setMessages([{
       id: getUniqueId(),
       type: "ai",
       isOpening: true,
-      text: message,
+      text: ringkasan,
+      showLaporButton: true, // LANGSUNG tampilkan tombol lapor
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }]);
     
-  }, [isOpen, activeItem?.id, freshReports, freshStats, getAIContext, jarak, getUniqueId, initialQuery]);
+  }, [isOpen, activeItem?.id, freshReports, freshStats, jarak, getUniqueId]);
   
-  // Modal open/close dan reset state
+  // Modal open/close
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
-      if (initialQuery === "quick_lapor") {
-        setShowLaporPanel(true);
-        // Jika langsung lapor, beri pesan sapa singkat
-        if (!hasInitialized.current) {
-          hasInitialized.current = true;
-          setMessages([{
-            id: getUniqueId(),
-            type: "ai",
-            text: "Siap! Yuk ceritakan kondisi di sini 📸",
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          }]);
-        }
-      }
     } else {
       document.body.style.overflow = "";
       setTranslateY(0);
       setShowLaporPanel(false);
       hasInitialized.current = false;
-      setMessages([]); // reset chat history saat tutup
+      setMessages([]);
       setFreshReports([]);
       setFreshStats(null);
     }
-  }, [isOpen, initialQuery, getUniqueId]);
+  }, [isOpen]);
   
   // Touch handlers
   const handleTouchStart = (e) => {
@@ -270,65 +282,33 @@ export default function AIModal({
     setShowLaporPanel(true);
   };
   
-  const handleTanya = () => {
-    // Gunakan data fresh terbaru
-    const latest = freshReports[0] || getAIContext(activeItem?.id)?.recentReports?.[0];
-    const kondisi = latest?.tipe === 'Ramai' ? 'ramai' : latest?.tipe === 'Antri' ? 'ada antrian' : 'sepi';
-    const estimasi = latest?.estimated_people ? ` sekitar ${latest.estimated_people} orang` : '';
-    
-    setMessages(prev => [...prev, {
-      id: getUniqueId(),
-      type: "user",
-      text: "🍃 Pengen tahu kondisi sekitar sini",
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    }]);
-    
-    setIsTyping(true);
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: getUniqueId(),
-        type: "ai",
-        text: `Dari laporan warga, kondisi di ${activeItem?.name || 'sini'} sedang ${kondisi}${estimasi}. Mau tahu lebih detail?`,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      }]);
-      setIsTyping(false);
-    }, 600);
-  };
-  
-  const handleLapor = () => {
-    setMessages(prev => [...prev, {
-      id: getUniqueId(),
-      type: "user",
-      text: "📸 Mau cerita kondisi terkini",
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    }]);
-    setTimeout(triggerLapor, 400);
-  };
-  
   const handleLaporSuccess = (newLaporan) => {
     setShowLaporPanel(false);
+    
     setMessages(prev => [...prev, {
       id: getUniqueId(),
       type: "ai",
-      text: `✅ Mantap! Cerita kamu sudah masuk. Makasih ya! 🎉`,
+      text: `✅ Mantap! Cerita kamu sudah masuk. Makasih ya! 🎉\n\n📢 Ada yang mau ditanyakan lagi?`,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }]);
-    // Refresh data lokal agar langsung terlihat
+    
     if (newLaporan?.tempat_id === activeItem?.id) {
       setFreshReports(prev => [newLaporan, ...prev.filter(r => r.id !== newLaporan.id)].slice(0, 20));
-      // Update stats sederhana
       setFreshStats(prev => ({
         ...prev,
         total: (prev?.total || 0) + 1,
         [newLaporan.tipe === 'Ramai' ? 'ramai' : newLaporan.tipe === 'Sepi' ? 'sepi' : 'antri']: (prev?.[newLaporan.tipe === 'Ramai' ? 'ramai' : newLaporan.tipe === 'Sepi' ? 'sepi' : 'antri'] || 0) + 1
       }));
     }
+    
     onUploadSuccess?.(newLaporan);
   };
   
   const handleSend = useCallback(async (customMessage) => {
     const msg = (customMessage || input).trim();
     if (!msg) return;
+    
+    // HAPUS DETEKSI JAWABAN "IYA" - LANGSUNG PROSES SEBAGAI PERTANYAAN BIASA
     
     setMessages(prev => [...prev, {
       id: getUniqueId(),
@@ -355,7 +335,6 @@ export default function AIModal({
     }
     
     try {
-      // Gunakan data fresh untuk konteks
       const contextReports = freshReports.slice(0, 5);
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -363,14 +342,14 @@ export default function AIModal({
         body: JSON.stringify({
           message: msg,
           context: { laporanTerbaru: contextReports },
-          tempat: activeItem ? { id: activeItem.id, name: activeItem.name } : null,
+          tempat: activeItem ? { id: activeItem.id, name: activeItem.name, category: activeItem.category } : null,
         }),
       });
       const data = await res.json();
       setMessages(prev => [...prev, {
         id: getUniqueId(),
         type: "ai",
-        text: data?.text || generateFallbackResponse(contextReports, activeItem?.name),
+        text: data?.text || `Maaf, saya belum bisa menjawab pertanyaan itu. Coba tanya tentang kondisi atau cuaca ya! 😊`,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       }]);
     } catch (error) {
@@ -378,21 +357,13 @@ export default function AIModal({
       setMessages(prev => [...prev, {
         id: getUniqueId(),
         type: "ai",
-        text: generateFallbackResponse(freshReports, activeItem?.name),
+        text: `Maaf, sedang ada gangguan. Coba lagi nanti ya! 🙏`,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       }]);
     } finally {
       setIsTyping(false);
     }
   }, [input, user, activeItem, freshReports, getUniqueId]);
-  
-  const quickActions = [
-    { label: "🍃 Kondisi", query: "Kondisi di sini gimana?" },
-    { label: "👥 Antrian?", query: "Ada antrian nggak?" },
-    { label: "🚶 Ramai?", query: "Sekitar sini ramai nggak?" },
-    { label: "🌧️ Cuaca", query: "Cuaca di sana gimana?" },
-    { label: "📢 Cerita", query: "Ada cerita dari warga?" },
-  ];
   
   if (!isOpen) return null;
   
@@ -438,19 +409,12 @@ export default function AIModal({
                   : isMalam ? "bg-white/10 text-white rounded-tl-sm" : "bg-gray-100 text-gray-900 rounded-tl-sm"
               }`}>
                 <p className="text-[13px] whitespace-pre-line leading-relaxed">{msg.text}</p>
-                {msg.isOpening && !initialQuery && (
-                  <div className="mt-3 flex flex-col gap-2">
-                    <button onClick={handleTanya} className="w-full py-2.5 bg-white border-2 border-gray-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-gray-700">
-                      💬 Pengen Tahu Kondisi
-                    </button>
-                    <button onClick={handleLapor} className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider">
-                      📸 Ceritakan Kondisi
-                    </button>
-                  </div>
-                )}
                 {msg.showLaporButton && !showLaporPanel && (
-                  <button onClick={triggerLapor} className="mt-2 w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider">
-                    📸 Ceritakan Sekarang
+                  <button 
+                    onClick={triggerLapor} 
+                    className="mt-3 w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm hover:shadow-md transition-all"
+                  >
+                    📸 Laporkan Sekarang
                   </button>
                 )}
                 <p className={`text-[10px] mt-1 ${msg.type === "user" ? "text-white/60" : "text-gray-400"}`}>{msg.time}</p>
@@ -500,6 +464,13 @@ export default function AIModal({
                   {tag.label}
                 </button>
               ))}
+              {/* TOMBOL LAPOR LANGSUNG DI QUICK ACTIONS */}
+              <button
+                onClick={triggerLapor}
+                className="px-3 py-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold whitespace-nowrap shadow-sm"
+              >
+                📸 Lapor
+              </button>
             </div>
             
             <div className="flex items-center gap-2">
@@ -508,7 +479,7 @@ export default function AIModal({
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Tanya kondisi atau cerita..."
+                  placeholder="Tanya kondisi atau langsung cerita..."
                   className="w-full bg-transparent text-[13px] text-gray-900 focus:outline-none"
                   onKeyPress={(e) => e.key === "Enter" && handleSend()}
                 />
@@ -527,7 +498,7 @@ export default function AIModal({
                 </svg>
               </button>
             </div>
-            <p className="text-[8px] text-center text-slate-400 mt-2">✨ Ketik "mau lapor" untuk berbagi cerita</p>
+            <p className="text-[8px] text-center text-slate-400 mt-2">✨ Klik tombol hijau untuk langsung lapor</p>
           </div>
         )}
       </div>

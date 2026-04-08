@@ -277,7 +277,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   const [startY, setStartY] = useState(0);
   const [startTranslateY, setStartTranslateY] = useState(0);
   const [mounted, setMounted] = useState(false);
-  const [scrollPosition, setScrollPosition] = useState(0);
+  
 
   const inputRef = useRef(null);
   const modalRef = useRef(null);
@@ -315,47 +315,24 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     return () => { supabase.removeChannel(channel); };
   }, [isOpen, tempat?.id]);
 
-  // ── Lock scroll body ── (REVISI FINAL - PALING STABIL)
-  useEffect(() => {
-    if (isOpen) {
-      // Simpan posisi scroll saat ini
-      const scrollY = window.scrollY;
-      setScrollPosition(scrollY);
-      // Lock body
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    } else {
-      // Unlock body dan kembalikan posisi scroll
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      window.scrollTo(0, scrollPosition);
-      
-      // Reset state
-      setTranslateY(0);
-      setReplyTo(null);
-      setInput("");
-      setStartTranslateY(0);
-      setIsDragging(false);
-      isDraggingRef.current = false;
-    }
-    
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, scrollPosition]);
+  // ── Lock scroll body ── (SEDERHANA SEPERTI AIMODAL)
+useEffect(() => {
+  if (isOpen) {
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = "";
+    setTranslateY(0);
+    setReplyTo(null);
+    setInput("");
+    setStartTranslateY(0);
+    setIsDragging(false);
+    isDraggingRef.current = false;
+  }
+  
+  return () => {
+    document.body.style.overflow = "";
+  };
+}, [isOpen]);
 
   // ── Fokus input saat reply ────────────────────────────────────────────────
   useEffect(() => {
