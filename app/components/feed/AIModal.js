@@ -50,7 +50,6 @@ const generateRingkasanDariData = (reports, stats, tempatName, jarak) => {
   const kondisi = latest.tipe === 'Sepi' ? 'sepi' : latest.tipe === 'Ramai' ? 'ramai' : latest.tipe === 'Antri' ? 'ada antrian' : 'normal';
   const estimasi = latest.estimated_people ? ` sekitar ${latest.estimated_people} orang` : '';
   const cerita = latest.deskripsi || latest.content;
-  const waktuLaporan = latest.time_tag ? ` (${waktuLaporan})` : '';
   const userName = latest.user_name?.split(' ')[0] || 'Warga';
   
   let ringkasan = `${greeting}, Lur! ${emoji}\n\n`;
@@ -77,6 +76,7 @@ const getQuickActionsByCategory = (category, hasLaporan) => {
   const baseActions = [
     { label: "🍃 Kondisi", query: "Kondisi di sini gimana?" },
     { label: "🌧️ Cuaca", query: "Cuaca di sana gimana?" },
+    { label: "🕐 Jam Buka", query: "Jam buka di sini jam berapa?" },
   ];
   
   let categoryActions = [];
@@ -110,7 +110,7 @@ const getQuickActionsByCategory = (category, hasLaporan) => {
     categoryActions.unshift({ label: "📢 Cerita Terbaru", query: "Apa cerita warga terbaru?" });
   }
   
-  return [...baseActions, ...categoryActions].slice(0, 5);
+  return [...baseActions, ...categoryActions].slice(0, 6);
 };
 
 // ── MAIN AIMODAL ──────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ export default function AIModal({
       type: "ai",
       isOpening: true,
       text: ringkasan,
-      showLaporButton: true, // LANGSUNG tampilkan tombol lapor
+      showLaporButton: true,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }]);
     
@@ -308,8 +308,6 @@ export default function AIModal({
     const msg = (customMessage || input).trim();
     if (!msg) return;
     
-    // HAPUS DETEKSI JAWABAN "IYA" - LANGSUNG PROSES SEBAGAI PERTANYAAN BIASA
-    
     setMessages(prev => [...prev, {
       id: getUniqueId(),
       type: "user",
@@ -336,13 +334,20 @@ export default function AIModal({
     
     try {
       const contextReports = freshReports.slice(0, 5);
+      
+      // 🔥 PERBAIKAN: Kirim data lengkap termasuk kode_wilayah
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: msg,
           context: { laporanTerbaru: contextReports },
-          tempat: activeItem ? { id: activeItem.id, name: activeItem.name, category: activeItem.category } : null,
+          tempat: activeItem ? { 
+            id: activeItem.id, 
+            name: activeItem.name, 
+            category: activeItem.category,
+            kode_wilayah: activeItem.kode_wilayah || null  // ✅ TAMBAHKAN INI
+          } : null,
         }),
       });
       const data = await res.json();
@@ -464,7 +469,6 @@ export default function AIModal({
                   {tag.label}
                 </button>
               ))}
-              {/* TOMBOL LAPOR LANGSUNG DI QUICK ACTIONS */}
               <button
                 onClick={triggerLapor}
                 className="px-3 py-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold whitespace-nowrap shadow-sm"
@@ -479,7 +483,7 @@ export default function AIModal({
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Tanya kondisi atau langsung cerita..."
+                  placeholder="Tanya kondisi, jam buka, atau langsung cerita..."
                   className="w-full bg-transparent text-[13px] text-gray-900 focus:outline-none"
                   onKeyPress={(e) => e.key === "Enter" && handleSend()}
                 />
@@ -498,7 +502,7 @@ export default function AIModal({
                 </svg>
               </button>
             </div>
-            <p className="text-[8px] text-center text-slate-400 mt-2">✨ Klik tombol hijau untuk langsung lapor</p>
+            <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya jam buka, cuaca, kondisi, atau langsung lapor</p>
           </div>
         )}
       </div>
