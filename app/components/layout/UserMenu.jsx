@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -11,9 +12,14 @@ import {
   ChevronRight,
   PlusCircle,
   Zap,
+  ShieldCheck,
+  Home,
 } from "lucide-react";
-
 import { useAuth } from "@/hooks/useAuth";
+
+// Import komponen yang dibutuhkan
+import Modal from "@/app/components/layout/KTPModal"; 
+import KTPDigital from "@/app/components/layout/KTPCard"; 
 
 export default function UserMenu({
   isScrolled,
@@ -22,10 +28,14 @@ export default function UserMenu({
   toggleEditMode,
   isEditActive,
 }) {
-  const { user, loading, role, isAdmin, isSuperAdmin, logout } = useAuth();
-
+  const router = useRouter();
+  const { user, loading, role, isAdmin, isSuperAdmin, profile, logout } = useAuth();
+  
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
+  // State untuk mengontrol kemunculan Modal KTP
+  const [isKTPModalOpen, setIsKTPModalOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -39,7 +49,38 @@ export default function UserMenu({
     }
   };
 
-  // Loading State
+  // Handle KTP Digital click - bedakan berdasarkan role
+  const handleKTPClick = () => {
+    setIsOpen(false);
+    
+    if (isSuperAdmin) {
+      // Superadmin → buka halaman verifikasi
+      router.push("/admin/verifikasi-ktp");
+    } else {
+      // User biasa → buka modal KTPCard
+      setIsKTPModalOpen(true);
+    }
+  };
+
+  // Handle Balai Warga click (hanya untuk Warga Biasa)
+  const handleBalaiWargaClick = () => {
+    setIsOpen(false);
+    router.push("/balai-warga");
+  };
+
+  // Handle Kantor Setempat click (untuk Superadmin)
+  const handleKantorSetempatClick = () => {
+    setIsOpen(false);
+    router.push("/admin/dashboard");
+  };
+
+  // Handle Ruang RT click (untuk Admin)
+  const handleRuangRTClick = () => {
+    setIsOpen(false);
+    router.push("/admin/ruang-rt");
+  };
+
+  // 1. LOADING STATE
   if (loading) {
     return (
       <div
@@ -51,7 +92,7 @@ export default function UserMenu({
     );
   }
 
-  // Not Logged In
+  // 2. NOT LOGGED IN STATE
   if (!user) {
     return (
       <button
@@ -73,7 +114,6 @@ export default function UserMenu({
           />
         </div>
         <span className="absolute inset-0 rounded-full bg-[#E3655B] opacity-0 group-hover:opacity-20 group-hover:animate-ping pointer-events-none" />
-
         <div
           className={`absolute -bottom-9 left-1/2 -translate-x-1/2 px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-[0.2em] whitespace-nowrap
             opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none shadow-lg
@@ -88,19 +128,19 @@ export default function UserMenu({
     );
   }
 
-  // Logged In User Data
-  const meta = user?.user_metadata || {};
-  const name = meta.full_name || meta.name || user?.email?.split("@")[0] || "Warga";
-  const avatar = meta.avatar_url || meta.picture || null;
+  // 3. LOGGED IN DATA PREPARATION
+  const name = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "Warga";
+  const avatar = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
   return (
     <div className="relative">
+      {/* Tombol Avatar Profil */}
       <button
         onClick={() => !isLoggingOut && setIsOpen(!isOpen)}
         disabled={isLoggingOut}
         className={`relative rounded-full p-[2px] transition-all duration-500
-          ${isSuperAdmin ? "bg-purple-500 shadow-lg shadow-purple-500/20" : 
-            isAdmin ? "bg-orange-500 shadow-lg shadow-orange-500/20" : 
+          ${isSuperAdmin ? "bg-purple-500 shadow-lg shadow-purple-500/20" :
+            isAdmin ? "bg-orange-500 shadow-lg shadow-orange-500/20" :
             "bg-[#E3655B] shadow-lg shadow-[#E3655B]/20"}
           ${isScrolled ? "scale-90" : "scale-100"}
           ${isLoggingOut ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -117,7 +157,6 @@ export default function UserMenu({
             </span>
           )}
         </div>
-
         {isLoggingOut && (
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-sm">
             <Loader2 size={14} className="animate-spin text-white" />
@@ -125,16 +164,14 @@ export default function UserMenu({
         )}
       </button>
 
+      {/* Dropdown Menu Utama */}
       <AnimatePresence>
         {isOpen && (
           <>
-            {/* Backdrop */}
             <div
               className="fixed inset-0 z-[90] bg-black/5 backdrop-blur-[1px]"
               onClick={() => setIsOpen(false)}
             />
-
-            {/* Dropdown Menu */}
             <motion.div
               initial={{ opacity: 0, y: 8, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -143,28 +180,15 @@ export default function UserMenu({
               className={`absolute right-0 mt-3 w-60 z-[100] rounded-2xl shadow-2xl border p-2
                 ${theme?.isMalam ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl" : "bg-white/95 border-slate-100 backdrop-blur-xl"}`}
             >
-              {/* Profile Header */}
-              <div
-                className={`px-3 py-3 mb-2 border-b ${theme?.isMalam ? "border-slate-800" : "border-slate-100"}`}
-              >
-                {!role ? (
-                  <div className="h-4 w-24 bg-slate-200 animate-pulse rounded-full mb-2" />
-                ) : (
-                  <p
-                    className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest inline-block mb-1 border
-                      ${isSuperAdmin
-                        ? "bg-purple-500/10 text-purple-500 border-purple-500/20"
-                        : isAdmin
-                        ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
-                        : "bg-[#E3655B]/10 text-[#E3655B] border-[#E3655B]/20"}`}
-                  >
-                    {isSuperAdmin ? "⚡ PETINGGI" : isAdmin ? "⭐ RT SETEMPAT" : "WARGA SETEMPAT"}
-                  </p>
-                )}
-
-                <p
-                  className={`text-sm font-bold truncate mt-0.5 ${theme?.isMalam ? "text-white" : "text-slate-800"}`}
-                >
+              {/* Header Profil & Status Kasta */}
+              <div className={`px-3 py-3 mb-2 border-b ${theme?.isMalam ? "border-slate-800" : "border-slate-100"}`}>
+                <p className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest inline-block mb-1 border
+                  ${isSuperAdmin ? "bg-purple-500/10 text-purple-500 border-purple-500/20"
+                    : isAdmin ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                    : "bg-[#E3655B]/10 text-[#E3655B] border-[#E3655B]/20"}`}>
+                  {isSuperAdmin ? "⚡ PETINGGI" : isAdmin ? "⭐ RT SETEMPAT" : "WARGA SETEMPAT"}
+                </p>
+                <p className={`text-sm font-bold truncate mt-0.5 ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>
                   {name}
                 </p>
                 <p className="text-[10px] text-slate-400 truncate opacity-70 font-medium">
@@ -173,32 +197,63 @@ export default function UserMenu({
               </div>
 
               <div className="space-y-1">
-                {/* Siarkan Kabar (Admin) */}
+                {/* FITUR KHUSUS ADMIN & SUPERADMIN: Siarkan Kabar */}
                 {(isAdmin || isSuperAdmin) && (
                   <button className="w-full flex flex-col items-start gap-0.5 px-3 py-3 bg-gradient-to-br from-[#E3655B] to-orange-600 text-white rounded-xl shadow-lg shadow-[#E3655B]/20 active:scale-95 transition-all mb-2 group">
                     <div className="flex items-center gap-2">
                       <PlusCircle size={14} strokeWidth={3} />
                       <span className="text-[10px] font-black uppercase tracking-wider">Siarkan Kabar</span>
                     </div>
-                    <p className="text-[8px] opacity-80 font-medium leading-tight">
-                      Update info real-time sekitarmu
-                    </p>
+                    <p className="text-[8px] opacity-80 font-medium leading-tight">Update info real-time sekitarmu</p>
                   </button>
                 )}
 
-                {/* Dashboard */}
-                <button
-                  className={`w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold rounded-xl transition-all group
-                    ${theme?.isMalam ? "text-[#E3655B] bg-[#E3655B]/5 hover:bg-[#E3655B]/10" : "text-[#E3655B] bg-[#E3655B]/5 hover:bg-[#E3655B]/10"}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <LayoutDashboard size={14} />
-                    <span>{isAdmin || isSuperAdmin ? "KANTOR SETEMPAT" : "BALAI WARGA"}</span>
-                  </div>
-                  <ChevronRight size={12} className="opacity-50 group-hover:translate-x-1 transition-transform" />
-                </button>
+                {/* MENU 1: KANTOR SETEMPAT (Khusus Superadmin) */}
+                {isSuperAdmin && (
+                  <button
+                    onClick={handleKantorSetempatClick}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold rounded-xl transition-all group
+                      bg-purple-500/10 text-purple-500 hover:bg-purple-500/20`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <LayoutDashboard size={14} />
+                      <span>KANTOR SETEMPAT</span>
+                    </div>
+                    <ChevronRight size={12} className="opacity-50 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                )}
 
-                {/* Navigation */}
+                {/* MENU KHUSUS ADMIN: RUANG RT */}
+                {isAdmin && !isSuperAdmin && (
+                  <button
+                    onClick={handleRuangRTClick}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold rounded-xl transition-all group
+                      bg-orange-500/10 text-orange-500 hover:bg-orange-500/20`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Home size={14} />
+                      <span>RUANG RT</span>
+                    </div>
+                    <ChevronRight size={12} className="opacity-50 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                )}
+
+                {/* MENU: BALAI WARGA (Hanya untuk Warga Biasa, BUKAN Admin) */}
+                {!isSuperAdmin && !isAdmin && (
+                  <button
+                    onClick={handleBalaiWargaClick}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold rounded-xl transition-all group
+                      ${theme?.isMalam ? "text-[#E3655B] bg-[#E3655B]/5 hover:bg-[#E3655B]/10" : "text-[#E3655B] bg-[#E3655B]/5 hover:bg-[#E3655B]/10"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <LayoutDashboard size={14} />
+                      <span>BALAI WARGA</span>
+                    </div>
+                    <ChevronRight size={12} className="opacity-50 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                )}
+
+                {/* MENU: PETA SEKITAR (Semua User) */}
                 <button
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-[11px] font-bold rounded-xl transition-colors
                     ${theme?.isMalam ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}
@@ -206,14 +261,28 @@ export default function UserMenu({
                   <Map size={14} /> PETA SEKITAR
                 </button>
 
+                {/* MENU: KTP DIGITAL */}
                 <button
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-[11px] font-bold rounded-xl transition-colors
-                    ${theme?.isMalam ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}
+                  onClick={handleKTPClick}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold rounded-xl transition-colors
+                    ${isSuperAdmin 
+                      ? "bg-purple-500/10 text-purple-500 hover:bg-purple-500/20" 
+                      : theme?.isMalam 
+                        ? "text-slate-300 hover:bg-white/5" 
+                        : "text-slate-600 hover:bg-slate-50"}`}
                 >
-                  <User size={14} /> KTP DIGITAL
+                  <div className="flex items-center gap-3">
+                    {isSuperAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
+                    <span>KTP DIGITAL</span>
+                  </div>
+                  {isSuperAdmin && (
+                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400">
+                      verif
+                    </span>
+                  )}
                 </button>
 
-                {/* KENDALI PETINGGI / MODE EDIT (SuperAdmin Only) */}
+                {/* FITUR KHUSUS SUPERADMIN: Kendali Petinggi */}
                 {isSuperAdmin && (
                   <button
                     onClick={() => {
@@ -235,25 +304,19 @@ export default function UserMenu({
                       />
                       <span>{isEditActive ? "MODE EDIT AKTIF" : "KENDALI PETINGGI"}</span>
                     </div>
-                    {isEditActive && (
-                      <div className="w-2 h-2 rounded-full bg-white animate-ping" />
-                    )}
+                    {isEditActive && <div className="w-2 h-2 rounded-full bg-white animate-ping" />}
                   </button>
                 )}
 
                 <div className={`h-[1px] mx-2 my-1.5 ${theme?.isMalam ? "bg-slate-800" : "bg-slate-100"}`} />
 
-                {/* Logout */}
+                {/* LOGOUT */}
                 <button
                   onClick={handleLogout}
                   disabled={isLoggingOut}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-[11px] font-bold text-rose-500 hover:bg-rose-500/10 rounded-xl transition-colors"
                 >
-                  {isLoggingOut ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <LogOut size={14} />
-                  )}
+                  {isLoggingOut ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
                   {isLoggingOut ? "KELUAR..." : "KELUAR SEBENTAR"}
                 </button>
               </div>
@@ -261,6 +324,22 @@ export default function UserMenu({
           </>
         )}
       </AnimatePresence>
+
+      {/* MODAL KTP DIGITAL (Hanya untuk user biasa) */}
+      <Modal 
+        isOpen={isKTPModalOpen} 
+        onClose={() => setIsKTPModalOpen(false)}
+        theme={theme}
+      >
+        <KTPDigital 
+          user={user} 
+          role={role} 
+          theme={theme} 
+          onProfileUpdated={() => {
+            window.location.reload();
+          }}
+        />
+      </Modal>
     </div>
   );
 }

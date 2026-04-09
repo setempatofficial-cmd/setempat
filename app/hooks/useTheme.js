@@ -1,48 +1,57 @@
-// hooks/useTheme.js - FINAL DENGAN KONTRAST YANG TERJAMIN UNTUK SEMUA MODE
-
+// hooks/useTheme.js - dengan safe fallback
 import { useMemo } from "react";
 import { useLocation } from "@/components/LocationProvider";
 
 export function useTheme() {
-  const { sapaan } = useLocation(); // "Pagi", "Siang", "Sore", "Malam"
+  let sapaan = "Siang";
+  
+  // Safe call - tangkap error jika LocationProvider tidak ada
+  try {
+    const location = useLocation();
+    sapaan = location?.sapaan || "Siang";
+  } catch (e) {
+    // Fallback ke waktu lokal
+    const hour = new Date().getHours();
+    if (hour >= 11 && hour < 15) sapaan = "Siang";
+    else if (hour >= 15 && hour < 18) sapaan = "Sore";
+    else if (hour >= 18 || hour < 5) sapaan = "Malam";
+    else sapaan = "Pagi";
+  }
   
   return useMemo(() => {
     const isMalam = sapaan === "Malam";
     
     // ==================== BASE THEME ====================
     const base = isMalam ? {
-      // MALAM: gelap pekat
       bg: "bg-[#0f172a]",
       card: "bg-[#0f172a]",
       border: "border-slate-800",
       text: "text-white",
-      textMuted: "text-slate-300",      // lebih terang dari sebelumnya
+      textMuted: "text-slate-300",
       accent: "text-cyan-400",
       accentBg: "bg-cyan-400",
       accentSoft: "bg-cyan-500/10",
       accentBorder: "border-cyan-500/20",
       cardHover: "hover:bg-[#1a2538]",
-      statusBg: "bg-white/10",          // background untuk status island
-      statusText: "text-white",          // teks putih untuk mode gelap
-      timeText: "text-cyan-400",         // teks waktu
+      statusBg: "bg-white/10",
+      statusText: "text-white",
+      timeText: "text-cyan-400",
     } : {
-      // SIANG: putih gading
       bg: "bg-[#F9F7F7]",
       card: "bg-white",
       border: "border-slate-200",
       text: "text-slate-900",
-      textMuted: "text-slate-600",       // lebih gelap untuk kontras
+      textMuted: "text-slate-600",
       accent: "text-[#E3655B]",
       accentBg: "bg-[#E3655B]",
       accentSoft: "bg-rose-50",
       accentBorder: "border-rose-200",
       cardHover: "hover:bg-gray-50",
-      statusBg: "bg-black/5",            // background untuk status island
-      statusText: "text-slate-800",       // teks gelap untuk mode terang
-      timeText: "text-[#E3655B]",         // teks waktu
+      statusBg: "bg-black/5",
+      statusText: "text-slate-800",
+      timeText: "text-[#E3655B]",
     };
     
-    // ==================== TIME VIBES ====================
     const timeVibes = {
       Pagi: {
         dot: "bg-orange-500",
@@ -82,7 +91,6 @@ export function useTheme() {
       }
     };
     
-    // ==================== SITUASI ====================
     const situasi = {
       viral: {
         text: isMalam ? "text-rose-400" : "text-rose-700",
@@ -113,7 +121,6 @@ export function useTheme() {
       ...base,
       isMalam,
       sapaan,
-      // Time-specific
       dot: currentTime.dot,
       dotGlow: currentTime.dotGlow,
       softBg: currentTime.softBg,
@@ -121,7 +128,6 @@ export function useTheme() {
       timeIcon: currentTime.timeIcon,
       statusText: currentTime.statusText,
       statusBg: currentTime.statusBg,
-      // Situasi
       situasi,
       getSituasi: (type) => situasi[type] || situasi.ramai,
       vibeInfo: {
