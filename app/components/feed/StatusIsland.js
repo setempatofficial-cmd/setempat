@@ -2,7 +2,7 @@
 
 import { useDataContext } from "@/contexts/DataContext";
 import { useMemo, useState } from "react";
-import { generateStatusText } from "@/lib/generateStatusText";
+import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusText";
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 
 // Helper function untuk cek fresh report
@@ -79,14 +79,27 @@ export default function StatusIsland({
   }, [freshReports]);
   
   // ============================================
+  // SEED untuk deterministic text (dari item.id)
+  // ============================================
+  const seed = useMemo(() => {
+    return String(item?.id || tempatId || "default");
+  }, [item?.id, tempatId]);
+  
+  // ============================================
+  // DEFAULT TEXT YANG KONSISTEN (gunakan getDefaultTextByTime)
+  // ============================================
+const defaultSuasana = useMemo(() => {
+  const category = item?.category || "general";
+  return getDefaultTextByTime(seed, category);
+}, [seed, item?.category]);
+  
+  // ============================================
   // GENERATE STATUS TEXT (berdasarkan ada/tidak data fresh)
   // ============================================
   const status = useMemo(() => {
-    // Jika TIDAK ada data fresh, return status NORMAL
     if (!hasFreshData) {
-      const sapaan = getTimeContextSapaan();
       return {
-        text: `${sapaan}!`,
+        text: defaultSuasana,
         color: "text-gray-500",
         bgColor: "bg-gray-500",
         icon: "📍",
@@ -114,9 +127,10 @@ export default function StatusIsland({
       category: item?.category || "general",
       name: item?.name || "",
       deskripsi: latestFreshReport?.deskripsi || "",
-      jarak: item?.distance
+      jarak: item?.distance,
+      seed: seed // PASS SEED ke generateStatusText
     });
-  }, [hasFreshData, freshReports, latestFreshReport, item, hoursSinceLastReport]);
+  }, [hasFreshData, freshReports, latestFreshReport, item, hoursSinceLastReport, defaultSuasana, seed]);
   
   // ============================================
   // RINGKASAN MULTI-USER (HANYA dari data fresh)
@@ -156,15 +170,6 @@ export default function StatusIsland({
   // ============================================
   const canExpand = status.level >= 2 && hasFreshData;
   
-  // Helper untuk get sapaan
-  function getTimeContextSapaan() {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 11) return "Semangat Pagi";
-    if (hour >= 11 && hour < 15) return "Siang, Lur";
-    if (hour >= 15 && hour < 19) return "Sore Santuy";
-    return "Malam, Waspada";
-  }
-  
   // ============================================
   // RENDER: Kasus TIDAK ADA DATA FRESH
   // ============================================
@@ -174,7 +179,7 @@ export default function StatusIsland({
         <div className="flex items-center gap-3 w-full">
           <div className="h-2 w-2 rounded-full shrink-0 bg-gray-400" />
           <p className="text-[14px] font-black uppercase tracking-tight truncate flex-1 text-gray-500">
-            📍 {getTimeContextSapaan()}!
+            📍 {defaultSuasana}
           </p>
           {hoursSinceLastReport && (
             <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">

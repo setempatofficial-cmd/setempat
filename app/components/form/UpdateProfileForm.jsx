@@ -26,7 +26,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [isEditingLocation, setIsEditingLocation] = useState(false);
-  const [isUsingGps, setIsUsingGps] = useState(false); // Track jika user pakai GPS
+  const [isUsingGps, setIsUsingGps] = useState(false);
   
   const [formData, setFormData] = useState({
     username: "",
@@ -50,6 +50,30 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     const canChange = daysDiff >= 30;
     const daysLeft = canChange ? 0 : 30 - daysDiff;
     return { canChange, daysLeft };
+  };
+
+  // 🔥 FUNGSI GEOCODING (Alamat → Koordinat)
+  const geocodeAddress = async (alamat, desa, kecamatan, kabupaten) => {
+    try {
+      const fullAddress = `${alamat}, ${desa}, ${kecamatan}, ${kabupaten}, Indonesia`;
+      console.log("📍 Geocoding address:", fullAddress);
+      
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`
+      );
+      const data = await response.json();
+      
+      if (data && data[0]) {
+        return {
+          latitude: parseFloat(data[0].lat),
+          longitude: parseFloat(data[0].lon)
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Geocoding error:", error);
+      return null;
+    }
   };
 
   const reverseGeocode = async (lat, lng) => {
@@ -305,6 +329,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     e.preventDefault();
     if (!profile?.id) return;
 
+    // Validasi dasar
     if (!formData.username) {
       alert("Username wajib diisi");
       return;
@@ -326,11 +351,10 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       return;
     }
     
-    // Validasi lokasi: jika pakai GPS, alamat otomatis terisi
-    // Jika manual, harus lengkap
-    if (!formData.alamat || !formData.desa || !formData.kabupaten) {
-      if (!isUsingGps) {
-        alert("Silakan klik 'Gunakan Lokasi Saya' atau isi alamat, desa, dan kabupaten secara manual.");
+    // 🔥 WAJIB PAKAI GPS ATAU GEOCODING
+    if (!formData.latitude || !formData.longitude) {
+      if (!formData.alamat || !formData.desa || !formData.kabupaten) {
+        alert("Silakan klik 'Gunakan Lokasi Saya' untuk mengisi lokasi");
         return;
       }
     }
@@ -351,65 +375,92 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     setLoading(true);
 
     try {
-    let avatarUrl = avatarPreview;
-    if (avatarFile) {
-      avatarUrl = await uploadAvatar(profile.id);
-    }
-
-    const updateData = {
-      full_name: formData.full_name,
-      usia: parseInt(formData.usia),
-      profesi: formData.profesi,
-      whatsapp: formData.whatsapp,
-      alamat: formData.alamat,
-      desa: formData.desa,
-      kecamatan: formData.kecamatan,
-      kabupaten: formData.kabupaten,
-      latitude: formData.latitude,
-      longitude: formData.longitude,
-      avatar_url: avatarUrl,
-      updated_at: new Date().toISOString(),
-    };
-    
-    if (isUsernameChanged) {
-      updateData.username = formData.username;
-      updateData.last_username_change = new Date().toISOString();
-      updateData.username_change_count = (profile.username_change_count || 0) + 1;
-    }
-
-    // 🔥 PERBAIKAN DI SINI 🔥
-    // Jika status "belum_mengajukan" ATAU "ditolak", ubah menjadi "menunggu"
-    if (ktpStatus === "belum_mengajukan" || ktpStatus === "ditolak") {
-      updateData.ktp_status = "menunggu";
-      updateData.ktp_submitted_at = new Date().toISOString();
-    }
-
-    const { error } = await supabase
-      .from("profiles")
-      .update(updateData)
-      .eq("id", profile.id);
-
-    if (!error) {
-      if (ktpStatus === "belum_mengajukan") {
-        alert("✅ Pengajuan KTP Digital berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
-      } else if (ktpStatus === "ditolak") {
-        alert("✅ Pengajuan ulang berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
-      } else if (isUsernameChanged) {
-        alert("✅ Username berhasil diubah!");
-      } else {
-        alert("✅ Data profil berhasil disimpan!");
+      let avatarUrl = avatarPreview;
+      if (avatarFile) {
+        avatarUrl = await uploadAvatar(profile.id);
       }
-      onSaveSuccess?.();
-      fetchProfile();
-    } else {
-      alert("Gagal: " + error.message);
+
+      let latitude = formData.latitude;
+      let longitude = formData.longitude;
+
+      // 🔥 Jika tidak punya koordinat tapi ada alamat, lakukan geocoding
+      if ((!latitude || !longitude) && formData.alamat && formData.desa && formData.kabupaten) {
+        const coords = await geocodeAddress(
+          formData.alamat,
+          formData.desa,
+          formData.kecamatan,
+          formData.kabupaten
+        );
+        if (coords) {
+          latitude = coords.latitude;
+          longitude = coords.longitude;
+          console.log("📍 Geocoding success:", coords);
+        } else {
+          alert("Gagal mendapatkan koordinat dari alamat. Silakan klik 'Gunakan Lokasi Saya'");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Validasi final koordinat
+      if (!latitude || !longitude) {
+        alert("Lokasi tidak valid. Silakan klik 'Gunakan Lokasi Saya'");
+        setLoading(false);
+        return;
+      }
+
+      const updateData = {
+        full_name: formData.full_name,
+        usia: parseInt(formData.usia),
+        profesi: formData.profesi,
+        whatsapp: formData.whatsapp,
+        alamat: formData.alamat,
+        desa: formData.desa,
+        kecamatan: formData.kecamatan,
+        kabupaten: formData.kabupaten,
+        latitude: latitude,
+        longitude: longitude,
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString(),
+      };
+      
+      if (isUsernameChanged) {
+        updateData.username = formData.username;
+        updateData.last_username_change = new Date().toISOString();
+        updateData.username_change_count = (profile.username_change_count || 0) + 1;
+      }
+
+      if (ktpStatus === "belum_mengajukan" || ktpStatus === "ditolak") {
+        updateData.ktp_status = "menunggu";
+        updateData.ktp_submitted_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from("profiles")
+        .update(updateData)
+        .eq("id", profile.id);
+
+      if (!error) {
+        if (ktpStatus === "belum_mengajukan") {
+          alert("✅ Pengajuan KTP Digital berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
+        } else if (ktpStatus === "ditolak") {
+          alert("✅ Pengajuan ulang berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
+        } else if (isUsernameChanged) {
+          alert("✅ Username berhasil diubah!");
+        } else {
+          alert("✅ Data profil berhasil disimpan!");
+        }
+        onSaveSuccess?.();
+        fetchProfile();
+      } else {
+        alert("Gagal: " + error.message);
+      }
+    } catch (error) {
+      alert("Error: " + error.message);
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    alert("Error: " + error.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const StatusBadge = () => {
     const statusConfig = {
@@ -630,7 +681,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             <p className="text-[8px] text-center text-red-500">{locationError}</p>
           )}
 
-          {/* Hasil Lokasi dari GPS */}
+          {/* Hasil Lokasi */}
           {hasLocation && !isEditingLocation && (
             <div className={`p-2 rounded-lg ${isMalam ? "bg-green-500/10 border border-green-500/20" : "bg-green-50 border border-green-200"}`}>
               <div className="flex items-center gap-1 mb-1">
@@ -787,8 +838,8 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       </form>
 
       <p className={`text-[7px] text-center mt-3 ${isMalam ? "text-white/20" : "text-slate-400"}`}>
-        Data digunakan untuk identitas dan pencarian warga setempat
-      </p>
+  🔒 Data Anda aman dan hanya untuk keperluan layanan Setempat.id
+</p>
     </div>
   );
 }

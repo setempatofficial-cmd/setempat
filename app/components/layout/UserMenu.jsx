@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Home,
 } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/app/context/AuthContext"; 
+import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
 
 // Import komponen yang dibutuhkan
 import Modal from "@/app/components/layout/KTPModal"; 
@@ -181,20 +182,23 @@ export default function UserMenu({
                 ${theme?.isMalam ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl" : "bg-white/95 border-slate-100 backdrop-blur-xl"}`}
             >
               {/* Header Profil & Status Kasta */}
-              <div className={`px-3 py-3 mb-2 border-b ${theme?.isMalam ? "border-slate-800" : "border-slate-100"}`}>
-                <p className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest inline-block mb-1 border
-                  ${isSuperAdmin ? "bg-purple-500/10 text-purple-500 border-purple-500/20"
-                    : isAdmin ? "bg-orange-500/10 text-orange-500 border-orange-500/20"
-                    : "bg-[#E3655B]/10 text-[#E3655B] border-[#E3655B]/20"}`}>
-                  {isSuperAdmin ? "⚡ PETINGGI" : isAdmin ? "⭐ RT SETEMPAT" : "WARGA SETEMPAT"}
-                </p>
-                <p className={`text-sm font-bold truncate mt-0.5 ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>
-                  {name}
-                </p>
-                <p className="text-[10px] text-slate-400 truncate opacity-70 font-medium">
-                  {user.email}
-                </p>
-              </div>
+<div className={`px-3 py-3 mb-2 border-b ${theme?.isMalam ? "border-slate-800" : "border-slate-100"}`}>
+  <p className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest inline-block mb-1 border...`}>
+    {isSuperAdmin ? "⚡ PETINGGI" : isAdmin ? "⭐ RT SETEMPAT" : "WARGA SETEMPAT"}
+  </p>
+  
+  {/* 🔥 TAMBAHKAN DIV INI UNTUK NAMA + BADGE */}
+  <div className="flex items-center gap-2 mt-0.5">
+    <p className={`text-sm font-bold truncate ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>
+      {name}
+    </p>
+    {profile?.is_verified && <VerifiedBadge size="xs" />}
+  </div>
+  
+  <p className="text-[10px] text-slate-400 truncate opacity-70 font-medium">
+    {user.email}
+  </p>
+</div>
 
               <div className="space-y-1">
                 {/* FITUR KHUSUS ADMIN & SUPERADMIN: Siarkan Kabar */}

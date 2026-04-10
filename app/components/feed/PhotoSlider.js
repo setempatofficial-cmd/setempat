@@ -284,12 +284,6 @@ export default function PhotoSlider({
         </>
       )}
 
-      {!hasControl && (
-        <div className="absolute top-4 left-4 z-20">
-          <Uploader tempatId={tempatId} namaTempat={namaTempat} onUploadSuccess={handleUploadSuccess} />
-        </div>
-      )}
-
       {hasControl && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-1">

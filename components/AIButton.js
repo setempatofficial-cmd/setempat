@@ -2,46 +2,24 @@
 
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 import { useRef, useMemo } from "react";
+import { Send, Sparkles, Camera, MessageSquare } from "lucide-react";
 
 export default function AIButton({ display, theme, handleOpenAIModal, kondisi, item }) {
   const buttonRef = useRef(null);
   const isMalam = theme?.isMalam;
 
-  // LOGIKA CTA: TANYA atau AJAK LAPOR
   const { text: contextualText, isLaporMode } = useMemo(() => {
-    // 1. Prioritaskan ajakan lapor jika belum ada laporan sama sekali
     const hasLaporan = (item?.laporan_terbaru?.length > 0) || (item?.laporan_warga?.length > 0);
-    if (!hasLaporan) {
-      return { text: "📢 Yuk, pertama lapor!", isLaporMode: true };
-    }
+    if (!hasLaporan) return { text: "Ada kejadian apa di sini? Lapor yuk...", isLaporMode: true };
 
-    // 2. Ambil laporan terbaru untuk cek traffic dan tipe
-    const latestReport = item?.laporan_terbaru?.[0] || item?.laporan_warga?.[0];
-    const traffic = latestReport?.traffic_condition;
-    const tipe = latestReport?.tipe;
-
-    // 3. 🔥 PERBAIKAN: Mapping kondisi lalu lintas DAN tipe laporan
-    if (traffic === "Macet" || tipe === "Antri") {
-      return { text: "Cari jalur alternatif?", isLaporMode: false };
-    }
-    if (traffic === "Ramai" || tipe === "Ramai") {
-      return { text: "Ada acara apa?", isLaporMode: false };
-    }
-    if (traffic === "Lancar" || tipe === "Sepi") {
-      return { text: "Yakin lancar?", isLaporMode: false };
-    }
-
-    // 4. Fallback ke kondisi tempat (Sepi/Ramai/Antri/Normal)
     const qMap = {
-      "Sepi": "Kenapa sepi ya?",
-      "Ramai": "Ada acara apa?",
-      "Antri": "Lama antrinya?",
-      "Normal": "Ada infokah?"
+      "Sepi": "Kenapa sepi ya? Tanya AI...",
+      "Ramai": "Lagi ada acara apa? Cek detail...",
+      "Antri": "Berapa lama antrinya? Tanya...",
+      "Normal": "Tanya Akamsi AI tentang lokasi ini..."
     };
     const key = kondisi?.charAt(0).toUpperCase() + kondisi?.slice(1).toLowerCase();
-    const question = qMap[key] || qMap["Normal"];
-    
-    return { text: question, isLaporMode: false };
+    return { text: qMap[key] || qMap["Normal"], isLaporMode: false };
   }, [kondisi, item]);
 
   const handleClick = () => {
@@ -51,76 +29,85 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
     }
   };
 
-  // Framer Motion Logic
-  const { scrollYProgress } = useScroll({
-    target: buttonRef,
-    offset: ["start 150px", "end 60px"]
-  });
-
+  // Scroll Animation - Tetap dipertahankan untuk kesan dinamis
+  const { scrollYProgress } = useScroll({ target: buttonRef, offset: ["start 160px", "end 60px"] });
   const smoothProgress = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
-  const scale = useTransform(smoothProgress, [0, 0.7, 1], [1, 1, 0.7]);
-  const blurEffect = useTransform(smoothProgress, [0, 0.7, 1], ["blur(0px)", "blur(0px)", "blur(20px)"]);
+  const scale = useTransform(smoothProgress, [0, 0.8, 1], [1, 1, 0.9]);
   const opacity = useTransform(smoothProgress, [0, 0.8, 1], [1, 1, 0]);
-  const translateX = useTransform(smoothProgress, [0, 0.7, 1], [0, 0, -25]);
 
   return (
-    <div className="px-4 pb-5 pt-2">
-      <motion.button
+    <div className="px-4 pb-7 pt-2">
+      <motion.div
         ref={buttonRef}
-        style={{ filter: blurEffect, opacity, scale, x: translateX }}
+        style={{ scale, opacity }}
         onClick={handleClick}
-        className={`group relative w-full flex items-center justify-between gap-2 px-3 py-3 rounded-[28px] border overflow-hidden transition-all active:scale-[0.98]
+        className={`group relative w-full h-14 flex items-center cursor-text rounded-[22px] border-2 transition-all duration-500
           ${isMalam 
-            ? 'bg-gradient-to-br from-white/10 to-white/[0.02] backdrop-blur-2xl border-white/10 shadow-2xl' 
-            : 'bg-gradient-to-br from-white to-gray-50/50 border-gray-100 shadow-xl shadow-black/5'
-          }`}
+            ? 'bg-white/[0.03] border-white/10 hover:border-white/30 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]' 
+            : 'bg-black/[0.02] border-black/[0.06] hover:border-black/20 shadow-[0_8px_32px_0_rgba(0,0,0,0.05)]'
+          } backdrop-blur-xl`}
       >
-        {/* Glow Effect */}
-        <div className={`absolute -right-4 -top-4 w-20 h-20 blur-3xl opacity-20 ${display?.dot || 'bg-cyan-500'} rounded-full`} />
-
-        {/* Icon Section - lebih kecil di mobile */}
-        <div className="flex items-center gap-2 relative z-10 flex-shrink-0">
-          <div className="relative">
-            <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-lg sm:text-xl border shadow-inner transition-transform group-hover:rotate-12
-              ${isMalam ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-200'}`}>
-              {isLaporMode ? "📸" : "✨"}
-            </div>
-            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-cyan-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
-          </div>
-
-          {/* Text Section - dengan truncate untuk mobile */}
-          <div className="flex flex-col items-start leading-tight min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <h4 className={`text-[10px] sm:text-[11px] font-[1000] uppercase tracking-wider ${isMalam ? 'text-white' : 'text-gray-950'}`}>
-                AKAMSI AI
-              </h4>
-              <span className={`text-[7px] sm:text-[8px] font-black px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 whitespace-nowrap`}>
-                {isLaporMode ? "SAY" : "ASK"}
-              </span>
-            </div>
-            {/* Teks CTA dengan ellipsis dan max-width */}
-            <span className={`text-[9px] sm:text-[10px] font-bold ${isMalam ? 'text-white/60' : 'text-gray-500'} italic mt-0.5 text-left truncate max-w-[140px] sm:max-w-[200px] block`}>
-              "{contextualText}"
-            </span>
-          </div>
-        </div>
-
-        {/* Button Action - lebih kecil di mobile */}
-        <div className={`
-          flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl font-black text-[9px] sm:text-[10px] tracking-widest transition-all whitespace-nowrap flex-shrink-0
-          group-hover:translate-x-1
-          ${isMalam ? 'bg-white text-black shadow-lg shadow-white/10' : 'bg-gray-900 text-white shadow-lg shadow-black/20'}
-        `}>
-          {isLaporMode ? "LAPOR" : "TANYA"} <span className="opacity-40 text-[8px] sm:text-[10px]">→</span>
-        </div>
-
-        {/* Shine Animation */}
-        <motion.div
-          animate={{ x: ['-100%', '200%'] }}
-          transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 pointer-events-none"
+        {/* Glow Ambient di belakang bar (Floating effect) */}
+        <div className={`absolute inset-0 rounded-[22px] transition-opacity duration-500 opacity-0 group-hover:opacity-100 blur-md -z-10
+          ${isMalam ? 'bg-cyan-500/10' : 'bg-cyan-500/5'}`} 
         />
-      </motion.button>
+
+        {/* Icon Area - Dibuat lebih bold */}
+        <div className="pl-5 pr-3 flex items-center justify-center">
+          <div className={`p-2 rounded-xl ${isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
+            {isLaporMode ? (
+              <Camera size={20} className={isMalam ? "text-cyan-400" : "text-cyan-600"} />
+            ) : (
+              <MessageSquare size={20} className={isMalam ? "text-indigo-400" : "text-indigo-600"} />
+            )}
+          </div>
+        </div>
+
+        {/* Placeholder - Font diperbesar sedikit (text-base) */}
+        <div className="flex-1 overflow-hidden">
+          <span className={`text-[15px] font-medium tracking-tight select-none italic
+            ${isMalam ? 'text-white/30' : 'text-gray-400'}`}>
+            {contextualText}
+          </span>
+        </div>
+
+        {/* Action Button - Dibuat seperti tombol 'Post' atau 'Send' yang elegan */}
+        <div className="pr-2">
+          <div className={`
+            flex items-center gap-2 py-2 px-4 rounded-[16px] font-bold text-[11px] uppercase tracking-widest transition-all duration-300
+            ${isMalam 
+              ? 'bg-white text-black hover:bg-cyan-400' 
+              : 'bg-black text-white hover:bg-cyan-600'}
+          `}>
+            {isLaporMode ? "LAPOR" : "TANYA"}
+            <Send size={12} strokeWidth={3} />
+          </div>
+        </div>
+
+        {/* Animasi Shimmer (Cahaya lewat) supaya tetap eye-catching meskipun transparan */}
+        <div className="absolute inset-0 overflow-hidden rounded-[22px] pointer-events-none">
+          <motion.div 
+            animate={{ x: ['-150%', '150%'] }}
+            transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
+            className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/[0.05] dark:via-white/[0.08] to-transparent skew-x-[25deg]"
+          />
+        </div>
+      </motion.div>
+
+      {/* Floating Status di bawah Bar */}
+      <div className="flex items-center justify-between px-2 mt-3">
+        <div className="flex items-center gap-2">
+          <Sparkles size={12} className="text-cyan-500 animate-pulse" />
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isMalam ? 'text-white/40' : 'text-black/40'}`}>
+            Akamsi Intelligence
+          </span>
+        </div>
+        <span className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${
+          isMalam ? 'border-white/10 text-white/30' : 'border-black/5 text-black/30'
+        }`}>
+          v2.0
+        </span>
+      </div>
     </div>
   );
 }

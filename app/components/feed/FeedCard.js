@@ -366,8 +366,8 @@ function FeedCard({
           stiffness: 200,
           layout: { duration: 0.5 },
         }}
-        className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.border} shadow-xl flex flex-col`}
-      >
+        className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'} shadow-sm flex flex-col`}
+>
         {/* STATUS ISLAND - Paling Atas (sebagai Headline utama) */}
         <div className="px-5 pt-5">
           <StatusIsland
@@ -436,22 +436,6 @@ function FeedCard({
               <span>{currentHour}</span>
               <motion.span {...BLINK_ANIM} className="mx-0.5" />
               <span>{currentMinute}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live Insight - Dipisah di paling bawah */}
-        <div className="px-5 pb-5">
-          <div
-            className={`${theme.statusBg} rounded-[20px] p-1.5 pl-3 border ${theme.border} flex items-center justify-between gap-3 shadow-inner`}
-          >
-            <div className="flex-1 min-w-0 overflow-hidden scale-95 origin-left">
-              <LiveInsight
-                signals={allSignals}
-                theme={theme}
-                isCompact={true}
-                currentUser={user}
-              />
             </div>
           </div>
         </div>
@@ -554,6 +538,22 @@ function FeedCard({
                 theme={theme}
                 handleSesuai={handleSesuai}
                 isSesuai={isSesuai}
+              />
+            </div>
+          </div>
+        </div>
+		
+		{/* Live Insight - Dipisah di paling bawah */}
+        <div className="px-5 pb-5">
+          <div
+            className={`${theme.statusBg} rounded-[20px] p-1.5 pl-3 border ${theme.border} flex items-center justify-between gap-3 shadow-inner`}
+          >
+            <div className="flex-1 min-w-0 overflow-hidden scale-95 origin-left">
+              <LiveInsight
+                signals={allSignals}
+                theme={theme}
+                isCompact={true}
+                currentUser={user}
               />
             </div>
           </div>

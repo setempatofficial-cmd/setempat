@@ -18,8 +18,8 @@ export default function BalaiWargaContent() {
   const isMalam = theme.isMalam;
 
   const tabs = [
-    { id: "kentongan", name: "Pengumuman", icon: <Megaphone size="14" /> },
-    { id: "warung", name: "Notifikasi", icon: <Bell size="14" />, badge: unreadCount },
+    { id: "kentongan", name: "Kentongan", icon: <Megaphone size="14" /> },
+    { id: "warung", name: "Warung Info", icon: <Bell size="14" />, badge: unreadCount },
     { id: "kampung", name: "Kampung Kita", icon: <Users size="14" /> },
   ];
 

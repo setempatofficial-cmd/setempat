@@ -3,10 +3,21 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Users, Loader2 } from "lucide-react";
 import FeedCard from "@/app/components/feed/FeedCard";
+import KomentarModal from "@/app/components/feed/KomentarModal";
+import AIModal from "@/app/components/feed/AIModal"; // ← IMPORT AI MODAL
 
 export default function TabKampungKita({ theme, userLocation }) {
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // State untuk modal komentar
+  const [selectedTempat, setSelectedTempat] = useState(null);
+  const [isKomentarModalOpen, setIsKomentarModalOpen] = useState(false);
+  
+  // State untuk AI modal
+  const [selectedForAI, setSelectedForAI] = useState(null);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  
   const isMalam = theme?.isMalam ?? true;
 
   const fetchNearbyActivities = useCallback(async () => {
@@ -40,6 +51,37 @@ export default function TabKampungKita({ theme, userLocation }) {
     fetchNearbyActivities();
   }, [fetchNearbyActivities]);
 
+  // Handler untuk membuka modal komentar
+  const handleOpenKomentarModal = (item) => {
+    setSelectedTempat(item);
+    setIsKomentarModalOpen(true);
+  };
+
+  // Handler untuk membuka AI modal
+  const handleOpenAIModal = (item) => {
+    setSelectedForAI(item);
+    setIsAIModalOpen(true);
+  };
+
+  // Handler untuk share
+  const handleShare = async (item) => {
+    const shareUrl = `${window.location.origin}/post/${item.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: item.name || "Setempat.id",
+          text: `Lihat ${item.name || "tempat ini"} di Setempat.id`,
+          url: shareUrl,
+        });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        alert("✅ Link disalin ke clipboard!");
+      }
+    } catch (err) {
+      console.log("Share cancelled or failed:", err);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -59,21 +101,45 @@ export default function TabKampungKita({ theme, userLocation }) {
   }
 
   return (
-    <div className="space-y-4">
-      {activities.map((item) => (
-        <FeedCard
-          key={item.id}
-          item={item}
-          locationReady={!!userLocation?.latitude}
-          location={{ latitude: userLocation?.latitude, longitude: userLocation?.longitude }}
-          comments={{}}
-          selectedPhotoIndex={{}}
-          setSelectedPhotoIndex={() => {}}
-          openAIModal={() => {}}
-          openKomentarModal={() => {}}
-          onShare={() => {}}
-        />
-      ))}
-    </div>
+    <>
+      <div className="space-y-4">
+        {activities.map((item) => (
+          <FeedCard
+            key={item.id}
+            item={item}
+            locationReady={!!userLocation?.latitude}
+            location={{ latitude: userLocation?.latitude, longitude: userLocation?.longitude }}
+            comments={{}}
+            selectedPhotoIndex={{}}
+            setSelectedPhotoIndex={() => {}}
+            openAIModal={() => handleOpenAIModal(item)}      // ← PERBAIKI
+            openKomentarModal={() => handleOpenKomentarModal(item)}
+            onShare={() => handleShare(item)}
+          />
+        ))}
+      </div>
+
+      {/* Modal Komentar */}
+      <KomentarModal
+        isOpen={isKomentarModalOpen}
+        onClose={() => {
+          setIsKomentarModalOpen(false);
+          setSelectedTempat(null);
+        }}
+        tempat={selectedTempat}
+        isAdmin={false}
+      />
+
+      {/* AI Modal */}
+      <AIModal
+        isOpen={isAIModalOpen}
+        onClose={() => {
+          setIsAIModalOpen(false);
+          setSelectedForAI(null);
+        }}
+        tempat={selectedForAI}
+        context="kampung"
+      />
+    </>
   );
 }

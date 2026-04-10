@@ -4,7 +4,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/app/context/AuthContext";
+import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
 
 // ── Long press hook ───────────────────────────────────────────────────────────
 function useLongPress(callback, ms = 600) {
@@ -30,24 +31,78 @@ function useLongPress(callback, ms = 600) {
   return { onMouseDown: start, onTouchStart: start, onMouseUp: cancel, onMouseLeave: cancel, onTouchEnd: cancel, onClick: handleClick };
 }
 
-// ── Fetch komentar dari Supabase ──────────────────────────────────────────────
+// ── Render teks dengan highlight mention ──────────────────────────────────────
+function renderContentWithMentions(content) {
+  if (!content) return null;
+  const parts = content.split(/(@\w+)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("@")) {
+      return (
+        <span key={index} className="text-blue-500 font-medium">
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
+
+// ── Extract mention dari teks ─────────────────────────────────────────────────
+function extractMentions(text) {
+  const mentionRegex = /@(\w+)/g;
+  const mentions = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1]);
+  }
+  return mentions;
+}
+
+// ── Fetch komentar dari Supabase (2 langkah, tanpa join) ──────────────────────
 async function fetchKomentar(tempatId) {
-  const { data, error } = await supabase
+  // 1. Ambil komentar dulu
+  const { data: komentarData, error: komentarError } = await supabase
     .from("komentar")
     .select("*")
     .eq("tempat_id", tempatId)
     .order("created_at", { ascending: false });
 
-  if (error) throw error;
+  if (komentarError) throw komentarError;
 
+  if (!komentarData || komentarData.length === 0) return [];
+
+  // 2. Ambil semua user_id unik
+  const userIds = [...new Set(komentarData.map(k => k.user_id).filter(Boolean))];
+  
+  // 3. Ambil data profiles untuk user_id tersebut
+  let profilesMap = {};
+  if (userIds.length > 0) {
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, username, full_name, avatar_url, is_verified")
+      .in("id", userIds);
+    
+    profilesMap = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
+  }
+
+  // 4. Gabungkan data
+  const mappedData = komentarData.map(item => ({
+    ...item,
+    username: profilesMap[item.user_id]?.username || item.username,
+    user_name: profilesMap[item.user_id]?.full_name || item.user_name,
+    user_avatar: profilesMap[item.user_id]?.avatar_url || item.user_avatar,
+    is_verified: profilesMap[item.user_id]?.is_verified || false,
+  }));
+
+  // 5. Build tree (parent-child relationship)
   const map = {};
   const roots = [];
 
-  (data || []).forEach(item => {
+  mappedData.forEach(item => {
     map[item.id] = { ...item, replies: [] };
   });
 
-  (data || []).forEach(item => {
+  mappedData.forEach(item => {
     if (item.parent_id && map[item.parent_id]) {
       map[item.parent_id].replies.push(map[item.id]);
     } else if (!item.parent_id) {
@@ -98,7 +153,7 @@ function Avatar({ name, avatar, size = 8 }) {
 }
 
 // ── Item komentar (rekursif) ──────────────────────────────────────────────────
-function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, likedIds, canDelete }) {
+function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, likedIds, canDelete, currentUserId }) {
   const [showReplies, setShowReplies] = useState(depth < 1);
   const [showMore, setShowMore] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -181,6 +236,11 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
               <span className="text-[13px] font-bold text-slate-900">
                 {item.user_name || "Warga"}
               </span>
+              {item.is_verified && (
+	        <span className="relative -top-1.5 -ml-[5px] shrink-0">
+		  <VerifiedBadge size="xs" />
+	         </span>
+               )}
               {item._pending ? (
                 <span className="text-[10px] text-slate-400 flex items-center gap-1">
                   <span className="w-2 h-2 border border-slate-300 border-t-transparent rounded-full animate-spin inline-block" />
@@ -192,7 +252,7 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
             </div>
 
             <p className="text-[13px] text-slate-800 leading-relaxed mt-0.5">
-              {item.content}
+              {renderContentWithMentions(item.content)}
             </p>
 
             <div className="flex items-center gap-4 mt-1.5">
@@ -205,7 +265,7 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
                 <span className="font-semibold">{item.likes || 0}</span>
               </button>
               <button
-                onClick={() => onReply(item.id, item.user_name)}
+                onClick={() => onReply(item.id, item.user_name, item.username)}
                 className="text-[12px] text-slate-400 hover:text-[#E3655B] transition-colors font-semibold"
               >
                 Balas
@@ -244,6 +304,7 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
                     onReport={onReport}
                     likedIds={likedIds}
                     canDelete={canDelete}
+                    currentUserId={currentUserId}
                   />
                 ))}
                 {!showMore && hiddenCount > 0 && (
@@ -263,6 +324,31 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
   );
 }
 
+// ── Kirim notifikasi ke user yang di-mention ──────────────────────────────────
+const sendMentionNotifications = async (content, commentId, tempatId, currentUser, replyToUsername = null) => {
+  const mentionedUsernames = extractMentions(content);
+  const allMentions = [...new Set([...mentionedUsernames, replyToUsername].filter(Boolean))];
+  
+  for (const username of allMentions) {
+    const { data: userData } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", username)
+      .single();
+    
+    if (userData && userData.id !== currentUser?.id) {
+      await supabase.from("notifications").insert({
+        user_id: userData.id,
+        title: "@ Mention",
+        message: `${currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0]} menyebut Anda dalam komentar: "${content.slice(0, 50)}..."`,
+        type: "mention",
+        action_url: `/post/${tempatId}?komentar_id=${commentId}`,
+        metadata: { tempat_id: tempatId, komentar_id: commentId }
+      });
+    }
+  }
+};
+
 // ── KomentarModal Utama ───────────────────────────────────────────────────────
 export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false }) {
   const { user } = useAuth();
@@ -277,7 +363,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   const [startY, setStartY] = useState(0);
   const [startTranslateY, setStartTranslateY] = useState(0);
   const [mounted, setMounted] = useState(false);
-  
 
   const inputRef = useRef(null);
   const modalRef = useRef(null);
@@ -291,7 +376,10 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     setLoading(true);
     fetchKomentar(tempat.id)
       .then(setKomentar)
-      .catch(console.error)
+      .catch(err => {
+        console.error("Fetch komentar error:", err);
+        setKomentar([]);
+      })
       .finally(() => setLoading(false));
   }, [isOpen, tempat?.id]);
 
@@ -315,34 +403,33 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     return () => { supabase.removeChannel(channel); };
   }, [isOpen, tempat?.id]);
 
-  // ── Lock scroll body ── (SEDERHANA SEPERTI AIMODAL)
-useEffect(() => {
-  if (isOpen) {
-    document.body.style.overflow = "hidden";
-  } else {
-    document.body.style.overflow = "";
-    setTranslateY(0);
-    setReplyTo(null);
-    setInput("");
-    setStartTranslateY(0);
-    setIsDragging(false);
-    isDraggingRef.current = false;
-  }
-  
-  return () => {
-    document.body.style.overflow = "";
-  };
-}, [isOpen]);
+  // ── Lock scroll body ──
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+      setTranslateY(0);
+      setReplyTo(null);
+      setInput("");
+      setStartTranslateY(0);
+      setIsDragging(false);
+      isDraggingRef.current = false;
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
 
-  // ── Fokus input saat reply ────────────────────────────────────────────────
+  // ── Fokus input saat reply (pakai username) ───────────────────────────────
   useEffect(() => {
     if (replyTo) {
-      setInput(`@${replyTo.name} `);
+      setInput(`@${replyTo.username} `);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [replyTo]);
 
-  // 🔥 SWIPE DOWN - Stabil dan tidak ganggu feed
+  // ── Swipe down ──
   const handleTouchStart = useCallback((e) => {
     if (modalRef.current && modalRef.current.scrollTop <= 0) {
       e.preventDefault();
@@ -356,10 +443,8 @@ useEffect(() => {
 
   const handleTouchMove = useCallback((e) => {
     if (!isDraggingRef.current) return;
-    
     e.preventDefault();
     e.stopPropagation();
-    
     const diff = e.touches[0].clientY - startY;
     if (diff > 0) {
       const newTranslateY = Math.min(startTranslateY + diff, 200);
@@ -387,7 +472,7 @@ useEffect(() => {
     return item.user_id === user.id;
   }, [user, isAdmin]);
 
-  // ── Hapus komentar ────────────────────────────────────────────────────────
+  // ── Hapus komentar ──
   const handleDelete = useCallback(async (id) => {
     const removeFromTree = (nodes) =>
       nodes.filter(n => n.id !== id)
@@ -402,12 +487,12 @@ useEffect(() => {
     }
   }, [tempat?.id]);
 
-  // ── Laporkan komentar ─────────────────────────────────────────────────────
+  // ── Laporkan komentar ──
   const handleReport = useCallback(async (id) => {
     alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
   }, []);
 
-  // ── Helper functions untuk tree ───────────────────────────────────────────
+  // ── Helper functions untuk tree ──
   const insertReply = (nodes, parentId, newItem) =>
     nodes.map(n => {
       if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
@@ -427,7 +512,7 @@ useEffect(() => {
       .filter(n => n.id !== id)
       .map(n => n.replies?.length ? { ...n, replies: removeItem(n.replies, id) } : n);
 
-  // ── Submit komentar ───────────────────────────────────────────────────────
+  // ── Submit komentar ──
   const handleSubmit = async () => {
     const text = input.trim();
     if (!text || submitting) return;
@@ -437,10 +522,19 @@ useEffect(() => {
       return;
     }
 
-    const meta = user.user_metadata || {};
-    const userName = meta.full_name || meta.name || user.email?.split("@")[0] || "Warga";
-    const userAvatar = meta.avatar_url || meta.picture || null;
+    // Ambil data profile user
+    const { data: userProfile } = await supabase
+      .from("profiles")
+      .select("username, full_name, avatar_url, is_verified")
+      .eq("id", user.id)
+      .single();
+
+    const userUsername = userProfile?.username || user.email?.split("@")[0];
+    const userName = userProfile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "Warga";
+    const userAvatar = userProfile?.avatar_url || user.user_metadata?.avatar_url || null;
+    const isUserVerified = userProfile?.is_verified || false;
     const parentId = replyTo?.id || null;
+    const replyToUsername = replyTo?.username || null;
 
     const tempId = `temp_${Date.now()}`;
     const optimisticItem = {
@@ -450,6 +544,8 @@ useEffect(() => {
       user_id: user.id,
       user_name: userName,
       user_avatar: userAvatar,
+      username: userUsername,
+      is_verified: isUserVerified,
       content: text,
       likes: 0,
       created_at: new Date().toISOString(),
@@ -474,16 +570,20 @@ useEffect(() => {
         user_id: user.id,
         user_name: userName,
         user_avatar: userAvatar,
+        username: userUsername,
         content: text,
         likes: 0,
       }]).select().single();
 
       if (error) throw error;
 
+      // Kirim notifikasi mention
+      await sendMentionNotifications(text, data.id, tempat.id, user, replyToUsername);
+
       if (parentId) {
-        setKomentar(prev => replaceItem(prev, tempId, { ...data, replies: [] }));
+        setKomentar(prev => replaceItem(prev, tempId, { ...data, replies: [], is_verified: isUserVerified }));
       } else {
-        setKomentar(prev => prev.map(k => k.id === tempId ? { ...data, replies: [] } : k));
+        setKomentar(prev => prev.map(k => k.id === tempId ? { ...data, replies: [], is_verified: isUserVerified } : k));
       }
     } catch (err) {
       if (parentId) {
@@ -497,7 +597,7 @@ useEffect(() => {
     }
   };
 
-  // ── Like ──────────────────────────────────────────────────────────────────
+  // ── Like ──
   const handleLike = async (id, isLiked) => {
     setLikedIds(prev => {
       const next = new Set(prev);
@@ -581,7 +681,7 @@ useEffect(() => {
               className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-blue-100 flex-shrink-0 overflow-hidden"
             >
               <p className="text-[12px] text-blue-700">
-                ↩️ Membalas <span className="font-bold">@{replyTo.name}</span>
+                ↩️ Membalas <span className="font-bold">@{replyTo.username}</span>
               </p>
               <button onClick={() => { setReplyTo(null); setInput(""); }}
                 className="text-[11px] text-blue-500 font-bold"
@@ -610,12 +710,13 @@ useEffect(() => {
                 key={item.id}
                 item={item}
                 depth={0}
-                onReply={(id, name) => setReplyTo({ id, name })}
+                onReply={(id, name, username) => setReplyTo({ id, name, username })}
                 onLike={handleLike}
                 onDelete={handleDelete}
                 onReport={handleReport}
                 likedIds={likedIds}
                 canDelete={canDeleteItem(item)}
+                currentUserId={user?.id}
               />
             ))
           )}
@@ -648,7 +749,7 @@ useEffect(() => {
                   type="text"
                   value={input}
                   onChange={e => setInput(e.target.value)}
-                  placeholder={replyTo ? `Balas @${replyTo.name}...` : "Tulis komentar..."}
+                  placeholder={replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar... Gunakan @ untuk mention"}
                   className="w-full bg-transparent text-[13px] text-slate-900 placeholder-slate-400 focus:outline-none"
                   onKeyPress={e => e.key === "Enter" && handleSubmit()}
                 />

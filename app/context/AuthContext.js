@@ -1,131 +1,100 @@
+// contexts/AuthContext.jsx - SIMPLE VERSION
 "use client";
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// Cache global di luar context
-let globalRole = null;
-let globalIsAdmin = false;
-let globalIsSuperAdmin = false;
-let globalUser = null;
-
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(globalUser);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState(globalRole);
-  const [isAdmin, setIsAdmin] = useState(globalIsAdmin);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(globalIsSuperAdmin);
-
-  const extractName = (user) => {
-    if (!user) return "Warga";
-    const meta = user.user_metadata || {};
-    return meta.full_name || meta.name || meta.preferred_username || user.email?.split("@")[0] || "Warga";
-  };
+  const [role, setRole] = useState('warga');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // Jika sudah ada cache global, langsung pakai
-        if (globalUser && globalRole) {
-          setUser(globalUser);
-          setRole(globalRole);
-          setIsAdmin(globalIsAdmin);
-          setIsSuperAdmin(globalIsSuperAdmin);
-          setLoading(false);
-          return;
-        }
-
         const { data: { session } } = await supabase.auth.getSession();
         const currentUser = session?.user ?? null;
+        
         setUser(currentUser);
-        globalUser = currentUser;
-
+        
         if (currentUser) {
-          const [profileRes, adminRes] = await Promise.all([
-            supabase.from('profiles').select('role').eq('id', currentUser.id).maybeSingle(),
-            supabase.from('admins').select('id').eq('user_id', currentUser.id).maybeSingle()
-          ]);
-
-          const currentRole = profileRes.data?.role?.toLowerCase() || "warga";
-          const isAdminTable = !!adminRes.data;
-          const superCheck = currentRole === 'superadmin';
-          const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
-
-          // Simpan ke cache global
-          globalRole = currentRole;
-          globalIsAdmin = adminCheck;
-          globalIsSuperAdmin = superCheck;
-
+          // Hanya 1 query ke profiles
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('role, full_name, avatar_url')
+            .eq('id', currentUser.id)
+            .maybeSingle();
+          
+          const currentRole = profileData?.role?.toLowerCase() || "warga";
+          const isSuper = currentRole === 'superadmin';
+          const isAdm = currentRole === 'admin' || isSuper;
+          
           setRole(currentRole);
-          setIsAdmin(adminCheck);
-          setIsSuperAdmin(superCheck);
-        } else {
-          setRole("warga");
+          setIsAdmin(isAdm);
+          setIsSuperAdmin(isSuper);
+          setProfile(profileData);
         }
       } catch (err) {
         console.error("Auth Error:", err);
-        setRole("warga");
       } finally {
         setLoading(false);
       }
     };
-
+    
     initAuth();
-
+    
+    // Listener untuk auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
-        globalUser = currentUser;
-
-        if (currentUser) {
-          const [profileRes, adminRes] = await Promise.all([
-            supabase.from('profiles').select('role').eq('id', currentUser.id).maybeSingle(),
-            supabase.from('admins').select('id').eq('user_id', currentUser.id).maybeSingle()
-          ]);
-
-          const currentRole = profileRes.data?.role?.toLowerCase() || "warga";
-          const isAdminTable = !!adminRes.data;
-          const superCheck = currentRole === 'superadmin';
-          const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
-
-          globalRole = currentRole;
-          globalIsAdmin = adminCheck;
-          globalIsSuperAdmin = superCheck;
-
+        
+        if (currentUser && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('role, full_name, avatar_url')
+            .eq('id', currentUser.id)
+            .maybeSingle();
+          
+          const currentRole = profileData?.role?.toLowerCase() || "warga";
+          const isSuper = currentRole === 'superadmin';
+          const isAdm = currentRole === 'admin' || isSuper;
+          
           setRole(currentRole);
-          setIsAdmin(adminCheck);
-          setIsSuperAdmin(superCheck);
-        } else {
-          globalRole = null;
-          globalIsAdmin = false;
-          globalIsSuperAdmin = false;
-          setRole("warga");
+          setIsAdmin(isAdm);
+          setIsSuperAdmin(isSuper);
+          setProfile(profileData);
+        } else if (event === 'SIGNED_OUT') {
+          setRole('warga');
           setIsAdmin(false);
           setIsSuperAdmin(false);
+          setProfile(null);
         }
+        
         setLoading(false);
       }
     );
-
+    
     return () => subscription.unsubscribe();
   }, []);
-
+  
   const logout = async () => {
     await supabase.auth.signOut();
-    globalRole = null;
-    globalIsAdmin = false;
-    globalIsSuperAdmin = false;
-    globalUser = null;
     setUser(null);
-    setRole("warga");
+    setRole('warga');
     setIsAdmin(false);
     setIsSuperAdmin(false);
+    setProfile(null);
   };
-
+  
   return (
-    <AuthContext.Provider value={{ user, loading, role, isAdmin, isSuperAdmin, extractName, logout }}>
+    <AuthContext.Provider value={{ 
+      user, loading, role, isAdmin, isSuperAdmin, profile, logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );
