@@ -237,10 +237,10 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
                 {item.user_name || "Warga"}
               </span>
               {item.is_verified && (
-	        <span className="relative -top-1.5 -ml-[5px] shrink-0">
-		  <VerifiedBadge size="xs" />
-	         </span>
-               )}
+                <span className="relative -top-1.5 -ml-[5px] shrink-0">
+                  <VerifiedBadge size="xs" />
+                </span>
+              )}
               {item._pending ? (
                 <span className="text-[10px] text-slate-400 flex items-center gap-1">
                   <span className="w-2 h-2 border border-slate-300 border-t-transparent rounded-full animate-spin inline-block" />
@@ -381,26 +381,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         setKomentar([]);
       })
       .finally(() => setLoading(false));
-  }, [isOpen, tempat?.id]);
-
-  // ── Realtime — komentar baru masuk otomatis ───────────────────────────────
-  useEffect(() => {
-    if (!isOpen || !tempat?.id) return;
-    const channel = supabase
-      .channel(`komentar_${tempat.id}`)
-      .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "komentar",
-        filter: `tempat_id=eq.${tempat.id}`,
-      }, (payload) => {
-        setKomentar(prev => {
-          const hasPending = prev.some(k => k._pending && k.user_id === payload.new.user_id);
-          if (hasPending) return prev;
-          fetchKomentar(tempat.id).then(setKomentar).catch(console.error);
-          return prev;
-        });
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
   }, [isOpen, tempat?.id]);
 
   // ── Lock scroll body ──

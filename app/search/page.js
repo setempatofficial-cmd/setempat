@@ -360,6 +360,25 @@ function SearchContent() {
     setRecentSearches([]);
     localStorage.removeItem("recent_searches");
   }, []);
+  
+  // ==================== HANDLE SHARE ====================
+const handleShare = useCallback(async (item) => {
+  const shareUrl = `${window.location.origin}/post/${item.id}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: item.name || "Setempat.id",
+        text: `Lihat ${item.name || "tempat ini"} di Setempat.id`,
+        url: shareUrl,
+      });
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      alert("✅ Link disalin ke clipboard!");
+    }
+  } catch (err) {
+    console.log("Share cancelled or failed:", err);
+  }
+}, []);
 
   // ==================== EVENT LISTENER ====================
   useEffect(() => {
@@ -746,6 +765,7 @@ function SearchContent() {
                   locationReady={locationStatus === "granted"} 
                   openAIModal={() => { setSelectedForAI(item); setIsAIModalOpen(true); }}
                   openKomentarModal={() => { setSelectedForKomentar(item); setIsKomentarModalOpen(true); }} 
+				  onShare={() => handleShare(item)}
                 />
               ))}
             </div>

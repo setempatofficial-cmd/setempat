@@ -14,7 +14,7 @@ import AIButton from "@/components/AIButton";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useClock } from "../../../hooks/useClock";
 import { useTheme } from "@/app/hooks/useTheme";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
 

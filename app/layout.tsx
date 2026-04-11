@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DataProvider } from "@/contexts/DataContext";
-import { AuthProvider } from "@/app/context/AuthContext"; // 👈 TAMBAHKAN IMPORT
+import { AuthProvider } from "@/app/context/AuthContext";
+import LocationProvider from "@/components/LocationProvider"; // 👈 TAMBAHKAN
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,11 +30,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>  {/* 👈 TAMBAHKAN AUTH PROVIDER (DI LUAR ATAU DALAM DataProvider?) */}
-          <DataProvider>
-            {children}
-          </DataProvider>
-        </AuthProvider>
+        <LocationProvider>  {/* 👈 TARUH DI LUAR / DALAM? */}
+          <AuthProvider>
+            <DataProvider>
+              {children}
+            </DataProvider>
+          </AuthProvider>
+        </LocationProvider>
       </body>
     </html>
   );

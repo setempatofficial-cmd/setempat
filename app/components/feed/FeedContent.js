@@ -4,7 +4,7 @@ import * as React from "react";
 import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import AuthModal from "@/app/components/auth/AuthModal";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/app/context/AuthContext"; 
 import { useTheme } from "@/app/hooks/useTheme";
 import { supabase } from "../../../lib/supabaseClient";
 import { getGreeting } from "../../../lib/greeting";
@@ -789,7 +789,7 @@ export default function FeedContent() {
   }, []);
 
   const handleShare = useCallback(async (item) => {
-    const shareUrl = `${window.location.origin}/?tempat=${item.id}`;
+    const shareUrl = `${window.location.origin}/post/${item.id}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: item.name, text: `📍 Cek kondisi terkini di ${item.name}!`, url: shareUrl });
