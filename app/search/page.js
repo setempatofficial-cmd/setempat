@@ -56,7 +56,7 @@ class AICache {
 const aiRateLimiter = new RateLimiter(5, 10 * 60 * 1000);
 const aiCache = new AICache(30, 120);
 
-// ── Helper: Deteksi apakah URL adalah video ─────────────────────────────────
+// ── Helper functions (sama seperti sebelumnya) ─────────────────────────────────
 const isVideoUrl = (url) => {
   if (!url) return false;
   const urlLower = url.toLowerCase();
@@ -68,7 +68,6 @@ const isVideoUrl = (url) => {
          urlLower.includes('youtu.be');
 };
 
-// ── Helper: Extract YouTube ID untuk thumbnail ─────────────────────────────────
 const extractYouTubeId = (url) => {
   if (!url) return null;
   const patterns = [
@@ -82,19 +81,13 @@ const extractYouTubeId = (url) => {
   return null;
 };
 
-// ── Helper: Ambil thumbnail dari item (SUPPORT VIDEO/CCTV dengan placeholder online) ─────────────────────────────────
 const getThumbnail = (item) => {
-  // Helper untuk mendapatkan URL thumbnail terbaik dari video
   const getVideoThumbnail = (url) => {
     if (!url) return null;
-    
-    // YouTube: ambil thumbnail dari YouTube
     const youtubeId = extractYouTubeId(url);
     if (youtubeId) {
       return `https://img.youtube.com/vi/${youtubeId}/mqdefault.jpg`;
     }
-    
-    // CCTV/Stream/MP4: pakai placeholder ONLINE (tidak perlu file gambar)
     const urlLower = url.toLowerCase();
     if (urlLower.includes('.m3u8') || urlLower.includes('cctv') || urlLower.includes('stream')) {
       return 'https://placehold.co/400x225/1a1a1a/ff0000?text=LIVE+CCTV';
@@ -102,27 +95,19 @@ const getThumbnail = (item) => {
     if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
       return 'https://placehold.co/400x225/1a1a1a/3b82f6?text=VIDEO';
     }
-    
     return null;
   };
   
-  // PRIORITAS 1: Photo dari laporan terbaru (jika bukan video)
   if (item.laporan_terbaru?.[0]?.photo_url && !isVideoUrl(item.laporan_terbaru[0].photo_url)) {
     return item.laporan_terbaru[0].photo_url;
   }
-  
-  // PRIORITAS 2: Video dari laporan terbaru (ambil thumbnail)
   if (item.laporan_terbaru?.[0]?.video_url) {
     const videoThumb = getVideoThumbnail(item.laporan_terbaru[0].video_url);
     if (videoThumb) return videoThumb;
   }
-  
-  // PRIORITAS 3: image_url (jika bukan video)
   if (item.image_url && !isVideoUrl(item.image_url)) {
     return item.image_url;
   }
-  
-  // PRIORITAS 4: Dari photos array (jika ada URL gambar)
   if (item.photos && Array.isArray(item.photos) && item.photos[0]) {
     const firstPhoto = item.photos[0];
     const photoUrl = typeof firstPhoto === 'string' ? firstPhoto : firstPhoto.url;
@@ -130,8 +115,6 @@ const getThumbnail = (item) => {
       return photoUrl;
     }
   }
-  
-  // PRIORITAS 5: Dari photos berdasarkan waktu (untuk struktur JSONB dengan pagi/siang/sore/malam)
   if (item.photos && typeof item.photos === 'object' && !Array.isArray(item.photos)) {
     const jam = new Date().getHours();
     let timeKey = "pagi";
@@ -141,7 +124,6 @@ const getThumbnail = (item) => {
     
     const photoData = item.photos[timeKey];
     if (photoData) {
-      // Coba ambil URL gambar (bukan video)
       if (Array.isArray(photoData)) {
         for (const p of photoData) {
           const url = typeof p === 'string' ? p : p.url;
@@ -154,8 +136,6 @@ const getThumbnail = (item) => {
       } else if (photoData.url && !isVideoUrl(photoData.url)) {
         return photoData.url;
       }
-      
-      // Jika semua isinya video, ambil yang pertama (akan dapat placeholder)
       if (Array.isArray(photoData) && photoData[0]) {
         const first = photoData[0];
         const videoUrl = typeof first === 'string' ? first : first.url;
@@ -163,14 +143,10 @@ const getThumbnail = (item) => {
         if (videoThumb) return videoThumb;
       }
     }
-    
-    // Fallback ke official
     if (item.photos.official && !isVideoUrl(item.photos.official)) {
       return item.photos.official;
     }
   }
-  
-  // PRIORITAS 6: Cek video_url di laporan lain
   if (item.laporan_terbaru) {
     for (const laporan of item.laporan_terbaru) {
       if (laporan.video_url) {
@@ -179,8 +155,6 @@ const getThumbnail = (item) => {
       }
     }
   }
-  
-  // LAST RESORT: Placeholder default online
   return 'https://placehold.co/400x225/1a1a1a/666666?text=NO+IMAGE';
 };
 
@@ -238,9 +212,10 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false, isNewRep
 
 StableGridCard.displayName = 'StableGridCard';
 
+// ==================== SEARCH CONTENT ====================
 function SearchContent() {
   const router = useRouter();
-  const { isMalam, isSore } = useTheme();
+  const { isMalam, isSore, bg: themeBg, text: themeText } = useTheme();
   const { location, status: locationStatus, placeName, requestLocation } = useLocation();
 
   const [query, setQuery] = useState("");
@@ -362,23 +337,23 @@ function SearchContent() {
   }, []);
   
   // ==================== HANDLE SHARE ====================
-const handleShare = useCallback(async (item) => {
-  const shareUrl = `${window.location.origin}/post/${item.id}`;
-  try {
-    if (navigator.share) {
-      await navigator.share({
-        title: item.name || "Setempat.id",
-        text: `Lihat ${item.name || "tempat ini"} di Setempat.id`,
-        url: shareUrl,
-      });
-    } else {
-      await navigator.clipboard.writeText(shareUrl);
-      alert("✅ Link disalin ke clipboard!");
+  const handleShare = useCallback(async (item) => {
+    const shareUrl = `${window.location.origin}/post/${item.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: item.name || "Setempat.id",
+          text: `Lihat ${item.name || "tempat ini"} di Setempat.id`,
+          url: shareUrl,
+        });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        alert("✅ Link disalin ke clipboard!");
+      }
+    } catch (err) {
+      console.log("Share cancelled or failed:", err);
     }
-  } catch (err) {
-    console.log("Share cancelled or failed:", err);
-  }
-}, []);
+  }, []);
 
   // ==================== EVENT LISTENER ====================
   useEffect(() => {
@@ -579,22 +554,49 @@ const handleShare = useCallback(async (item) => {
     return filtered.slice(0, 20);
   }, [query, allData, activeFilter, location]);
 
-  const getBackgroundColor = useCallback(() => isMalam ? "bg-[#09090b]" : isSore ? "bg-[#fff5f0]" : "bg-white", [isMalam, isSore]);
   const getBorderColor = useCallback(() => isMalam ? "border-white/[0.05]" : "border-black/[0.03]", [isMalam]);
 
+  // ==================== LOADING STATE ====================
   if (loading && allData.length === 0) {
-    return <div className={`min-h-screen flex items-center justify-center ${getBackgroundColor()}`}>
-      <div className="w-8 h-8 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
-    </div>;
+    return (
+      <div className={`relative min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
+        <div className="relative z-10 flex items-center justify-center min-h-screen">
+          <div className="w-8 h-8 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
   }
 
+  // ==================== MAIN RETURN ====================
   return (
-    <>
-      <main className={`min-h-screen transition-colors duration-700 ${getBackgroundColor()}`}>
+    <div className={`relative min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
+      
+      {/* Ambient Effects - Sama seperti homepage */}
+      {isMalam && (
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+          <div 
+            className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
+            style={{ backgroundColor: '#3b82f6' }} 
+          />
+          <div 
+            className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]"
+            style={{ backgroundColor: '#8b5cf6' }} 
+          />
+        </div>
+      )}
+
+      {!isMalam && (
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-30">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/5 to-transparent" />
+        </div>
+      )}
+
+      {/* Konten dengan z-index */}
+      <div className="relative z-10">
         <div className={`max-w-md mx-auto min-h-screen flex flex-col relative border-x ${getBorderColor()}`}>
 
           {/* HEADER */}
-          <div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-3xl ${isMalam ? "bg-black/80 border-b border-white/[0.05]" : "bg-white/80 border-b border-black/[0.03]"}`}>
+          <div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-xl ${isMalam ? "bg-black/80 border-b border-white/10" : "bg-white/80 border-b border-slate-100"}`}>
             <div className="flex items-center gap-2">
               <button onClick={() => exploreMode ? setExploreMode(false) : router.back()} className={`p-2 rounded-xl ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}>
                 ←
@@ -754,7 +756,7 @@ const handleShare = useCallback(async (item) => {
             </>
           )}
 
-          {/* EXPLORE MODE */}
+          {/* EXPLORE MODE - FEED CARD DENGAN THEME PROP */}
           {exploreMode && (
             <div className="flex flex-col gap-5 py-4 pb-20 px-4">
               {exploreItems.map((item) => (
@@ -763,15 +765,16 @@ const handleShare = useCallback(async (item) => {
                   item={item} 
                   location={location} 
                   locationReady={locationStatus === "granted"} 
+                  theme={{ isMalam, isSore }}  // 🔥 TAMBAHKAN THEME PROP
                   openAIModal={() => { setSelectedForAI(item); setIsAIModalOpen(true); }}
                   openKomentarModal={() => { setSelectedForKomentar(item); setIsKomentarModalOpen(true); }} 
-				  onShare={() => handleShare(item)}
+                  onShare={() => handleShare(item)}
                 />
               ))}
             </div>
           )}
         </div>
-      </main>
+      </div>
 
       <AIModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} tempat={selectedForAI} />
       <KomentarModal isOpen={isKomentarModalOpen} onClose={() => setIsKomentarModalOpen(false)} tempat={selectedForKomentar} />
@@ -785,10 +788,11 @@ const handleShare = useCallback(async (item) => {
           display: none;
         }
       `}</style>
-    </>
+    </div>
   );
 }
 
+// ==================== EXPORT ====================
 export default function SearchPage() {
   return (
     <LocationProvider>

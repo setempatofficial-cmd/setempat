@@ -26,33 +26,34 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
   const isMalam = theme?.isMalam ?? true;
 
   // Fetch profile dan status KTP
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user?.id) return;
-      
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-      
-      if (!error && data) {
-        setProfile(data);
-        setKtpStatus(data.ktp_status || "belum_mengajukan");
-      } else {
-        setKtpStatus("belum_mengajukan");
-      }
-      
-      setLoading(false);
-    };
+  const fetchProfile = async () => {
+    if (!user?.id) return;
     
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+    
+    if (!error && data) {
+      setProfile(data);
+      setKtpStatus(data.ktp_status || "belum_mengajukan");
+    } else {
+      setKtpStatus("belum_mengajukan");
+    }
+    
+    setLoading(false);
+  };
+
+  useEffect(() => {
     fetchProfile();
   }, [user?.id]);
 
-  // Memoize Data
+  // Memoize Data - PRIORITAS dari profile database
   const userData = useMemo(() => {
     const meta = user?.user_metadata || {};
+    // 🔥 Prioritaskan dari profile (database)
     const name = profile?.full_name || user?.full_name || meta.full_name || meta.name || "WARGA DIGITAL";
     const username = profile?.username || user?.username || "";
     const avatar = profile?.avatar_url || meta.avatar_url || meta.picture || null;
@@ -61,7 +62,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
       fullName: name,
       username: username,
       avatar: avatar,
-      nik: user?.id?.substring(0, 12).toUpperCase() || "STMPT-2026-X",
+      nik: profile?.nik || user?.id?.substring(0, 12).toUpperCase() || "STMPT-2026-X",
       profileUrl: `https://setempat.id/${username || user?.id?.substring(0, 8)}`
     };
   }, [user, profile]);
@@ -77,6 +78,23 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
       </div>
     );
   }
+
+  // Handle daftar Rewang - dispatch event ke parent
+  const handleDaftarRewang = () => {
+    // Tutup modal KTP dulu
+    setShowModal(false);
+    // Kirim event ke RewangPage
+    window.dispatchEvent(new CustomEvent("open-daftar-rewang"));
+  };
+
+  // Handle setelah update profile sukses
+  const handleProfileUpdated = () => {
+    setShowModal(false);
+    // Refresh data profile tanpa reload page
+    fetchProfile();
+    // Panggil callback dari parent jika ada
+    if (onProfileUpdated) onProfileUpdated();
+  };
 
   // Tentukan konten berdasarkan status
   let content;
@@ -197,7 +215,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
                 <div className={`absolute top-0 right-0 w-[200px] h-[200px] blur-[80px] -mr-20 -mt-20 
                   ${isMalam ? "bg-orange-500/20" : "bg-orange-500/10"}`} />
 
-                {/* Header - TANPA BADGE VERIFIED HIJAU */}
+                {/* Header */}
                 <div className="flex justify-between items-start relative z-10">
                   <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-xl border ${isMalam ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"}`}>
@@ -324,6 +342,16 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
             >
               UPDATE PROFILE
             </button>
+
+            {/* 🔥 TOMBOL DAFTAR REWANG - HANYA UNTUK USER YANG SUDAH KTP AKTIF */}
+            {ktpStatus === "aktif" && (
+              <button
+                onClick={handleDaftarRewang}
+                className="flex-1 px-6 py-4 rounded-2xl bg-green-600 hover:bg-green-500 text-white text-[11px] font-black tracking-widest transition-all active:scale-95 shadow-lg shadow-green-600/30"
+              >
+                DAFTAR REWANG
+              </button>
+            )}
           </div>
         </div>
       </>
@@ -352,13 +380,9 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
       
       <KTPModal isOpen={showModal} onClose={() => setShowModal(false)} theme={theme}>
         <UpdateProfileForm
-          profile={user}
+          profile={profile || user}  // 🔥 Prioritaskan profile database, fallback ke user
           theme={theme}
-          onSaveSuccess={() => {
-            setShowModal(false);
-            onProfileUpdated?.();
-            window.location.reload();
-          }}
+          onSaveSuccess={handleProfileUpdated}
         />
       </KTPModal>
     </>

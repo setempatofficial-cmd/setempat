@@ -71,6 +71,14 @@ export default function Header({
   const router = useRouter();
   const { weather } = useWeather(villageLocation);
 
+  useEffect(() => {
+    if (villageLocation) {
+      // Simpan ke storage agar bisa dibaca page Rewang
+      localStorage.setItem("setempat_location", villageLocation);
+      localStorage.setItem("setempat_location_ready", locationReady ? "true" : "false");
+    }
+  }, [villageLocation, locationReady]);
+
 
   // FIX: Tambahkan fungsi handleSelectTempat yang sempat hilang
   const handleSelectTempat = (tempat) => {

@@ -1,4 +1,4 @@
-// hooks/useClock.ts - OPTIMASI
+// hooks/useClock.ts - OPTIMASI dengan jam & menit terpisah
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useClock() {
@@ -9,7 +9,7 @@ export function useClock() {
     let lastUpdate = performance.now();
     
     const update = (now: number) => {
-      if (now - lastUpdate >= 1000) { // Update setiap 1 detik
+      if (now - lastUpdate >= 1000) {
         setTime(new Date());
         lastUpdate = now;
       }
@@ -33,8 +33,14 @@ export function useClock() {
     return 'Malam';
   }, [time]);
 
+  // Format jam dan menit terpisah
+  const hours = time.getHours().toString().padStart(2, '0');
+  const minutes = time.getMinutes().toString().padStart(2, '0');
+
   return {
     currentTime: time.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+    currentHour: hours,
+    currentMinute: minutes,
     timeLabel: timeLabel()
   };
 }

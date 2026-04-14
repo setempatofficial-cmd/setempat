@@ -1,11 +1,15 @@
 // hooks/useClock.js 
-
 import { useState, useEffect, useRef } from 'react';
 
 export function useClock() {
-  const [currentTime, setCurrentTime] = useState(() => {
+  const [currentHour, setCurrentHour] = useState(() => {
     const now = new Date();
-    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    return now.getHours().toString().padStart(2, '0');
+  });
+  
+  const [currentMinute, setCurrentMinute] = useState(() => {
+    const now = new Date();
+    return now.getMinutes().toString().padStart(2, '0');
   });
   
   const [timeLabel, setTimeLabel] = useState(() => {
@@ -17,10 +21,10 @@ export function useClock() {
   });
 
   useEffect(() => {
-    // Update hanya setiap menit, bukan setiap detik
     const interval = setInterval(() => {
       const now = new Date();
-      const newTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const newHour = now.getHours().toString().padStart(2, '0');
+      const newMinute = now.getMinutes().toString().padStart(2, '0');
       const newLabel = (() => {
         const hour = now.getHours();
         if (hour < 11) return 'Pagi';
@@ -29,12 +33,18 @@ export function useClock() {
         return 'Malam';
       })();
       
-      setCurrentTime(newTime);
+      setCurrentHour(newHour);
+      setCurrentMinute(newMinute);
       setTimeLabel(newLabel);
-    }, 60000); // Update setiap 60 detik, bukan 1 detik
+    }, 60000);
     
     return () => clearInterval(interval);
   }, []);
 
-  return { currentTime, timeLabel };
+  return { 
+    currentHour, 
+    currentMinute, 
+    timeLabel,
+    currentTime: `${currentHour}:${currentMinute}` // Untuk kompatibilitas
+  };
 }

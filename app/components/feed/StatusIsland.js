@@ -179,7 +179,7 @@ const defaultSuasana = useMemo(() => {
         <div className="flex items-center gap-3 w-full">
           <div className="h-2 w-2 rounded-full shrink-0 bg-gray-400" />
           <p className="text-[14px] font-black uppercase tracking-tight truncate flex-1 text-gray-500">
-            📍 {defaultSuasana}
+             {defaultSuasana}
           </p>
           {hoursSinceLastReport && (
             <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">

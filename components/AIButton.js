@@ -13,10 +13,10 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
     if (!hasLaporan) return { text: "Ada kejadian apa di sini? Lapor yuk...", isLaporMode: true };
 
     const qMap = {
-      "Sepi": "Kenapa sepi ya? Tanya AI...",
-      "Ramai": "Lagi ada acara apa? Cek detail...",
-      "Antri": "Berapa lama antrinya? Tanya...",
-      "Normal": "Tanya Akamsi AI tentang lokasi ini..."
+      "Sepi": "Kenapa sepi ya?",
+      "Ramai": "Lagi ramai nih!",
+      "Antri": "Lama antri?",
+      "Normal": "Tanya Akamsi AI Soal lokasi ini"
     };
     const key = kondisi?.charAt(0).toUpperCase() + kondisi?.slice(1).toLowerCase();
     return { text: qMap[key] || qMap["Normal"], isLaporMode: false };

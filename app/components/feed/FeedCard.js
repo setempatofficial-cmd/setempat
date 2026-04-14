@@ -368,80 +368,59 @@ function FeedCard({
         }}
         className={`relative overflow-visible rounded-[32px] ${theme.card} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'} shadow-sm flex flex-col`}
 >
-        {/* STATUS ISLAND - Paling Atas (sebagai Headline utama) */}
-        <div className="px-5 pt-5">
-          <StatusIsland
-            item={safeItem}
-            theme={theme}
-            allReports={allSignals} 
-            isExpanded={isExpanded}
-            setIsExpanded={setIsExpanded}
-            jumlahWarga={totalSaksi}
-          />
-        </div>
 
-        {/* Title - The Passive Narrative (Light & Fast) */}
-<div className="px-6 pt-1 pb-3">
-  <div className="flex items-center gap-2">
-    {/* Aksen Garis Pendek - Eyecatching tanpa gambar/icon berat */}
-    <div className={`w-1 h-3 rounded-full ${theme.accentBg || 'bg-cyan-500'} opacity-60 shadow-[0_0_8px_rgba(6,182,212,0.3)]`} />
-    
-    <h2
-      className={`
-        text-[11.5px] 
-        font-[1000] 
-        italic 
-        tracking-tighter 
-        leading-tight
-        ${theme.text} 
-        opacity-70
-        line-clamp-2
-        select-none
-      `}
-      style={{ letterSpacing: '-0.03em' }}
-    >
-      {headline}
+<div className="px-6 pt-6 pb-3">
+  <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col gap-0.5">
+      {/* Label Kecil untuk Identitas */}
+      <div className="flex items-center gap-1.5 opacity-40">
+        <span className="text-[9px] font-black uppercase tracking-[0.15em]">Terkini</span>
+        
+      </div>
+      
+      {/* Nama Tempat: Bold tapi warna Soft agar Status Island yang Menang secara Kontras */}
+      <h3 className={`text-[10px] font-[1000] uppercase tracking-tight leading-none ${theme.text} opacity-70`}>
+        {safeItem.name}
+      </h3>
+    </div>
+
+    {/* Jarak: Minimalis agar tidak mengganggu fokus visual */}
+    <div className={`px-2.5 py-1 rounded-lg border ${theme.isMalam ? "bg-white/5 border-white/10" : "bg-black/5 border-black/5"}`}>
+      <p className={`text-[10px] font-black tracking-tight ${theme.text} opacity-50`}>
+        {distanceText}
+      </p>
+    </div>
+  </div>
+
+  {/* 2. Status Island - Kondisi Utama */}
+  <div className="relative">
+    <StatusIsland
+      item={safeItem}
+      theme={theme}
+      allReports={allSignals} 
+      isExpanded={isExpanded}
+      setIsExpanded={setIsExpanded}
+      jumlahWarga={totalSaksi}
+    />
+  </div>
+</div> 
+
+        <div className="px-6 pb-4">
+  <div className="flex items-start gap-2.5">
+    <div className={`w-1 h-3 mt-1 rounded-full ${theme.accentBg || 'bg-cyan-500'} opacity-50 shadow-sm`} />
+    <h2 className={`text-[11.5px] font-bold italic tracking-tight leading-tight ${theme.text} opacity-70 flex-1`}>
+      "{headline}"
     </h2>
+    
+    {/* Jam: Tetap fungsional tapi tipis */}
+    <div className={`font-mono text-[9px] font-bold ${theme.text} opacity-30 pt-0.5`}>
+      {currentHour}<span className="animate-pulse">:</span>{currentMinute}
+    </div>
   </div>
 </div>
 
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-1.5 w-1.5">
-              <motion.span
-                {...PING_ANIM}
-                className={`absolute inset-0 rounded-full ${theme.isMalam ? "bg-emerald-400" : "bg-emerald-500"}`}
-              />
-              <span
-                className={`relative rounded-full h-1.5 w-1.5 ${theme.isMalam ? "bg-emerald-500" : "bg-emerald-600"}`}
-              />
-            </span>
-            <span
-              className={`text-[9px] font-black tracking-[0.05em] ${theme.accent} italic uppercase`}
-            >
-              {distanceText}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span
-              className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${theme.isMalam ? "bg-white/10" : "bg-black/5"} ${theme.text} opacity-50 tracking-tighter uppercase`}
-            >
-              {categoryText}
-            </span>
-            <div
-              className={`flex items-center font-mono text-[9px] font-bold ${theme.text} opacity-70`}
-            >
-              <span>{currentHour}</span>
-              <motion.span {...BLINK_ANIM} className="mx-0.5" />
-              <span>{currentMinute}</span>
-            </div>
-          </div>
-        </div>
-
         {/* Media Section */}
-        <div className="relative px-3.5 mb-3.5">
+        <div className="relative px-3.5 mb-2">
           <div
             className={`relative aspect-[16/10.5] rounded-[26px] overflow-hidden border ${theme.border} shadow-lg`}
             style={{ zIndex: 1 }}
@@ -542,6 +521,19 @@ function FeedCard({
             </div>
           </div>
         </div>
+<div className="px-7 pt-1 pb-4 flex items-center justify-between opacity-60">
+  <div className="flex items-center gap-1.5 overflow-hidden">
+    <span className="text-[10px] filter grayscale opacity-70">📍</span>
+    <p className={`text-[9px] font-semibold ${theme.textMuted} truncate max-w-[180px]`}>
+      {alamatText}
+    </p>
+  </div>
+  
+  <span className="text-[8px] font-mono font-medium opacity-20 tracking-widest uppercase">
+    #{String(safeItem.id).slice(-4)}
+   </span>
+  </div>
+
 		
 		{/* Live Insight - Dipisah di paling bawah */}
         <div className="px-5 pb-5">
@@ -561,25 +553,6 @@ function FeedCard({
 
         {/* Footer */}
         <div className="px-6 pb-6 space-y-3.5">
-          <div className="flex justify-between items-end px-0.5">
-            <div className="min-w-0">
-              <h3
-                className={`text-[13px] font-[1000] ${theme.text} uppercase truncate tracking-tight`}
-              >
-                {safeItem.name}
-              </h3>
-              <p
-                className={`text-[8px] font-bold ${theme.textMuted} uppercase tracking-wider truncate opacity-40 mt-0.5`}
-              >
-                📍 {alamatText}
-              </p>
-            </div>
-            <span
-              className={`text-[7px] font-mono font-bold ${theme.textMuted} opacity-20 shrink-0`}
-            >
-              ID_{String(safeItem.id).slice(-4)}
-            </span>
-          </div>
 
           <AIButton
             item={safeItem}

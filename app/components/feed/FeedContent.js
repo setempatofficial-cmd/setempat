@@ -18,6 +18,8 @@ import LocationModal from "@/components/LocationModal";
 import LaporanWarga from "../layout/LaporanWarga";
 import FormLaporanAktif from "@/app/components/modals/FormLaporanAktif";
 import FeedCardWrapper from "@/components/FeedCardWrapper";
+import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
+import UploadModal from "@/components/UploadModal";
 
 // Lazy load heavy modals
 const AIModal = React.lazy(() => import("./AIModal"));
@@ -45,7 +47,7 @@ const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.7;
 const DISTANCE_WEIGHT = 0.3;
 
-// ── HAVERSINE FORMULA ──
+// Haversine Formula
 const haversineDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -93,7 +95,24 @@ const calculateHybridScore = (item, userLocation) => {
   };
 };
 
-// ── MEMOIZED COMPONENTS ──
+const handleRefreshFeed = async () => {
+  console.log("🔄 Refreshing feed...");
+  
+  // Invalidate cache
+  cacheManager.invalidate();
+  
+  // Reload places
+  await loadPlaces(true);
+  
+  // Scroll ke atas
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  
+  // Tampilkan toast
+  setToast({ show: true, message: "Feed diperbarui!" });
+  setTimeout(() => setToast({ show: false, message: "" }), 2000);
+};
+
+// Memoized Components
 const SkeletonLoader = memo(() => (
   <div className="space-y-6 px-4">
     {[1, 2, 3].map(i => (
@@ -158,13 +177,13 @@ const ToastMessage = memo(({ show, message }) => (
   </AnimatePresence>
 ));
 
-// ── MAIN COMPONENT ──
+// Main Component
 export default function FeedContent() {
   const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
   const { user, isAdmin } = useAuth();
   const theme = useTheme();
 
-  // --- NETWORK DETECTION & OPTIMIZATION ---
+  // Network Detection
   const [networkInfo, setNetworkInfo] = useState({
     effectiveType: '4g',
     saveData: false,
@@ -175,32 +194,7 @@ export default function FeedContent() {
   const [useRealtime, setUseRealtime] = useState(true);
   const [pollingInterval, setPollingInterval] = useState(null);
 
-  // Monitor network changes
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.connection) return;
-    
-    const updateNetworkInfo = () => {
-      const conn = navigator.connection;
-      const effectiveType = conn?.effectiveType || '4g';
-      const saveData = conn?.saveData || false;
-      const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
-      
-      setNetworkInfo({ effectiveType, saveData, isSlowConnection });
-      setDynamicLimit(getDynamicLimit());
-      
-      // Matikan realtime untuk koneksi lambat atau saveData mode
-      setUseRealtime(!isSlowConnection && !saveData);
-    };
-    
-    updateNetworkInfo();
-    navigator.connection.addEventListener('change', updateNetworkInfo);
-    
-    return () => {
-      navigator.connection.removeEventListener('change', updateNetworkInfo);
-    };
-  }, []);
-
-  // --- STABIL DATA STRUCTURE ---
+  // Feed Data States
   const [itemsMap, setItemsMap] = useState(new Map());
   const [orderedIds, setOrderedIds] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -217,7 +211,12 @@ export default function FeedContent() {
   const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
   const [feedOpacity, setFeedOpacity] = useState(1);
 
-  // Modal states
+  // Upload Modal States
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+
+  // Modal States
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [selectedLaporanWarga, setSelectedLaporanWarga] = useState([]);
   const [selectedUploadSuccess, setSelectedUploadSuccess] = useState(null);
@@ -231,6 +230,24 @@ export default function FeedContent() {
   const [forceShowLaporan, setForceShowLaporan] = useState(false);
   const [showFormLaporan, setShowFormLaporan] = useState(false);
   
+  // Get User Data for Upload Modal
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setUserId(authUser.id);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authUser.id)
+          .single();
+        setUserRole(profile?.role || 'warga');
+      }
+    };
+    getUser();
+  }, []);
+
+  // Scroll Handler
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
@@ -242,7 +259,30 @@ export default function FeedContent() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Memoized values
+  // Network Monitor
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.connection) return;
+    
+    const updateNetworkInfo = () => {
+      const conn = navigator.connection;
+      const effectiveType = conn?.effectiveType || '4g';
+      const saveData = conn?.saveData || false;
+      const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
+      
+      setNetworkInfo({ effectiveType, saveData, isSlowConnection });
+      setDynamicLimit(getDynamicLimit());
+      setUseRealtime(!isSlowConnection && !saveData);
+    };
+    
+    updateNetworkInfo();
+    navigator.connection.addEventListener('change', updateNetworkInfo);
+    
+    return () => {
+      navigator.connection.removeEventListener('change', updateNetworkInfo);
+    };
+  }, []);
+
+  // Memoized Values
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
   const { villageLocation, districtLocation } = useMemo(() => {
     if (!placeName) return { villageLocation: "Pilih Lokasi", districtLocation: "" };
@@ -266,7 +306,7 @@ export default function FeedContent() {
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
 
-  // Update refs
+  // Update Refs
   useEffect(() => { commentsRef.current = comments; }, [comments]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
@@ -274,7 +314,7 @@ export default function FeedContent() {
   useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
   useEffect(() => { locationRef.current = location; }, [location]);
 
-  // Derived values
+  // Derived Values
   const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
 
   const resetFeed = useCallback(async () => {
@@ -287,7 +327,7 @@ export default function FeedContent() {
     existingIdsRef.current.clear();
   }, []);
 
-  // --- OPTIMIZED CACHE MANAGER (hanya simpan data penting) ---
+  // Cache Manager
   const cacheManager = useMemo(() => ({
     getKey: () => {
       if (!locationReadyRef.current || !locationRef.current) return 'feed_default';
@@ -301,7 +341,6 @@ export default function FeedContent() {
         if (!cached) return null;
         const parsed = JSON.parse(cached);
         if (!parsed || !parsed.ids) return null;
-        // Cache lebih lama untuk koneksi lambat
         const cacheDuration = networkInfo.isSlowConnection ? CACHE_DURATION * 2 : CACHE_DURATION;
         if (Date.now() - parsed.timestamp > cacheDuration) return null;
         return { itemsMap: new Map(parsed.items), orderedIds: parsed.ids };
@@ -310,7 +349,6 @@ export default function FeedContent() {
     set: (key, itemsMap, orderedIds) => {
       try {
         if (!orderedIds || orderedIds.length === 0) return;
-        // Untuk koneksi lambat, hanya cache 30 item pertama
         const itemsToCache = networkInfo.isSlowConnection 
           ? Array.from(itemsMap.entries()).slice(0, 30)
           : Array.from(itemsMap.entries());
@@ -328,7 +366,7 @@ export default function FeedContent() {
     }
   }), [searchRadius, networkInfo.isSlowConnection, networkInfo.effectiveType]);
 
-  // --- LOAD PLACES WITH NETWORK AWARENESS ---
+  // Load Places
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
     const currentFetchId = ++fetchIdRef.current;
     if (loadingRef.current && !reset) return;
@@ -392,7 +430,6 @@ export default function FeedContent() {
         query = query.lt('id', lastLoadedIdRef.current);
       }
 
-      // Gunakan limit yang lebih kecil untuk koneksi lambat
       const { data, error: fetchError } = await query.limit(currentLimit * (networkInfo.isSlowConnection ? 1 : 2));
       if (fetchError) throw fetchError;
       if (currentFetchId !== fetchIdRef.current) return;
@@ -500,7 +537,7 @@ export default function FeedContent() {
     }
   }, [forceRefresh, cacheManager, searchRadius, itemsMap, orderedIds, comments, dynamicLimit, networkInfo.isSlowConnection]);
 
-  // ── POLLING INSTEAD OF REALTIME FOR SLOW CONNECTIONS ──
+  // Polling for Updates
   const pollForUpdates = useCallback(() => {
     if (!locationReadyRef.current || !hasMoreRef.current) return;
     
@@ -518,7 +555,6 @@ export default function FeedContent() {
         if (error) throw error;
         
         if (data && data.length > 0) {
-          // Ada konten baru, refresh feed
           loadPlaces(true);
           setToast({ show: true, message: "📢 Ada konten baru! Feed diperbarui." });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
@@ -532,10 +568,9 @@ export default function FeedContent() {
     return interval;
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection]);
 
-  // ── REAL-TIME SUBSCRIPTION (hanya untuk koneksi cepat) ──
+  // Realtime Subscription
   useEffect(() => {
     if (!useRealtime) {
-      // Gunakan polling untuk koneksi lambat
       const interval = pollForUpdates();
       setPollingInterval(interval);
       return () => {
@@ -613,7 +648,7 @@ export default function FeedContent() {
     };
   }, [searchRadius, itemsMap, useRealtime, pollForUpdates]);
 
-  // ── HANDLE MANUAL LOCATION CHANGE ──
+  // Handlers
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
     setManualLocation(selectedLocation);
@@ -628,7 +663,6 @@ export default function FeedContent() {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [cacheManager, loadPlaces, setManualLocation, resetFeed]);
 
-  // ── HANDLE GPS LOCATION ──
   const handleGPSActivation = useCallback(async () => {
     console.log("📍 Aktifkan GPS location...");
     await requestLocation();
@@ -642,93 +676,6 @@ export default function FeedContent() {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
 
-  // ── INFINITE SCROLL ──
-  useEffect(() => {
-    if (!lastCardRef.current || !hasMore || loading) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          loadPlaces(false);
-        }
-      },
-      { threshold: 0.1, rootMargin: "200px" }
-    );
-
-    observer.observe(lastCardRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadPlaces, tempat.length]);
-
-  // ── PULL TO REFRESH ──
-  useEffect(() => {
-    let startY = 0;
-    let isPulling = false;
-
-    const handleTouchStart = (e) => {
-      if (window.scrollY === 0 && !loading && !refreshing) {
-        startY = e.touches[0].pageY;
-        isPulling = true;
-      }
-    };
-
-    const handleTouchMove = (e) => {
-      if (!isPulling || window.scrollY > 0) return;
-      const pullDistance = e.touches[0].pageY - startY;
-      if (pullDistance > 60 && !refreshing) {
-        setRefreshing(true);
-      }
-    };
-
-    const handleTouchEnd = () => {
-      if (refreshing && !loading) {
-        cacheManager.invalidate();
-        setForceRefresh(true);
-        loadPlaces(true);
-        setTimeout(() => {
-          setRefreshing(false);
-          setForceRefresh(false);
-        }, 1000);
-      }
-      isPulling = false;
-    };
-
-    window.addEventListener('touchstart', handleTouchStart);
-    window.addEventListener('touchmove', handleTouchMove);
-    window.addEventListener('touchend', handleTouchEnd);
-    return () => {
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [refreshing, loading, cacheManager, loadPlaces]);
-
-  // ── INITIAL LOAD ──
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) {
-      initialLoadDoneRef.current = true;
-      loadPlaces(true, false);
-    }
-  }, [loadPlaces]);
-
-  // ── LOCATION CHANGE HANDLER ──
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) return;
-    if (!locationReady) return;
-
-    const currentKey = location ? `${location.latitude.toFixed(3)},${location.longitude.toFixed(3)}` : '';
-    if (lastLocationRef.current === currentKey) return;
-
-    console.log(`📍 Lokasi berubah: ${lastLocationRef.current} -> ${currentKey}`);
-    lastLocationRef.current = currentKey;
-    
-    cacheManager.invalidate();
-    loadPlaces(true, true);
-
-    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
-    setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  }, [location?.latitude, location?.longitude, locationReady, cacheManager, loadPlaces, villageLocation]);
-
-  // ── HANDLERS ──
   const handleRadiusChange = useCallback((newRadius) => {
     setSearchRadius(newRadius);
     cacheManager.invalidate();
@@ -811,6 +758,92 @@ export default function FeedContent() {
     handleRadiusChange(searchRadius + 5);
   }, [handleRadiusChange, searchRadius]);
 
+  // Infinite Scroll
+  useEffect(() => {
+    if (!lastCardRef.current || !hasMore || loading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          loadPlaces(false);
+        }
+      },
+      { threshold: 0.1, rootMargin: "200px" }
+    );
+
+    observer.observe(lastCardRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadPlaces, tempat.length]);
+
+  // Pull to Refresh
+  useEffect(() => {
+    let startY = 0;
+    let isPulling = false;
+
+    const handleTouchStart = (e) => {
+      if (window.scrollY === 0 && !loading && !refreshing) {
+        startY = e.touches[0].pageY;
+        isPulling = true;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (!isPulling || window.scrollY > 0) return;
+      const pullDistance = e.touches[0].pageY - startY;
+      if (pullDistance > 60 && !refreshing) {
+        setRefreshing(true);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (refreshing && !loading) {
+        cacheManager.invalidate();
+        setForceRefresh(true);
+        loadPlaces(true);
+        setTimeout(() => {
+          setRefreshing(false);
+          setForceRefresh(false);
+        }, 1000);
+      }
+      isPulling = false;
+    };
+
+    window.addEventListener('touchstart', handleTouchStart);
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [refreshing, loading, cacheManager, loadPlaces]);
+
+  // Initial Load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      loadPlaces(true, false);
+    }
+  }, [loadPlaces]);
+
+  // Location Change Handler
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) return;
+    if (!locationReady) return;
+
+    const currentKey = location ? `${location.latitude.toFixed(3)},${location.longitude.toFixed(3)}` : '';
+    if (lastLocationRef.current === currentKey) return;
+
+    console.log(`📍 Lokasi berubah: ${lastLocationRef.current} -> ${currentKey}`);
+    lastLocationRef.current = currentKey;
+    
+    cacheManager.invalidate();
+    loadPlaces(true, true);
+
+    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
+    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+  }, [location?.latitude, location?.longitude, locationReady, cacheManager, loadPlaces, villageLocation]);
+
   return (
     <main className="relative min-h-screen mx-auto w-[92%] max-w-[400px] bg-transparent">
       <PullToRefreshIndicator refreshing={refreshing} />
@@ -836,8 +869,21 @@ export default function FeedContent() {
       />
 
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-      <LaporanWarga tempat={tempat} locationReady={locationReady} displayLocation={villageLocation} location={location} forceShow={forceShowLaporan} onHide={() => setForceShowLaporan(false)} />
-      <FormLaporanAktif isOpen={showFormLaporan} onClose={() => setShowFormLaporan(false)} villageLocation={villageLocation} theme={theme} user={user} />
+      <LaporanWarga 
+        tempat={tempat} 
+        locationReady={locationReady} 
+        displayLocation={villageLocation} 
+        location={location} 
+        forceShow={forceShowLaporan} 
+        onHide={() => setForceShowLaporan(false)} 
+      />
+      <FormLaporanAktif 
+        isOpen={showFormLaporan} 
+        onClose={() => setShowFormLaporan(false)} 
+        villageLocation={villageLocation} 
+        theme={theme} 
+        user={user} 
+      />
       
       <LocationModal
         isOpen={isLocationModalOpen}
@@ -848,7 +894,11 @@ export default function FeedContent() {
         onSelectManual={handleManualLocationSelect}
       />
 
-      <motion.div className="mt-4 space-y-2 min-h-[60vh] relative" animate={{ opacity: feedOpacity }} transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}>
+      <motion.div 
+        className="mt-4 space-y-2 min-h-[60vh] relative" 
+        animate={{ opacity: feedOpacity }} 
+        transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}
+      >
         {initialLoad ? (
           <SkeletonLoader />
         ) : error ? (
@@ -860,37 +910,37 @@ export default function FeedContent() {
             <LayoutGroup>
               <motion.div layout className="space-y-2">
                 <AnimatePresence mode="popLayout" initial={false}>
-  {tempat.map((item, index) => {
-    const isLast = index === tempat.length - 1;
-    const isPriority = index < 3; 
-    return (
-      <motion.div
-        key={item.id}
-        layout
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        ref={isLast ? lastCardRef : null}
-        className="mb-6"
-      >
-        <FeedCardWrapper theme={theme}>
-          <FeedCard
-            item={item}
-            locationReady={locationReady}
-            location={location}
-            comments={comments}
-            selectedPhotoIndex={selectedPhotoIndex}
-            setSelectedPhotoIndex={setSelectedPhotoIndex}
-            openAIModal={openAICardModal}
-            openKomentarModal={openKomentarModal}
-            onShare={handleShare}
-            priority={isPriority} 
-          />
-        </FeedCardWrapper>
-      </motion.div>
-    );
-  })}
-</AnimatePresence>
+                  {tempat.map((item, index) => {
+                    const isLast = index === tempat.length - 1;
+                    const isPriority = index < 3; 
+                    return (
+                      <motion.div
+                        key={item.id}
+                        layout
+                        initial={false}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        ref={isLast ? lastCardRef : null}
+                        className="mb-6"
+                      >
+                        <FeedCardWrapper theme={theme}>
+                          <FeedCard
+                            item={item}
+                            locationReady={locationReady}
+                            location={location}
+                            comments={comments}
+                            selectedPhotoIndex={selectedPhotoIndex}
+                            setSelectedPhotoIndex={setSelectedPhotoIndex}
+                            openAIModal={openAICardModal}
+                            openKomentarModal={openKomentarModal}
+                            onShare={handleShare}
+                            priority={isPriority} 
+                          />
+                        </FeedCardWrapper>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
               </motion.div>
             </LayoutGroup>
           </React.Suspense>
@@ -900,7 +950,12 @@ export default function FeedContent() {
         {!hasMore && tempat.length > 0 && !error && <EndOfFeed />}
 
         {isTransitioningLocation && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40">
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40"
+          >
             <div className="flex flex-col items-center gap-3">
               <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               <p className="text-white/60 text-xs font-medium">Memperbarui feed untuk lokasi baru...</p>
@@ -920,12 +975,46 @@ export default function FeedContent() {
           villageLocation={villageLocation}
         />
       </React.Suspense>
+      
       <React.Suspense fallback={null}>
-        <AIModal isOpen={showAIModal} onClose={closeModals} tempat={selectedTempat} context={aiContext} onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={selectedUploadSuccess} initialQuery={initialQuery} item={selectedTempat} laporanWarga={selectedLaporanWarga} />
+        <AIModal 
+          isOpen={showAIModal} 
+          onClose={closeModals} 
+          tempat={selectedTempat} 
+          context={aiContext} 
+          onOpenAuthModal={() => setIsAuthModalOpen(true)} 
+          onUploadSuccess={selectedUploadSuccess} 
+          initialQuery={initialQuery} 
+          item={selectedTempat} 
+          laporanWarga={selectedLaporanWarga} 
+        />
       </React.Suspense>
+      
       <React.Suspense fallback={null}>
-        <KomentarModal isOpen={showKomentarModal} onClose={closeModals} tempat={selectedTempat} isAdmin={isAdmin} />
+        <KomentarModal 
+          isOpen={showKomentarModal} 
+          onClose={closeModals} 
+          tempat={selectedTempat} 
+          isAdmin={isAdmin} 
+        />
       </React.Suspense>
+      
+      {/* Bottom Navigation with Upload Modal Integration */}
+      <SmartBottomNav 
+        userId={userId}
+        userRole={userRole}
+        onOpenUpload={() => setShowUploadModal(true)}
+        onOpenLaporanForm={() => setShowFormLaporan(true)}
+        onOpenNotification={() => {}}
+        onRefresh={handleRefreshFeed} 
+      />
+      
+      <UploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        userId={userId}
+        userRole={userRole}
+      />
       
       <ToastMessage show={toast.show} message={toast.message} />
     </main>

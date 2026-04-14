@@ -32,7 +32,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     username: "",
     full_name: "",
     usia: "",
-    profesi: "",
     whatsapp: "",
     alamat: "",
     desa: "",
@@ -173,7 +172,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         username: currentUsername,
         full_name: data.full_name || profile?.user_metadata?.full_name || "",
         usia: data.usia || "",
-        profesi: data.profesi || "",
         whatsapp: data.whatsapp || "",
         alamat: data.alamat || "",
         desa: data.desa || "",
@@ -346,10 +344,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       alert("Nomor WhatsApp wajib diisi");
       return;
     }
-    if (!formData.profesi) {
-      alert("Profesi wajib diisi");
-      return;
-    }
+    
     
     // 🔥 WAJIB PAKAI GPS ATAU GEOCODING
     if (!formData.latitude || !formData.longitude) {
@@ -412,7 +407,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       const updateData = {
         full_name: formData.full_name,
         usia: parseInt(formData.usia),
-        profesi: formData.profesi,
         whatsapp: formData.whatsapp,
         alamat: formData.alamat,
         desa: formData.desa,
@@ -626,20 +620,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             required
           />
           {usiaError && <p className="text-[8px] mt-0.5 ml-3 text-red-500">{usiaError}</p>}
-        </div>
-
-        {/* Profesi */}
-        <div className="relative">
-          <Briefcase size="14" className="absolute left-3 top-2.5 text-orange-500" />
-          <input
-            type="text"
-            placeholder="Profesi (contoh: Tukang Las, Montir, Jahit)"
-            value={formData.profesi}
-            onChange={(e) => setFormData({ ...formData, profesi: e.target.value })}
-            className={isFormDisabled ? inputDisabledClass : inputClass}
-            disabled={isFormDisabled}
-            required
-          />
         </div>
 
         {/* WhatsApp */}
