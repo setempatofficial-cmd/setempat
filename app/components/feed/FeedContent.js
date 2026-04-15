@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { useRouter } from "next/navigation";
 import AuthModal from "@/app/components/auth/AuthModal";
 import { useAuth } from "@/app/context/AuthContext"; 
 import { useTheme } from "@/app/hooks/useTheme";
@@ -95,22 +96,7 @@ const calculateHybridScore = (item, userLocation) => {
   };
 };
 
-const handleRefreshFeed = async () => {
-  console.log("🔄 Refreshing feed...");
-  
-  // Invalidate cache
-  cacheManager.invalidate();
-  
-  // Reload places
-  await loadPlaces(true);
-  
-  // Scroll ke atas
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  
-  // Tampilkan toast
-  setToast({ show: true, message: "Feed diperbarui!" });
-  setTimeout(() => setToast({ show: false, message: "" }), 2000);
-};
+
 
 // Memoized Components
 const SkeletonLoader = memo(() => (
@@ -179,6 +165,7 @@ const ToastMessage = memo(({ show, message }) => (
 
 // Main Component
 export default function FeedContent() {
+  const router = useRouter();
   const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
   const { user, isAdmin } = useAuth();
   const theme = useTheme();
@@ -844,6 +831,23 @@ export default function FeedContent() {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [location?.latitude, location?.longitude, locationReady, cacheManager, loadPlaces, villageLocation]);
 
+   const handleRefreshFeed = async () => {
+  console.log("🔄 Refreshing feed...");
+  
+  // Invalidate cache
+  cacheManager.invalidate();
+  
+  // Reload places
+  await loadPlaces(true);
+  
+  // Scroll ke atas
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  
+  // Tampilkan toast
+  setToast({ show: true, message: "Feed diperbarui!" });
+  setTimeout(() => setToast({ show: false, message: "" }), 2000);
+};
+
   return (
     <main className="relative min-h-screen mx-auto w-[92%] max-w-[400px] bg-transparent">
       <PullToRefreshIndicator refreshing={refreshing} />
@@ -1001,12 +1005,11 @@ export default function FeedContent() {
       
       {/* Bottom Navigation with Upload Modal Integration */}
       <SmartBottomNav 
-        userId={userId}
-        userRole={userRole}
         onOpenUpload={() => setShowUploadModal(true)}
         onOpenLaporanForm={() => setShowFormLaporan(true)}
-        onOpenNotification={() => {}}
-        onRefresh={handleRefreshFeed} 
+        onOpenNotification={() => router.push("/woro")}
+        onOpenProfile={() => router.push("/rewang")}
+        
       />
       
       <UploadModal

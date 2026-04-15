@@ -777,12 +777,10 @@ function PostDetailContent({ id }) {
 
           {/* BOTTOM NAV with Upload Modal */}
           <SmartBottomNav 
-            userId={userId}
-            userRole={userRole}
             onOpenUpload={() => setShowUploadModal(true)}
             onOpenLaporanForm={() => setShowFormLaporan(true)}
-            onOpenNotification={() => {}}
-            
+            onOpenNotification={() => router.push("/woro")}
+            onOpenProfile={() => router.push("/rewang")}            
           />
 
           {/* UPLOAD MODAL for Superadmin & Admin */}

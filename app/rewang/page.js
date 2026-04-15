@@ -11,7 +11,8 @@ import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { 
   ChevronLeft, MapPin, SlidersHorizontal, UserPlus, 
-  Search, Hammer, Tv, Home, HeartPulse, Truck, Globe, X 
+  Search, Hammer, Tv, Home, HeartPulse, Truck, Globe, X,
+  Navigation
 } from "lucide-react";
 
 export default function RewangPage() {
@@ -23,13 +24,14 @@ export default function RewangPage() {
   const [selectedCat, setSelectedCat] = useState("Semua");
   const [searchQuery, setSearchQuery] = useState("");
   const [userLocation, setUserLocation] = useState(null);
-  const [userLocationName, setUserLocationName] = useState(""); // 🔥 Tambah state untuk nama lokasi
+  const [userLocationName, setUserLocationName] = useState("");
   const [rewangList, setRewangList] = useState([]);
   const [isSearching, setIsSearching] = useState(true);
   const [showDaftarModal, setShowDaftarModal] = useState(false);
   const [showKTPModal, setShowKTPModal] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [error, setError] = useState(null);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   const categories = [
     { id: "Semua", icon: <Search size={12} /> },
@@ -41,7 +43,38 @@ export default function RewangPage() {
     { id: "Lainnya", icon: <Globe size={12} /> },
   ];
 
-  // 🔥 FUNGSI REVERSE GEOCODING (sama seperti di UpdateProfileForm)
+  // 🔥 CEK STATUS IZIN LOKASI BROWSER
+  const checkLocationPermission = () => {
+    if (!navigator.permissions) return null;
+    
+    return navigator.permissions.query({ name: 'geolocation' })
+      .then((status) => {
+        return status.state; // 'granted', 'denied', atau 'prompt'
+      })
+      .catch(() => null);
+  };
+
+  // 🔥 Ambil lokasi hanya jika izin sudah diberikan
+  const getLocationIfGranted = async () => {
+    const permission = await checkLocationPermission();
+    
+    // Jika izin sudah diberikan, ambil lokasi tanpa popup
+    if (permission === 'granted') {
+      console.log("✅ Izin lokasi sudah diberikan, mengambil lokasi...");
+      getCurrentLocation();
+    } 
+    // Jika izin ditolak, jangan lakukan apapun
+    else if (permission === 'denied') {
+      console.log("❌ Izin lokasi ditolak, tidak meminta lagi");
+      setUserLocationName("Lokasi tidak diizinkan");
+    }
+    // Jika masih prompt (belum pernah diminta), JANGAN minta otomatis
+    else {
+      console.log("⏳ Izin lokasi belum diminta, user harus klik manual");
+    }
+  };
+
+  // 🔥 Fungsi reverse geocoding
   const reverseGeocode = async (lat, lng) => {
     try {
       const response = await fetch(
@@ -51,7 +84,6 @@ export default function RewangPage() {
       
       if (data && data.address) {
         const address = data.address;
-        // Prioritaskan: desa > kecamatan > kabupaten
         const locationName = address.village || 
                              address.hamlet || 
                              address.suburb || 
@@ -69,15 +101,46 @@ export default function RewangPage() {
     }
   };
 
-  // 🔥 Fungsi untuk mendapatkan nama lokasi dari koordinat
-  const getLocationName = async (lat, lng) => {
-    const name = await reverseGeocode(lat, lng);
-    if (name) {
-      setUserLocationName(name);
-      localStorage.setItem("setempat_location_name", name);
-    } else {
-      setUserLocationName("Lokasi tidak diketahui");
+  // 🔥 Fungsi mendapatkan lokasi (dipanggil MANUAL atau jika izin sudah granted)
+  const getCurrentLocation = () => {
+    setIsGettingLocation(true);
+    
+    if (!navigator.geolocation) {
+      alert("Browser tidak mendukung GPS");
+      setIsGettingLocation(false);
+      return;
     }
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        
+        // Simpan koordinat
+        const coordString = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+        setUserLocation(coordString);
+        localStorage.setItem("setempat_location", coordString);
+        
+        // Dapatkan nama lokasi
+        const name = await reverseGeocode(latitude, longitude);
+        if (name) {
+          setUserLocationName(name);
+          localStorage.setItem("setempat_location_name", name);
+        } else {
+          setUserLocationName("Lokasi tidak diketahui");
+        }
+        
+        setIsGettingLocation(false);
+      },
+      (err) => {
+        console.error("GPS Error:", err);
+        // Jangan tampilkan alert jika error karena sudah ditangani
+        if (err.code !== err.PERMISSION_DENIED) {
+          alert("Gagal mendapatkan lokasi: " + err.message);
+        }
+        setIsGettingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   // Fetch Rewang Data
@@ -108,41 +171,30 @@ export default function RewangPage() {
   useEffect(() => {
     fetchRewangData();
     
-    // 🔥 Load location name from localStorage (bukan koordinat)
+    // 🔥 LOAD DARI LOCALSTORAGE DULU
     const savedLocationName = localStorage.getItem("setempat_location_name");
     if (savedLocationName) {
       setUserLocationName(savedLocationName);
+    } else {
+      setUserLocationName("Aktifkan Lokasi");
     }
     
-    // Try to get GPS location and convert to name
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          
-          // Simpan koordinat untuk keperluan lain (opsional)
-          const coordString = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-          setUserLocation(coordString);
-          localStorage.setItem("setempat_location", coordString);
-          
-          // 🔥 Dapatkan nama lokasi dari koordinat
-          await getLocationName(latitude, longitude);
-        },
-        (err) => {
-          console.log("GPS not allowed or error:", err.message);
-          // Fallback ke lokasi dari localStorage atau default
-          const fallbackName = localStorage.getItem("setempat_location_name");
-          if (fallbackName) {
-            setUserLocationName(fallbackName);
-          } else {
-            setUserLocationName("Pasuruan");
-          }
-        }
-      );
-    } else {
-      // Browser tidak support GPS
-      setUserLocationName("Pasuruan");
+    const savedCoord = localStorage.getItem("setempat_location");
+    if (savedCoord) {
+      setUserLocation(savedCoord);
     }
+    
+    // 🔥 CEK IZIN TANPA MEMINTA POPUP
+    // Jika user sudah pernah memberikan izin, ambil lokasi diam-diam
+    const initLocation = async () => {
+      const permission = await checkLocationPermission();
+      if (permission === 'granted') {
+        // User sudah izin sebelumnya, ambil lokasi tanpa notifikasi
+        getCurrentLocation();
+      }
+    };
+    
+    initLocation();
 
     const fetchProfile = async () => {
       if (!user?.id) return;
@@ -176,7 +228,20 @@ export default function RewangPage() {
     setShowKTPModal(true);
   };
 
-  // Event listener untuk membuka modal daftar Rewang dari komponen lain
+  // 🔥 Handle klik manual lokasi
+  const handleLocationClick = async () => {
+    // Cek status izin dulu
+    const permission = await checkLocationPermission();
+    
+    if (permission === 'denied') {
+      alert("Izin lokasi ditolak. Silakan aktifkan di pengaturan browser.");
+      return;
+    }
+    
+    getCurrentLocation();
+  };
+
+  // Event listener untuk membuka modal daftar Rewang
   useEffect(() => {
     const handleOpenDaftarRewang = () => {
       setShowKTPModal(false);
@@ -205,18 +270,27 @@ export default function RewangPage() {
             >
               <ChevronLeft size={18} />
             </button>
-            <div className="text-center">
+            
+            {/* 🔥 LOKASI BUTTON - Bisa diklik manual */}
+            <button 
+              onClick={handleLocationClick}
+              disabled={isGettingLocation}
+              className="text-center group"
+            >
               <h1 className={`text-[11px] font-black uppercase tracking-[0.2em] ${isMalam ? "text-white" : "text-slate-900"}`}>
                 Rewang <span className="text-[#E3655B]">.</span>
               </h1>
-              <div className="flex items-center justify-center gap-1 opacity-40">
+              <div className="flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-all">
                 <MapPin size={8} className="text-orange-500" />
                 <span className={`text-[7px] font-bold uppercase ${isMalam ? "text-white" : "text-slate-900"}`}>
-                  {/* 🔥 TAMPILKAN NAMA LOKASI, BUKAN KOORDINAT */}
-                  {userLocationName || "Mendapatkan lokasi..."}
+                  {isGettingLocation ? "Mendapatkan..." : (userLocationName || "Aktifkan Lokasi")}
                 </span>
+                {!isGettingLocation && userLocationName !== "Aktifkan Lokasi" && userLocationName !== "Lokasi tidak diizinkan" && (
+                  <Navigation size={8} className="text-blue-400" />
+                )}
               </div>
-            </div>
+            </button>
+            
             <button className={`p-2 rounded-xl ${isMalam ? "bg-white/5 text-white" : "bg-slate-100 text-slate-900"}`}>
               <SlidersHorizontal size={16} />
             </button>
@@ -243,7 +317,7 @@ export default function RewangPage() {
         </header>
 
         <main className="px-5 pt-36 pb-32">
-          {/* CATEGORIES - Sama seperti sebelumnya */}
+          {/* CATEGORIES */}
           <section className="mb-6 sticky top-[138px] z-[100] -mx-5 px-5 py-2">
             <div className={`absolute inset-0 -z-10 backdrop-blur-md ${isMalam ? "bg-[#050505]/60" : "bg-slate-50/60"}`} />
             <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
