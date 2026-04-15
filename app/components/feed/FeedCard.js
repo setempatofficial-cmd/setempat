@@ -84,19 +84,17 @@ function FeedCard({
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
 
-  const { externalSignals, loading: externalLoading, count: externalCount } = useExternalSignals(tempatId, {
+  const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
     verifiedOnly: false
   });
 
   const handleLocalRefresh = useCallback(() => {
-    if (onRefreshNeeded) {
-      onRefreshNeeded();
-    }
+    if (onRefreshNeeded) onRefreshNeeded();
     router.refresh();
   }, [onRefreshNeeded, router]);
 
-  // --- Effects & Subscriptions (Logika Tetap Sama) ---
+  // --- Core Lifecycle (Logic Unchanged) ---
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -116,7 +114,6 @@ function FeedCard({
           if (entry.isIntersecting && isMounted.current) {
             setIsVisible(true);
             observerRef.current?.disconnect();
-            observerRef.current = null;
           }
         },
         { threshold: 0.05, rootMargin: "200px" }
@@ -196,7 +193,6 @@ function FeedCard({
 
   if (!item?.id) return null;
 
-  // --- UI Logic Helpers ---
   const [currentHour, currentMinute] = currentTime.split(":");
   const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
   const headline = feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
@@ -213,84 +209,78 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
-  // 🔥 Visual Variation Logic
-  const cardBorderColor = useMemo(() => {
-    if (safeItem.isViral) return "border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.1)]";
-    if (safeItem.isRamai) return "border-yellow-500/40 shadow-[0_0_15px_rgba(234,179,8,0.1)]";
-    return theme.isMalam ? 'border-white/10' : 'border-black/5';
+  // Border logic untuk Full Width
+  const cardBorderClass = useMemo(() => {
+    if (safeItem.isViral) return "border-b-4 border-red-500/50";
+    if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
+    return theme.isMalam ? 'border-b border-white/5' : 'border-b border-black/5';
   }, [safeItem.isViral, safeItem.isRamai, theme.isMalam]);
 
   return (
     <div
       ref={cardRef}
       id={`feed-card-${safeItem.id}`}
-      className="relative mb-8 w-full will-change-transform px-4"
+      className="relative mb-4 w-full will-change-transform"
       style={{ isolation: "isolate" }}
     >
       <motion.div
         layout
         layoutId={`card-container-${safeItem.id}`}
-        initial={{ opacity: 0, scale: 0.95, y: 30 }}
-        whileInView={{ opacity: 1, scale: 1, y: 0 }}
-        viewport={{ once: true, margin: "-50px" }}
-        transition={{ type: "spring", damping: 20, stiffness: 100 }}
-        className={`relative overflow-visible rounded-[38px] ${theme.card} border-2 ${cardBorderColor} shadow-xl flex flex-col transition-colors duration-500`}
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+        className={`relative overflow-visible ${theme.card} ${cardBorderClass} flex flex-col transition-all duration-300`}
       >
-        {/* Header Section */}
-        <div className="px-6 pt-7 pb-3">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex flex-col gap-1.5">
+        {/* Header - Full Width Padding */}
+        <div className="px-5 pt-6 pb-3">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <span className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full ${theme.isMalam ? 'bg-white/10 text-white/50' : 'bg-black/5 text-black/40'}`}>
-                  {safeItem.category || 'Terkini'}
+                <span className={`text-[9px] font-black uppercase tracking-widest ${theme.text} opacity-40`}>
+                  {safeItem.category || 'Update Terkini'}
                 </span>
                 {safeItem.isViral && (
-                   <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] px-2 py-0.5 rounded-md font-black italic">HOT 🔥</motion.span>
+                   <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[8px] px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
                 )}
               </div>
-              
-              <h3 className={`text-[13px] font-[1000] uppercase tracking-tight leading-none ${theme.text} flex items-center gap-2`}>
+              <h3 className={`text-[15px] font-[1000] uppercase tracking-tight leading-none ${theme.text}`}>
                 {safeItem.name}
-                {safeItem.isRamai && <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />}
               </h3>
             </div>
 
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border ${theme.isMalam ? "bg-white/5 border-white/10" : "bg-black/5 border-black/5"}`}>
-              <span className="text-[10px]">📍</span>
-              <p className={`text-[9px] font-black tracking-tighter ${theme.text} opacity-70`}>
-                {distanceText}
+            <div className={`px-3 py-1.5 rounded-xl ${theme.isMalam ? "bg-white/5" : "bg-black/5"}`}>
+              <p className={`text-[10px] font-black ${theme.text} opacity-60 whitespace-nowrap`}>
+                📍 {distanceText}
               </p>
             </div>
           </div>
 
-          <div className="relative">
-            <StatusIsland
-              item={safeItem}
-              theme={theme}
-              allReports={allSignals} 
-              isExpanded={isExpanded}
-              setIsExpanded={setIsExpanded}
-              jumlahWarga={totalSaksi}
-            />
-          </div>
+          <StatusIsland
+            item={safeItem}
+            theme={theme}
+            allReports={allSignals} 
+            isExpanded={isExpanded}
+            setIsExpanded={setIsExpanded}
+            jumlahWarga={totalSaksi}
+          />
         </div> 
 
-        {/* Headline Section */}
-        <div className="px-6 pb-4">
-          <div className="flex items-start gap-3 p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-transparent hover:border-current/10 transition-all">
-            <div className={`w-1 h-4 mt-0.5 rounded-full ${safeItem.isViral ? 'bg-red-500' : theme.accentBg || 'bg-cyan-500'} shadow-sm`} />
-            <h2 className={`text-[12px] font-bold italic tracking-tight leading-snug ${theme.text} flex-1`}>
+        {/* Headline - Dibuat lebih lebar dan nyaman dibaca */}
+        <div className="px-5 pb-4">
+          <div className={`flex items-start gap-3 p-4 rounded-2xl ${theme.isMalam ? 'bg-white/[0.03]' : 'bg-black/[0.03]'} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'}`}>
+            <div className={`w-1.5 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : theme.accentBg || 'bg-cyan-500'} opacity-60`} />
+            <h2 className={`text-[13px] font-bold italic tracking-tight leading-relaxed ${theme.text} flex-1`}>
               "{headline}"
             </h2>
-            <div className={`font-mono text-[9px] font-bold ${theme.text} opacity-40 whitespace-nowrap`}>
-              {currentHour}<span className="animate-pulse">:</span>{currentMinute}
-            </div>
+            <span className={`font-mono text-[10px] font-bold ${theme.text} opacity-30 pt-1`}>
+              {currentHour}:{currentMinute}
+            </span>
           </div>
         </div>
 
-        {/* Media Section */}
-        <div className="relative px-4 mb-2">
-          <div className={`relative aspect-[16/10] rounded-[30px] overflow-hidden border ${theme.border} shadow-2xl`} style={{ zIndex: 1 }}>
+        {/* Media Section - Aspect Ratio disesuaikan agar tidak terlalu tinggi di layar lebar */}
+        <div className="relative px-2 mb-2">
+          <div className={`relative aspect-[16/9] rounded-[24px] overflow-hidden border ${theme.border} shadow-lg`} style={{ zIndex: 1 }}>
             <PhotoSlider
               photos={photoUrls}
               timeLabel={clockLabel}
@@ -306,53 +296,48 @@ function FeedCard({
               onRefreshNeeded={handleLocalRefresh}
             />
 
-            {/* Stamp Validator */}
-            <div className="absolute bottom-4 left-5 z-50">
+            {/* Validation Stamp */}
+            <div className="absolute bottom-4 left-4 z-50">
               <AnimatePresence mode="wait">
                 {!isSesuai ? (
                   <motion.button
                     key="stamp-btn"
                     onClick={handleSesuai}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-black/70 border border-white/20 backdrop-blur-xl text-white shadow-2xl active:bg-black/90 transition-all"
+                    whileTap={{ scale: 0.9 }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl"
                   >
-                    <span className="text-sm">🛡️</span>
-                    <div className="flex flex-col leading-none text-left">
-                      <span className="text-[9px] font-black uppercase tracking-widest">KONFIRMASI?</span>
-                      <span className="text-[7px] font-bold text-white/50">{totalSaksi} Laporan</span>
+                    <span className="text-sm">✔️</span>
+                    <div className="flex flex-col text-left">
+                      <span className="text-[9px] font-black tracking-tighter">SESUAI?</span>
+                      <span className="text-[7px] opacity-60">{totalSaksi} Laporan</span>
                     </div>
                   </motion.button>
                 ) : (
                   <motion.div
-                    key="sah-watermark"
-                    initial={{ opacity: 0, scale: 2, rotate: -45 }}
-                    animate={{ opacity: 1, scale: 1, rotate: -12 }}
-                    className="relative w-16 h-16 flex items-center justify-center rounded-full border-4 border-violet-500/80 backdrop-blur-md shadow-2xl"
+                    key="sah"
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="bg-violet-600/90 text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest border border-white/30 shadow-lg -rotate-3"
                   >
-                    <div className="flex flex-col items-center text-center -rotate-[12deg]">
-                      <span className="text-[16px] font-black text-violet-400">SAH!</span>
-                      <span className="text-[6px] font-bold text-violet-300/80 uppercase tracking-tighter">SETEMPAT.ID</span>
-                    </div>
+                    TERVERIFIKASI
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* Floatings */}
-            <div className="absolute top-4 left-2 z-50 scale-90 origin-top-left">
+            {/* Overlay Sidebar */}
+            <div className="absolute top-4 left-3 z-50">
               <StoryCircle
                 laporanWarga={localLaporanWarga}
                 tempatId={safeItem.id}
                 namaTempat={safeItem.name}
-                tempatKategori={safeItem.category}
                 theme={theme}
                 openStoryModal={handleOpenStoryModal}
                 onRefreshNeeded={handleLocalRefresh}
               />
             </div>
 
-            <div className="absolute -right-1 top-3 z-50 scale-90">
+            <div className="absolute right-2 top-4 z-50">
               <FeedActions
                 item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
                 comments={comments}
@@ -360,29 +345,23 @@ function FeedCard({
                 onShare={onShare}
                 variant="floating-sidebar"
                 theme={theme}
-                handleSesuai={handleSesuai}
-                isSesuai={isSesuai}
               />
             </div>
           </div>
         </div>
 
-        {/* Location Info */}
-        <div className="px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 opacity-60 overflow-hidden">
-            <div className="p-1 rounded-md bg-current/5 italic font-black text-[9px] text-cyan-500">LOC</div>
-            <p className={`text-[10px] font-bold ${theme.textMuted} truncate max-w-[200px]`}>
-              {alamatText}
-            </p>
+        {/* Metadata & ID */}
+        <div className="px-6 py-4 flex items-center justify-between opacity-50">
+          <div className="flex items-center gap-2 truncate flex-1">
+            <span className="text-xs">📍</span>
+            <p className={`text-[10px] font-medium ${theme.text} truncate`}>{alamatText}</p>
           </div>
-          <span className="text-[9px] font-mono font-black opacity-20 tracking-tighter">
-            #{String(safeItem.id).padStart(4, '0')}
-          </span>
+          <span className="text-[9px] font-mono tracking-widest ml-4">ID:{String(safeItem.id).slice(-4)}</span>
         </div>
 
-        {/* Live Insight Section */}
-        <div className="px-6 pb-4">
-          <div className={`${theme.statusBg} rounded-[24px] p-2 border ${theme.border} shadow-inner`}>
+        {/* Insight & Action */}
+        <div className="px-5 pb-6 space-y-4">
+          <div className={`${theme.statusBg} rounded-2xl p-3 border ${theme.border} shadow-inner`}>
             <LiveInsight
               signals={allSignals}
               theme={theme}
@@ -390,10 +369,7 @@ function FeedCard({
               currentUser={user}
             />
           </div>
-        </div>
 
-        {/* Footer Actions */}
-        <div className="px-6 pb-8 space-y-4">
           <AIButton
             item={safeItem}
             kondisi={kondisi} 
@@ -401,32 +377,24 @@ function FeedCard({
             theme={theme}
             handleOpenAIModal={handleOpenAIModal}
           />
-
-          <StoryModal
-            isOpen={isStoryModalOpen}
-            onClose={handleCloseStoryModal}
-            stories={activeStories}
-            theme={theme}
-            namaTempat={safeItem.name}
-          />
         </div>
+
+        <StoryModal
+          isOpen={isStoryModalOpen}
+          onClose={handleCloseStoryModal}
+          stories={activeStories}
+          theme={theme}
+          namaTempat={safeItem.name}
+        />
       </motion.div>
     </div>
   );
 }
 
-const areEqual = (prevProps, nextProps) => {
-  return (
-    prevProps.item?.id === nextProps.item?.id &&
-    prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
-    prevProps.item?.isViral === nextProps.item?.isViral &&
-    prevProps.item?.isRamai === nextProps.item?.isRamai &&
-    prevProps.item?.photos?.length === nextProps.item?.photos?.length &&
-    prevProps.item?.laporan_terbaru?.length === nextProps.item?.laporan_terbaru?.length &&
-    prevProps.comments === nextProps.comments &&
-    prevProps.locationReady === nextProps.locationReady &&
-    prevProps.selectedPhotoIndex?.[prevProps.item?.id] === nextProps.selectedPhotoIndex?.[nextProps.item?.id]
-  );
+const areEqual = (p, n) => {
+  return p.item?.id === n.item?.id && 
+         p.item?.vibe_count === n.item?.vibe_count &&
+         p.selectedPhotoIndex?.[p.item?.id] === n.selectedPhotoIndex?.[n.item?.id];
 };
 
 export default memo(FeedCard, areEqual);
