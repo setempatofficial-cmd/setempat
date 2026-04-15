@@ -58,69 +58,82 @@ function extractMentions(text) {
   return mentions;
 }
 
-// ── Fetch komentar dari Supabase (2 langkah, tanpa join) ──────────────────────
+// ── Fetch komentar dari Supabase (SEDERHANA & CEPAT) ──────────────────────
 async function fetchKomentar(tempatId) {
-  // 1. Ambil komentar dulu
-  const { data: komentarData, error: komentarError } = await supabase
-    .from("komentar")
-    .select("*")
-    .eq("tempat_id", tempatId)
-    .order("created_at", { ascending: false });
+  if (!tempatId) return [];
 
-  if (komentarError) throw komentarError;
+  try {
+    // 1. Ambil semua komentar untuk tempat ini
+    const { data: komentarData, error: komentarError } = await supabase
+      .from("komentar")
+      .select("*")
+      .eq("tempat_id", tempatId)
+      .order("created_at", { ascending: false });
 
-  if (!komentarData || komentarData.length === 0) return [];
+    if (komentarError) throw komentarError;
+    if (!komentarData || komentarData.length === 0) return [];
 
-  // 2. Ambil semua user_id unik
-  const userIds = [...new Set(komentarData.map(k => k.user_id).filter(Boolean))];
-  
-  // 3. Ambil data profiles untuk user_id tersebut
-  let profilesMap = {};
-  if (userIds.length > 0) {
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("id, username, full_name, avatar_url, is_verified")
-      .in("id", userIds);
+    // 2. Kumpulkan user_id unik
+    const userIds = [...new Set(komentarData.map(k => k.user_id).filter(Boolean))];
     
-    profilesMap = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
-  }
-
-  // 4. Gabungkan data
-  const mappedData = komentarData.map(item => ({
-    ...item,
-    username: profilesMap[item.user_id]?.username || item.username,
-    user_name: profilesMap[item.user_id]?.full_name || item.user_name,
-    user_avatar: profilesMap[item.user_id]?.avatar_url || item.user_avatar,
-    is_verified: profilesMap[item.user_id]?.is_verified || false,
-  }));
-
-  // 5. Build tree (parent-child relationship)
-  const map = {};
-  const roots = [];
-
-  mappedData.forEach(item => {
-    map[item.id] = { ...item, replies: [] };
-  });
-
-  mappedData.forEach(item => {
-    if (item.parent_id && map[item.parent_id]) {
-      map[item.parent_id].replies.push(map[item.id]);
-    } else if (!item.parent_id) {
-      roots.push(map[item.id]);
+    // 3. Jika ada user_id, ambil data profiles
+    let profilesMap = {};
+    if (userIds.length > 0) {
+      const { data: profilesData } = await supabase
+        .from("profiles")
+        .select("id, username, full_name, avatar_url, is_verified")
+        .in("id", userIds);
+      
+      profilesMap = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
     }
-  });
 
-  const sortReplies = (nodes) => {
-    nodes.forEach(n => {
-      n.replies.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      sortReplies(n.replies);
+    // 4. Gabungkan data komentar dengan profile
+    const mappedData = komentarData.map(item => ({
+      id: item.id,
+      tempat_id: item.tempat_id,
+      parent_id: item.parent_id,
+      user_id: item.user_id,
+      user_name: profilesMap[item.user_id]?.full_name || item.user_name,
+      username: profilesMap[item.user_id]?.username || item.username,
+      user_avatar: profilesMap[item.user_id]?.avatar_url || item.user_avatar,
+      is_verified: profilesMap[item.user_id]?.is_verified || false,
+      content: item.content,
+      likes: item.likes || 0,
+      created_at: item.created_at,
+      replies: []
+    }));
+
+    // 5. Build tree (parent-child)
+    const map = {};
+    const roots = [];
+
+    mappedData.forEach(item => {
+      map[item.id] = { ...item, replies: [] };
     });
-  };
-  sortReplies(roots);
 
-  return roots;
+    mappedData.forEach(item => {
+      if (item.parent_id && map[item.parent_id]) {
+        map[item.parent_id].replies.push(map[item.id]);
+      } else if (!item.parent_id) {
+        roots.push(map[item.id]);
+      }
+    });
+
+    // Sort replies by oldest first
+    const sortReplies = (nodes) => {
+      nodes.forEach(n => {
+        n.replies.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        sortReplies(n.replies);
+      });
+    };
+    sortReplies(roots);
+
+    return roots;
+  } catch (err) {
+    console.error("Fetch komentar error:", err);
+    return [];
+  }
 }
-
 // ── Format waktu relatif ──────────────────────────────────────────────────────
 function timeAgo(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);

@@ -1,10 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { MapPin, Zap, ChevronLeft, ChevronRight } from "lucide-react";
-import Uploader from "@/components/Uploader";
-import UploaderAdmin from "@/components/UploaderAdmin";
-import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
 import { useClock } from "@/hooks/useClock";
 import OptimizedMedia from "@/components/OptimizedMedia";
@@ -23,7 +19,7 @@ const getTimeKeyFromLabel = (timeLabel) => {
   return 'malam';
 };
 
-// Fungsi untuk menormalisasi foto official
+// Normalisasi foto official
 const normalizeOfficialPhotos = (photos) => {
   if (!photos) return { pagi: [], siang: [], sore: [], malam: [] };
   
@@ -51,17 +47,14 @@ export default function PhotoSlider({
   namaTempat = "",
   isHujan = false,
   onUploadSuccess,
-  priority = false, // 🔥 NEW: card pertama langsung load
+  priority = false,
 }) {
-  const { user } = useAuth();
-  const router = useRouter();
   const { timeLabel: currentTimeLabel } = useClock();
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [shouldLoad, setShouldLoad] = useState(priority); // 🔥 NEW
-  const sliderRef = useRef(null); // 🔥 NEW
+  const [shouldLoad, setShouldLoad] = useState(priority);
+  const sliderRef = useRef(null);
   
   const currentTimeKey = useMemo(() => getTimeKeyFromLabel(currentTimeLabel), [currentTimeLabel]);
   
@@ -69,7 +62,7 @@ export default function PhotoSlider({
     setCurrentPhotoIndex(0);
   }, [currentTimeKey]);
 
-  // 🔥 INTERSECTION OBSERVER
+  // Intersection Observer - hanya load saat terlihat
   useEffect(() => {
     if (priority) {
       setShouldLoad(true);
@@ -85,7 +78,7 @@ export default function PhotoSlider({
           }
         });
       },
-      { threshold: 0.1, rootMargin: "300px" }
+      { threshold: 0.1, rootMargin: "200px" }
     );
     
     if (sliderRef.current) observer.observe(sliderRef.current);
@@ -94,22 +87,19 @@ export default function PhotoSlider({
     };
   }, [priority, shouldLoad]);
 
-  const hasControl = useMemo(() => {
-    const emailTarget = "setempatofficial@gmail.com";
-    return user?.email?.toLowerCase().trim() === emailTarget;
-  }, [user]);
-
+  // Fetch data hanya jika perlu
   const fetchOfficialPhotos = useCallback(async () => {
     if (!tempatId || !shouldLoad) return;
+    
     try {
       const { data, error } = await supabase
         .from("tempat")
         .select("photos")
         .eq("id", tempatId)
         .single();
+        
       if (!error && data?.photos) {
-        const normalized = normalizeOfficialPhotos(data.photos);
-        setOfficialPhotos(normalized);
+        setOfficialPhotos(normalizeOfficialPhotos(data.photos));
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -122,8 +112,9 @@ export default function PhotoSlider({
     if (!shouldLoad) return;
     setIsLoading(true);
     fetchOfficialPhotos();
-  }, [fetchOfficialPhotos, refreshKey, shouldLoad]);
+  }, [fetchOfficialPhotos, shouldLoad]);
 
+  // Realtime subscription
   useEffect(() => {
     if (!tempatId || !shouldLoad) return;
     
@@ -136,8 +127,7 @@ export default function PhotoSlider({
         filter: `id=eq.${tempatId}`
       }, (payload) => {
         if (payload.new?.photos) {
-          const normalized = normalizeOfficialPhotos(payload.new.photos);
-          setOfficialPhotos(normalized);
+          setOfficialPhotos(normalizeOfficialPhotos(payload.new.photos));
         }
       })
       .subscribe();
@@ -145,20 +135,18 @@ export default function PhotoSlider({
     return () => supabase.removeChannel(channel);
   }, [tempatId, shouldLoad]);
 
-  const handleUploadSuccess = useCallback((newPhoto) => {
-    setRefreshKey(prev => prev + 1);
-    onUploadSuccess?.(newPhoto);
-  }, [onUploadSuccess]);
-
+  // Proses foto yang akan ditampilkan
   const currentPhotos = useMemo(() => {
     if (!shouldLoad) return [];
     
+    // Prioritaskan foto warga (Story Circle) yang masih fresh (24 jam)
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
         if (!createdAt) return true;
         return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
       });
+      
       if (freshWargaPhotos.length > 0) {
         const sorted = [...freshWargaPhotos].sort((a, b) => {
           const dateA = a.created_at ? new Date(a.created_at) : 0;
@@ -174,8 +162,9 @@ export default function PhotoSlider({
       }
     }
     
+    // Jika tidak ada foto warga, ambil foto official
     const timePhotos = officialPhotos[currentTimeKey];
-    if (timePhotos && Array.isArray(timePhotos) && timePhotos.length > 0) {
+    if (timePhotos?.length > 0) {
       const sorted = [...timePhotos].sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at) : 0;
         const dateB = b.created_at ? new Date(b.created_at) : 0;
@@ -205,23 +194,22 @@ export default function PhotoSlider({
   const currentPhoto = currentPhotos[currentPhotoIndex];
   const hasMultiplePhotos = currentPhotos.length > 1;
 
-  // 🔥 SKELETON saat belum waktunya load
+  // Skeleton saat belum load
   if (!shouldLoad) {
     return (
       <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-800/50 animate-pulse flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-[8px] text-zinc-500">Mempersiapkan...</p>
-        </div>
+        <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  if (isLoading) return (
-    <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-900 animate-pulse flex items-center justify-center">
-      <Zap className="text-zinc-700" size={18} />
-    </div>
-  );
+  if (isLoading) {
+    return (
+      <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-900 animate-pulse flex items-center justify-center">
+        <Zap className="text-zinc-700" size={18} />
+      </div>
+    );
+  }
 
   return (
     <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
@@ -230,30 +218,18 @@ export default function PhotoSlider({
           <>
             <OptimizedMedia 
               src={currentPhoto.url} 
-              className="w-full h-full" 
+              className="w-full h-full object-cover" 
               alt={namaTempat}
               autoPlay={true}
               muted={true}
               loop={true}
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
+            
             {currentPhoto.caption && (
-  <div className="absolute bottom-3 right-3 z-10 max-w-[80%]">
-    <p className="
-      text-white 
-      text-[10px] 
-      tracking-wide
-      font-medium 
-      bg-white/10 
-      backdrop-blur-md 
-      border border-white/20
-      px-2.5 
-      py-1 
-      rounded-full 
-      shadow-sm
-      inline-block
-    ">
-      {currentPhoto.caption}
+              <div className="absolute bottom-3 right-3 z-10 max-w-[80%]">
+                <p className="text-white text-[10px] tracking-wide font-medium bg-white/10 backdrop-blur-md border border-white/20 px-2.5 py-1 rounded-full shadow-sm inline-block">
+                  {currentPhoto.caption}
                 </p>
               </div>
             )}
@@ -268,31 +244,37 @@ export default function PhotoSlider({
         )}
       </div>
 
+      {/* Navigasi Foto */}
       {hasMultiplePhotos && currentPhoto?.url && (
         <>
-          <button onClick={prevPhoto} className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all">
+          <button 
+            onClick={prevPhoto} 
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
+          >
             <ChevronLeft size={16} />
           </button>
-          <button onClick={nextPhoto} className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all">
+          <button 
+            onClick={nextPhoto} 
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
+          >
             <ChevronRight size={16} />
           </button>
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
             {currentPhotos.map((_, idx) => (
-              <button key={idx} onClick={() => setCurrentPhotoIndex(idx)} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`} />
+              <button 
+                key={idx} 
+                onClick={() => setCurrentPhotoIndex(idx)} 
+                className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`} 
+              />
             ))}
           </div>
         </>
       )}
 
-      {hasControl && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <div className="pointer-events-auto bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-1">
-            <UploaderAdmin tempatId={tempatId} timeLabel={timeLabel} onRefreshNeeded={() => { setRefreshKey(prev => prev + 1); router.refresh(); }} />
-          </div>
-        </div>
-      )}
-
+      {/* Efek hujan */}
       {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-blue-500/5 mix-blend-overlay animate-pulse" />}
+      
+      {/* Gradient bottom */}
       <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
     </div>
   );

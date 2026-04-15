@@ -22,11 +22,11 @@ export async function updateSession(request: NextRequest) {
           });
         },
       },
-    }
+    },
   );
 
-  // Ini yang melakukan refresh token otomatis
-  await supabase.auth.getUser();
-
+  // JANGAN panggil getUser() atau getSession() di sini
+  // Biarkan refresh token terjadi di Server Components atau Route Handlers
+  
   return supabaseResponse;
 }

@@ -15,6 +15,7 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
   const [activeTab, setActiveTab] = useState("");
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [hasWoroUpdate, setHasWoroUpdate] = useState(false);
 
   // 1. Ambil jumlah notifikasi yang belum dibaca
   useEffect(() => {
@@ -27,7 +28,15 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
         .eq("user_id", user.id)
         .eq("is_read", false);
 
-      if (!error) setUnreadCount(count || 0);
+      setUnreadCount(count || 0);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: updates } = await supabase
+        .from("tempat")
+        .select("id")
+        .gt("created_at", oneDayAgo)
+        .limit(1);
+
+      setHasWoroUpdate(updates && updates.length > 0);
     };
 
     fetchUnreadCount();
@@ -143,14 +152,27 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
                 {tab.icon}
-                {/* Badge dinamis: Hanya muncul jika badge > 0 dan tab tidak aktif */}
-                {tab.badge > 0 && !isActive && (
-                  <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
-                    rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
-                    ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"}`}
-                  >
-                    {tab.badge > 9 ? "9+" : tab.badge}
-                  </span>
+                {/* --- BAGIAN BADGE DINAMIS --- */}
+{!isActive && (
+  <>
+    {/* PRIORITAS 1: Jika ada angka (Urgent/Personal), tampilkan ANGKA */}
+    {unreadCount > 0 ? (
+      <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
+        rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
+        ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"}`}
+      >
+        {unreadCount > 9 ? "9+" : unreadCount}
+      </span>
+    ) : (
+      /* PRIORITAS 2: Jika tidak ada angka tapi ada update umum, tampilkan DOT */
+      hasWoroUpdate && (
+        <span className={`absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-blue-500 
+          ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"} animate-pulse`} 
+        />
+      )
+    )}
+  </>
+
                 )}
               </div>
               
