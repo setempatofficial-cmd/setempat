@@ -1,30 +1,62 @@
-// components/ai/AIMessageBubble.jsx
 "use client";
 import { memo } from "react";
+import { Camera, Check, Bot } from "lucide-react"; // Pake Bot dari Lucide biar keren
 
 const AIMessageBubble = memo(({ message, isUser, isMalam, onLaporClick, showLaporButton }) => {
   return (
-    <div className={`flex items-start gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
+    <div className={`flex items-start gap-2 mb-4 ${isUser ? "flex-row-reverse" : ""}`}>
+      {/* Avatar AI - Dibuat lebih Berkarakter */}
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-          <span className="text-sm">🤖</span>
+        <div className="relative flex-shrink-0 mt-1">
+          {/* Efek Glow di belakang icon */}
+          <div className="absolute inset-0 bg-emerald-500 blur-sm opacity-20 rounded-full"></div>
+          <div className="relative w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-emerald-500/30">
+            <Bot size={16} className="text-emerald-400" />
+          </div>
         </div>
       )}
-      <div className={`max-w-[85%] px-4 py-2.5 shadow-sm rounded-2xl ${
-        isUser
-          ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-tr-sm"
-          : isMalam ? "bg-white/10 text-white rounded-tl-sm" : "bg-gray-100 text-gray-900 rounded-tl-sm"
-      }`}>
-        <p className="text-[13px] whitespace-pre-line leading-relaxed">{message.text}</p>
+
+      {/* Bubble Container */}
+      <div className={`
+        relative max-w-[85%] px-3.5 py-2.5
+        ${isUser 
+          ? "bg-emerald-600 text-white rounded-2xl rounded-tr-none shadow-sm" 
+          : isMalam 
+            ? "bg-zinc-800/80 backdrop-blur-md text-zinc-100 rounded-2xl rounded-tl-none border border-white/5" 
+            : "bg-[#F0F2F5] text-zinc-800 rounded-2xl rounded-tl-none border border-transparent shadow-sm"
+            /* bg-[#F0F2F5] itu warna abu-abu khas chat premium agar mata gak silau */
+        }
+      `}>
+        {/* Teks Pesan */}
+        <p className="text-[14.5px] leading-snug whitespace-pre-line font-medium">
+          {message.text}
+        </p>
+
+        {/* Tombol Lapor - Dibuat lebih Nyatu */}
         {showLaporButton && (
           <button 
-            onClick={onLaporClick} 
-            className="mt-3 w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm hover:shadow-md transition-all"
+            onClick={onLaporClick}
+            className={`
+              mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl
+              transition-all active:scale-95 font-black text-[11px] uppercase tracking-wider
+              ${isUser 
+                ? "bg-white/20 text-white border border-white/30 backdrop-blur-sm" 
+                : "bg-emerald-500 text-white shadow-md shadow-emerald-500/20"
+              }
+            `}
           >
-            📸 Laporkan Sekarang
+            <Camera size={14} strokeWidth={3} />
+            Lapor Kondisi Terkini
           </button>
         )}
-        <p className={`text-[10px] mt-1 ${isUser ? "text-white/60" : "text-gray-400"}`}>{message.time}</p>
+
+        {/* Info Waktu & Centang */}
+        <div className={`flex items-center gap-1 mt-1 justify-end ${isUser ? "text-white/60" : "text-zinc-400"}`}>
+          <span className="text-[9px] font-bold">
+            {message.time}
+          </span>
+          {isUser && <Check size={10} strokeWidth={4} />}
+        </div>
       </div>
     </div>
   );

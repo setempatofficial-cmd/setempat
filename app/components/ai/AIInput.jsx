@@ -1,32 +1,64 @@
-// components/ai/AIInput.jsx
 "use client";
 import { memo } from "react";
+import { SendHorizontal, Camera } from "lucide-react";
 
-const AIInput = memo(({ value, onChange, onSend, isTyping, placeholder }) => {
+const AIInput = memo(({ value, onChange, onSend, onLaporClick, isTyping, placeholder }) => {
+  const canSend = value.trim() && !isTyping;
+
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-gray-100 dark:bg-white/10 rounded-full px-4 py-2.5 focus-within:ring-2 focus-within:ring-emerald-500/30">
+    <div className="flex items-end gap-2 p-3 bg-transparent">
+      {/* Input Field Container */}
+      <div className={`
+        flex-1 flex items-center min-h-[48px] px-3 py-1.5
+        bg-gray-100 dark:bg-white/[0.06] 
+        rounded-[26px] border border-transparent
+        focus-within:border-emerald-500/20 focus-within:bg-white dark:focus-within:bg-zinc-900
+        transition-all duration-300
+      `}>
+        {/* Tombol Kamera di dalam Input - Biar kayak WhatsApp/IG */}
+        <button
+          onClick={onLaporClick}
+          className="p-2 mr-1 text-zinc-400 hover:text-emerald-500 transition-colors active:scale-90"
+          title="Kirim Foto"
+        >
+          <Camera size={20} strokeWidth={2.5} />
+        </button>
+
         <input
           type="text"
           value={value}
           onChange={onChange}
-          placeholder={placeholder || "Tanya kondisi, jam buka, atau langsung cerita..."}
-          className="w-full bg-transparent text-[13px] text-gray-900 dark:text-white focus:outline-none"
+          placeholder={placeholder || "Tanya atau cerita kondisi..."}
+          className="w-full bg-transparent text-[14px] font-medium text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-white/30 focus:outline-none"
           onKeyPress={(e) => e.key === "Enter" && onSend()}
         />
       </div>
+
+      {/* Action Button */}
       <button
         onClick={onSend}
-        disabled={!value.trim() || isTyping}
-        className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          value.trim() && !isTyping 
-            ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white" 
-            : "bg-gray-200 dark:bg-white/20 text-gray-400"
-        }`}
+        disabled={!canSend}
+        className={`
+          w-[48px] h-[48px] rounded-full flex items-center justify-center 
+          transition-all duration-300 active:scale-90
+          ${canSend 
+            ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30" 
+            : "bg-gray-200 dark:bg-white/10 text-gray-400"
+          }
+        `}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
-        </svg>
+        {isTyping ? (
+          <div className="flex gap-1">
+            <span className="w-1 h-1 bg-white rounded-full animate-bounce" />
+            <span className="w-1 h-1 bg-white rounded-full animate-bounce [animation-delay:0.2s]" />
+            <span className="w-1 h-1 bg-white rounded-full animate-bounce [animation-delay:0.4s]" />
+          </div>
+        ) : (
+          <SendHorizontal 
+            size={20} 
+            className={`transition-transform ${canSend ? 'rotate-0 translate-x-0.5' : 'opacity-40'}`} 
+          />
+        )}
       </button>
     </div>
   );

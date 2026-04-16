@@ -336,36 +336,52 @@ function FeedCard({
               onRefreshNeeded={handleLocalRefresh}
             />
 
-            {/* Validation Stamp - Responsive Positioning */}
-            <div className={`absolute ${isNarrow ? 'bottom-2 left-2' : 'bottom-3 sm:bottom-4 left-3 sm:left-4'} z-50`}>
-              <AnimatePresence mode="wait">
-                {!isSesuai ? (
-                  <motion.button
-                    key="stamp-btn"
-                    onClick={handleSesuai}
-                    whileTap={{ scale: 0.9 }}
-                    className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl"
-                    style={{ minHeight: '44px' }}
-                  >
-                    <span className="text-xs sm:text-sm">✔️</span>
-                    <div className="flex flex-col text-left">
-                      <span className={`${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} font-black tracking-tighter`}>SESUAI?</span>
-                      <span className={`${isNarrow ? 'text-[6px]' : 'text-[6px] sm:text-[7px]'} opacity-60`}>{totalSaksi} Laporan</span>
-                    </div>
-                  </motion.button>
-                ) : (
-                  <motion.div
-                    key="sah"
-                    initial={{ scale: 0.5, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="bg-violet-600/90 text-white px-2 sm:px-4 py-1 sm:py-1.5 rounded-full text-[8px] sm:text-[10px] font-black tracking-widest border border-white/30 shadow-lg -rotate-3"
-                  >
-                    TERVERIFIKASI
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* Validation Stamp - Ultra Clean & Smart Logic */}
+<div className={`absolute ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'bottom-3 left-3' : 'bottom-4 left-4'} z-50`}>
+  <AnimatePresence mode="wait">
+    {!isSesuai ? (
+      <motion.button
+        key="stamp-btn"
+        onClick={handleSesuai}
+        whileHover={{ scale: 1.05, backgroundColor: "rgba(0,0,0,0.8)" }}
+        whileTap={{ scale: 0.9 }}
+        className="group flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/20 text-white shadow-2xl transition-all"
+      >
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-0 bg-white/20 rounded-full animate-ping opacity-30" />
+          <div className="w-5 h-5 rounded-full flex items-center justify-center bg-white text-black text-[9px]">
+            <motion.span animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
+              ✔️
+            </motion.span>
+          </div>
+        </div>
 
+        <div className="flex flex-col text-left leading-none">
+          <span className="text-[9px] font-black uppercase tracking-[0.1em]">Sesuai?</span>
+          <span className="text-[7px] font-bold opacity-50 mt-0.5">{totalSaksi} Saksi</span>
+        </div>
+      </motion.button>
+    ) : (
+      <motion.div
+        key="sah-stamp"
+        initial={{ scale: 0.8, opacity: 0, x: -10 }}
+        animate={{ scale: 1, opacity: 1, x: 0 }}
+        className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-emerald-500/30 backdrop-blur-xl border border-emerald-400/40 text-emerald-50 shadow-lg"
+      >
+        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        
+        <div className="flex flex-col text-left leading-none">
+          <span className="text-[9px] font-black uppercase tracking-[0.2em]">TERVERIFIKASI</span>
+          <span className="text-[7px] font-bold text-emerald-200/80 mt-0.5">Oleh {totalSaksi} Warga</span>
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</div>
             {/* Story Circle - Responsive */}
             <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
               <StoryCircle

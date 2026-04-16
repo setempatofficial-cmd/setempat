@@ -227,12 +227,28 @@ export default function PhotoSlider({
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
             
             {currentPhoto.caption && (
-              <div className="absolute bottom-3 right-3 z-10 max-w-[80%]">
-                <p className="text-white text-[10px] tracking-wide font-medium bg-white/10 backdrop-blur-md border border-white/20 px-2.5 py-1 rounded-full shadow-sm inline-block">
-                  {currentPhoto.caption}
-                </p>
-              </div>
-            )}
+  <div className={`absolute ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'bottom-3 right-3' : 'bottom-4 right-4'} z-10 max-w-[45%]`}>
+    <div className={`
+      flex items-center gap-1.5 
+      bg-black/20 backdrop-blur-xl 
+      border border-white/10 
+      px-2.5 py-1.5 
+      rounded-xl 
+      shadow-sm
+    `}>
+      {/* Dot kecil lebih hemat ruang daripada icon bintang */}
+      <div className="w-1 h-1 rounded-full bg-white/40 shadow-[0_0_5px_white]" />
+      
+      <p className={`
+        ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'text-[7px]' : 'text-[8px]'} 
+        font-black uppercase tracking-tighter 
+        text-white/80 leading-none truncate
+      `}>
+        {currentPhoto.caption}
+      </p>
+    </div>
+  </div>
+)}
           </>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/50 backdrop-blur-sm">

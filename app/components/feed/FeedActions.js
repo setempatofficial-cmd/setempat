@@ -69,71 +69,83 @@ export default function FeedActions({
     return () => supabase.removeChannel(channel);
   }, [item?.id]);
 
-  // --- VARIANT: FLOATING SIDEBAR (Interaksi Cepat) ---
   if (variant === "floating-sidebar") {
-    return (
-      <div className="flex flex-col gap-5 items-center select-none py-2">
-        {/* LIKE */}
-        <div className="flex flex-col items-center relative group">
-          <button 
-            onClick={handleLikeClick} 
-            className="flex items-center justify-center transition-transform active:scale-125 duration-200"
-          >
-            <span className="text-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
-              {isLiked ? "❤️" : "🤍"}
+  return (
+    <div className="flex flex-col gap-4 items-center select-none py-2 px-1">
+      {/* LIKE */}
+      <div className="flex flex-col items-center relative group">
+        <button 
+          onClick={handleLikeClick} 
+          className="flex items-center justify-center transition-all active:scale-125 duration-200"
+        >
+          {/* Ukuran diubah dari 3xl ke 2xl (24px) agar lebih rapi */}
+          <span className="text-2xl drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">
+            {isLiked ? "❤️" : "🤍"}
+          </span>
+        </button>
+        
+        {/* Heart Pop Animation - Ukuran dibuat kecil tapi meledak besar */}
+        <AnimatePresence>
+          {showHeart && (
+            <motion.span 
+              initial={{ opacity: 1, y: 0, scale: 0.5 }} 
+              animate={{ opacity: 0, y: -40, scale: 2 }} 
+              className="absolute text-xl pointer-events-none z-50"
+            >
+              ❤️
+            </motion.span>
+          )}
+        </AnimatePresence>
+        
+        {/* Font angka dibuat lebih kecil dan bold (9px) agar fokus ke icon */}
+        <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
+          {likeCount}
+        </span>
+      </div>
+
+      {/* KOMENTAR */}
+      <div className="flex flex-col items-center">
+        <button 
+          onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
+          className="flex items-center justify-center text-2xl active:scale-110 transition-transform relative"
+        >
+          <span className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">💬</span>
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1.5 bg-red-500 text-white text-[7px] font-black px-1 py-0.5 rounded-full border border-black animate-bounce">
+              {unreadCount}
             </span>
-          </button>
-          
-          <AnimatePresence>
-            {showHeart && (
-              <motion.span 
-                initial={{ opacity: 1, y: 0, scale: 1 }} 
-                animate={{ opacity: 0, y: -50, scale: 2.5 }} 
-                className="absolute text-2xl pointer-events-none z-50"
-              >
-                ❤️
-              </motion.span>
-            )}
-          </AnimatePresence>
-          <span className="text-[11px] font-black mt-1 text-white drop-shadow-md">{likeCount}</span>
-        </div>
+          )}
+        </button>
+        <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
+          {jumlahKomentar}
+        </span>
+      </div>
 
-        {/* KOMENTAR */}
-        <div className="flex flex-col items-center">
-          <button 
-            onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
-            className="flex items-center justify-center text-3xl active:scale-110 transition-transform relative"
-          >
-            <span className="drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">💬</span>
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-black">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-          <span className="text-[11px] font-black mt-1 text-white drop-shadow-md">{jumlahKomentar}</span>
-        </div>
-
-        {/* SHARE */}
+      {/* SHARE */}
+      <div className="flex flex-col items-center">
         <button 
           onClick={() => onShare?.(item)} 
-          className="flex items-center justify-center text-white active:scale-110 transition-transform"
+          className="flex items-center justify-center text-white active:scale-110 transition-transform p-1"
         >
           <svg 
-            width="26" 
-            height="26" 
+            width="22" // Dikecilkan dari 26 ke 22
+            height="22" 
             viewBox="0 0 24 24" 
             fill="none" 
             stroke="currentColor" 
-            strokeWidth="2.5" 
-            className="drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+            strokeWidth="3" // Stroke dibuat lebih tebal agar tetap jelas meskipun kecil
+            className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]"
           >
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
           </svg>
         </button>
+        <span className="text-[7px] font-black mt-0.5 text-white/60 uppercase tracking-widest">
+          Share
+        </span>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // --- VARIANT: PHOTO OVERLAY (The "Vibe" & "AI" Section) ---
   if (variant === "photo-overlay") {
