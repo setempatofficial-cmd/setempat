@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import LocationProvider, { useLocation } from "@/components/LocationProvider";
 import { useTheme } from "@/app/hooks/useTheme";
 import FeedCard from "@/app/components/feed/FeedCard";
-import AIModal from "@/app/components/feed/AIModal";
+import AIModal from "@/app/components/ai/AIModal";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import { calculateDistance } from "@/lib/distance";
 

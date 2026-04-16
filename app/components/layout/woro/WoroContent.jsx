@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/app/hooks/useTheme";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
 import SmartBottomNav from "@/app/components/layout/SmartBottomNav";

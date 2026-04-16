@@ -13,7 +13,7 @@ import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
 import AuthModal from "@/app/components/auth/AuthModal";
 import SearchModal from "@/app/components/feed/SearchModal";
-import AIModal from "@/app/components/feed/AIModal";
+import AIModal from "@/app/components/ai/AIModal";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import LaporanWarga from "@/app/components/layout/LaporanWarga";
 import FormLaporanAktif from "@/app/components/modals/FormLaporanAktif";

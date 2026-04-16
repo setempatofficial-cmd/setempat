@@ -42,92 +42,79 @@ export default function AIButton({ display, theme, handleOpenAIModal, kondisi, i
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.98 }}
         onClick={handleClick}
-        className={`group relative w-full h-16 flex items-center cursor-pointer rounded-[24px] border-2 transition-all duration-500
+        className={`group relative w-full h-16 flex items-center cursor-pointer rounded-[24px] border transition-all duration-500
           ${isMalam 
-            ? 'bg-neutral-900/80 border-white/10 hover:border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.15)]' 
-            : 'bg-white border-black/[0.08] hover:border-indigo-500/40 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)]'
+            ? 'bg-[#121212] border-white/10 hover:border-white/20 shadow-xl' 
+            : 'bg-[#F8F9FA] border-black/[0.05] hover:border-black/10 shadow-md'
           } backdrop-blur-2xl`}
       >
-        {/* Glow Ambient di belakang bar (Floating effect) */}
-        <div className={`absolute inset-0 rounded-[24px] transition-opacity duration-500 opacity-20 group-hover:opacity-40 blur-xl -z-10
-          ${isMalam ? 'bg-cyan-500' : 'bg-indigo-500'}`} 
+        {/* Glow Ambient - Dikurangi intensitasnya agar tidak "bocor" berlebihan */}
+        <div className={`absolute inset-0 rounded-[24px] transition-opacity duration-500 opacity-5 group-hover:opacity-10 blur-lg -z-10
+          ${isMalam ? 'bg-cyan-400' : 'bg-indigo-600'}`} 
         />
 
-        {/* Icon Area */}
+        {/* Icon Area - Warna lebih kalem (Muted) */}
         <div className="pl-5 pr-3 flex items-center justify-center">
-          <motion.div 
-            animate={isLaporMode ? { y: [0, -2, 0] } : {}}
-            transition={{ repeat: Infinity, duration: 2 }}
-            className={`p-2.5 rounded-2xl ${isMalam ? 'bg-cyan-500/10' : 'bg-indigo-500/10'}`}
-          >
+          <div className={`p-2.5 rounded-2xl ${isMalam ? 'bg-white/5' : 'bg-black/5'}`}>
             {isLaporMode ? (
-              <Camera size={22} className={isMalam ? "text-cyan-400" : "text-cyan-600"} />
+              <Camera size={20} className={isMalam ? "text-white/60" : "text-black/60"} />
             ) : (
-              <MessageSquare size={22} className={isMalam ? "text-indigo-400" : "text-indigo-600"} />
+              <MessageSquare size={20} className={isMalam ? "text-white/60" : "text-black/60"} />
             )}
-          </motion.div>
+          </div>
         </div>
 
         {/* Placeholder Text */}
         <div className="flex-1 overflow-hidden">
-          <p className={`text-[15px] font-semibold tracking-tight select-none line-clamp-1
-            ${isMalam ? 'text-white/70' : 'text-neutral-700'}`}>
+          <p className={`text-[14px] font-bold tracking-tight select-none line-clamp-1
+            ${isMalam ? 'text-white/90' : 'text-neutral-800'}`}>
             {contextualText}
           </p>
-          <p className={`text-[10px] font-medium opacity-50 uppercase tracking-tighter
-            ${isMalam ? 'text-cyan-400' : 'text-indigo-600'}`}>
-            {isLaporMode ? "Quick Report Active" : "Ask Intelligence"}
-          </p>
-        </div>
-
-        {/* ACTION BUTTON (CTA) - Diperkuat dengan Gradient */}
-        <div className="pr-2.5">
-          <div className={`
-            relative overflow-hidden flex items-center gap-2 py-2.5 px-5 rounded-[18px] font-bold text-[12px] uppercase tracking-wider transition-all duration-300
-            ${isMalam 
-              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_4px_12px_rgba(6,182,212,0.4)]' 
-              : 'bg-gradient-to-r from-indigo-600 to-violet-700 text-white shadow-[0_4px_12px_rgba(79,70,229,0.3)]'}
-            group-hover:scale-105 active:scale-95
-          `}>
-            <span>{isLaporMode ? "LAPOR" : "TANYA"}</span>
-            <ArrowRight size={14} strokeWidth={3} className="group-hover:translate-x-1 transition-transform" />
-            
-            {/* Glossy Overlay untuk CTA */}
-            <div className="absolute inset-0 bg-gradient-to-t from-white/20 to-transparent opacity-50" />
+          <div className="flex items-center gap-1.5">
+             <div className={`w-1 h-1 rounded-full ${isMalam ? 'bg-cyan-500' : 'bg-indigo-600'}`} />
+             <p className={`text-[9px] font-black uppercase tracking-widest opacity-40
+               ${isMalam ? 'text-white' : 'text-black'}`}>
+               {isLaporMode ? "Status Report" : "Ask Akamsi"}
+             </p>
           </div>
         </div>
 
-        {/* Animasi Shimmer */}
+        {/* ACTION BUTTON (CTA) - Diubah dari Gradient tajam ke Solid Deep Color */}
+        <div className="pr-3">
+          <div className={`
+            relative overflow-hidden flex items-center gap-2 py-2.5 px-5 rounded-2xl font-black text-[11px] uppercase tracking-tighter transition-all duration-300
+            ${isMalam 
+              ? 'bg-white text-black shadow-lg shadow-white/5' 
+              : 'bg-neutral-900 text-white shadow-lg shadow-black/10'}
+            group-hover:translate-x-0.5
+          `}>
+            <span>{isLaporMode ? "LAPOR" : "TANYA"}</span>
+            <ArrowRight size={14} strokeWidth={3} />
+          </div>
+        </div>
+
+        {/* Animasi Shimmer - Lebih subtle (0.05 opacity) */}
         <div className="absolute inset-0 overflow-hidden rounded-[24px] pointer-events-none">
           <motion.div 
             animate={{ x: ['-150%', '150%'] }}
-            transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-            className="w-1/3 h-full bg-gradient-to-r from-transparent via-white/[0.1] to-transparent skew-x-[25deg]"
+            transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
+            className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/[0.05] to-transparent skew-x-[25deg]"
           />
         </div>
       </motion.div>
 
-      {/* Floating Status */}
-      <div className="flex items-center justify-between px-3 mt-4">
+      {/* Footer Status - Dibuat lebih menyatu dengan background */}
+      <div className="flex items-center justify-between px-3 mt-4 opacity-40">
         <div className="flex items-center gap-2">
-          <div className="relative">
-             <Sparkles size={14} className="text-cyan-500" />
-             <motion.div 
-               animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-               transition={{ repeat: Infinity, duration: 2 }}
-               className="absolute inset-0 bg-cyan-400 rounded-full blur-sm" 
-             />
-          </div>
-          <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${isMalam ? 'text-white/50' : 'text-black/60'}`}>
-            Akamsi Intelligence <span className="text-cyan-500 ml-1">v2.0</span>
-          </span>
+           <Sparkles size={12} className={isMalam ? "text-white" : "text-black"} />
+           <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${isMalam ? 'text-white' : 'text-black'}`}>
+             AI Core Engine v2
+           </span>
         </div>
         
-        <div className={`flex items-center gap-1.5 text-[9px] font-bold px-2.5 py-1 rounded-full ${
-          isMalam ? 'bg-white/5 text-white/40' : 'bg-black/5 text-black/40'
-        }`}>
-          <div className={`w-1 h-1 rounded-full animate-pulse ${isMalam ? 'bg-green-400' : 'bg-green-500'}`} />
-          SYSTEM READY
+        <div className="flex items-center gap-1.5 text-[8px] font-black tracking-widest uppercase">
+          <div className="w-1 h-1 rounded-full bg-emerald-500" />
+          Ready
         </div>
       </div>
     </div>

@@ -44,3 +44,42 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Touch targets untuk mobile */
+@media (max-width: 380px) {
+  button, 
+  [role="button"],
+  .clickable {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Scaling untuk elemen absolute di HP sempit */
+  .feed-card .absolute {
+    transform: scale(0.95);
+    transform-origin: top left;
+  }
+  
+  /* Mencegah overflow horizontal */
+  .feed-card {
+    overflow-x: hidden;
+  }
+}
+
+/* Untuk layar sangat kecil (Galaxy Fold) */
+@media (max-width: 320px) {
+  .feed-card .absolute {
+    transform: scale(0.9);
+  }
+  
+  .feed-card h3 {
+    font-size: 12px !important;
+  }
+}
+
+/* Smooth transition untuk resize */
+* {
+  transition-property: padding, margin, gap;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+}

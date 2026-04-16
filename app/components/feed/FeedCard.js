@@ -37,6 +37,30 @@ const DEFAULT_ITEM = {
   isRamai: false,
 };
 
+// ==================== HOOKS ====================
+const useWindowSize = () => {
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 375,
+    height: typeof window !== 'undefined' ? window.innerHeight : 667,
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return windowSize;
+};
+
 // ==================== MAIN COMPONENT ====================
 function FeedCard({
   item = DEFAULT_ITEM,
@@ -54,6 +78,9 @@ function FeedCard({
   priority = false,
 }) {
   const router = useRouter();
+  const { width: windowWidth } = useWindowSize();
+  const isNarrow = windowWidth < 380;
+  const isMedium = windowWidth >= 380 && windowWidth < 640;
   
   // --- State ---
   const [isSesuai, setIsSesuai] = useState(false);
@@ -94,7 +121,7 @@ function FeedCard({
     router.refresh();
   }, [onRefreshNeeded, router]);
 
-  // --- Core Lifecycle (Logic Unchanged) ---
+  // --- Core Lifecycle ---
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -209,18 +236,23 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
-  // Border logic untuk Full Width
   const cardBorderClass = useMemo(() => {
     if (safeItem.isViral) return "border-b-4 border-red-500/50";
     if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
     return theme.isMalam ? 'border-b border-white/5' : 'border-b border-black/5';
   }, [safeItem.isViral, safeItem.isRamai, theme.isMalam]);
 
+  // Responsive spacing classes
+  const paddingX = `px-4 ${!isNarrow ? 'sm:px-5' : ''}`;
+  const paddingY = `py-3 ${isNarrow ? 'py-2' : 'sm:py-4'}`;
+  const gapSize = isNarrow ? 'gap-1' : 'gap-2';
+  const textSize = isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]';
+
   return (
     <div
       ref={cardRef}
       id={`feed-card-${safeItem.id}`}
-      className="relative mb-4 w-full will-change-transform"
+      className="relative mb-3 sm:mb-4 w-full will-change-transform feed-card"
       style={{ isolation: "isolate" }}
     >
       <motion.div
@@ -231,25 +263,25 @@ function FeedCard({
         viewport={{ once: true }}
         className={`relative overflow-visible ${theme.card} ${cardBorderClass} flex flex-col transition-all duration-300`}
       >
-        {/* Header - Full Width Padding */}
-        <div className="px-5 pt-6 pb-3">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span className={`text-[9px] font-black uppercase tracking-widest ${theme.text} opacity-40`}>
+        {/* Header - Responsive Padding */}
+        <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
+          <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
+            <div className="flex flex-col gap-0.5 sm:gap-1">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <span className={`${textSize} font-black uppercase tracking-widest ${theme.text} opacity-40`}>
                   {safeItem.category || 'Update Terkini'}
                 </span>
                 {safeItem.isViral && (
-                   <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[8px] px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
+                   <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] sm:text-[8px] px-1.5 sm:px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
                 )}
               </div>
-              <h3 className={`text-[15px] font-[1000] uppercase tracking-tight leading-none ${theme.text}`}>
+              <h3 className={`text-[13px] sm:text-[15px] font-[1000] uppercase tracking-tight leading-tight ${theme.text}`}>
                 {safeItem.name}
               </h3>
             </div>
 
-            <div className={`px-3 py-1.5 rounded-xl ${theme.isMalam ? "bg-white/5" : "bg-black/5"}`}>
-              <p className={`text-[10px] font-black ${theme.text} opacity-60 whitespace-nowrap`}>
+            <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl ${theme.isMalam ? "bg-white/5" : "bg-black/5"}`}>
+              <p className={`${textSize} font-black ${theme.text} opacity-60 whitespace-nowrap`}>
                 📍 {distanceText}
               </p>
             </div>
@@ -265,22 +297,30 @@ function FeedCard({
           />
         </div> 
 
-        {/* Headline - Dibuat lebih lebar dan nyaman dibaca */}
-        <div className="px-5 pb-4">
-          <div className={`flex items-start gap-3 p-4 rounded-2xl ${theme.isMalam ? 'bg-white/[0.03]' : 'bg-black/[0.03]'} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'}`}>
-            <div className={`w-1.5 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : theme.accentBg || 'bg-cyan-500'} opacity-60`} />
-            <h2 className={`text-[13px] font-bold italic tracking-tight leading-relaxed ${theme.text} flex-1`}>
+        {/* Headline - Responsive */}
+        <div className={`${paddingX} pb-3 sm:pb-4`}>
+          <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 rounded-2xl ${theme.isMalam ? 'bg-white/[0.03]' : 'bg-black/[0.03]'} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'}`}>
+            <div className={`w-1 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : theme.accentBg || 'bg-cyan-500'} opacity-60`} />
+            <h2 className={`text-[11px] sm:text-[13px] font-bold italic tracking-tight leading-relaxed ${theme.text} flex-1`}>
               "{headline}"
             </h2>
-            <span className={`font-mono text-[10px] font-bold ${theme.text} opacity-30 pt-1`}>
+            <span className={`font-mono ${textSize} font-bold ${theme.text} opacity-30 pt-0.5 sm:pt-1`}>
               {currentHour}:{currentMinute}
             </span>
           </div>
         </div>
 
-        {/* Media Section - Aspect Ratio disesuaikan agar tidak terlalu tinggi di layar lebar */}
-        <div className="relative px-2 mb-2">
-          <div className={`relative aspect-[16/9] rounded-[24px] overflow-hidden border ${theme.border} shadow-lg`} style={{ zIndex: 1 }}>
+        {/* Media Section - IMPROVED ASPECT RATIO */}
+        <div className="px-2 sm:px-3 mb-2 sm:mb-3">
+          <div 
+            className="relative w-full rounded-[20px] sm:rounded-[24px] overflow-hidden border shadow-lg"
+            style={{ 
+              minHeight: '200px',
+              maxHeight: '45vh',
+              aspectRatio: '16/9',
+              backgroundColor: theme.isMalam ? '#1a1a1a' : '#f5f5f5'
+            }}
+          >
             <PhotoSlider
               photos={photoUrls}
               timeLabel={clockLabel}
@@ -296,20 +336,21 @@ function FeedCard({
               onRefreshNeeded={handleLocalRefresh}
             />
 
-            {/* Validation Stamp */}
-            <div className="absolute bottom-4 left-4 z-50">
+            {/* Validation Stamp - Responsive Positioning */}
+            <div className={`absolute ${isNarrow ? 'bottom-2 left-2' : 'bottom-3 sm:bottom-4 left-3 sm:left-4'} z-50`}>
               <AnimatePresence mode="wait">
                 {!isSesuai ? (
                   <motion.button
                     key="stamp-btn"
                     onClick={handleSesuai}
                     whileTap={{ scale: 0.9 }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl"
+                    className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl"
+                    style={{ minHeight: '44px' }}
                   >
-                    <span className="text-sm">✔️</span>
+                    <span className="text-xs sm:text-sm">✔️</span>
                     <div className="flex flex-col text-left">
-                      <span className="text-[9px] font-black tracking-tighter">SESUAI?</span>
-                      <span className="text-[7px] opacity-60">{totalSaksi} Laporan</span>
+                      <span className={`${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} font-black tracking-tighter`}>SESUAI?</span>
+                      <span className={`${isNarrow ? 'text-[6px]' : 'text-[6px] sm:text-[7px]'} opacity-60`}>{totalSaksi} Laporan</span>
                     </div>
                   </motion.button>
                 ) : (
@@ -317,7 +358,7 @@ function FeedCard({
                     key="sah"
                     initial={{ scale: 0.5, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="bg-violet-600/90 text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest border border-white/30 shadow-lg -rotate-3"
+                    className="bg-violet-600/90 text-white px-2 sm:px-4 py-1 sm:py-1.5 rounded-full text-[8px] sm:text-[10px] font-black tracking-widest border border-white/30 shadow-lg -rotate-3"
                   >
                     TERVERIFIKASI
                   </motion.div>
@@ -325,8 +366,8 @@ function FeedCard({
               </AnimatePresence>
             </div>
 
-            {/* Overlay Sidebar */}
-            <div className="absolute top-4 left-3 z-50">
+            {/* Story Circle - Responsive */}
+            <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
               <StoryCircle
                 laporanWarga={localLaporanWarga}
                 tempatId={safeItem.id}
@@ -337,7 +378,8 @@ function FeedCard({
               />
             </div>
 
-            <div className="absolute right-2 top-4 z-50">
+            {/* Feed Actions - Responsive */}
+            <div className={`absolute ${isNarrow ? 'right-1.5 top-2' : 'right-2 sm:right-3 top-3 sm:top-4'} z-50`}>
               <FeedActions
                 item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
                 comments={comments}
@@ -350,22 +392,48 @@ function FeedCard({
           </div>
         </div>
 
-        {/* Metadata & ID */}
-        <div className="px-6 py-4 flex items-center justify-between opacity-50">
-          <div className="flex items-center gap-2 truncate flex-1">
-            <span className="text-xs">📍</span>
-            <p className={`text-[10px] font-medium ${theme.text} truncate`}>{alamatText}</p>
-          </div>
-          <span className="text-[9px] font-mono tracking-widest ml-4">ID:{String(safeItem.id).slice(-4)}</span>
-        </div>
+        {/* Metadata - Responsive & Tight (Mirip Caption Style) */}
+<div className={`
+  ${paddingX} 
+  pb-4 pt-1 
+  flex items-center justify-between 
+  opacity-40 
+  -mt-2
+`}>
+  <div className="flex items-center gap-1.5 truncate flex-1">
+    <div className={`
+      p-1 rounded-md 
+      ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
+      text-[7px] font-black tracking-tighter
+    `}>
+      📍
+    </div>
+    <p className={`
+      ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
+      font-bold ${theme.text} truncate tracking-tight
+    `}>
+      {alamatText}
+    </p>
+  </div>
+  
+  <div className="flex items-center gap-2 ml-4">
+    <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
+    <span className={`
+      ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
+      font-mono font-black tracking-tighter
+    `}>
+      #{String(safeItem.id).padStart(4, '0')}
+    </span>
+  </div>
+</div>
 
-        {/* Insight & Action */}
-        <div className="px-5 pb-6 space-y-4">
-          <div className={`${theme.statusBg} rounded-2xl p-3 border ${theme.border} shadow-inner`}>
+        {/* Insight & Action - Responsive */}
+        <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
+          <div className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}>
             <LiveInsight
               signals={allSignals}
               theme={theme}
-              isCompact={true}
+              isCompact={isNarrow}
               currentUser={user}
             />
           </div>
