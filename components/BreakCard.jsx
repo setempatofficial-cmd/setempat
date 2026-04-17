@@ -12,7 +12,7 @@ const prefixes = [
   "Dari laporan warga",
   "Di sekitar kamu",
   "Update terkini",
-  "Intelijen lokal:",
+  "Hasil Ronda:",
 ];
 const getRandomPrefix = () => prefixes[Math.floor(Math.random() * prefixes.length)];
 
@@ -41,7 +41,7 @@ const typeConfig = {
   "trigger-action": { label: "Ikut Update", icon: <Camera size={16} />, defaultLevel: "A" },
   "time-divider": { label: "", icon: <Clock size={16} />, defaultLevel: "C" },
   // 🔥 TAMBAHKAN TIPE KENTONGAN
-  "kentongan": { label: "PENGUMUMAN", icon: <Megaphone size={16} />, defaultLevel: "A" },
+  "kentongan": { label: "KABAR SETEMPAT", icon: <Megaphone size={16} />, defaultLevel: "A" },
 };
 
 const BreakCard = memo(({ type, data, theme: themeProp, onClick, level: forcedLevel }) => {
@@ -133,7 +133,7 @@ const BreakCard = memo(({ type, data, theme: themeProp, onClick, level: forcedLe
 
         {isClickable && (
           <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-orange-500 uppercase">
-            <span>{type === "kentongan" ? "Lihat Pengumuman" : "Ambil Foto Sekarang"}</span>
+            <span>{type === "kentongan" ? "Simak Detail Infonya" : "Ambil Foto Sekarang"}</span>
             <motion.span animate={{ x: [0, 4, 0] }} transition={{ repeat: Infinity, duration: 1.5 }}>
               →
             </motion.span>

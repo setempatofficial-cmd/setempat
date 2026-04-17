@@ -1,26 +1,12 @@
-// hooks/useTheme.js - dengan safe fallback
+// hooks/useTheme.js - KONSISTEN dengan useClock
 import { useMemo } from "react";
-import { useLocation } from "@/components/LocationProvider";
+import { useClock } from "@/hooks/useClock";
 
 export function useTheme() {
-  let sapaan = "Siang";
-  
-  // Safe call - tangkap error jika LocationProvider tidak ada
-  try {
-    const location = useLocation();
-    sapaan = location?.sapaan || "Siang";
-  } catch (e) {
-    // Fallback ke waktu lokal
-    const hour = new Date().getHours();
-    if (hour >= 11 && hour < 15) sapaan = "Siang";
-    else if (hour >= 15 && hour < 18) sapaan = "Sore";
-    else if (hour >= 18 || hour < 5) sapaan = "Malam";
-    else sapaan = "Pagi";
-  }
+  const { timeLabel: sapaan, timeInfo } = useClock(); // Konsisten!
+  const isMalam = sapaan === "Malam";
   
   return useMemo(() => {
-    const isMalam = sapaan === "Malam";
-    
     // ==================== BASE THEME ====================
     const base = isMalam ? {
       bg: "bg-[#0f172a]",
@@ -121,6 +107,7 @@ export function useTheme() {
       ...base,
       isMalam,
       sapaan,
+      timeInfo, // Info lengkap tentang waktu
       dot: currentTime.dot,
       dotGlow: currentTime.dotGlow,
       softBg: currentTime.softBg,
@@ -136,5 +123,5 @@ export function useTheme() {
       },
       bgGlass: isMalam ? "bg-[#0f172a]/80 backdrop-blur-sm" : "bg-white/80 backdrop-blur-sm",
     };
-  }, [sapaan]);
+  }, [sapaan, timeInfo]);
 }

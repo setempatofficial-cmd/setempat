@@ -97,8 +97,9 @@ function FeedCard({
 
   // --- Hooks ---
   const { user } = useAuth();
-  const { currentTime, timeLabel: clockLabel } = useClock();
+  const { formattedTime: currentTime, timeLabel: clockLabel } = useClock();
   const theme = useTheme();
+  const [currentHour, currentMinute] = currentTime?.split(/[:.]/) || ["--", "--"];
 
   // --- Refs ---
   const cardRef = useRef(null);
@@ -220,7 +221,6 @@ function FeedCard({
 
   if (!item?.id) return null;
 
-  const [currentHour, currentMinute] = currentTime.split(":");
   const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
   const headline = feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";

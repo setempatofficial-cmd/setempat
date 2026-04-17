@@ -74,7 +74,7 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
     setActiveTab(tabId);
     switch (tabId) {
       case "Home": router.push("/"); break;
-      case "Sekitar": router.push("/search"); break;
+      case "Sekitar": router.push("/explore"); break;
       case "Woro": 
         if (onOpenNotification) onOpenNotification();
         else router.push("/woro");

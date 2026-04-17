@@ -1,4 +1,4 @@
-// app/components/ai/AIKentonganModal.jsx
+// app/components/ai/AIKentonganModal.jsx (REVISED VERSION)
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -41,54 +41,69 @@ export default function AIKentonganModal({
     if (messages.length > 0) setTimeout(scrollToBottom, 100);
   }, [messages]);
   
-  // Opening message untuk kentongan
+  // Opening message yang adaptif (Berita vs Pengumuman)
   useEffect(() => {
     if (!isOpen || !kentongan) return;
     if (hasInitialized.current) return;
     
     hasInitialized.current = true;
-    
-    const urgentBadge = kentongan.is_urgent ? "⚠️ URGENT ⚠️\n\n" : "";
-    const targetInfo = kentongan.is_global 
-      ? "📢 Target: Semua Wilayah" 
-      : `📍 Target: Desa ${kentongan.target_desa || '-'}, Kec. ${kentongan.target_kecamatan || '-'}`;
-    
-    const welcomeMessage = `📢 **Pengumuman Resmi**
 
-${urgentBadge}**${kentongan.title}**
+    const { title, content, image_url, is_urgent, created_at, is_global, target_desa, target_kecamatan } = kentongan;
 
-${kentongan.content}
+    // 1. Identifikasi Mode: Jika ada gambar = Mode Berita, jika tidak = Mode Informasi
+    const isNewsMode = !!image_url;
+    
+    // 2. Tentukan Label & Header
+    const categoryLabel = is_urgent ? "🚨 BREAKING NEWS" : (isNewsMode ? "📰 KABAR SETEMPAT" : "📢 PENGUMUMAN RESMI");
+    const thumbnail = isNewsMode ? `![thumbnail](${image_url})\n\n` : "";
+    
+    const locationInfo = is_global 
+      ? "Semua Wilayah" 
+      : `${target_desa || '-'}, ${target_kecamatan || '-'}`;
+
+    // 3. Rakit Pesan berdasarkan Mode
+    let finalMessage = "";
+
+    if (isNewsMode) {
+      // FORMAT BERITA (Ada Foto)
+      finalMessage = `${categoryLabel}
+${thumbnail}
+### ${title}
+
+**${locationInfo}** — ${content}
 
 ---
-
-${targetInfo}
-🕐 Dikirim: ${new Date(kentongan.created_at).toLocaleString()}
-👑 Oleh: Petinggi Setempat
+✍️ **Laporan:** Tim Setempat
+📅 **Rilis:** ${new Date(created_at).toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
 
 ---
+💡 **Eksplorasi Berita:**
+Tanya AI untuk detail kronologi atau dampak kejadian ini.`;
+    } else {
+      // FORMAT INFORMASI/SISTEM (Tanpa Foto - Lebih Clean)
+      finalMessage = `${categoryLabel}
 
-💬 **Ada yang ingin kamu tanyakan tentang pengumuman ini?**`;
-    
+**${title}**
+
+${content}
+
+---
+📍 **Lokasi:** ${locationInfo}
+🕐 **Waktu Update:** ${new Date(created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+👑 **Oleh:** Petinggi Setempat
+
+---
+💬 Ada yang kurang jelas dari pengumuman ini? Silakan tanya di bawah.`;
+    }
+
     setMessages([{
       id: getUniqueId(),
       type: "ai",
-      text: welcomeMessage,
+      text: finalMessage,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }]);
     
   }, [isOpen, kentongan, getUniqueId]);
-  
-  // Modal open/close
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-      setTranslateY(0);
-      hasInitialized.current = false;
-      setMessages([]);
-    }
-  }, [isOpen]);
   
   // Touch handlers
   const handleTouchStart = (e) => {
@@ -115,6 +130,7 @@ ${targetInfo}
     }
   };
   
+  // 🔥 REVISI UTAMA: handleSend dengan pengiriman kentonganId
   const handleSend = useCallback(async (customMessage) => {
     const msg = (customMessage || input).trim();
     if (!msg) return;
@@ -129,12 +145,20 @@ ${targetInfo}
     setIsTyping(true);
     
     try {
+      // Kirim data yang sesuai dengan API chat yang sudah dibuat
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: msg,
-          context: { type: "kentongan", kentongan: kentongan },
+          // 🔥 KIRIM KENTONGAN ID AGAR API BISA AMBIL DATA LENGKAP
+          kentonganId: kentongan?.id,
+          modalType: 'kentongan',
+          tempat: {
+            id: kentongan?.tempat_id,
+            name: kentongan?.tempat_name || kentongan?.source_name || "Desa",
+            kode_wilayah: kentongan?.kode_wilayah
+          }
         }),
       });
       const data = await res.json();
@@ -174,7 +198,7 @@ ${targetInfo}
           <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
         </div>
         
-        <AIHeader locationName="Pengumuman Resmi" isMalam={isMalam} onClose={onClose} theme={theme} />
+        <AIHeader locationName="Kabar Setempat" isMalam={isMalam} onClose={onClose} theme={theme} />
         
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.map((msg) => (
@@ -210,7 +234,7 @@ ${targetInfo}
             onChange={(e) => setInput(e.target.value)}
             onSend={() => handleSend()}
             isTyping={isTyping}
-            placeholder="Tanya tentang pengumuman ini..."
+            placeholder="Tanya tentang Informasi ini..."
           />
           <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya detail pengumuman, dampak, atau instruksi lebih lanjut</p>
         </div>

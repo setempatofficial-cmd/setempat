@@ -33,6 +33,7 @@ function LiveStatus({ weather, theme, onShowStatistik, isScrolled }) {
       animate={{ 
         scale: isScrolled ? 0.95 : 1,
       }}
+      // min-w-[120px] menjaga agar tombol tidak goyang saat teks berubah
       className={`group flex items-center justify-center gap-2.5 px-4 py-2 rounded-full backdrop-blur-2xl border transition-all duration-700 min-w-[120px] ${
         theme.isMalam
           ? "bg-white/[0.04] border-white/10 text-white/90 hover:bg-white/[0.08]"
@@ -79,7 +80,7 @@ export default function Header({
 
   return (
     <header className={`sticky top-0 z-[1000] w-full transition-all duration-700 ${isScrolled ? "py-2" : "py-5"}`}>
-      {/* Background Glass - Lebih solid saat scroll */}
+      {/* Background Glass */}
       <div 
         className={`absolute inset-0 transition-all duration-1000 -z-10 ${
           isScrolled
@@ -90,105 +91,75 @@ export default function Header({
         }`} 
       />
 
-      <div className="max-w-7xl mx-auto px-3 flex items-center justify-between relative">
-        
-        {/* LEFT: LOGO & LOCATION (SELALU ADA) */}
-        <div className="flex-1 flex items-center">
-          <motion.div
-            layout
-            onClick={onOpenLocationModal}
-            className="flex items-center gap-3 cursor-pointer group"
-          >
+      <div className="max-w-7xl mx-auto px-4 flex items-center relative">
+  
+  {/* LEFT: LOGO & LOCATION - Diberi basis agar punya ruang tetap */}
+  <div className="flex-[1.5] flex items-center min-w-0"> 
+    <motion.div
+      layout
+      onClick={onOpenLocationModal}
+      className="flex items-center gap-2.5 cursor-pointer group min-w-0"
+    >
+      <motion.div 
+        animate={{ scale: isScrolled ? 0.8 : 1 }}
+        className="relative flex-shrink-0"
+      >
+        <AnimatePresence>
+          {locationReady && (
             <motion.div 
-              animate={{ scale: isScrolled ? 0.85 : 1 }}
-              transition={{ duration: 0.5, ease: "circOut" }}
-              className="relative flex-shrink-0"
-            >
-              <AnimatePresence>
-                {locationReady && (
-                  <motion.div 
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    exit={{ scale: 0 }}
-                    className="absolute -top-1 -right-1 z-10 w-3.5 h-3.5 bg-emerald-500 border-[3px] rounded-full shadow-lg"
-                    style={{ borderColor: theme.isMalam ? '#111' : '#fff' }}
-                  >
-                    <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-30" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div className={`w-11 h-11 rounded-[1.2rem] flex items-center justify-center transition-all duration-500 ${
-                locationReady 
-                  ? "bg-gradient-to-br from-[#E3655B] to-[#ff7d72] shadow-xl shadow-[#E3655B]/20" 
-                  : "bg-slate-700/30 opacity-50 grayscale"
-              }`}>
-                <svg className="w-5.5 h-5.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                </svg>
-              </div>
-            </motion.div>
-
-            <motion.div 
-              animate={{ 
-                x: isScrolled ? -2 : 0,
-                scale: isScrolled ? 0.95 : 1
-              }}
-              className="flex flex-col origin-left transition-all duration-500"
-            >
-              <h1 className={`text-[10px] font-black tracking-[0.25em] ${theme.text} opacity-40 uppercase mb-0.5 whitespace-nowrap`}>
-                Setempat<span className="text-[#E3655B]">.id</span>
-              </h1>
-              <p className={`text-sm font-bold ${theme.text} leading-none tracking-tight whitespace-nowrap transition-all duration-500 ${isScrolled ? 'opacity-90' : 'opacity-100'}`}>
-                {villageLocation || "Pasuruan"}
-              </p>
-            </motion.div>
-          </motion.div>
-        </div>
-
-        {/* CENTER: FLOATING STATUS */}
-        <div className="flex-none z-10 flex justify-center">
-          <LiveStatus
-            weather={weather}
-            theme={theme}
-            onShowStatistik={onShowStatistik}
-            isScrolled={isScrolled}
-          />
-        </div>
-
-        {/* RIGHT: ACTIONS */}
-        <div className="flex-1 flex items-center justify-end gap-3 sm:gap-4">
-          <motion.button
-            animate={{ scale: isScrolled ? 0.9 : 1 }}
-            whileHover={{ y: -2, backgroundColor: theme.isMalam ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => router.push('/search')}
-            className={`w-11 h-11 flex items-center justify-center rounded-2xl transition-all duration-500 border ${
-              theme.isMalam
-                ? "bg-white/[0.03] border-white/5 text-[#E3655B]"
-                : "bg-black/[0.02] border-black/5 text-[#E3655B]"
-            }`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </motion.button>
-
-          <motion.div 
-            animate={{ scale: isScrolled ? 0.9 : 1 }}
-            className={`pl-2 border-l transition-colors duration-700 ${theme.isMalam ? "border-white/10" : "border-black/5"}`}
-          >
-            <UserMenu
-              user={user}
-              isAdmin={isAdmin}
-              isScrolled={isScrolled}
-              onOpenAuthModal={onOpenAuthModal}
-              theme={theme}
+              initial={{ scale: 0 }} animate={{ scale: 1 }}
+              className="absolute -top-1 -right-1 z-10 w-3 h-3 bg-emerald-500 border-2 rounded-full"
+              style={{ borderColor: theme.isMalam ? '#111' : '#fff' }}
             />
-          </motion.div>
+          )}
+        </AnimatePresence>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#E3655B] to-[#ff7d72]">
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+          </svg>
         </div>
+      </motion.div>
 
+      <div className="flex flex-col min-w-0">
+        <h1 className={`text-[9px] font-black tracking-widest ${theme.text} opacity-40 uppercase truncate`}>
+          Setempat<span className="text-[#E3655B]">.id</span>
+        </h1>
+        <p className={`text-[13px] font-bold ${theme.text} leading-none truncate`}>
+          {villageLocation || "Pasuruan"}
+        </p>
       </div>
+    </motion.div>
+  </div>
+
+  {/* CENTER: LIVE STATUS - Pakai absolute center agar tidak memakan space flex kiri-kanan */}
+  <div className="absolute left-1/2 -translate-x-1/2 flex-none z-10">
+    <LiveStatus
+      weather={weather}
+      theme={theme}
+      onShowStatistik={onShowStatistik}
+      isScrolled={isScrolled}
+    />
+  </div>
+
+  {/* RIGHT: ACTIONS - Basis lebih kecil dari kiri agar adil */}
+  <div className="flex-1 flex items-center justify-end gap-3">
+    <motion.button
+      onClick={() => router.push('/search')}
+      className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl border ${
+        theme.isMalam ? "bg-white/5 border-white/5" : "bg-black/5 border-black/5"
+      }`}
+    >
+      <svg className="w-5 h-5 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    </motion.button>
+
+    <div className={`pl-2 border-l flex-shrink-0 ${theme.isMalam ? "border-white/10" : "border-black/5"}`}>
+      <UserMenu user={user} isAdmin={isAdmin} isScrolled={isScrolled} onOpenAuthModal={onOpenAuthModal} theme={theme} />
+    </div>
+  </div>
+
+</div>
     </header>
   );
 }

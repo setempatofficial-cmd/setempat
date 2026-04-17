@@ -83,7 +83,7 @@ export default function WoroContent() {
             <h1 className={`text-base font-[1000] tracking-tight ${theme.text}`}>
               Woro-Woro
             </h1>
-            <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.2em]">
+            <p className="text-[9px] font-black text-[#E3655B] uppercase tracking-[0.2em]">
               Kabar Sekitarmu
             </p>
           </div>
@@ -111,8 +111,8 @@ export default function WoroContent() {
         <span className={`flex-1 text-[11px] font-bold ${isMalam ? "text-slate-500" : "text-slate-400"}`}>
           Cari info kampung atau tanya AI...
         </span>
-        <div className="flex items-center gap-1 bg-gradient-to-tr from-orange-600 to-orange-400 p-1.5 rounded-lg shadow-sm shadow-orange-500/20">
-          <Sparkles size={12} className="text-white animate-pulse" />
+        <div className="flex items-center gap-1 bg-gradient-to-br from-[#E3655B] to-[#ff7d72] p-1.5 rounded-lg shadow-sm shadow-[#E3655B]/20">
+                <Sparkles size={12} className="text-white animate-pulse" />
         </div>
       </div>
     </div>
@@ -131,7 +131,7 @@ export default function WoroContent() {
             className={`
               relative flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all snap-start shrink-0
               ${isActive 
-                ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30" 
+                ? "bg-gradient-to-br from-[#E3655B] to-[#ff7d72] text-white shadow-lg shadow-[#E3655B]/30 scale-105" 
                 : isMalam 
                   ? "bg-white/5 text-slate-400" 
                   : "bg-slate-100 text-slate-500"

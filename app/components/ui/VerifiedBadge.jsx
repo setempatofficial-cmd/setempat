@@ -3,22 +3,23 @@ import { ShieldCheck } from "lucide-react";
 import { useMemo } from "react";
 
 export default function VerifiedBadge({ size = "sm", showText = false, isMalam = true }) {
-  // 1. Optimized Config with useMemo for performance
   const cfg = useMemo(() => {
     const iconSizes = { xs: 12, sm: 14, md: 18, lg: 22 };
     const textSizes = { xs: "text-[8px]", sm: "text-[10px]", md: "text-[11px]", lg: "text-[13px]" };
     
     const theme = isMalam ? {
-      container: "bg-gradient-to-tr from-amber-500/20 to-yellow-400/5 border-amber-500/30",
-      icon: "text-amber-400 fill-amber-400/10",
-      text: "text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]",
-      glow: "bg-amber-400",
-      shimmer: "after:from-white/10"
+      // MODE MALAM: Biru Neon Elektrik
+      container: "bg-gradient-to-tr from-blue-600/20 via-sky-500/10 to-blue-400/5 border-blue-500/30",
+      icon: "text-blue-400 fill-blue-400/10",
+      text: "text-blue-400 drop-shadow-[0_0_10px_rgba(56,189,248,0.6)]",
+      glow: "bg-blue-500/40",
+      shimmer: "after:from-white/20"
     } : {
-      container: "bg-gradient-to-tr from-amber-100 to-yellow-50 border-amber-200",
-      icon: "text-amber-700 fill-amber-600/5",
-      text: "text-amber-800",
-      glow: "bg-amber-600",
+      // MODE SIANG: Biru Profesional Clean
+      container: "bg-gradient-to-tr from-blue-500 to-sky-400 border-blue-600 shadow-md",
+      icon: "text-white fill-white/10",
+      text: "text-white",
+      glow: "bg-blue-600",
       shimmer: "after:from-white/40"
     };
 
@@ -29,15 +30,16 @@ export default function VerifiedBadge({ size = "sm", showText = false, isMalam =
     <div className="flex items-center gap-1.5 relative z-10">
       <ShieldCheck 
         size={cfg.iconSize} 
-        strokeWidth={2.5}
+        strokeWidth={3} // Sedikit lebih tebal agar icon jelas
         className={`
           ${cfg.icon}
-          transition-transform duration-500 group-hover:scale-110 group-hover:rotate-[5deg]
+          transition-all duration-700 group-hover:scale-125 group-hover:rotate-[12deg]
+          filter drop-shadow-[0_0_5px_rgba(56,189,248,0.4)]
         `} 
       />
       {showText && (
         <span className={`
-          font-bold tracking-widest uppercase antialiased
+          font-[1000] tracking-[0.15em] uppercase antialiased
           ${cfg.text} ${cfg.textSize}
         `}>
           Verified
@@ -46,30 +48,28 @@ export default function VerifiedBadge({ size = "sm", showText = false, isMalam =
     </div>
   );
 
-  // Mode: Full Badge (With Text)
   if (showText) {
     return (
       <div className={`
-        inline-flex items-center px-2.5 py-1 rounded-full border relative overflow-hidden group
-        ${cfg.container} transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/10
+        inline-flex items-center px-3 py-1 rounded-full border relative overflow-hidden group
+        ${cfg.container} transition-all duration-500 hover:shadow-[0_0_20px_rgba(56,189,248,0.3)]
       `}>
-        {/* Shimmer Effect */}
-        <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+        {/* Efek Kilat (Sweep Shimmer) yang lebih halus */}
+        <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-[1200ms] ease-in-out bg-gradient-to-r from-transparent via-white/30 to-transparent" />
         {badgeContent}
       </div>
     );
   }
 
-  // Mode: Icon Only
   return (
     <div 
-      className="inline-flex items-center justify-center relative group cursor-help p-0.5"
+      className="inline-flex items-center justify-center relative group cursor-help p-1"
       title="Verified Account"
     >
-      {/* Dynamic Glow Layer */}
+      {/* Dynamic Aura Glow saat Hover */}
       <div className={`
-        absolute inset-0 blur-md rounded-full opacity-0 
-        group-hover:opacity-100 transition-all duration-500 scale-50 group-hover:scale-125
+        absolute inset-0 blur-xl rounded-full opacity-0 
+        group-hover:opacity-100 transition-all duration-700 scale-50 group-hover:scale-150
         ${cfg.glow}
       `} />
       

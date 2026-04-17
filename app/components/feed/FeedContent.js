@@ -216,11 +216,12 @@ export default function FeedContent() {
   // ========== REFS ==========
   const fetchIdRef = useRef(0);
   const lastCardRef = useRef(null);
-  const lastLocationRef = useRef(null);
+  const lastLocationCacheKeyRef = useRef(null);
   const abortControllerRef = useRef(null);
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
   const initialLoadDoneRef = useRef(false);
+  const isFetchingRef = useRef(false); // untuk mencegah concurrent fetch
 
   // ========== MEMOIZED VALUES ==========
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
@@ -232,16 +233,16 @@ export default function FeedContent() {
   const isMalam = useMemo(() => getGreeting().text === "Malam", []);
   const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
 
-// ========== STATE UNTUK KENTONGAN DI AI MODAL ==========
-const [selectedKentongan, setSelectedKentongan] = useState(null);
+  // ========== STATE UNTUK KENTONGAN DI AI MODAL ==========
+  const [selectedKentongan, setSelectedKentongan] = useState(null);
 
-// ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
-const openAIModalWithKentongan = useCallback((kentongan) => {
-  setSelectedTempat(null);
-  setSelectedKentongan(kentongan);
-  setAiContext("kentongan");
-  setShowAIModal(true);
-}, []);
+  // ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
+  const openAIModalWithKentongan = useCallback((kentongan) => {
+    setSelectedTempat(null);
+    setSelectedKentongan(kentongan);
+    setAiContext("kentongan");
+    setShowAIModal(true);
+  }, []);
 
   // ========== FETCH KENTONGAN UNTUK FEED ==========
   const fetchKentonganForFeed = useCallback(async () => {
@@ -252,7 +253,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
 
   // ========== BREAK CARD GENERATOR (KONTEN DINAMIS) ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
-    // ========== PRIORITAS TERTINGGI: KENTONGAN URGENT ==========
     const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
     if (urgentKentongan.length > 0 && scrollIndex >= 1) {
       const k = urgentKentongan[0];
@@ -270,7 +270,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
     
-    // ========== KENTONGAN BIASA ==========
     if (kentonganForFeed.length > 0 && scrollIndex >= 2) {
       const k = kentonganForFeed[0];
       return {
@@ -287,7 +286,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 1. Cek lonjakan laporan (dalam 1 jam terakhir)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentReports = allPlaces.reduce((acc, p) => {
       const reports = (p.laporan_terbaru || []).filter(l => new Date(l.created_at) > oneHourAgo);
@@ -302,7 +300,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 2. Cek perubahan kondisi besar (sepi -> ramai)
     let hasSignificantChange = false;
     let changeText = "";
     for (const place of displayedPlaces) {
@@ -324,7 +321,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 3. Cek silent area (tidak ada update dalam 3 jam)
     const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const silentPlaces = displayedPlaces.filter(p => {
       const latest = p.laporan_terbaru?.[0];
@@ -340,7 +336,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 4. User sudah scroll jauh (setelah 8 card)
     if (scrollIndex >= 8) {
       return {
         type: "heatmap-text",
@@ -349,7 +344,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 5. Time-based divider (setiap 15 menit)
     const now = Date.now();
     if (now - lastBreakTimeRef.current > 15 * 60 * 1000) {
       lastBreakTimeRef.current = now;
@@ -362,7 +356,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       };
     }
 
-    // 6. Default break: statistik umum
     const totalLaporanHariIni = allPlaces.reduce((acc, p) => {
       const todayReports = (p.laporan_terbaru || []).filter(l => {
         const lDate = new Date(l.created_at);
@@ -425,14 +418,16 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     return items;
   }, [tempat, generateBreakCard]);
 
-  // ========== CACHE MANAGER ==========
+  // ========== CACHE MANAGER DENGAN KUNCI KASAR ==========
+  const getCacheKey = useCallback(() => {
+    if (!locationReady || !location) return 'feed_default';
+    // Bulatkan ke 1 desimal (~11km) agar GPS jitter tidak mengubah kunci
+    const lat = Math.round(location.latitude * 10) / 10;
+    const lng = Math.round(location.longitude * 10) / 10;
+    return `feed_v2_${lat}_${lng}_${searchRadius}`;
+  }, [locationReady, location, searchRadius]);
+
   const cacheManager = useMemo(() => ({
-    getKey: () => {
-      if (!locationReady || !location) return 'feed_default';
-      const lat = Math.round(location.latitude * 100) / 100;
-      const lng = Math.round(location.longitude * 100) / 100;
-      return `feed_hybrid_${lat}_${lng}_${searchRadius}_${networkInfo.effectiveType}`;
-    },
     get: (key) => {
       try {
         const cached = localStorage.getItem(key);
@@ -441,7 +436,9 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
         if (!parsed || !parsed.ids) return null;
         const cacheDuration = networkInfo.isSlowConnection ? CACHE_DURATION * 2 : CACHE_DURATION;
         if (Date.now() - parsed.timestamp > cacheDuration) return null;
-        return { itemsMap: new Map(parsed.items), orderedIds: parsed.ids };
+        // Restore Map from serialized array
+        const itemsMapRestored = new Map(parsed.items);
+        return { itemsMap: itemsMapRestored, orderedIds: parsed.ids };
       } catch { return null; }
     },
     set: (key, itemsMap, orderedIds) => {
@@ -450,7 +447,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
         const itemsToCache = networkInfo.isSlowConnection 
           ? Array.from(itemsMap.entries()).slice(0, 30)
           : Array.from(itemsMap.entries());
-        
         localStorage.setItem(key, JSON.stringify({
           items: itemsToCache,
           ids: orderedIds.slice(0, networkInfo.isSlowConnection ? 30 : undefined),
@@ -460,9 +456,9 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     },
     invalidate: () => {
       const keys = Object.keys(localStorage);
-      keys.forEach(key => { if (key.startsWith('feed_')) localStorage.removeItem(key); });
+      keys.forEach(key => { if (key.startsWith('feed_v2_')) localStorage.removeItem(key); });
     }
-  }), [location, locationReady, searchRadius, networkInfo.isSlowConnection, networkInfo.effectiveType]);
+  }), [networkInfo.isSlowConnection]);
 
   // ========== RESET FEED ==========
   const resetFeed = useCallback(() => {
@@ -475,10 +471,13 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     existingIdsRef.current.clear();
   }, []);
 
-  // ========== LOAD PLACES ==========
+  // ========== LOAD PLACES (STABLE DEPENDENCY) ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
+    // Cegah concurrent fetch
+    if (isFetchingRef.current && !reset) return;
+    
     const currentFetchId = ++fetchIdRef.current;
-    if (loading && !reset) return;
+    isFetchingRef.current = true;
 
     if (reset) {
       setInitialLoad(true);
@@ -499,21 +498,23 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     setLoading(true);
 
     try {
+      const cacheKey = getCacheKey();
+      // STALE-WHILE-REVALIDATE: jika reset dan ada cache, tampilkan langsung
       if (reset && !isLocationChange) {
-        const cacheKey = cacheManager.getKey();
         const cached = cacheManager.get(cacheKey);
         if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
-          setItemsMap(cached.itemsMap || new Map());
+          setItemsMap(cached.itemsMap);
           setOrderedIds(cached.orderedIds);
           setInitialLoad(false);
           setLoading(false);
           if (cached.orderedIds.length > 0) {
             lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
           }
-          return;
+          // Lanjutkan fetch background untuk update
         }
       }
 
+      // Fetch dari server
       let query = supabase
         .from("feed_view")
         .select("*")
@@ -566,7 +567,7 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
           item, 
           locationReady: !!userLocation, 
           location: userLocation,
-          comments 
+          comments: {} // comments tidak perlu di sini, akan diupdate terpisah
         });
         
         const hybridScoreData = calculateHybridScore(processedItem, userLocation);
@@ -580,39 +581,70 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
         });
       }
 
-      if (processedItems.length === 0) {
+      if (processedItems.length === 0 && !reset) {
         setHasMore(false);
         setLoading(false);
         setInitialLoad(false);
+        isFetchingRef.current = false;
         return;
       }
 
       processedItems.sort((a, b) => b._hybridScore - a._hybridScore);
 
-      const newItemsMap = new Map(reset ? [] : itemsMap.entries());
-      const newOrderedIds = reset ? [] : [...orderedIds];
-      const newComments = { ...comments };
-
-      for (const item of processedItems) {
-        if (!newItemsMap.has(item.id)) {
-          newItemsMap.set(item.id, item);
-          newOrderedIds.push(item.id);
-          newComments[item.id] = item.testimonial_terbaru || [];
-          existingIdsRef.current.add(item.id);
+      // Update state dengan functional updates agar tidak tergantung pada itemsMap/orderedIds dari luar
+      setItemsMap(prevMap => {
+        const newMap = new Map(reset ? [] : prevMap.entries());
+        for (const item of processedItems) {
+          if (!newMap.has(item.id)) {
+            newMap.set(item.id, item);
+            existingIdsRef.current.add(item.id);
+          }
         }
-      }
+        return newMap;
+      });
+
+      setOrderedIds(prevIds => {
+        let newIds = reset ? [] : [...prevIds];
+        for (const item of processedItems) {
+          if (!newIds.includes(item.id)) {
+            newIds.push(item.id);
+          }
+        }
+        // Urutkan berdasarkan hybridScore
+        newIds.sort((a, b) => {
+          const scoreA = processedItems.find(i => i.id === a)?._hybridScore || 0;
+          const scoreB = processedItems.find(i => i.id === b)?._hybridScore || 0;
+          return scoreB - scoreA;
+        });
+        return newIds;
+      });
+
+      setComments(prevComments => {
+        const newComments = { ...prevComments };
+        for (const item of processedItems) {
+          if (!newComments[item.id]) {
+            newComments[item.id] = item.testimonial_terbaru || [];
+          }
+        }
+        return newComments;
+      });
 
       if (processedItems.length > 0) {
         lastLoadedIdRef.current = processedItems[processedItems.length - 1].id;
       }
 
-      setItemsMap(newItemsMap);
-      setOrderedIds(newOrderedIds);
-      setComments(newComments);
       setHasMore(processedItems.length === dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
-      if (reset && newOrderedIds.length > 0) {
-        cacheManager.set(cacheManager.getKey(), newItemsMap, newOrderedIds);
+      if (reset && processedItems.length > 0) {
+        // Simpan ke cache setelah fetch
+        const finalMap = new Map();
+        const finalIds = [];
+        // Ambil data terbaru dari state? Lebih aman gunakan processedItems
+        for (const item of processedItems) {
+          finalMap.set(item.id, item);
+          finalIds.push(item.id);
+        }
+        cacheManager.set(cacheKey, finalMap, finalIds);
 
         if (isLocationChange) {
           setFeedOpacity(1);
@@ -623,28 +655,30 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
           const connectionText = networkInfo.isSlowConnection ? " (mode hemat data)" : "";
           setToast({ 
             show: true, 
-            message: `📍 ${newOrderedIds.length} tempat dalam radius ${searchRadius}km${connectionText}` 
+            message: `📍 ${processedItems.length} tempat dalam radius ${searchRadius}km${connectionText}` 
           });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
       }
     } catch (err) {
       console.error("Error loading places:", err);
-      setError(err.message || "Gagal memuat数据");
+      setError(err.message || "Gagal memuat data");
       setIsTransitioningLocation(false);
       setFeedOpacity(1);
     } finally {
       if (currentFetchId === fetchIdRef.current) {
         setLoading(false);
         setInitialLoad(false);
+        isFetchingRef.current = false;
       }
     }
-  }, [loading, cacheManager, locationReady, location, searchRadius, networkInfo.isSlowConnection, dynamicLimit, itemsMap, orderedIds, comments]);
+  }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager]);
 
-  // ========== POLLING FOR UPDATES ==========
+  // ========== POLLING FOR UPDATES (hanya untuk koneksi lambat) ==========
   const pollForUpdates = useCallback(() => {
-    if (!locationReady || !hasMore) return;
+    if (!locationReady || !hasMore) return () => {};
     
+    let interval = null;
     const checkNewContent = async () => {
       try {
         const lastItemId = orderedIds[0];
@@ -668,12 +702,13 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       }
     };
     
-    const interval = setInterval(checkNewContent, networkInfo.isSlowConnection ? 60000 : 30000);
-    return interval;
+    interval = setInterval(checkNewContent, networkInfo.isSlowConnection ? 60000 : 30000);
+    return () => clearInterval(interval);
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection, locationReady, hasMore]);
 
   // ========== EFFECTS ==========
   
+  // Ambil user info sekali
   useEffect(() => {
     const getUser = async () => {
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -697,6 +732,7 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Network info
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
     
@@ -717,10 +753,11 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
   }, []);
 
+  // Realtime subscription (stabil: tidak bergantung pada itemsMap/comments)
   useEffect(() => {
     if (!useRealtime) {
-      const interval = pollForUpdates();
-      return () => { if (interval) clearInterval(interval); };
+      const cleanup = pollForUpdates();
+      return cleanup;
     }
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -750,38 +787,39 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
           inRadius = distance <= searchRadius;
         }
 
-        if (inRadius && !itemsMap.has(newItem.id)) {
-          const processedItem = processFeedItem({ 
-            item: newItem, 
-            locationReady: !!userLocation, 
-            location: userLocation,
-            comments 
+        if (inRadius) {
+          // Gunakan functional update untuk menghindari dependency itemsMap
+          setItemsMap(prevMap => {
+            if (prevMap.has(newItem.id)) return prevMap;
+            const processedItem = processFeedItem({ 
+              item: newItem, 
+              locationReady: !!userLocation, 
+              location: userLocation,
+              comments: {}
+            });
+            const hybridScoreData = calculateHybridScore(processedItem, userLocation);
+            const finalItem = {
+              ...processedItem,
+              _distance: distance,
+              _distanceScore: hybridScoreData.distanceScore,
+              _rankingScore: hybridScoreData.rankingScore,
+              _hybridScore: hybridScoreData.hybridScore
+            };
+            const newMap = new Map(prevMap);
+            newMap.set(finalItem.id, finalItem);
+            return newMap;
           });
           
-          const hybridScoreData = calculateHybridScore(processedItem, userLocation);
-          
-          const finalItem = {
-            ...processedItem,
-            _distance: distance,
-            _distanceScore: hybridScoreData.distanceScore,
-            _rankingScore: hybridScoreData.rankingScore,
-            _hybridScore: hybridScoreData.hybridScore
-          };
-          
-          setItemsMap(prev => new Map(prev).set(finalItem.id, finalItem));
-          
-          setOrderedIds(prev => {
-            const newIds = [...prev, finalItem.id];
-            newIds.sort((a, b) => {
-              const scoreA = itemsMap.get(a)?._hybridScore || 0;
-              const scoreB = itemsMap.get(b)?._hybridScore || 0;
-              return scoreB - scoreA;
-            });
+          setOrderedIds(prevIds => {
+            if (prevIds.includes(newItem.id)) return prevIds;
+            const newIds = [...prevIds, newItem.id];
+            // Sorting perlu akses ke itemsMap terbaru, tapi kita bisa gunakan callback dengan prevMap
+            // Untuk sederhana, kita trigger refresh nanti lewat toast saja
             return newIds;
           });
           
-          setComments(prev => ({ ...prev, [finalItem.id]: finalItem.testimonial_terbaru || [] }));
-          setToast({ show: true, message: `📢 ${finalItem.name} menambahkan update baru!` });
+          setComments(prev => ({ ...prev, [newItem.id]: [] }));
+          setToast({ show: true, message: `📢 ${newItem.name} menambahkan update baru!` });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
       })
@@ -791,8 +829,9 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       supabase.removeChannel(channel);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [searchRadius, itemsMap, useRealtime, pollForUpdates, locationReady, location, comments]);
+  }, [searchRadius, useRealtime, locationReady, location, pollForUpdates]);
 
+  // Infinite scroll observer
   useEffect(() => {
     if (!lastCardRef.current || !hasMore || loading) return;
 
@@ -809,6 +848,7 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     return () => observer.disconnect();
   }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length]);
 
+  // Pull to refresh
   useEffect(() => {
     let startY = 0;
     let isPulling = false;
@@ -847,36 +887,39 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
+  // INITIAL LOAD - HANYA SEKALI, tidak bergantung pada loadPlaces
   useEffect(() => {
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
       loadPlaces(true, false);
     }
-  }, [loadPlaces]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Kosong, hanya sekali
 
+  // RESPON PERUBAHAN LOKASI (hanya jika kunci cache berubah)
   useEffect(() => {
     if (!initialLoadDoneRef.current) return;
     if (!locationReady) return;
 
-    const currentKey = location ? `${location.latitude.toFixed(3)},${location.longitude.toFixed(3)}` : '';
-    if (lastLocationRef.current === currentKey) return;
+    const currentCacheKey = getCacheKey();
+    if (lastLocationCacheKeyRef.current === currentCacheKey) return;
 
-    console.log(`📍 Lokasi berubah: ${lastLocationRef.current} -> ${currentKey}`);
-    lastLocationRef.current = currentKey;
+    console.log(`📍 Lokasi berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
+    lastLocationCacheKeyRef.current = currentCacheKey;
     
-    cacheManager.invalidate();
+    cacheManager.invalidate(); // optional, biar fetch ulang
     loadPlaces(true, true);
 
     setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  }, [location?.latitude, location?.longitude, locationReady, cacheManager, loadPlaces, villageLocation]);
+  }, [getCacheKey, locationReady, cacheManager, loadPlaces, villageLocation]);
 
   // Fetch kentongan saat user berubah
   useEffect(() => {
     fetchKentonganForFeed();
   }, [fetchKentonganForFeed]);
 
-  // ========== HANDLERS ==========
+  // ========== HANDLERS (tidak berubah) ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
     setManualLocation(selectedLocation);
@@ -920,15 +963,12 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
       newMap.set(item.id, item);
       return newMap;
     });
-    
     setOrderedIds(prev => {
       const filtered = prev.filter(id => id !== item.id);
       return [item.id, ...filtered];
     });
     setSelectedTempat(item);
-    
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    
     setToast({ show: true, message: `📍 Menampilkan ${item.name}` });
     setTimeout(() => setToast({ show: false, message: "" }), 2000);
   }, []);
@@ -1055,7 +1095,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
               <motion.div layout className="space-y-2">
                 <AnimatePresence mode="popLayout" initial={false}>
                   {feedItemsWithBreaks.map((item, index) => {
-                    // Break Card
                     if (item._isBreak) {
                       return (
                         <BreakCard
@@ -1069,7 +1108,6 @@ const openAIModalWithKentongan = useCallback((kentongan) => {
                       );
                     }
                     
-                    // Feed Card
                     const isLast = index === feedItemsWithBreaks.length - 1;
                     const isPriority = index < 3;
                     return (

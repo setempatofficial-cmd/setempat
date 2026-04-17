@@ -5,20 +5,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { useClock } from "@/hooks/useClock";
 import OptimizedMedia from "@/components/OptimizedMedia";
 
-// Helper untuk mendapatkan timeKey berdasarkan label waktu
-const getTimeKeyFromLabel = (timeLabel) => {
-  const label = timeLabel?.toLowerCase();
-  if (label === 'pagi') return 'pagi';
-  if (label === 'siang') return 'siang';
-  if (label === 'sore') return 'sore';
-  if (label === 'malam') return 'malam';
-  const hour = new Date().getHours();
-  if (hour >= 5 && hour < 11) return 'pagi';
-  if (hour >= 11 && hour < 15) return 'siang';
-  if (hour >= 15 && hour < 18) return 'sore';
-  return 'malam';
-};
-
 // Normalisasi foto official
 const normalizeOfficialPhotos = (photos) => {
   if (!photos) return { pagi: [], siang: [], sore: [], malam: [] };
@@ -42,27 +28,34 @@ const normalizeOfficialPhotos = (photos) => {
 
 export default function PhotoSlider({
   photos = [],
-  timeLabel = "Waktu",
   tempatId,
   namaTempat = "",
   isHujan = false,
   onUploadSuccess,
   priority = false,
 }) {
-  const { timeLabel: currentTimeLabel } = useClock();
+  const { timeLabel: currentTimeLabel } = useClock(); // Hanya ambil timeLabel
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [shouldLoad, setShouldLoad] = useState(priority);
   const sliderRef = useRef(null);
   
-  const currentTimeKey = useMemo(() => getTimeKeyFromLabel(currentTimeLabel), [currentTimeLabel]);
+  // Mapping langsung dari timeLabel
+  const currentTimeKey = useMemo(() => {
+    const label = currentTimeLabel?.toLowerCase();
+    if (label === 'pagi') return 'pagi';
+    if (label === 'siang') return 'siang';
+    if (label === 'sore') return 'sore';
+    if (label === 'malam') return 'malam';
+    return 'siang'; // default
+  }, [currentTimeLabel]);
   
   useEffect(() => {
     setCurrentPhotoIndex(0);
   }, [currentTimeKey]);
 
-  // Intersection Observer - hanya load saat terlihat
+  // Intersection Observer
   useEffect(() => {
     if (priority) {
       setShouldLoad(true);
@@ -82,12 +75,14 @@ export default function PhotoSlider({
     );
     
     if (sliderRef.current) observer.observe(sliderRef.current);
+    
     return () => {
       if (sliderRef.current) observer.unobserve(sliderRef.current);
+      observer.disconnect(); // FIX: Tambahkan disconnect
     };
   }, [priority, shouldLoad]);
 
-  // Fetch data hanya jika perlu
+  // Fetch data
   const fetchOfficialPhotos = useCallback(async () => {
     if (!tempatId || !shouldLoad) return;
     
@@ -135,11 +130,11 @@ export default function PhotoSlider({
     return () => supabase.removeChannel(channel);
   }, [tempatId, shouldLoad]);
 
-  // Proses foto yang akan ditampilkan
+  // Proses foto
   const currentPhotos = useMemo(() => {
     if (!shouldLoad) return [];
     
-    // Prioritaskan foto warga (Story Circle) yang masih fresh (24 jam)
+    // Prioritaskan foto warga (24 jam terakhir)
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -162,7 +157,7 @@ export default function PhotoSlider({
       }
     }
     
-    // Jika tidak ada foto warga, ambil foto official
+    // Foto official berdasarkan waktu
     const timePhotos = officialPhotos[currentTimeKey];
     if (timePhotos?.length > 0) {
       const sorted = [...timePhotos].sort((a, b) => {
@@ -194,7 +189,7 @@ export default function PhotoSlider({
   const currentPhoto = currentPhotos[currentPhotoIndex];
   const hasMultiplePhotos = currentPhotos.length > 1;
 
-  // Skeleton saat belum load
+  // Skeleton loading
   if (!shouldLoad) {
     return (
       <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-800/50 animate-pulse flex items-center justify-center">
@@ -227,40 +222,27 @@ export default function PhotoSlider({
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
             
             {currentPhoto.caption && (
-  <div className={`absolute ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'bottom-3 right-3' : 'bottom-4 right-4'} z-10 max-w-[45%]`}>
-    <div className={`
-      flex items-center gap-1.5 
-      bg-black/20 backdrop-blur-xl 
-      border border-white/10 
-      px-2.5 py-1.5 
-      rounded-xl 
-      shadow-sm
-    `}>
-      {/* Dot kecil lebih hemat ruang daripada icon bintang */}
-      <div className="w-1 h-1 rounded-full bg-white/40 shadow-[0_0_5px_white]" />
-      
-      <p className={`
-        ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'text-[7px]' : 'text-[8px]'} 
-        font-black uppercase tracking-tighter 
-        text-white/80 leading-none truncate
-      `}>
-        {currentPhoto.caption}
-      </p>
-    </div>
-  </div>
-)}
+              <div className="absolute bottom-4 right-4 z-10 max-w-[45%]">
+                <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 rounded-xl shadow-sm">
+                  <div className="w-1 h-1 rounded-full bg-white/40 shadow-[0_0_5px_white]" />
+                  <p className="text-[8px] font-black uppercase tracking-tighter text-white/80 leading-none truncate">
+                    {currentPhoto.caption}
+                  </p>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/50 backdrop-blur-sm">
             <MapPin className="text-zinc-700 mb-2" size={24} />
             <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold italic">
-              Hasil Pantuan AI Setempat
+              Hasil Pantauan AI Setempat
             </p>
           </div>
         )}
       </div>
 
-      {/* Navigasi Foto */}
+      {/* Navigasi */}
       {hasMultiplePhotos && currentPhoto?.url && (
         <>
           <button 

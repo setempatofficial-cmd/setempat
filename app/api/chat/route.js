@@ -1,4 +1,4 @@
-// app/api/chat/route.js
+// app/api/chat/route.js (FINAL - Support Kedua Modal)
 import { createClient } from '@supabase/supabase-js';
 
 // ============================================
@@ -57,27 +57,21 @@ async function getWeatherFromAPI(kodeWilayah) {
 }
 
 // ============================================
-// FORMAT JAM BUKA DARI JSONB
+// FORMAT JAM BUKA
 // ============================================
-// app/api/chat/route.js - Perbaiki fungsi formatJamBuka
-
 function formatJamBuka(jamBuka, tempatName) {
   if (!jamBuka) return null;
   
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const today = days[new Date().getDay()];
   
-  // 🔥 Buat array kemungkinan format nama hari (capitalized, lowercase, dll)
   const possibleDayKeys = [today, today.toLowerCase(), today.toUpperCase()];
   
-  // Jika jam_buka adalah string langsung
   if (typeof jamBuka === 'string') {
     return `Jam buka ${tempatName}: ${jamBuka}`;
   }
   
-  // Jika jam_buka adalah object JSONB
   if (typeof jamBuka === 'object') {
-    // 🔥 Cek dengan berbagai format nama hari
     let todaySchedule = null;
     for (const key of possibleDayKeys) {
       if (jamBuka[key]) {
@@ -90,12 +84,10 @@ function formatJamBuka(jamBuka, tempatName) {
       return `Jam buka ${tempatName} hari ${today}: ${todaySchedule}`;
     }
     
-    // Cek jadwal default/umum
     if (jamBuka.default || jamBuka.umum) {
       return `Jam buka ${tempatName}: ${jamBuka.default || jamBuka.umum}`;
     }
     
-    // Jika tidak ada, coba ambil jadwal pertama yang tersedia
     const firstDay = Object.keys(jamBuka)[0];
     if (firstDay && jamBuka[firstDay]) {
       return `Jam buka ${tempatName} (contoh ${firstDay}): ${jamBuka[firstDay]}`;
@@ -104,10 +96,57 @@ function formatJamBuka(jamBuka, tempatName) {
   
   return null;
 }
+
 // ============================================
-// SUPABASE DATA (dengan jam_buka)
+// FORMAT KENTONGAN MESSAGE
 // ============================================
-async function getDataFromSupabase(tempatId) {
+function formatKentonganMessage(kentongan) {
+  if (!kentongan) return null;
+  
+  if (kentongan.expires_at && new Date(kentongan.expires_at) < new Date()) return null;
+  if (kentongan.is_active === false) return null;
+  
+  const { title, content, image_url, is_urgent, is_pinned, created_at, is_global, target_desa, target_kecamatan, type, source, source_name, location, urgency } = kentongan;
+  
+  const isNewsMode = !!image_url;
+  const isPeringatan = urgency === 'high' || is_urgent === true;
+  
+  let icon = "📢";
+  let categoryLabel = "PENGUMUMAN";
+  
+  if (isPeringatan) {
+    icon = "🚨";
+    categoryLabel = "PERINGATAN PENTING";
+  } else if (is_pinned) {
+    icon = "📌";
+    categoryLabel = "PENGUMUMAN PINNED";
+  } else if (type === 'berita' || isNewsMode) {
+    icon = "📰";
+    categoryLabel = "KABAR SETEMPAT";
+  }
+  
+  const locationInfo = is_global ? "Semua Wilayah" : (target_desa && target_kecamatan) ? `${target_desa}, ${target_kecamatan}` : (location || "Lokasi tidak ditentukan");
+  const sourceInfo = source_name || source || (source === 'admin' ? 'Admin Desa' : 'Warga');
+  const thumbnail = image_url ? `![gambar](${image_url})\n\n` : "";
+  
+  return `${icon} ${categoryLabel}
+${thumbnail}
+### ${title}
+
+${content}
+
+📍 **Lokasi:** ${locationInfo}
+🕐 **Diterbitkan:** ${new Date(created_at).toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
+👤 **Sumber:** ${sourceInfo}
+
+---
+💡 Tanya saya untuk detail lebih lanjut.`;
+}
+
+// ============================================
+// SUPABASE DATA (SUPPORT KENTONGAN & TEMPAT)
+// ============================================
+async function getDataFromSupabase(tempatId, kentonganId = null, modalType = null) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   
@@ -122,7 +161,9 @@ async function getDataFromSupabase(tempatId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const now = new Date().toISOString();
 
+    // Query laporan warga (untuk AIModalTempat)
     let recentQuery = supabase
       .from('laporan_warga')
       .select('id, user_name, tipe, deskripsi, content, estimated_people, estimated_wait_time, created_at, time_tag')
@@ -135,19 +176,52 @@ async function getDataFromSupabase(tempatId) {
       .gte('created_at', today.toISOString())
       .limit(50);
     
-    // 🔥 Query untuk ambil jam_buka dari tabel tempat
-    let tempatQuery = supabase
-      .from('tempat')
-      .select('jam_buka, name, cctv_url')
-      .eq('id', tempatId)
-      .single();
+    // Query tempat
+    let tempatQuery = null;
+    if (tempatId) {
+      tempatQuery = supabase
+        .from('tempat')
+        .select('jam_buka, name, cctv_url, kode_wilayah')
+        .eq('id', tempatId)
+        .single();
+    }
+    
+    // Query kentongan
+    let kentonganQuery = null;
+    if (kentonganId) {
+      kentonganQuery = supabase
+        .from('kentongan')
+        .select('*')
+        .eq('id', kentonganId)
+        .single();
+    } else if (modalType === 'kentongan') {
+      // Ambil kentongan terbaru yang aktif
+      kentonganQuery = supabase
+        .from('kentongan')
+        .select('*')
+        .eq('is_active', true)
+        .or(`expires_at.is.null,expires_at.gt.${now}`)
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    }
     
     if (tempatId) {
       recentQuery = recentQuery.eq('tempat_id', tempatId);
       statsQuery = statsQuery.eq('tempat_id', tempatId);
     }
 
-    const [recentResult, statsResult, tempatResult] = await Promise.all([recentQuery, statsQuery, tempatQuery]);
+    const promises = [recentQuery, statsQuery];
+    if (tempatQuery) promises.push(tempatQuery);
+    if (kentonganQuery) promises.push(kentonganQuery);
+    
+    const results = await Promise.all(promises);
+    
+    const recentResult = results[0];
+    const statsResult = results[1];
+    const tempatResult = tempatQuery ? results[2] : { data: null };
+    const kentonganResult = kentonganQuery ? results[tempatQuery ? 3 : 2] : { data: null };
 
     const recentReports = recentResult.data || [];
     const todayReports = statsResult.data || [];
@@ -174,10 +248,13 @@ async function getDataFromSupabase(tempatId) {
 
     const latest = recentReports.find(r => new Date(r.created_at) >= twoHoursAgo) || recentReports[0];
     
-    // 🔥 Ambil data jam_buka
     const jamBuka = tempatResult.data?.jam_buka || null;
     const cctvUrl = tempatResult.data?.cctv_url || null;
     const tempatName = tempatResult.data?.name || null;
+    const kodeWilayah = tempatResult.data?.kode_wilayah || null;
+    
+    const kentongan = kentonganResult?.data || null;
+    const kentonganMessage = kentongan ? formatKentonganMessage(kentongan) : null;
     
     return {
       success: true,
@@ -190,7 +267,10 @@ async function getDataFromSupabase(tempatId) {
         hasLaporan: stats.total > 0,
         jamBuka: jamBuka,
         cctvUrl: cctvUrl,
-        tempatName: tempatName
+        tempatName: tempatName,
+        kodeWilayah: kodeWilayah,
+        kentongan: kentongan,
+        kentonganMessage: kentonganMessage
       }
     };
   } catch (error) {
@@ -200,176 +280,157 @@ async function getDataFromSupabase(tempatId) {
 }
 
 // ============================================
-// QUICK RESPONSE (LENGKAP DENGAN JAM BUKA)
+// QUICK RESPONSE UNTUK TEMPAT
 // ============================================
-function getQuickResponse(message, weatherData, supabaseData, tempatName) {
+function getQuickResponseForTempat(message, weatherData, supabaseData, tempatName) {
   const lowerMsg = message.toLowerCase();
   const { todayStats, latest, trending, avgEstimasi, hasLaporan, jamBuka } = supabaseData || {};
   const latestReport = latest;
   
-  // === JAM BUKA ===
-  if (lowerMsg.includes('jam buka') || lowerMsg.includes('buka jam') || lowerMsg.includes('jam operasional') || 
-      lowerMsg.includes('sampai jam') || lowerMsg.includes('buka sampai') || lowerMsg.includes('jam berapa')) {
-    
+  // Jam buka
+  if (lowerMsg.includes('jam buka') || lowerMsg.includes('buka jam') || lowerMsg.includes('jam operasional')) {
     const jamBukaText = formatJamBuka(jamBuka, tempatName);
-    if (jamBukaText) {
-      return jamBukaText;
-    }
-    return `Maaf, belum ada info jam buka untuk ${tempatName}. Coba cek langsung atau tanya warga sekitar ya! 📍`;
+    if (jamBukaText) return jamBukaText;
+    return `Maaf, belum ada info jam buka untuk ${tempatName}. 📍`;
   }
   
-  // === CCTV / LIVE STREAM ===
-  if (lowerMsg.includes('cctv') || lowerMsg.includes('live') || lowerMsg.includes('pantau') || lowerMsg.includes('lihat langsung')) {
+  // CCTV
+  if (lowerMsg.includes('cctv') || lowerMsg.includes('live') || lowerMsg.includes('pantau')) {
     const cctvUrl = supabaseData?.cctvUrl;
-    if (cctvUrl) {
-      return `🎥 Anda bisa memantau langsung ${tempatName} melalui tautan ini: ${cctvUrl}`;
-    }
-    return `Maaf, belum ada tautan CCTV untuk ${tempatName}. Coba pantau lewat laporan warga ya! 📸`;
+    if (cctvUrl) return `🎥 Pantau langsung ${tempatName}: ${cctvUrl}`;
+    return `Maaf, belum ada tautan CCTV untuk ${tempatName}. 📸`;
   }
   
-  // === CUACA ===
-  if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas') || 
-      lowerMsg.includes('cerah') || lowerMsg.includes('mendung') || lowerMsg.includes('angin')) {
+  // Cuaca
+  if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas')) {
     if (weatherData) {
-      const { t, weather_desc } = weatherData;
-      const descLower = weather_desc.toLowerCase();
-      
-      let emoji = '🌤️';
-      let responseText = '';
-      
-      if (descLower.includes('hujan')) {
-        emoji = '🌧️';
-        if (descLower.includes('deras') || descLower.includes('heavy') || descLower.includes('lebat')) {
-          responseText = `Hujan deras ${emoji} ${t}°C. Hati-hati di jalan, bawa payung! 🌂`;
-        } else if (descLower.includes('ringan') || descLower.includes('light')) {
-          responseText = `Hujan gerimis ${emoji} ${t}°C. Bawa payung atau jas hujan ya!`;
-        } else {
-          responseText = `Hujan ${emoji} ${t}°C. Jangan lupa payung!`;
-        }
-      } 
-      else if (descLower.includes('mendung') || descLower.includes('cloud') || descLower.includes('overcast')) {
-        emoji = '☁️';
-        responseText = `Mendung ${emoji} ${t}°C. Segar-segar, enak buat jalan.`;
-      }
-      else if (descLower.includes('cerah') || descLower.includes('clear')) {
-        emoji = '☀️';
-        if (t > 30) {
-          responseText = `Cerah ${emoji} ${t}°C 🔥 panas banget, siapin topi!`;
-        } else {
-          responseText = `Cerah ${emoji} ${t}°C, enak buat jalan-jalan!`;
-        }
-      }
-      else if (descLower.includes('berawan') || descLower.includes('few clouds')) {
-        emoji = '⛅';
-        responseText = `Cerah berawan ${emoji} ${t}°C, segar buat aktivitas!`;
-      }
-      else {
-        responseText = `${weather_desc} ${emoji} ${t}°C`;
-        if (t > 30) responseText += ' 🔥 panas banget!';
-        else responseText += ' 👍 enak buat jalan.';
-      }
-      
-      return responseText;
+      return `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C ${weatherData.t > 30 ? '🔥' : '🌤️'}`;
     }
-    
-    const hour = new Date().getHours();
-    if (hour < 11) return "Pagi cerah 🌤️ segar buat jalan!";
-    if (hour < 15) return "Siang panas ☀️ siapin topi ya!";
-    if (hour < 18) return "Sore teduh 🌥️ enak santai.";
-    return "Malam sejuk 🌙 hati-hati keluar.";
+    return "Cuaca cerah 🌤️ enak buat jalan!";
   }
   
-  // === ANTRIAN ===
-  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre') || lowerMsg.includes('queue')) {
+  // Antrian
+  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre')) {
     if (latestReport?.tipe === 'Antri') {
-      const wait = latestReport.estimated_wait_time;
-      const people = latestReport.estimated_people;
-      if (wait > 15) return `Antrian panjang ⏳ estimasi ${wait} menit, ${people || 'banyak'} orang ngantre. Sabar ya!`;
-      if (wait > 5) return `Antrian sedang ⏱️ sekitar ${wait} menit. Nggak terlalu lama kok!`;
-      return `Ada antrian pendek ⚡ sekitar ${people || ''} orang. Cepet kok!`;
+      return `Antrian ${latestReport.estimated_wait_time ? `${latestReport.estimated_wait_time} menit` : 'ada'} di ${tempatName}.`;
     }
-    if (todayStats?.antri > 0) return `Hari ini ada ${todayStats.antri} laporan antrian. ${latestReport?.deskripsi || ''}`;
-    return `Nggak ada laporan antrian nih. Kondisi ${trending === 'ramai' ? 'ramai' : 'normal'}.`;
+    return `Nggak ada laporan antrian di ${tempatName}.`;
   }
   
-  // === RAMAI/SEPI/KONDISI ===
-  if (lowerMsg.includes('ramai') || lowerMsg.includes('rame') || lowerMsg.includes('sepi') || 
-      lowerMsg.includes('kondisi') || lowerMsg.includes('suasana') || lowerMsg.includes('gimana')) {
-    if (!hasLaporan) return `Belum ada laporan hari ini. Kamu bisa jadi yang pertama cerita! 📸`;
-    
-    if (trending === 'ramai') {
-      return `Lagi RAMAI! ${todayStats.ramai} laporan dari warga. ${avgEstimasi ? `Rata-rata ~${avgEstimasi} orang.` : ''} ${latestReport?.deskripsi || ''}`;
-    }
-    if (trending === 'antri') {
-      return `Ada ANTRIAN! ${todayStats.antri} laporan. ${latestReport?.estimated_wait_time ? `Antri ${latestReport.estimated_wait_time} menit.` : ''}`;
-    }
-    if (trending === 'sepi') {
-      return `Suasana SEPI 🍃 ${todayStats.sepi} laporan bilang tenang. Cocok buat jalan santai!`;
-    }
-    return `Ada ${todayStats.total} laporan hari ini: ${todayStats.ramai} ramai, ${todayStats.sepi} sepi, ${todayStats.antri} antri.`;
+  // Kondisi
+  if (lowerMsg.includes('ramai') || lowerMsg.includes('sepi') || lowerMsg.includes('kondisi')) {
+    if (!hasLaporan) return `Belum ada laporan untuk ${tempatName}. Kamu bisa jadi yang pertama! 📸`;
+    if (trending === 'ramai') return `Lagi RAMAI di ${tempatName}! ${todayStats.ramai} laporan.`;
+    if (trending === 'sepi') return `Suasana SEPI di ${tempatName} 🍃`;
+    if (trending === 'antri') return `Ada ANTRIAN di ${tempatName}!`;
+    return `Kondisi normal di ${tempatName}.`;
   }
   
-  // === CERITA WARGA ===
-  if (lowerMsg.includes('cerita') || lowerMsg.includes('warga') || lowerMsg.includes('laporan')) {
-    if (!latestReport) return "Belum ada cerita warga nih. Kamu bisa jadi yang pertama! 📸";
-    const nama = latestReport.user_name?.split(' ')[0] || 'Warga';
-    const cerita = latestReport.deskripsi || latestReport.content;
-    const estimasi = latestReport.estimated_people ? ` (~${latestReport.estimated_people} org)` : '';
-    const waktu = latestReport.time_tag ? ` (${latestReport.time_tag})` : '';
-    return `Dari @${nama}: "${cerita?.substring(0, 80)}"${estimasi}${waktu}. Mau cerita juga? 📸`;
-  }
-  
-  // === DEFAULT ===
+  // Default
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
-  
-  if (hasLaporan && latestReport) {
-    const ceritaSingkat = latestReport.deskripsi?.substring(0, 60) || 'Ada update baru nih!';
-    return `${greeting}, Lur! 👋 ${ceritaSingkat} Mau tanya lebih detail?`;
-  }
-  
-  return `${greeting}, Lur! 👋 Ada yang bisa dibantu? Tanya cuaca, kondisi, jam buka, atau cerita warga!`;
+  return `${greeting}, Lur! 👋 Ada yang bisa dibantu tentang ${tempatName}?`;
 }
 
 // ============================================
-// AI PROMPT
+// QUICK RESPONSE UNTUK KENTONGAN
 // ============================================
-function buildAIPrompt(message, supabaseData, weatherData, tempatName) {
-  const { todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka } = supabaseData || {};
+function getQuickResponseForKentongan(message, supabaseData) {
+  const lowerMsg = message.toLowerCase();
+  const { kentongan, kentonganMessage } = supabaseData || {};
   
-  let prompt = `Lokasi: ${tempatName || 'sini'}\n`;
+  if (!kentongan) {
+    return "Belum ada pengumuman resmi nih. Pantau terus ya! 📢";
+  }
   
-  if (hasLaporan) {
-    prompt += `Statistik: ${todayStats.ramai} ramai, ${todayStats.sepi} sepi, ${todayStats.antri} antri. Trending: ${trending}`;
-    if (avgEstimasi) prompt += `, estimasi ~${avgEstimasi} org`;
-    prompt += `\n`;
+  // Pertanyaan tentang waktu kejadian
+  if (lowerMsg.includes('kapan') || lowerMsg.includes('jam berapa') || lowerMsg.includes('tanggal') || lowerMsg.includes('waktu')) {
+    const createdAt = new Date(kentongan.created_at);
+    const formattedDate = createdAt.toLocaleDateString('id-ID', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const formattedTime = createdAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    return `📅 Pengumuman ini diterbitkan pada ${formattedDate} pukul ${formattedTime}. ${kentongan.is_urgent ? '⚠️ Info penting, ya!' : 'Semoga membantu! 😊'}`;
+  }
+  
+  // Pertanyaan tentang detail/isi
+  if (lowerMsg.includes('detail') || lowerMsg.includes('isi') || lowerMsg.includes('ceritakan') || lowerMsg.includes('jelaskan')) {
+    return `📋 ${kentongan.title}\n\n${kentongan.content.substring(0, 400)}${kentongan.content.length > 400 ? '...' : ''}\n\nAda yang mau ditanyakan lagi?`;
+  }
+  
+  // Pertanyaan tentang lokasi
+  if (lowerMsg.includes('dimana') || lowerMsg.includes('lokasi') || lowerMsg.includes('tempat')) {
+    if (kentongan.is_global) {
+      return `🌍 Pengumuman ini berlaku untuk semua wilayah.`;
+    }
+    const lokasi = kentongan.target_desa || kentongan.location || 'tidak disebutkan';
+    return `📍 Lokasi: ${lokasi}${kentongan.target_kecamatan ? `, Kec. ${kentongan.target_kecamatan}` : ''}.`;
+  }
+  
+  // Pertanyaan tentang sumber
+  if (lowerMsg.includes('siapa') || lowerMsg.includes('sumber') || lowerMsg.includes('pembuat')) {
+    const sumber = kentongan.source_name || kentongan.source || 'Admin Desa';
+    return `👤 Pengumuman ini dibuat oleh ${sumber}.`;
+  }
+  
+  // Default - tampilkan pengumuman
+  return kentonganMessage || `📢 ${kentongan.title}\n\n${kentongan.content.substring(0, 200)}${kentongan.content.length > 200 ? '...' : ''}`;
+}
+
+// ============================================
+// AI PROMPT BUILDER
+// ============================================
+function buildAIPrompt(message, supabaseData, weatherData, tempatName, modalType) {
+  const { todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka, kentongan } = supabaseData || {};
+  
+  let prompt = "";
+  
+  if (modalType === 'kentongan' && kentongan) {
+    prompt = `Kamu adalah asisten untuk pengumuman/kentongan digital.
+
+PENGUMUMAN:
+Judul: ${kentongan.title}
+Isi: ${kentongan.content}
+Tanggal: ${new Date(kentongan.created_at).toLocaleString('id-ID')}
+Urgent: ${kentongan.is_urgent ? 'YA' : 'TIDAK'}
+Lokasi: ${kentongan.is_global ? 'Semua Wilayah' : (kentongan.target_desa || kentongan.location || 'Tidak disebutkan')}
+
+Pertanyaan pengguna: "${message}"
+
+Jawab dengan singkat (max 2-3 kalimat), informatif, pakai emoji. Prioritaskan info dari pengumuman di atas.`;
   } else {
-    prompt += `Belum ada laporan\n`;
+    prompt = `Lokasi: ${tempatName || 'sini'}\n`;
+    
+    if (hasLaporan) {
+      prompt += `Statistik: ${todayStats.ramai} ramai, ${todayStats.sepi} sepi, ${todayStats.antri} antri. Trending: ${trending}`;
+      if (avgEstimasi) prompt += `, estimasi ~${avgEstimasi} org`;
+      prompt += `\n`;
+    }
+    
+    if (latest) {
+      prompt += `Laporan terbaru: ${latest.tipe} - "${latest.deskripsi?.substring(0, 100)}"\n`;
+    }
+    
+    if (weatherData) {
+      prompt += `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C\n`;
+    }
+    
+    if (jamBuka) {
+      prompt += `Jam buka: ${JSON.stringify(jamBuka)}\n`;
+    }
+    
+    prompt += `\nPertanyaan: "${message}"\n`;
+    prompt += `Jawab singkat maksimal 2 kalimat, bahasa santai, pakai emoji.`;
   }
-  
-  if (latest) {
-    prompt += `Laporan terbaru: ${latest.tipe} - "${latest.deskripsi?.substring(0, 100)}"`;
-    if (latest.estimated_people) prompt += ` (${latest.estimated_people} org)`;
-    if (latest.estimated_wait_time) prompt += ` (antri ${latest.estimated_wait_time} menit)`;
-    prompt += `\n`;
-  }
-  
-  if (weatherData) {
-    prompt += `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C\n`;
-  }
-  
-  if (jamBuka) {
-    prompt += `Jam buka: ${JSON.stringify(jamBuka)}\n`;
-  }
-  
-  prompt += `\nPertanyaan: "${message}"\n`;
-  prompt += `Jawab singkat maksimal 2 kalimat, bahasa santai, pakai emoji.`;
   
   return prompt;
 }
 
 // ============================================
-// MAIN HANDLER
+// MAIN HANDLER (SUPPORT KEDUA MODAL)
 // ============================================
 export async function POST(req) {
   try {
@@ -378,15 +439,19 @@ export async function POST(req) {
     if (limited === "minute") return Response.json({ text: "Pelan-pelan, Lur! 😅" });
     if (limited === "day") return Response.json({ text: "Kuota habis, besok lagi ya! 🙏" });
 
-    const { message, tempat, userFeedData } = await req.json();
+    const { message, tempat, kentonganId, modalType } = await req.json();
     if (!message?.trim()) return Response.json({ error: "Pesan kosong" }, { status: 400 });
     
     const safeMsg = message.trim().slice(0, 200);
     const tempatName = tempat?.name || 'sini';
+    const kodeWilayah = tempat?.kode_wilayah || '35.14.01.1001';
+    
+    // Deteksi modal type (jika tidak dikirim, deteksi dari ada/tidaknya kentonganId)
+    const detectedModalType = modalType || (kentonganId ? 'kentongan' : 'tempat');
     
     const [weatherData, supabaseResult] = await Promise.all([
-      getWeatherFromAPI(tempat?.kode_wilayah || '35.14.01.1001'),
-      getDataFromSupabase(tempat?.id).catch(err => {
+      getWeatherFromAPI(kodeWilayah),
+      getDataFromSupabase(tempat?.id, kentonganId, detectedModalType).catch(err => {
         console.error("Supabase fetch error:", err);
         return { success: false, data: null };
       })
@@ -394,20 +459,89 @@ export async function POST(req) {
     
     const supabaseData = supabaseResult?.success ? supabaseResult.data : null;
     
-    const quickResponse = getQuickResponse(safeMsg, weatherData, supabaseData, tempatName);
+    // 🔥 PENTING: Deteksi apakah pertanyaan spesifik (kapan, detail, dll)
+    const isSpecificQuestion = safeMsg.toLowerCase().match(/^(kapan|jam berapa|tanggal|waktu|detail|isi|apa|siapa|dimana|bagaimana|kenapa|jelaskan|ceritakan)/);
     
-    // Quick intent: cuaca, antrian, ramai, sepi, cerita, jam buka, cctv
-    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau)/);
+    // 🔥 Jika modal kentongan dan ada pertanyaan spesifik, langsung jawab
+    if (detectedModalType === 'kentongan' && supabaseData?.kentongan) {
+      // Coba jawab dengan quick response untuk kentongan dulu
+      const kentonganResponse = getQuickResponseForKentongan(safeMsg, supabaseData);
+      
+      // Jika pertanyaan spesifik dan quick response bisa menjawab, pakai itu
+      if (isSpecificQuestion && !kentonganResponse.includes('📢') && kentonganResponse.length < 200) {
+        return Response.json({ text: kentonganResponse });
+      }
+      
+      // Untuk pertanyaan yang lebih kompleks, panggil AI
+      if (!isSpecificQuestion && kentonganResponse.length < 100) {
+        return Response.json({ text: kentonganResponse });
+      }
+      
+      // Panggil AI untuk jawaban yang lebih baik
+      const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'kentongan');
+      
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      
+      try {
+        const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            max_tokens: 200,
+            temperature: 0.6,
+            messages: [
+              { role: "system", content: "Asisten ramah untuk kentongan digital. Jawab singkat, informatif, pakai emoji." },
+              { role: "user", content: prompt },
+            ],
+          }),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeout);
+        
+        if (!aiResponse.ok) {
+          return Response.json({ text: kentonganResponse });
+        }
+        
+        const data = await aiResponse.json();
+        let aiText = data.choices?.[0]?.message?.content?.trim();
+        
+        if (!aiText || aiText.length < 5) {
+          return Response.json({ text: kentonganResponse });
+        }
+        
+        return Response.json({ text: aiText });
+        
+      } catch (aiError) {
+        clearTimeout(timeout);
+        console.error("AI error:", aiError.message);
+        return Response.json({ text: kentonganResponse });
+      }
+    }
     
-    // Gunakan quick response jika:
-    // 1. Ini quick intent, ATAU
-    // 2. Tidak ada laporan (hasLaporan false)
-    if (isQuickIntent || !supabaseData?.hasLaporan) {
+    // ============================================
+    // UNTUK MODAL TEMPAT (AIModalTempat)
+    // ============================================
+    
+    const quickResponse = getQuickResponseForTempat(safeMsg, weatherData, supabaseData, tempatName);
+    
+    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau)$/);
+    
+    if (isQuickIntent) {
       return Response.json({ text: quickResponse });
     }
     
-    // Untuk pertanyaan kompleks, coba AI
-    const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName);
+    if (!supabaseData?.hasLaporan && !isSpecificQuestion) {
+      return Response.json({ text: quickResponse });
+    }
+    
+    // Panggil AI untuk pertanyaan kompleks tentang tempat
+    const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'tempat');
     
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -421,10 +555,10 @@ export async function POST(req) {
         },
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
-          max_tokens: 120,
+          max_tokens: 200,
           temperature: 0.6,
           messages: [
-            { role: "system", content: "Asisten ramah. Jawab singkat, max 2 kalimat, pakai emoji." },
+            { role: "system", content: "Asisten ramah untuk info tempat wisata/kuliner. Jawab singkat, pakai emoji." },
             { role: "user", content: prompt },
           ],
         }),
@@ -434,7 +568,6 @@ export async function POST(req) {
       clearTimeout(timeout);
       
       if (!aiResponse.ok) {
-        console.error("Groq error:", aiResponse.status);
         return Response.json({ text: quickResponse });
       }
       
@@ -445,15 +578,11 @@ export async function POST(req) {
         return Response.json({ text: quickResponse });
       }
       
-      if (!aiText.match(/[😊👋🤗👍🌧️☀️🌙🍃⏳👥🔥⚡🌂☁️⛅]/)) {
-        aiText += ` 😊`;
-      }
-      
       return Response.json({ text: aiText });
       
     } catch (aiError) {
       clearTimeout(timeout);
-      console.error("AI timeout/error:", aiError.message);
+      console.error("AI error:", aiError.message);
       return Response.json({ text: quickResponse });
     }
     
