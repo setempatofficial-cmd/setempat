@@ -23,6 +23,7 @@ import UploadModal from "@/components/UploadModal";
 import BreakCard from "@/components/BreakCard";
 import { getKentonganForFeed } from "@/lib/kentongan";
 
+
 // Lazy load heavy modals
 const AIModal = React.lazy(() => import("../ai/AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
@@ -34,6 +35,8 @@ const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.7;
 const DISTANCE_WEIGHT = 0.3;
+const SESSION_CACHE_KEY = 'feed_backup';  // TAMBAHKAN INI
+const SESSION_CACHE_DURATION = 10 * 60 * 1000; // 10 menit, TAMBAHKAN INI
 
 // Helper Functions
 const getDynamicLimit = () => {
@@ -92,11 +95,37 @@ const calculateHybridScore = (item, userLocation) => {
   return { hybridScore, rankingScore, distanceScore, distance };
 };
 
-// Memoized Components
+// Global cache untuk processFeedItem
+if (typeof window !== 'undefined' && !window.__feedItemCache) {
+  window.__feedItemCache = new Map();
+  window.__feedItemCacheMaxSize = 150;
+}
+
+const cachedProcessFeedItem = (item, locationReady, location) => {
+  if (typeof window === 'undefined') return processFeedItem({ item, locationReady, location, comments: {} });
+  
+  const cacheKey = `${item.id}_${locationReady}_${location?.latitude || 0}_${location?.longitude || 0}`;
+  
+  if (window.__feedItemCache.has(cacheKey)) {
+    return window.__feedItemCache.get(cacheKey);
+  }
+  
+  const result = processFeedItem({ item, locationReady, location, comments: {} });
+  
+  if (window.__feedItemCache.size > window.__feedItemCacheMaxSize) {
+    const firstKey = window.__feedItemCache.keys().next().value;
+    window.__feedItemCache.delete(firstKey);
+  }
+  
+  window.__feedItemCache.set(cacheKey, result);
+  return result;
+};
+
+// Memoized Components - OPTIMIZED (tanpa animate-pulse)
 const SkeletonLoader = memo(() => (
   <div className="space-y-6 px-4">
     {[1, 2, 3].map(i => (
-      <div key={i} className="h-[400px] w-full rounded-[40px] animate-pulse bg-white/5 border border-white/5" />
+      <div key={i} className="h-[400px] w-full rounded-[40px] bg-white/5 border border-white/5" />
     ))}
   </div>
 ));
@@ -221,7 +250,7 @@ export default function FeedContent() {
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
   const initialLoadDoneRef = useRef(false);
-  const isFetchingRef = useRef(false); // untuk mencegah concurrent fetch
+  const isFetchingRef = useRef(false);
 
   // ========== MEMOIZED VALUES ==========
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
@@ -235,6 +264,27 @@ export default function FeedContent() {
 
   // ========== STATE UNTUK KENTONGAN DI AI MODAL ==========
   const [selectedKentongan, setSelectedKentongan] = useState(null);
+
+    // ========== SESSION STORAGE BACKUP (AGAR TIDAK LOAD ULANG SAAT BACK) ==========
+  // SAVE ke sessionStorage setiap kali data feed berubah
+  useEffect(() => {
+    if (orderedIds.length > 0 && itemsMap.size > 0 && !initialLoad) {
+      try {
+        const itemsArray = Array.from(itemsMap.entries());
+        const backupData = {
+          itemsMap: itemsArray,
+          orderedIds: orderedIds,
+          searchRadius: searchRadius,
+          timestamp: Date.now(),
+          version: '1.0'
+        };
+        sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
+        console.log(`💾 Feed backup saved: ${orderedIds.length} items`);
+      } catch (e) {
+        console.warn('Failed to save feed backup:', e);
+      }
+    }
+  }, [itemsMap, orderedIds, searchRadius, initialLoad]);
 
   // ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
   const openAIModalWithKentongan = useCallback((kentongan) => {
@@ -251,7 +301,8 @@ export default function FeedContent() {
     setKentonganForFeed(data);
   }, [user?.id]);
 
-  // ========== BREAK CARD GENERATOR (KONTEN DINAMIS) ==========
+
+  // ========== BREAK CARD GENERATOR ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
     const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
     if (urgentKentongan.length > 0 && scrollIndex >= 1) {
@@ -418,10 +469,9 @@ export default function FeedContent() {
     return items;
   }, [tempat, generateBreakCard]);
 
-  // ========== CACHE MANAGER DENGAN KUNCI KASAR ==========
+  // ========== CACHE MANAGER ==========
   const getCacheKey = useCallback(() => {
     if (!locationReady || !location) return 'feed_default';
-    // Bulatkan ke 1 desimal (~11km) agar GPS jitter tidak mengubah kunci
     const lat = Math.round(location.latitude * 10) / 10;
     const lng = Math.round(location.longitude * 10) / 10;
     return `feed_v2_${lat}_${lng}_${searchRadius}`;
@@ -436,7 +486,6 @@ export default function FeedContent() {
         if (!parsed || !parsed.ids) return null;
         const cacheDuration = networkInfo.isSlowConnection ? CACHE_DURATION * 2 : CACHE_DURATION;
         if (Date.now() - parsed.timestamp > cacheDuration) return null;
-        // Restore Map from serialized array
         const itemsMapRestored = new Map(parsed.items);
         return { itemsMap: itemsMapRestored, orderedIds: parsed.ids };
       } catch { return null; }
@@ -471,9 +520,8 @@ export default function FeedContent() {
     existingIdsRef.current.clear();
   }, []);
 
-  // ========== LOAD PLACES (STABLE DEPENDENCY) ==========
+  // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
-    // Cegah concurrent fetch
     if (isFetchingRef.current && !reset) return;
     
     const currentFetchId = ++fetchIdRef.current;
@@ -499,7 +547,7 @@ export default function FeedContent() {
 
     try {
       const cacheKey = getCacheKey();
-      // STALE-WHILE-REVALIDATE: jika reset dan ada cache, tampilkan langsung
+      
       if (reset && !isLocationChange) {
         const cached = cacheManager.get(cacheKey);
         if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
@@ -510,14 +558,12 @@ export default function FeedContent() {
           if (cached.orderedIds.length > 0) {
             lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
           }
-          // Lanjutkan fetch background untuk update
         }
       }
 
-      // Fetch dari server
       let query = supabase
         .from("feed_view")
-        .select("*")
+        .select("id, name, latitude, longitude, created_at, photos, laporan_terbaru, alamat, category, vibe_count, latest_condition, latest_estimated_people, latest_estimated_wait_time")
         .order("created_at", { ascending: false });
 
       if (locationReady && location) {
@@ -563,12 +609,7 @@ export default function FeedContent() {
         
         if (distance !== null && distance > searchRadius) continue;
         
-        const processedItem = processFeedItem({ 
-          item, 
-          locationReady: !!userLocation, 
-          location: userLocation,
-          comments: {} // comments tidak perlu di sini, akan diupdate terpisah
-        });
+        const processedItem = cachedProcessFeedItem(item, !!userLocation, userLocation);
         
         const hybridScoreData = calculateHybridScore(processedItem, userLocation);
         
@@ -591,7 +632,6 @@ export default function FeedContent() {
 
       processedItems.sort((a, b) => b._hybridScore - a._hybridScore);
 
-      // Update state dengan functional updates agar tidak tergantung pada itemsMap/orderedIds dari luar
       setItemsMap(prevMap => {
         const newMap = new Map(reset ? [] : prevMap.entries());
         for (const item of processedItems) {
@@ -610,7 +650,6 @@ export default function FeedContent() {
             newIds.push(item.id);
           }
         }
-        // Urutkan berdasarkan hybridScore
         newIds.sort((a, b) => {
           const scoreA = processedItems.find(i => i.id === a)?._hybridScore || 0;
           const scoreB = processedItems.find(i => i.id === b)?._hybridScore || 0;
@@ -636,15 +675,27 @@ export default function FeedContent() {
       setHasMore(processedItems.length === dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
       if (reset && processedItems.length > 0) {
-        // Simpan ke cache setelah fetch
         const finalMap = new Map();
         const finalIds = [];
-        // Ambil data terbaru dari state? Lebih aman gunakan processedItems
         for (const item of processedItems) {
           finalMap.set(item.id, item);
           finalIds.push(item.id);
         }
         cacheManager.set(cacheKey, finalMap, finalIds);
+		
+		try {
+          const itemsArray = Array.from(finalMap.entries());
+          sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
+            itemsMap: itemsArray,
+            orderedIds: finalIds,
+            searchRadius: searchRadius,
+            timestamp: Date.now(),
+            version: '1.0'
+          }));
+          console.log(`💾 Fresh feed saved to sessionStorage: ${finalIds.length} items`);
+        } catch (e) {
+          console.warn('Failed to save to sessionStorage:', e);
+        }
 
         if (isLocationChange) {
           setFeedOpacity(1);
@@ -674,7 +725,52 @@ export default function FeedContent() {
     }
   }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager]);
 
-  // ========== POLLING FOR UPDATES (hanya untuk koneksi lambat) ==========
+  // ========== EFFECTS ==========
+  
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setUserId(authUser.id);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authUser.id)
+          .single();
+        setUserRole(profile?.role || 'warga');
+      }
+    };
+    getUser();
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.connection) return;
+    
+    const updateNetworkInfo = () => {
+      const conn = navigator.connection;
+      const effectiveType = conn?.effectiveType || '4g';
+      const saveData = conn?.saveData || false;
+      const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
+      
+      setNetworkInfo({ effectiveType, saveData, isSlowConnection });
+      setDynamicLimit(getDynamicLimit());
+      setUseRealtime(!isSlowConnection && !saveData);
+    };
+    
+    updateNetworkInfo();
+    navigator.connection.addEventListener('change', updateNetworkInfo);
+    
+    return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
+  }, []);
+
+  // Polling for slow connections
   const pollForUpdates = useCallback(() => {
     if (!locationReady || !hasMore) return () => {};
     
@@ -706,54 +802,7 @@ export default function FeedContent() {
     return () => clearInterval(interval);
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection, locationReady, hasMore]);
 
-  // ========== EFFECTS ==========
-  
-  // Ambil user info sekali
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        setUserId(authUser.id);
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', authUser.id)
-          .single();
-        setUserRole(profile?.role || 'warga');
-      }
-    };
-    getUser();
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Network info
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.connection) return;
-    
-    const updateNetworkInfo = () => {
-      const conn = navigator.connection;
-      const effectiveType = conn?.effectiveType || '4g';
-      const saveData = conn?.saveData || false;
-      const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
-      
-      setNetworkInfo({ effectiveType, saveData, isSlowConnection });
-      setDynamicLimit(getDynamicLimit());
-      setUseRealtime(!isSlowConnection && !saveData);
-    };
-    
-    updateNetworkInfo();
-    navigator.connection.addEventListener('change', updateNetworkInfo);
-    
-    return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
-  }, []);
-
-  // Realtime subscription (stabil: tidak bergantung pada itemsMap/comments)
+  // Realtime subscription
   useEffect(() => {
     if (!useRealtime) {
       const cleanup = pollForUpdates();
@@ -788,15 +837,9 @@ export default function FeedContent() {
         }
 
         if (inRadius) {
-          // Gunakan functional update untuk menghindari dependency itemsMap
           setItemsMap(prevMap => {
             if (prevMap.has(newItem.id)) return prevMap;
-            const processedItem = processFeedItem({ 
-              item: newItem, 
-              locationReady: !!userLocation, 
-              location: userLocation,
-              comments: {}
-            });
+            const processedItem = cachedProcessFeedItem(newItem, !!userLocation, userLocation);
             const hybridScoreData = calculateHybridScore(processedItem, userLocation);
             const finalItem = {
               ...processedItem,
@@ -812,10 +855,7 @@ export default function FeedContent() {
           
           setOrderedIds(prevIds => {
             if (prevIds.includes(newItem.id)) return prevIds;
-            const newIds = [...prevIds, newItem.id];
-            // Sorting perlu akses ke itemsMap terbaru, tapi kita bisa gunakan callback dengan prevMap
-            // Untuk sederhana, kita trigger refresh nanti lewat toast saja
-            return newIds;
+            return [...prevIds, newItem.id];
           });
           
           setComments(prev => ({ ...prev, [newItem.id]: [] }));
@@ -887,16 +927,90 @@ export default function FeedContent() {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-  // INITIAL LOAD - HANYA SEKALI, tidak bergantung pada loadPlaces
+    // ========== RESTORE FROM SESSION STORAGE (SEBELUM INITIAL LOAD) ==========
   useEffect(() => {
+    const tryRestoreFromBackup = () => {
+      try {
+        const backupRaw = sessionStorage.getItem(SESSION_CACHE_KEY);
+        if (!backupRaw) return false;
+        
+        const backup = JSON.parse(backupRaw);
+        
+        // Cek apakah backup masih fresh (belum expired)
+        const isFresh = (Date.now() - backup.timestamp) < SESSION_CACHE_DURATION;
+        if (!isFresh) {
+          console.log('⏰ Feed backup expired, will fetch fresh data');
+          return false;
+        }
+        
+        // Cek apakah backup memiliki data yang valid
+        if (!backup.orderedIds || backup.orderedIds.length === 0) {
+          return false;
+        }
+        
+        // Restore data dari backup
+        const restoredMap = new Map(backup.itemsMap);
+        const restoredIds = backup.orderedIds;
+        const restoredRadius = backup.searchRadius || DEFAULT_RADIUS;
+        
+        console.log(`📦 Feed restored from backup: ${restoredIds.length} items`);
+        
+        // Update state dengan data dari backup
+        setItemsMap(restoredMap);
+        setOrderedIds(restoredIds);
+        setSearchRadius(restoredRadius);
+        setHasMore(true);
+        setInitialLoad(false);
+        setLoading(false);
+        
+        // Update refs
+        if (restoredIds.length > 0) {
+          lastLoadedIdRef.current = restoredIds[restoredIds.length - 1];
+        }
+        
+        // Update existingIdsRef
+        existingIdsRef.current.clear();
+        restoredIds.forEach(id => existingIdsRef.current.add(id));
+        
+        // Set flag bahwa kita sudah restore dari backup
+        window.__feedRestoredFromBackup = true;
+        
+        return true;
+      } catch (e) {
+        console.warn('Failed to restore feed backup:', e);
+        return false;
+      }
+    };
+    
+    // Coba restore dari backup TERLEBIH DAHULU
+    const restored = tryRestoreFromBackup();
+    
+    // Jika restore berhasil, kita tidak perlu fetch ulang
+    if (restored) {
+      initialLoadDoneRef.current = true;
+    }
+  }, []);
+
+  // INITIAL LOAD - HANYA JIKA BELUM ADA BACKUP
+  useEffect(() => {
+    // Cek apakah sudah pernah restore dari backup
+    const hasRestoredFromBackup = window.__feedRestoredFromBackup === true;
+    
+    // Jika sudah restore dari backup, jangan fetch lagi
+    if (hasRestoredFromBackup) {
+      console.log('✅ Using restored feed data, skipping initial fetch');
+      return;
+    }
+    
+    // Jika belum pernah load sama sekali, lakukan fetch
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
+      console.log('🔄 No valid backup found, fetching fresh data...');
       loadPlaces(true, false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Kosong, hanya sekali
+  }, []);
 
-  // RESPON PERUBAHAN LOKASI (hanya jika kunci cache berubah)
+  // RESPON PERUBAHAN LOKASI
   useEffect(() => {
     if (!initialLoadDoneRef.current) return;
     if (!locationReady) return;
@@ -907,23 +1021,25 @@ export default function FeedContent() {
     console.log(`📍 Lokasi berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
     lastLocationCacheKeyRef.current = currentCacheKey;
     
-    cacheManager.invalidate(); // optional, biar fetch ulang
+    cacheManager.invalidate();
     loadPlaces(true, true);
 
     setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [getCacheKey, locationReady, cacheManager, loadPlaces, villageLocation]);
 
-  // Fetch kentongan saat user berubah
+  // Fetch kentongan
   useEffect(() => {
     fetchKentonganForFeed();
   }, [fetchKentonganForFeed]);
+	
 
-  // ========== HANDLERS (tidak berubah) ==========
+  // ========== HANDLERS ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
     setManualLocation(selectedLocation);
     cacheManager.invalidate();
+	sessionStorage.removeItem(SESSION_CACHE_KEY);
     await resetFeed();
     setIsTransitioningLocation(true);
     setFeedOpacity(0.5);
@@ -939,6 +1055,7 @@ export default function FeedContent() {
     await requestLocation();
     await new Promise(resolve => setTimeout(resolve, 800));
     cacheManager.invalidate();
+	sessionStorage.removeItem(SESSION_CACHE_KEY);
     await resetFeed();
     setIsTransitioningLocation(true);
     setFeedOpacity(0.5);

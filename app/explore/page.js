@@ -23,9 +23,8 @@ export default function CitizenHub({ userId, userRole }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [sessionUserId, setSessionUserId] = useState(null);
-  const [authError, setAuthError] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-  
+
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
@@ -47,7 +46,7 @@ export default function CitizenHub({ userId, userRole }) {
   useEffect(() => {
     const handleScroll = () => {
       if (currentIndex !== null) return;
-      
+
       const currentScrollY = window.scrollY;
       if (Math.abs(currentScrollY - lastScrollYRef.current) < 30) return;
 
@@ -66,7 +65,7 @@ export default function CitizenHub({ userId, userRole }) {
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    
+
     return () => {
       window.removeEventListener('scroll', handleScroll);
       if (scrollTimeoutRef.current) {
@@ -81,7 +80,7 @@ export default function CitizenHub({ userId, userRole }) {
       setTimeout(() => {
         const container = modalScrollRef.current;
         if (!container) return;
-        
+
         const targetElement = container.children[currentIndex];
         if (targetElement) {
           targetElement.scrollIntoView({
@@ -96,41 +95,23 @@ export default function CitizenHub({ userId, userRole }) {
   // Get session
   useEffect(() => {
     let isMounted = true;
-    let retryCount = 0;
-    const maxRetries = 3;
 
     const getSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error("Session error:", error);
-          if (retryCount < maxRetries) {
-            retryCount++;
-            setTimeout(getSession, 1000 * retryCount);
-          }
-          return;
-        }
-        
-        if (isMounted && session?.user?.id) {
+        if (!error && isMounted && session?.user?.id) {
           setSessionUserId(session.user.id);
-          setAuthError(false);
         }
       } catch (err) {
-        console.error("Unexpected error:", err);
-        if (retryCount < maxRetries) {
-          retryCount++;
-          setTimeout(getSession, 1000 * retryCount);
-        }
+        console.error("Session error:", err);
       }
     };
-    
+
     getSession();
-    
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (isMounted && session?.user?.id) {
         setSessionUserId(session.user.id);
-        setAuthError(false);
       } else if (isMounted && event === 'SIGNED_OUT') {
         setSessionUserId(null);
       }
@@ -148,14 +129,14 @@ export default function CitizenHub({ userId, userRole }) {
   useEffect(() => {
     const getCurrentUser = async () => {
       if (!activeUserId) return;
-      
+
       try {
         const { data, error } = await supabase
           .from("users")
           .select("username, full_name, avatar_url")
           .eq("id", activeUserId)
           .maybeSingle();
-        
+
         if (!error && data) {
           setCurrentUser(data);
         } else {
@@ -174,7 +155,7 @@ export default function CitizenHub({ userId, userRole }) {
         });
       }
     };
-    
+
     getCurrentUser();
   }, [activeUserId]);
 
@@ -189,7 +170,7 @@ export default function CitizenHub({ userId, userRole }) {
             tempat:tempat_id (name)
           `)
           .order("created_at", { ascending: false });
-        
+
         if (error) throw error;
         setReports(data || []);
       } catch (err) {
@@ -199,29 +180,29 @@ export default function CitizenHub({ userId, userRole }) {
         setLoading(false);
       }
     };
-    
+
     getReports();
   }, []);
 
-  // Filtered reports - DEFINISIKAN DISINI setelah reports state
+  // Filtered reports
   const filteredReports = reports.filter(r =>
     r.deskripsi?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.user_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Modal scroll handler - DIPINDAHKAN ke sini setelah filteredReports
+  // Modal scroll handler
   const handleModalScroll = (e) => {
     if (isScrollingRef.current || currentIndex === null) return;
-    
+
     isScrollingRef.current = true;
-    
+
     const { scrollTop, clientHeight } = e.target;
     const newIndex = Math.round(scrollTop / clientHeight);
-    
+
     if (newIndex !== currentIndex && newIndex >= 0 && newIndex < filteredReports.length) {
       setCurrentIndex(newIndex);
     }
-    
+
     setTimeout(() => {
       isScrollingRef.current = false;
     }, 100);
@@ -245,41 +226,7 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, []);
 
-  // Template untuk laporan tanpa foto - DIPERBAIKI
-  const getMediaContent = (report) => {
-    if (report.photo_url || report.video_url) {
-      return (
-        <img 
-          src={report.photo_url || report.video_url} 
-          className="w-full h-full object-cover" 
-          alt={report.deskripsi}
-          onError={(e) => { 
-            e.target.src = "/placeholder-image.jpg"; 
-          }}
-        />
-      );
-    }
-    
-    return (
-      <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4">
-        <MapPin size={60} className="text-white/20 mb-4" />
-        <div className="text-center space-y-2">
-          <p className="text-white/60 text-sm font-medium uppercase tracking-wider">
-            {report.tempat?.name || "Lokasi"}
-          </p>
-          <p className="text-white/40 text-xs">
-            {new Date(report.created_at).toLocaleDateString('id-ID', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric'
-            })}
-          </p>
-        </div>  
-      </div>
-    );
-  };
-
-  // Handle send comment - DIPERBAIKI dengan commentTexts object
+  // Handle send comment
   const handleSendComment = async (report) => {
     const currentCommentText = commentTexts[report.id] || "";
     if (!currentCommentText.trim() || isSubmitting) return;
@@ -289,22 +236,12 @@ export default function CitizenHub({ userId, userRole }) {
     }
 
     setIsSubmitting(true);
-    
+
     try {
       const ownerUsername = report.username || report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga";
       const invisibleMention = `@${ownerUsername}`;
       const finalComment = `${invisibleMention} ${currentCommentText.trim()}`;
-      
-      const mentionRegex = /@([a-zA-Z0-9_]+)/g;
-      const otherMentions = [];
-      let match;
-      while ((match = mentionRegex.exec(currentCommentText)) !== null) {
-        const username = match[1];
-        if (username !== ownerUsername) {
-          otherMentions.push(username);
-        }
-      }
-      
+
       const commentData = {
         tempat_id: report.tempat_id,
         user_id: activeUserId,
@@ -317,79 +254,15 @@ export default function CitizenHub({ userId, userRole }) {
         created_at: new Date().toISOString()
       };
 
-      const { data: commentResult, error: commentError } = await supabase
+      const { error: commentError } = await supabase
         .from("komentar")
-        .insert([commentData])
-        .select();
-        
+        .insert([commentData]);
+
       if (commentError) throw commentError;
-      
-      const { data: tempatData } = await supabase
-        .from("tempat")
-        .select("name")
-        .eq("id", report.tempat_id)
-        .single();
-      
-      const ownerUserId = report.user_id;
-      if (ownerUserId && ownerUserId !== activeUserId) {
-        await supabase.from("warung_info").insert({
-          user_id: ownerUserId,
-          from_user_id: activeUserId,
-          from_user_name: currentUser?.full_name || "Warga",
-          from_username: currentUser?.username,
-          from_avatar: currentUser?.avatar_url || null,
-          type: "komentar",
-          title: "💬 Komentar Baru",
-          message: `${currentUser?.full_name || "Seseorang"} membalas postingan Anda`,
-          content: finalComment,
-          reference_id: commentResult?.[0]?.id,
-          reference_type: "komentar",
-          tempat_id: report.tempat_id,
-          tempat_name: tempatData?.name || "Lokasi",
-          is_read: false,
-          created_at: new Date().toISOString()
-        });
-      }
-      
-      if (otherMentions.length > 0) {
-        const { data: mentionedUsers } = await supabase
-          .from("users")
-          .select("id, username, full_name")
-          .in("username", otherMentions);
-        
-        if (mentionedUsers && mentionedUsers.length > 0) {
-          const notificationsToSend = mentionedUsers.filter(
-            user => user.id !== activeUserId && user.id !== ownerUserId
-          );
-          
-          if (notificationsToSend.length > 0) {
-            const bulkNotifications = notificationsToSend.map(user => ({
-              user_id: user.id,
-              from_user_id: activeUserId,
-              from_user_name: currentUser?.full_name || "Warga",
-              from_username: currentUser?.username,
-              from_avatar: currentUser?.avatar_url || null,
-              type: "mention",
-              title: "📌 Mention",
-              message: `${currentUser?.full_name || "Seseorang"} menyebut @${user.username} dalam komentar`,
-              content: finalComment,
-              reference_id: commentResult?.[0]?.id,
-              reference_type: "komentar",
-              tempat_id: report.tempat_id,
-              tempat_name: tempatData?.name || "Lokasi",
-              is_read: false,
-              created_at: new Date().toISOString()
-            }));
-            
-            await supabase.from("warung_info").insert(bulkNotifications);
-          }
-        }
-      }
-      
-      // Clear comment for this specific report
-      setCommentTexts(prev => ({...prev, [report.id]: ""}));
+
+      setCommentTexts(prev => ({ ...prev, [report.id]: "" }));
       alert("Komentar berhasil dikirim!");
-      
+
     } catch (error) {
       console.error("Error detail:", error);
       alert(`Gagal mengirim komentar: ${error.message}`);
@@ -408,8 +281,8 @@ export default function CitizenHub({ userId, userRole }) {
     >
       {report.photo_url || report.video_url ? (
         <>
-          <img 
-            src={report.photo_url || report.video_url} 
+          <img
+            src={report.photo_url || report.video_url}
             alt={report.deskripsi || "Laporan warga"}
             className="w-full h-full object-cover"
             loading="lazy"
@@ -418,50 +291,67 @@ export default function CitizenHub({ userId, userRole }) {
             }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+            <p className="text-white text-sm font-bold line-clamp-2 mb-1">
+              {report.deskripsi || "Lihat detail..."}
+            </p>
+            <div className="flex items-center gap-1 text-white/60 text-[10px]">
+              <MapPin size={10} />
+              <span className="truncate">{report.tempat?.name}</span>
+            </div>
+          </div>
         </>
       ) : (
-        <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4">
-          <MapPin size={32} className="text-white/20 mb-2" />
-          <p className="text-white/40 text-[10px] text-center font-medium">
-            {report.tempat?.name || "Lokasi"}
-          </p>
-          <p className="text-white/30 text-[8px] text-center mt-1 line-clamp-2">
-            {report.deskripsi || "Kondisi terkini"}
-          </p>
+        <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4 text-center">
+          <div className="bg-white/5 p-4 rounded-2xl w-full">
+            <p className="text-white text-base font-black leading-tight line-clamp-3 mb-2">
+              {report.deskripsi || "Tidak ada deskripsi kondisi"}
+            </p>
+            <div className="flex items-center justify-center gap-1 text-white/40 text-[10px] mt-2">
+              <MapPin size={10} />
+              <span className="truncate max-w-[80px]">{report.tempat?.name || "Lokasi"}</span>
+            </div>
+          </div>
         </div>
       )}
-      
-      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5">
-          <img 
-            src={report.user_avatar || "/default-avatar.png"} 
-            className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border border-white/30" 
-            alt="avatar"
-            onError={(e) => {
-              e.target.src = "/default-avatar.png";
-            }}
-          />
-          <span className="text-[9px] sm:text-[10px] text-white font-medium truncate max-w-[60px] sm:max-w-[80px]">
-            {report.user_name || "Warga"}
+
+      <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full">
+        <img
+          src={report.user_avatar || "/default-avatar.png"}
+          className="w-4 h-4 rounded-full border border-white/30"
+          alt="avatar"
+          onError={(e) => {
+            e.target.src = "/default-avatar.png";
+          }}
+        />
+        <span className="text-[9px] text-white font-medium truncate max-w-[60px]">
+          {report.user_name || "Warga"}
+        </span>
+      </div>
+
+      {report.tipe && (
+        <div className="absolute top-2 right-2">
+          <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-full backdrop-blur-md ${report.tipe === "Ramai"
+            ? "bg-yellow-500/40 text-white"
+            : report.tipe === "Antri"
+              ? "bg-rose-500/40 text-white"
+              : "bg-emerald-500/40 text-white"
+            }`}>
+            {report.tipe}
           </span>
         </div>
-        {!report.photo_url && !report.video_url && (
-          <span className="text-[8px] text-white/30 bg-black/30 px-1.5 py-0.5 rounded-full">
-            No photo
-          </span>
-        )}
-      </div>
+      )}
     </motion.div>
   );
 
   return (
     <div className={`min-h-screen ${isMalam ? 'bg-black' : 'bg-gray-50'} flex justify-center font-sans`}>
       <div className={`w-full max-w-md min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
-        
+
         {/* Header */}
-        <motion.header 
+        <motion.header
           initial={{ y: 0 }}
-          animate={{ 
+          animate={{
             y: isHeaderVisible ? 0 : -120,
             opacity: isHeaderVisible ? 1 : 0
           }}
@@ -519,7 +409,7 @@ export default function CitizenHub({ userId, userRole }) {
           )}
         </main>
 
-        {/* SmartBottomNav - untuk semua user */}
+        {/* SmartBottomNav */}
         <SmartBottomNav
           onOpenUpload={() => {
             if (userRole === 'admin') {
@@ -537,7 +427,7 @@ export default function CitizenHub({ userId, userRole }) {
           onOpenProfile={() => router.push("/rewang")}
         />
 
-        {/* TOMBOL UPLOAD FLOATING - KHUSUS USER BIASA */}
+        {/* TOMBOL UPLOAD FLOATING */}
         {!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
           <div className="uploader-container-frame">
             <button onClick={handleOpenUpload}>
@@ -552,27 +442,27 @@ export default function CitizenHub({ userId, userRole }) {
         {/* LAPOR PANEL */}
         {showLaporPanel && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ transform: 'translateZ(0)' }}>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/60 backdrop-blur-md"
               onClick={() => setShowLaporPanel(false)}
             />
-            
-            <motion.div 
+
+            <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2 }}
               className="relative w-full max-w-md mx-4"
-              style={{ 
+              style={{
                 maxHeight: "85vh",
                 transform: 'translateZ(0)',
                 willChange: 'transform'
               }}
             >
-              <LaporPanel 
+              <LaporPanel
                 tempat={selectedTempat}
                 onClose={() => setShowLaporPanel(false)}
                 onSuccess={handleLaporanSuccess}
@@ -598,7 +488,7 @@ export default function CitizenHub({ userId, userRole }) {
             >
               <div className={`w-full max-w-md h-full relative ${isMalam ? 'bg-black' : 'bg-white'}`}>
                 {/* Backdrop */}
-                <div 
+                <div
                   className="absolute inset-0 bg-black/90"
                   onClick={closeModal}
                 />
@@ -622,85 +512,215 @@ export default function CitizenHub({ userId, userRole }) {
                       key={report.id}
                       className="h-full w-full snap-start relative flex flex-col bg-zinc-950"
                     >
-                      {/* Media + Overlay */}
+                      {/* Media Background - Full Screen */}
                       <div className="absolute inset-0 w-full h-full overflow-hidden">
-                        {getMediaContent(report)}
-                        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+                        {report.photo_url || report.video_url ? (
+                          <>
+                            <img
+                              src={report.photo_url || report.video_url}
+                              className="w-full h-full object-cover"
+                              alt={report.deskripsi}
+                              onError={(e) => { e.target.src = "/placeholder-image.jpg"; }}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+                          </>
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900" />
+                        )}
                       </div>
 
-                      <div className="relative h-full flex flex-col justify-end p-4 pb-28 sm:p-7 sm:pb-24">
-                        <div className="flex justify-between items-end gap-3 sm:gap-5">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                              <div className="relative shrink-0">
+                      {/* KONTEN UTAMA - DIBEDAKAN BERDASARKAN ADA/TIDAK FOTO */}
+                      {report.photo_url || report.video_url ? (
+                        // ADA FOTO: Konten di bawah - LEBIH RAPAT
+<div className="relative h-full flex flex-col justify-end p-3 pb-24 sm:p-4 sm:pb-28">
+  <div className="flex justify-between items-end gap-2 sm:gap-4">
+    <div className="flex-1 min-w-0">
+      {/* Info User - Lebih Compact */}
+      <div className="flex items-center gap-2 sm:gap-2.5 mb-2 sm:mb-3">
+        <div className="relative shrink-0">
+          <img
+            src={report.user_avatar || "/default-avatar.png"}
+            className="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-white/30"
+            alt="avatar"
+            onError={(e) => { e.target.src = "/default-avatar.png"; }}
+          />
+          <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
+            <ShieldCheck size={7} className="text-white sm:w-[9px] sm:h-[9px]" />
+          </div>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7px] sm:text-[9px] text-white/50 uppercase font-bold tracking-wider">
+            Warga Setempat
+          </span>
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[11px] sm:text-sm font-bold text-white">
+              @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+            </span>
+            <span className="text-[9px] sm:text-[11px] text-white/40">
+              • {formatTimeAgo(report.created_at)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Badge Kondisi + Lokasi - Sejajar */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        {report.tipe && (
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${
+            report.tipe === "Ramai" 
+              ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
+              : report.tipe === "Antri"
+              ? "bg-rose-500/20 border-rose-500/40 text-rose-300"
+              : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+          }`}>
+            <span className="text-xs">{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
+            <span>{report.tipe}</span>
+          </span>
+        )}
+        <div className="flex items-center gap-1 text-white/40 text-[9px]">
+          <MapPin size={10} className="text-[#E3655B]/60" />
+          <span className="truncate max-w-[120px]">{report.tempat?.name || "Pasuruan"}</span>
+        </div>
+      </div>
+
+      {/* Deskripsi - Lebih Rapat */}
+      <p className="text-white font-black text-base sm:text-lg leading-snug mb-2 tracking-tight line-clamp-3">
+        {report.deskripsi || "Tidak ada deskripsi kondisi terkini."}
+      </p>
+
+      {/* Kolom Komentar - Lebih Compact */}
+      <div className="flex gap-1.5">
+        <input
+          value={commentTexts[report.id] || ""}
+          onChange={(e) => setCommentTexts(prev => ({ ...prev, [report.id]: e.target.value }))}
+          placeholder="Tulis komentar..."
+          className="flex-1 h-8 sm:h-10 bg-white/10 border border-white/5 rounded-lg px-3 text-[11px] text-white outline-none focus:border-[#E3655B]/50 transition-all placeholder:text-white/30"
+        />
+        <button
+          onClick={() => handleSendComment(report)}
+          disabled={isSubmitting || !(commentTexts[report.id] || "").trim()}
+          className="px-3 bg-[#E3655B] text-white rounded-lg text-[11px] font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isSubmitting ? "..." : "Kirim"}
+        </button>
+      </div>
+    </div>
+
+    {/* Action Buttons - Lebih Rapat */}
+    <div className="flex flex-col gap-3 items-center">
+      <div className="flex flex-col items-center gap-0.5">
+        <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
+          <Heart size={18} />
+        </button>
+        <span className="text-[8px] font-medium text-white/50">Like</span>
+      </div>
+      <div className="flex flex-col items-center gap-0.5">
+        <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
+          <MessageSquare size={18} />
+        </button>
+        <span className="text-[8px] font-medium text-white/50">Chat</span>
+      </div>
+      <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#E3655B] flex items-center justify-center text-white hover:bg-[#E3655B]/80 transition-all">
+        <Share2 size={16} />
+      </button>
+    </div>
+  </div>
+</div>
+                      ) : (
+                        // TIDAK ADA FOTO: Konten di TENGAH
+                        <div className="relative h-full flex flex-col">
+                          {/* Konten Tengah - Deskripsi */}
+                          <div className="flex-1 flex flex-col items-center justify-center p-6">
+                            <div className="bg-white/5 p-8 rounded-3xl backdrop-blur-sm border border-white/10 max-w-sm w-full text-center">
+                              {/* Badge Kondisi */}
+                              {report.tipe && (
+                                <div className="mb-4 flex justify-center">
+                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border ${report.tipe === "Ramai"
+                                    ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
+                                    : report.tipe === "Antri"
+                                      ? "bg-rose-500/20 border-rose-500/40 text-rose-300"
+                                      : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                                    }`}>
+                                    <span className="text-base">
+                                      {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
+                                    </span>
+                                    <span>{report.tipe}</span>
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* DESKRIPSI UTAMA - BESAR DI TENGAH */}
+                              <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed mb-6 tracking-tight">
+                                "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
+                              </p>
+
+                              {/* Info User */}
+                              <div className="flex items-center justify-center gap-2 mb-4">
                                 <img
                                   src={report.user_avatar || "/default-avatar.png"}
-                                  className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white/30"
+                                  className="w-6 h-6 rounded-full border border-white/30"
                                   alt="avatar"
                                   onError={(e) => { e.target.src = "/default-avatar.png"; }}
                                 />
-                                <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
-                                  <ShieldCheck size={8} className="text-white sm:w-[10px] sm:h-[10px]" />
-                                </div>
-                              </div>
-                              <div className="flex flex-col min-w-0">
-                                <span className="text-[8px] sm:text-[10px] text-white/50 uppercase font-bold">
-                                  Warga Setempat
+                                <span className="text-white/80 text-sm font-medium">
+                                  @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
                                 </span>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="text-xs sm:text-sm font-bold text-white">
-                                    @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
-                                  </span>
-                                  <span className="text-[10px] sm:text-[13px] text-white/30">
-                                    • {formatTimeAgo(report.created_at)}
-                                  </span>
-                                </div>
                               </div>
-                            </div>
-                            <h3 className="text-white font-black text-base sm:text-xl mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2 tracking-tight uppercase">
-                              <MapPin size={14} className="sm:w-[18px] sm:h-[18px] text-[#E3655B]" />
-                              <span className="truncate">{report.tempat?.name || "Pasuruan"}</span>
-                            </h3>
-                            <p className="text-xs sm:text-sm text-white/90 leading-relaxed mb-4 line-clamp-4">
-                              {report.deskripsi || "Tidak ada deskripsi"}
-                            </p>
 
-                            <div className="flex gap-2">
-                              <input
-                                value={commentTexts[report.id] || ""}
-                                onChange={(e) => setCommentTexts(prev => ({...prev, [report.id]: e.target.value}))}
-                                placeholder="Tulis komentar..."
-                                className="flex-1 h-10 sm:h-12 bg-white/10 border border-white/5 rounded-xl px-3 text-xs text-white outline-none focus:border-[#E3655B]/50 transition-all"
-                              />
-                              <button
-                                onClick={() => handleSendComment(report)}
-                                disabled={isSubmitting || !(commentTexts[report.id] || "").trim()}
-                                className="px-4 bg-[#E3655B] text-white rounded-xl text-xs font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {isSubmitting ? "..." : "Kirim"}
-                              </button>
+                              {/* Lokasi & Waktu */}
+                              <div className="flex items-center justify-center gap-2 text-white/40 text-xs pt-4 border-t border-white/10">
+                                <MapPin size={12} className="text-[#E3655B]/60" />
+                                <span>{report.tempat?.name || "Lokasi"}</span>
+                                <span>•</span>
+                                <span>{formatTimeAgo(report.created_at)}</span>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex flex-col gap-4 items-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
-                                <Heart size={20} />
-                              </button>
-                              <span className="text-[9px] font-bold text-white/60">Like</span>
+                          {/* BAGIAN BAWAH: Kolom Komentar + Action Buttons */}
+                          <div className="p-4 pb-28 sm:p-7 sm:pb-24">
+                            <div className="flex justify-between items-end gap-3 sm:gap-5">
+                              <div className="flex-1 min-w-0">
+                                {/* Kolom Komentar */}
+                                <div className="flex gap-2">
+                                  <input
+                                    value={commentTexts[report.id] || ""}
+                                    onChange={(e) => setCommentTexts(prev => ({ ...prev, [report.id]: e.target.value }))}
+                                    placeholder="Tulis komentar..."
+                                    className="flex-1 h-10 sm:h-12 bg-white/10 border border-white/5 rounded-xl px-3 text-xs text-white outline-none focus:border-[#E3655B]/50 transition-all"
+                                  />
+                                  <button
+                                    onClick={() => handleSendComment(report)}
+                                    disabled={isSubmitting || !(commentTexts[report.id] || "").trim()}
+                                    className="px-4 bg-[#E3655B] text-white rounded-xl text-xs font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {isSubmitting ? "..." : "Kirim"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex flex-col gap-4 items-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
+                                    <Heart size={20} />
+                                  </button>
+                                  <span className="text-[9px] font-bold text-white/60">Like</span>
+                                </div>
+                                <div className="flex flex-col items-center gap-1">
+                                  <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
+                                    <MessageSquare size={20} />
+                                  </button>
+                                  <span className="text-[9px] font-bold text-white/60">Chat</span>
+                                </div>
+                                <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#E3655B] flex items-center justify-center text-white hover:bg-[#E3655B]/80 transition-all">
+                                  <Share2 size={18} />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-center gap-1">
-                              <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
-                                <MessageSquare size={20} />
-                              </button>
-                              <span className="text-[9px] font-bold text-white/60">Chat</span>
-                            </div>
-                            <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#E3655B] flex items-center justify-center text-white hover:bg-[#E3655B]/80 transition-all">
-                              <Share2 size={18} />
-                            </button>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -1,8 +1,6 @@
 // utils/timeUtils.js
 
 
-// utils/timeUtils.js
-
 /**
  * Format waktu relatif (2 jam lalu, 1 hari lalu, dll)
  * @param {string|Date} dateString - Tanggal yang akan diformat

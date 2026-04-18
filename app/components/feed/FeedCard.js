@@ -12,7 +12,6 @@ import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
 import AIButton from "@/components/AIButton";
 import { processFeedItem } from "../../../lib/feedEngine";
-import { useClock } from "../../../hooks/useClock";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -97,9 +96,24 @@ function FeedCard({
 
   // --- Hooks ---
   const { user } = useAuth();
-  const { formattedTime: currentTime, timeLabel: clockLabel } = useClock();
   const theme = useTheme();
-  const [currentHour, currentMinute] = currentTime?.split(/[:.]/) || ["--", "--"];
+
+  // OPTIMIZED: Update jam setiap menit (bukan setiap detik)
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+    }, 60000); // Update setiap menit
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const [currentHour, currentMinute] = currentTime.split(':');
 
   // --- Refs ---
   const cardRef = useRef(null);
@@ -323,66 +337,65 @@ function FeedCard({
           >
             <PhotoSlider
               photos={photoUrls}
-              timeLabel={clockLabel}
               tempatId={safeItem.id}
               namaTempat={safeItem.name}
               isHujan={safeItem.status === "hujan"}
-              itemStatus={itemStatusClass}
-              theme={theme}
-              selectedPhotoIndex={currentPhotoIndex}
-              priority={priority} 
-              setSelectedPhotoIndex={setSelectedPhotoIndex}
+              priority={priority}
+              selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
+              setSelectedPhotoIndex={(idx) => {
+                if (setSelectedPhotoIndex) {
+                  setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
+                }
+              }}
               onUploadSuccess={handleUploadSuccess}
-              onRefreshNeeded={handleLocalRefresh}
             />
 
-            {/* Validation Stamp - Ultra Clean & Smart Logic */}
-<div className={`absolute ${(typeof isNarrow !== 'undefined' && isNarrow) ? 'bottom-3 left-3' : 'bottom-4 left-4'} z-50`}>
-  <AnimatePresence mode="wait">
-    {!isSesuai ? (
-      <motion.button
-        key="stamp-btn"
-        onClick={handleSesuai}
-        whileHover={{ scale: 1.05, backgroundColor: "rgba(0,0,0,0.8)" }}
-        whileTap={{ scale: 0.9 }}
-        className="group flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/20 text-white shadow-2xl transition-all"
-      >
-        <div className="relative flex items-center justify-center">
-          <div className="absolute inset-0 bg-white/20 rounded-full animate-ping opacity-30" />
-          <div className="w-5 h-5 rounded-full flex items-center justify-center bg-white text-black text-[9px]">
-            <motion.span animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-              ✔️
-            </motion.span>
-          </div>
-        </div>
+            {/* Validation Stamp */}
+            <div className={`absolute ${isNarrow ? 'bottom-3 left-3' : 'bottom-4 left-4'} z-50`}>
+              <AnimatePresence mode="wait">
+                {!isSesuai ? (
+                  <motion.button
+                    key="stamp-btn"
+                    onClick={handleSesuai}
+                    whileHover={{ scale: 1.05, backgroundColor: "rgba(0,0,0,0.8)" }}
+                    whileTap={{ scale: 0.9 }}
+                    className="group flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/20 text-white shadow-2xl transition-all"
+                  >
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute inset-0 bg-white/20 rounded-full animate-ping opacity-30" />
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center bg-white text-black text-[9px]">
+                        <motion.span animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
+                          ✔️
+                        </motion.span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col text-left leading-none">
+                      <span className="text-[9px] font-black uppercase tracking-[0.1em]">Sesuai?</span>
+                      <span className="text-[7px] font-bold opacity-50 mt-0.5">{totalSaksi} Saksi</span>
+                    </div>
+                  </motion.button>
+                ) : (
+                  <motion.div
+                    key="sah-stamp"
+                    initial={{ scale: 0.8, opacity: 0, x: -10 }}
+                    animate={{ scale: 1, opacity: 1, x: 0 }}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-emerald-500/30 backdrop-blur-xl border border-emerald-400/40 text-emerald-50 shadow-lg"
+                  >
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    <div className="flex flex-col text-left leading-none">
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em]">TERVERIFIKASI</span>
+                      <span className="text-[7px] font-bold text-emerald-200/80 mt-0.5">Oleh {totalSaksi} Warga</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
-        <div className="flex flex-col text-left leading-none">
-          <span className="text-[9px] font-black uppercase tracking-[0.1em]">Sesuai?</span>
-          <span className="text-[7px] font-bold opacity-50 mt-0.5">{totalSaksi} Saksi</span>
-        </div>
-      </motion.button>
-    ) : (
-      <motion.div
-        key="sah-stamp"
-        initial={{ scale: 0.8, opacity: 0, x: -10 }}
-        animate={{ scale: 1, opacity: 1, x: 0 }}
-        className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-emerald-500/30 backdrop-blur-xl border border-emerald-400/40 text-emerald-50 shadow-lg"
-      >
-        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        
-        <div className="flex flex-col text-left leading-none">
-          <span className="text-[9px] font-black uppercase tracking-[0.2em]">TERVERIFIKASI</span>
-          <span className="text-[7px] font-bold text-emerald-200/80 mt-0.5">Oleh {totalSaksi} Warga</span>
-        </div>
-      </motion.div>
-    )}
-  </AnimatePresence>
-</div>
-            {/* Story Circle - Responsive */}
+            {/* Story Circle */}
             <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
               <StoryCircle
                 laporanWarga={localLaporanWarga}
@@ -394,7 +407,7 @@ function FeedCard({
               />
             </div>
 
-            {/* Feed Actions - Responsive */}
+            {/* Feed Actions */}
             <div className={`absolute ${isNarrow ? 'right-1.5 top-2' : 'right-2 sm:right-3 top-3 sm:top-4'} z-50`}>
               <FeedActions
                 item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
@@ -408,42 +421,42 @@ function FeedCard({
           </div>
         </div>
 
-        {/* Metadata - Responsive & Tight (Mirip Caption Style) */}
-<div className={`
-  ${paddingX} 
-  pb-4 pt-1 
-  flex items-center justify-between 
-  opacity-40 
-  -mt-2
-`}>
-  <div className="flex items-center gap-1.5 truncate flex-1">
-    <div className={`
-      p-1 rounded-md 
-      ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
-      text-[7px] font-black tracking-tighter
-    `}>
-      📍
-    </div>
-    <p className={`
-      ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
-      font-bold ${theme.text} truncate tracking-tight
-    `}>
-      {alamatText}
-    </p>
-  </div>
-  
-  <div className="flex items-center gap-2 ml-4">
-    <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
-    <span className={`
-      ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
-      font-mono font-black tracking-tighter
-    `}>
-      #{String(safeItem.id).padStart(4, '0')}
-    </span>
-  </div>
-</div>
+        {/* Metadata */}
+        <div className={`
+          ${paddingX} 
+          pb-4 pt-1 
+          flex items-center justify-between 
+          opacity-40 
+          -mt-2
+        `}>
+          <div className="flex items-center gap-1.5 truncate flex-1">
+            <div className={`
+              p-1 rounded-md 
+              ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
+              text-[7px] font-black tracking-tighter
+            `}>
+              📍
+            </div>
+            <p className={`
+              ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
+              font-bold ${theme.text} truncate tracking-tight
+            `}>
+              {alamatText}
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-2 ml-4">
+            <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
+            <span className={`
+              ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
+              font-mono font-black tracking-tighter
+            `}>
+              #{String(safeItem.id).padStart(4, '0')}
+            </span>
+          </div>
+        </div>
 
-        {/* Insight & Action - Responsive */}
+        {/* Insight & Action */}
         <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
           <div className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}>
             <LiveInsight

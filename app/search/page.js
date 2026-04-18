@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo, useCallback, useRef, memo, useDeferredValue } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, memo, useDeferredValue, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import LocationProvider, { useLocation } from "@/components/LocationProvider";
@@ -8,8 +8,40 @@ import FeedCard from "@/app/components/feed/FeedCard";
 import AIModal from "@/app/components/ai/AIModal";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import { calculateDistance } from "@/lib/distance";
+import dynamic from 'next/dynamic';
 
-// ── Helper functions (dipertahankan, sudah benar) ─────────────────
+// Import komponen secara dinamis untuk mencegah error SSR
+const VoiceSearch = dynamic(() => import('react-voice-search'), {
+  ssr: false,
+});
+
+// ========== OPTIMASI: LRU Cache untuk thumbnail (limit 200) ==========
+class LRUCache {
+  constructor(limit = 200) {
+    this.limit = limit;
+    this.cache = new Map();
+  }
+  get(key) {
+    if (!this.cache.has(key)) return null;
+    const value = this.cache.get(key);
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    return value;
+  }
+  set(key, value) {
+    if (this.cache.has(key)) this.cache.delete(key);
+    else if (this.cache.size >= this.limit) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    this.cache.set(key, value);
+  }
+  clear() { this.cache.clear(); }
+}
+
+const thumbnailCache = new LRUCache(150);
+
+// ── Helper functions ─────────────────
 const isVideoUrl = (url) => {
   if (!url) return false;
   const urlLower = url.toLowerCase();
@@ -30,10 +62,12 @@ const extractYouTubeId = (url) => {
   return null;
 };
 
-// Thumbnail cache
-const thumbnailCache = new Map();
+
+
+// ========== OPTIMASI: getThumbnail dengan LRU Cache ==========
 const getThumbnail = (item) => {
-  if (thumbnailCache.has(item.id)) return thumbnailCache.get(item.id);
+  const cached = thumbnailCache.get(item.id);
+  if (cached) return cached;
   
   const getVideoThumbnail = (url) => {
     if (!url) return null;
@@ -48,6 +82,8 @@ const getThumbnail = (item) => {
   };
   
   let result = 'https://placehold.co/400x225/1a1a1a/666666?text=NO+IMAGE';
+  
+  // Prioritaskan foto warga terbaru
   if (item.laporan_terbaru?.[0]?.photo_url && !isVideoUrl(item.laporan_terbaru[0].photo_url)) {
     result = item.laporan_terbaru[0].photo_url;
   } else if (item.laporan_terbaru?.[0]?.video_url) {
@@ -111,6 +147,7 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false }) => {
         </div>
       )}
       <div className="aspect-video bg-zinc-800">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={thumbnail} className="w-full h-full object-cover" loading="lazy" alt={item.name} />
       </div>
       <div className="p-3">
@@ -123,6 +160,20 @@ const StableGridCard = memo(({ item, onCardClick, showDistance = false }) => {
   );
 });
 StableGridCard.displayName = 'StableGridCard';
+
+// ========== OPTIMASI: Preload suggestions (tanpa fetch data) ==========
+const getPreloadedSuggestions = (placeName) => {
+  const hour = new Date().getHours();
+  const suggestions = [];
+  if (hour >= 5 && hour < 11) suggestions.push("sarapan", "cafe pagi");
+  else if (hour >= 11 && hour < 15) suggestions.push("makan siang", "restaurant");
+  else if (hour >= 15 && hour < 18) suggestions.push("cafe sore", "ngabuburit");
+  else if (hour >= 18 && hour < 23) suggestions.push("makan malam", "kuliner malam");
+  else suggestions.push("24 jam");
+  if (placeName) suggestions.push(placeName);
+  suggestions.push("kopi", "kuliner", "cafe"); // fallback trending
+  return [...new Set(suggestions)].slice(0, 6);
+};
 
 // ==================== SEARCH CONTENT ====================
 function SearchContent() {
@@ -140,15 +191,11 @@ function SearchContent() {
   const [recentSearches, setRecentSearches] = useState([]);
   const [trendingKeywords, setTrendingKeywords] = useState([]);
   const [smartSuggestions, setSmartSuggestions] = useState([]);
-  const [isAiLoading, setIsAiLoading] = useState(false);
   
   const [nearbyResults, setNearbyResults] = useState([]);
   const [recentResults, setRecentResults] = useState([]);
   
   const initialLoadDone = useRef(false);
-  const suggestionsGeneratedRef = useRef(false);
-  const debounceTimerRef = useRef(null);
-  const channelRef = useRef(null);
   const isMountedRef = useRef(true);
 
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
@@ -159,31 +206,33 @@ function SearchContent() {
   const deferredQuery = useDeferredValue(query);
   const isTypingDeferred = useDeferredValue(isTyping);
   
-  // ========== FETCH DATA ==========
+  // ========== OPTIMASI: FETCH LEBIH SEDIKIT DATA ==========
   const fetchFreshData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
+      // Ambil hanya 40 tempat (bukan 80)
       const { data: tempatData, error: tempatError } = await supabase
         .from("tempat")
         .select("id, name, category, alamat, photos, latitude, longitude, created_at, image_url")
         .order("name", { ascending: true })
-        .limit(80);
+        .limit(40);
       if (tempatError) throw tempatError;
       
       const tempatIds = tempatData.map(t => t.id);
+      // Ambil hanya 200 laporan terbaru (bukan 500)
       const { data: laporanData, error: laporanError } = await supabase
         .from("laporan_warga")
         .select("id, tempat_id, photo_url, video_url, content, created_at, user_name, tipe, time_tag")
         .in("tempat_id", tempatIds)
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(200);
       if (laporanError) throw laporanError;
       
       const laporanMap = new Map();
       for (const laporan of (laporanData || [])) {
         if (!laporanMap.has(laporan.tempat_id)) laporanMap.set(laporan.tempat_id, []);
         const list = laporanMap.get(laporan.tempat_id);
-        if (list.length < 5) list.push(laporan);
+        if (list.length < 3) list.push(laporan); // Hanya 3 laporan per tempat
       }
       
       const merged = tempatData.map(tempat => ({
@@ -193,7 +242,10 @@ function SearchContent() {
       
       if (isMountedRef.current) {
         setAllData(merged);
-        sessionStorage.setItem('feed_view_cache', JSON.stringify(merged));
+        // Simpan ke sessionStorage
+        try {
+          sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
+        } catch (e) { console.warn('Cache save failed:', e); }
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -202,7 +254,7 @@ function SearchContent() {
     }
   }, []);
   
-  // ========== HITUNG ULANG FILTER SEKITARMU & BARU TERJADI ==========
+  // ========== HITUNG ULANG FILTER ==========
   useEffect(() => {
     if (!allData.length) return;
     
@@ -260,11 +312,6 @@ function SearchContent() {
       localStorage.setItem("recent_searches", JSON.stringify(updated));
       return updated;
     });
-    setTrendingKeywords(prev => {
-      const updated = [trimmed, ...prev.filter(k => k !== trimmed)].slice(0, 10);
-      localStorage.setItem("trending_keywords", JSON.stringify(updated));
-      return updated;
-    });
     setQuery(trimmed);
     setIsTyping(false);
     setExploreMode(false);
@@ -281,6 +328,7 @@ function SearchContent() {
     setRecentSearches([]);
     localStorage.removeItem("recent_searches");
   }, []);
+  
   const handleShare = useCallback(async (item) => {
     const shareUrl = `${window.location.origin}/post/${item.id}`;
     try {
@@ -294,101 +342,68 @@ function SearchContent() {
   }, []);
   
   const handleGlobalRefresh = useCallback(async () => {
+    thumbnailCache.clear(); // Clear cache saat refresh
     await fetchFreshData(true);
     router.refresh();
   }, [fetchFreshData, router]);
   
-  // ========== EVENT LISTENER ==========
-  useEffect(() => {
-    const handleLaporanUpdated = () => fetchFreshData(false);
-    window.addEventListener('laporan-updated', handleLaporanUpdated);
-    window.refreshSearchPage = handleGlobalRefresh;
-    return () => {
-      window.removeEventListener('laporan-updated', handleLaporanUpdated);
-      delete window.refreshSearchPage;
-    };
-  }, [fetchFreshData, handleGlobalRefresh]);
-  
-  // ========== INITIAL LOAD & REALTIME ==========
+  // ========== INITIAL LOAD & REALTIME (DENGAN PERTAMA KALI CEPAT) ==========
   useEffect(() => {
     if (initialLoadDone.current) return;
     initialLoadDone.current = true;
     
     const loadInitial = async () => {
-      const cached = sessionStorage.getItem('feed_view_cache');
-      if (cached) {
-        setAllData(JSON.parse(cached));
-        setLoading(false);
+      // 1. TAMPILKAN SUGGESTIONS INSTAN (tanpa data)
+      const instantSuggestions = getPreloadedSuggestions(placeName);
+      setSmartSuggestions(instantSuggestions);
+      
+      // 2. Ambil dari cache dulu (instan)
+      try {
+        const cached = sessionStorage.getItem('search_cache_v2');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.length > 0) {
+            setAllData(parsed);
+            setLoading(false);
+          }
+        }
+      } catch (e) {}
+      
+      // 3. Fetch data baru di background
+      await fetchFreshData(!allData.length);
+      
+      // 4. Update suggestions dengan data real
+      if (placeName) {
+        const updatedSuggestions = getPreloadedSuggestions(placeName);
+        setSmartSuggestions(updatedSuggestions);
       }
-      await fetchFreshData(!cached);
     };
+    
     loadInitial();
     
-    const setupRealtime = () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-      channelRef.current = supabase
-        .channel('search-laporan-updates')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laporan_warga' }, async (payload) => {
-          setAllData(prev => prev.map(tempat => {
-            if (tempat.id === payload.new.tempat_id) {
-              const newLaporan = [payload.new, ...(tempat.laporan_terbaru || [])].slice(0, 5);
-              return { ...tempat, laporan_terbaru: newLaporan };
-            }
-            return tempat;
-          }));
-          setTimeout(() => fetchFreshData(false), 2000);
-        })
-        .subscribe();
-    };
-    setupRealtime();
+    // Setup realtime subscription (ringan)
+    const channel = supabase
+      .channel('search-laporan-updates')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laporan_warga' }, () => {
+        // Update di background tanpa loading
+        setTimeout(() => fetchFreshData(false), 3000);
+      })
+      .subscribe();
     
+    // Load recent searches dari localStorage
     const savedRecent = localStorage.getItem("recent_searches");
     if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
-    const savedTrending = localStorage.getItem("trending_keywords");
-    if (savedTrending) setTrendingKeywords(JSON.parse(savedTrending));
-    else setTrendingKeywords(["kopi", "kuliner", "cafe"]);
     
     return () => {
       isMountedRef.current = false;
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      supabase.removeChannel(channel);
     };
-  }, [fetchFreshData]);
-  
-  // ========== SUGGESTIONS ==========
-  const generateLocalSuggestions = useCallback(() => {
-    const hour = new Date().getHours();
-    const suggestions = [];
-    if (hour >= 5 && hour < 11) suggestions.push("sarapan", "cafe pagi");
-    else if (hour >= 11 && hour < 15) suggestions.push("makan siang", "restaurant");
-    else if (hour >= 15 && hour < 18) suggestions.push("cafe sore", "ngabuburit");
-    else if (hour >= 18 && hour < 23) suggestions.push("makan malam", "kuliner malam");
-    else suggestions.push("24 jam");
-    if (placeName) suggestions.push(placeName);
-    suggestions.push(...trendingKeywords.slice(0, 2), ...recentSearches.slice(0, 2));
-    return [...new Set(suggestions)].slice(0, 6);
-  }, [placeName, trendingKeywords, recentSearches]);
-  
-  const generateSmartSuggestions = useCallback(() => {
-    setSmartSuggestions(generateLocalSuggestions());
-  }, [generateLocalSuggestions]);
-  
-  useEffect(() => {
-    if (loading || suggestionsGeneratedRef.current || !placeName) return;
-    suggestionsGeneratedRef.current = true;
-    generateSmartSuggestions();
-  }, [loading, placeName, generateSmartSuggestions]);
-  
-  useEffect(() => {
-    if (!isTyping || deferredQuery.length < 3) return;
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(generateSmartSuggestions, 800);
-    return () => clearTimeout(debounceTimerRef.current);
-  }, [deferredQuery, isTyping, generateSmartSuggestions]);
+  }, [fetchFreshData, placeName, allData.length]);
   
   // ========== RENDER ==========
   const getBorderColor = () => isMalam ? "border-white/[0.05]" : "border-black/[0.03]";
   
-  // ✅ Perbaikan: Loading spinner yang valid
+  // Loading spinner hanya jika benar-benar tidak ada data
   if (loading && allData.length === 0) {
     return (
       <div className={`relative min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
@@ -401,54 +416,88 @@ function SearchContent() {
   
   return (
     <div className={`relative min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
-      {/* Ambient effects */}
-      {isMalam && (
-        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]" style={{ backgroundColor: '#3b82f6' }} />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]" style={{ backgroundColor: '#8b5cf6' }} />
-        </div>
-      )}
-      {!isMalam && (
-        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-30">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/5 to-transparent" />
-        </div>
-      )}
+      {/* Ambient effects - ringan */}
+      <div className={`fixed inset-0 z-0 pointer-events-none ${isMalam ? 'opacity-30' : 'opacity-20'}`}>
+        <div className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full blur-[120px]" style={{ backgroundColor: '#3b82f6' }} />
+      </div>
       
       <div className="relative z-10">
         <div className={`max-w-md mx-auto min-h-screen flex flex-col relative border-x ${getBorderColor()}`}>
           {/* HEADER */}
-          <div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-xl ${isMalam ? "bg-black/80 border-b border-white/10" : "bg-white/80 border-b border-slate-100"}`}>
-            <div className="flex items-center gap-2">
-              <button onClick={() => exploreMode ? setExploreMode(false) : router.back()} className={`p-2 rounded-xl ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}>←</button>
-              <input
-                autoFocus
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
-                placeholder="Cari tempat, lihat suasana dan kondisi..."
-                className={`flex-1 py-3 px-4 rounded-2xl text-sm font-bold outline-none border ${isMalam ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"}`}
-              />
-              <button onClick={handleGlobalRefresh} className="p-2 rounded-xl hover:bg-white/10 text-white/70" title="Refresh">↻</button>
-              {!location?.latitude && (
-                <button onClick={requestLocation} className="px-3 py-1.5 rounded-full bg-[#E3655B] text-white text-[10px] font-bold">Lokasi</button>
-              )}
-            </div>
-            {!exploreMode && !isTypingDeferred && (
-              <div className="flex gap-2 overflow-x-auto py-3 hide-scrollbar">
-                {["Semua", "Lagi ramai", "Sekitarmu", "Baru terjadi"].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => { setActiveFilter(tab); if (tab === "Sekitarmu") { setIsTyping(false); setExploreMode(false); setQuery(""); } else setExploreMode(false); }}
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide border whitespace-nowrap ${activeFilter === tab ? "bg-[#E3655B] border-[#E3655B] text-white" : isMalam ? "bg-white/5 border-white/10 text-white/50" : "bg-black/5 border-black/5 text-slate-500"}`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+<div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-xl ${isMalam ? "bg-black/80 border-b border-white/10" : "bg-white/80 border-b border-slate-100"}`}>
+  <div className="flex items-center gap-2">
+    {/* Tombol Back */}
+    <button 
+      onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
+      className={`p-2 rounded-xl ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}
+    >
+      ←
+    </button>
+    
+    {/* Input Teks */}
+    <input
+      autoFocus
+      value={query}
+      onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
+      onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
+      placeholder="Cari tempat, lihat suasana dan kondisi..."
+      className={`flex-1 py-3 px-4 rounded-2xl text-sm font-bold outline-none border ${isMalam ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"}`}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+    />
+    
+    {/* ========== VOICE SEARCH ========== */}
+    <VoiceSearch
+      handleSearch={(transcript) => {
+        console.log('🎤 Voice search result:', transcript);
+        handleSearch(transcript); // Gunakan handleSearch yang sudah ada
+      }}
+      Error={(error) => console.error("Voice Search Error:", error)}
+      placeholder="Klik dan bicara..."
+      width="40"
+      height="40"
+      buttonColor="#E3655B"
+      buttonIconColor="#FFFFFF"
+    />
+    
+    {/* Tombol Refresh */}
+    <button 
+      onClick={handleGlobalRefresh} 
+      className="p-2 rounded-xl hover:bg-white/10 text-white/70" 
+      title="Refresh"
+    >
+      ↻
+    </button>
+    
+    {/* Tombol Lokasi (jika belum ada izin) */}
+    {!location?.latitude && (
+      <button 
+        onClick={requestLocation} 
+        className="px-3 py-1.5 rounded-full bg-[#E3655B] text-white text-[10px] font-bold"
+      >
+        Lokasi
+      </button>
+    )}
+  </div>
+  
+  {/* TABS FILTER */}
+  {!exploreMode && !isTypingDeferred && (
+    <div className="flex gap-2 overflow-x-auto py-3 hide-scrollbar">
+      {["Semua", "Lagi ramai", "Sekitarmu", "Baru terjadi"].map(tab => (
+        <button
+          key={tab}
+          onClick={() => { setActiveFilter(tab); if (tab === "Sekitarmu") { setIsTyping(false); setExploreMode(false); setQuery(""); } else setExploreMode(false); }}
+          className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide border whitespace-nowrap ${activeFilter === tab ? "bg-[#E3655B] border-[#E3655B] text-white" : isMalam ? "bg-white/5 border-white/10 text-white/50" : "bg-black/5 border-black/5 text-slate-500"}`}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
           
-          {/* SUGGESTIONS */}
+          {/* SUGGESTIONS - TAMPIL INSTAN */}
           {isTypingDeferred && deferredQuery.length === 0 && (
             <div className="px-4 py-3">
               {recentSearches.length > 0 && (
@@ -465,10 +514,7 @@ function SearchContent() {
                 </div>
               )}
               <div className="mb-5">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className={`text-[11px] font-bold uppercase ${isMalam ? "text-white/40" : "text-slate-400"}`}>Rekomendasi</h3>
-                  {isAiLoading && <div className="w-3 h-3 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />}
-                </div>
+                <h3 className={`text-[11px] font-bold uppercase mb-2 ${isMalam ? "text-white/40" : "text-slate-400"}`}>Rekomendasi</h3>
                 <div className="flex flex-wrap gap-2">
                   {smartSuggestions.map((suggestion, idx) => (
                     <button key={idx} onClick={() => handleSelectSuggestion(suggestion)} className={`px-3 py-1.5 rounded-full text-[11px] ${isMalam ? "bg-white/10 text-white/70" : "bg-black/5 text-slate-700"}`}>{suggestion}</button>
@@ -478,7 +524,7 @@ function SearchContent() {
             </div>
           )}
           
-          {/* SEARCH RESULTS (saat typing) */}
+          {/* SEARCH RESULTS */}
           {isTypingDeferred && deferredQuery.length > 0 && (
             <div className="mt-1 divide-y">
               {results.slice(0, 5).map(item => (

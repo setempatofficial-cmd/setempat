@@ -25,6 +25,7 @@
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
     "react-qr-code": "^2.0.18",
+    "react-voice-search": "^1.1.1",
     "react-window": "^2.2.7",
     "rss-parser": "^3.13.0"
   },
