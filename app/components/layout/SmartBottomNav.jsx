@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Home, Compass, Plus, Bell, Contact2 } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient"; // Pastikan path ini benar
+import { supabase } from "@/lib/supabaseClient";
 
 export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, onOpenProfile, onOpenUpload }) {
   const router = useRouter();
@@ -15,46 +15,58 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
   const [activeTab, setActiveTab] = useState("");
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [hasWoroUpdate, setHasWoroUpdate] = useState(false);
 
-  // 1. Ambil jumlah notifikasi yang belum dibaca
+  // Ambil jumlah notifikasi yang belum dibaca dari warung_info
   useEffect(() => {
     if (!user?.id) return;
 
     const fetchUnreadCount = async () => {
-      const { count, error } = await supabase
-        .from("warung_info")
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id)
-        .eq("is_read", false);
-
-      setUnreadCount(count || 0);
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: updates } = await supabase
-        .from("tempat")
-        .select("id")
-        .gt("created_at", oneDayAgo)
-        .limit(1);
-
-      setHasWoroUpdate(updates && updates.length > 0);
+      try {
+        // Hitung notifikasi yang belum dibaca dari warung_info
+        const { count, error } = await supabase
+          .from("warung_info")
+          .select("*", { count: 'exact', head: true })
+          .eq("user_id", user.id)
+          .eq("is_read", false);
+        
+        if (error) throw error;
+        setUnreadCount(count || 0);
+      } catch (err) {
+        console.error("Error fetching unread count:", err);
+        setUnreadCount(0);
+      }
     };
 
     fetchUnreadCount();
 
-    // Opsional: Realtime update jika ada notifikasi baru masuk
+    // Subscribe ke perubahan is_read di warung_info untuk user ini
     const channel = supabase
-      .channel('unread-woro')
+      .channel(`unread_count_${user.id}`)
       .on('postgres_changes', { 
-        event: '*', 
+        event: 'UPDATE', 
         schema: 'public', 
-        table: 'warung_info', 
-        filter: `user_id=eq.${user.id}` 
+        table: 'warung_info',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        // Hanya refresh jika ada perubahan is_read
+        if (payload.new && typeof payload.new.is_read !== 'undefined') {
+          fetchUnreadCount();
+        }
+      })
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'warung_info',
+        filter: `user_id=eq.${user.id}`
       }, () => {
+        // Notifikasi baru masuk
         fetchUnreadCount();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { 
+      supabase.removeChannel(channel); 
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -103,7 +115,7 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
     { id: "Home", icon: <Home size={22} />, label: "Home" },
     { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
     ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
-    { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount }, // Menggunakan data real
+    { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
     { id: "Rewang", icon: <Contact2 size={22} />, label: "Rewang" },
   ];
 
@@ -152,27 +164,15 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
                 {tab.icon}
-                {/* --- BAGIAN BADGE DINAMIS --- */}
-{!isActive && (
-  <>
-    {/* PRIORITAS 1: Jika ada angka (Urgent/Personal), tampilkan ANGKA */}
-    {unreadCount > 0 ? (
-      <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
-        rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
-        ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"}`}
-      >
-        {unreadCount > 9 ? "9+" : unreadCount}
-      </span>
-    ) : (
-      /* PRIORITAS 2: Jika tidak ada angka tapi ada update umum, tampilkan DOT */
-      hasWoroUpdate && (
-        <span className={`absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-blue-500 
-          ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"} animate-pulse`} 
-        />
-      )
-    )}
-  </>
-
+                
+                {/* BADGE NOTIFIKASI - Hanya tampil jika ada notifikasi belum dibaca */}
+                {!isActive && tab.badge > 0 && (
+                  <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
+                    rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
+                    ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"}`}
+                  >
+                    {tab.badge > 99 ? "99+" : tab.badge > 9 ? "9+" : tab.badge}
+                  </span>
                 )}
               </div>
               

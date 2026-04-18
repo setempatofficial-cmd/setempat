@@ -58,12 +58,11 @@ function extractMentions(text) {
   return mentions;
 }
 
-// ── Fetch komentar dari Supabase (SEDERHANA & CEPAT) ──────────────────────
+// ── Fetch komentar dari Supabase ──────────────────────────────────────────────
 async function fetchKomentar(tempatId) {
   if (!tempatId) return [];
 
   try {
-    // 1. Ambil semua komentar untuk tempat ini
     const { data: komentarData, error: komentarError } = await supabase
       .from("komentar")
       .select("*")
@@ -73,10 +72,8 @@ async function fetchKomentar(tempatId) {
     if (komentarError) throw komentarError;
     if (!komentarData || komentarData.length === 0) return [];
 
-    // 2. Kumpulkan user_id unik
     const userIds = [...new Set(komentarData.map(k => k.user_id).filter(Boolean))];
     
-    // 3. Jika ada user_id, ambil data profiles
     let profilesMap = {};
     if (userIds.length > 0) {
       const { data: profilesData } = await supabase
@@ -87,7 +84,6 @@ async function fetchKomentar(tempatId) {
       profilesMap = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
     }
 
-    // 4. Gabungkan data komentar dengan profile
     const mappedData = komentarData.map(item => ({
       id: item.id,
       tempat_id: item.tempat_id,
@@ -103,7 +99,6 @@ async function fetchKomentar(tempatId) {
       replies: []
     }));
 
-    // 5. Build tree (parent-child)
     const map = {};
     const roots = [];
 
@@ -119,7 +114,6 @@ async function fetchKomentar(tempatId) {
       }
     });
 
-    // Sort replies by oldest first
     const sortReplies = (nodes) => {
       nodes.forEach(n => {
         n.replies.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -134,6 +128,7 @@ async function fetchKomentar(tempatId) {
     return [];
   }
 }
+
 // ── Format waktu relatif ──────────────────────────────────────────────────────
 function timeAgo(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
@@ -337,28 +332,122 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
   );
 }
 
+// ============================================
+// 🔥 NOTIFIKASI KE WARUNG_INFO (BUKAN NOTIFICATIONS)
+// ============================================
+
+// ── Kirim notifikasi ke pemilik tempat ────────────────────────────────────────
+const sendNotificationToOwner = async (tempatId, content, currentUser, commentId) => {
+  try {
+    const { data: tempatData } = await supabase
+      .from("tempat")
+      .select("user_id, name")
+      .eq("id", tempatId)
+      .single();
+    
+    if (tempatData?.user_id && tempatData.user_id !== currentUser?.id) {
+      const { error } = await supabase.from("warung_info").insert({
+        user_id: tempatData.user_id,
+        from_user_id: currentUser?.id,
+        from_user_name: currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0],
+        from_username: currentUser?.user_metadata?.username || currentUser?.email?.split("@")[0],
+        from_avatar: currentUser?.user_metadata?.avatar_url || null,
+        type: "komentar",
+        title: "💬 Komentar Baru",
+        message: `${currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0]} mengomentari ${tempatData.name}`,
+        content: content.slice(0, 150),
+        reference_id: commentId,
+        reference_type: "komentar",
+        tempat_id: tempatId,
+        tempat_name: tempatData.name,
+        is_read: false,
+        created_at: new Date().toISOString()
+      });
+      if (error) console.error("Error notifikasi owner:", error);
+    }
+  } catch (err) {
+    console.error("Send notification to owner error:", err);
+  }
+};
+
 // ── Kirim notifikasi ke user yang di-mention ──────────────────────────────────
 const sendMentionNotifications = async (content, commentId, tempatId, currentUser, replyToUsername = null) => {
   const mentionedUsernames = extractMentions(content);
   const allMentions = [...new Set([...mentionedUsernames, replyToUsername].filter(Boolean))];
   
+  if (allMentions.length === 0) return;
+  
+  // Ambil data tempat untuk nama tempat
+  const { data: tempatData } = await supabase
+    .from("tempat")
+    .select("name")
+    .eq("id", tempatId)
+    .single();
+  
   for (const username of allMentions) {
-    const { data: userData } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("username", username)
-      .single();
-    
-    if (userData && userData.id !== currentUser?.id) {
-      await supabase.from("notifications").insert({
-        user_id: userData.id,
-        title: "@ Mention",
-        message: `${currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0]} menyebut Anda dalam komentar: "${content.slice(0, 50)}..."`,
-        type: "mention",
-        action_url: `/post/${tempatId}?komentar_id=${commentId}`,
-        metadata: { tempat_id: tempatId, komentar_id: commentId }
-      });
+    try {
+      const { data: userData } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("username", username)
+        .single();
+      
+      if (userData && userData.id !== currentUser?.id) {
+        await supabase.from("warung_info").insert({
+          user_id: userData.id,
+          from_user_id: currentUser?.id,
+          from_user_name: currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0],
+          from_username: currentUser?.user_metadata?.username || currentUser?.email?.split("@")[0],
+          from_avatar: currentUser?.user_metadata?.avatar_url || null,
+          type: "mention",
+          title: "📌 Mention",
+          message: `${currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0]} menyebut @${username} dalam komentar`,
+          content: content.slice(0, 150),
+          reference_id: commentId,
+          reference_type: "komentar",
+          tempat_id: tempatId,
+          tempat_name: tempatData?.name || "Lokasi",
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error(`Error sending mention to ${username}:`, err);
     }
+  }
+};
+
+// ── Kirim notifikasi balasan ke komentar ──────────────────────────────────────
+const sendReplyNotification = async (parentCommentUserId, parentCommentAuthor, content, currentUser, tempatId, commentId) => {
+  if (!parentCommentUserId || parentCommentUserId === currentUser?.id) return;
+  
+  // Ambil data tempat
+  const { data: tempatData } = await supabase
+    .from("tempat")
+    .select("name")
+    .eq("id", tempatId)
+    .single();
+  
+  try {
+    await supabase.from("warung_info").insert({
+      user_id: parentCommentUserId,
+      from_user_id: currentUser?.id,
+      from_user_name: currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0],
+      from_username: currentUser?.user_metadata?.username || currentUser?.email?.split("@")[0],
+      from_avatar: currentUser?.user_metadata?.avatar_url || null,
+      type: "balasan",
+      title: "💬 Balasan Komentar",
+      message: `${currentUser?.user_metadata?.full_name || currentUser?.email?.split("@")[0]} membalas komentar ${parentCommentAuthor}`,
+      content: content.slice(0, 150),
+      reference_id: commentId,
+      reference_type: "komentar",
+      tempat_id: tempatId,
+      tempat_name: tempatData?.name || "Lokasi",
+      is_read: false,
+      created_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Error sending reply notification:", err);
   }
 };
 
@@ -383,7 +472,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
   useEffect(() => { setMounted(true); }, []);
 
-  // ── Fetch data saat buka ──────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !tempat?.id) return;
     setLoading(true);
@@ -396,7 +484,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       .finally(() => setLoading(false));
   }, [isOpen, tempat?.id]);
 
-  // ── Lock scroll body ──
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -414,7 +501,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     };
   }, [isOpen]);
 
-  // ── Fokus input saat reply (pakai username) ───────────────────────────────
   useEffect(() => {
     if (replyTo) {
       setInput(`@${replyTo.username} `);
@@ -422,7 +508,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   }, [replyTo]);
 
-  // ── Swipe down ──
   const handleTouchStart = useCallback((e) => {
     if (modalRef.current && modalRef.current.scrollTop <= 0) {
       e.preventDefault();
@@ -458,14 +543,12 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   }, [translateY, onClose]);
 
-  // ── Cek apakah user bisa hapus komentar ─────────────────────────────────
   const canDeleteItem = useCallback((item) => {
     if (!user) return false;
     if (isAdmin) return true;
     return item.user_id === user.id;
   }, [user, isAdmin]);
 
-  // ── Hapus komentar ──
   const handleDelete = useCallback(async (id) => {
     const removeFromTree = (nodes) =>
       nodes.filter(n => n.id !== id)
@@ -480,12 +563,10 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   }, [tempat?.id]);
 
-  // ── Laporkan komentar ──
   const handleReport = useCallback(async (id) => {
     alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
   }, []);
 
-  // ── Helper functions untuk tree ──
   const insertReply = (nodes, parentId, newItem) =>
     nodes.map(n => {
       if (n.id === parentId) return { ...n, replies: [...(n.replies || []), newItem] };
@@ -505,7 +586,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       .filter(n => n.id !== id)
       .map(n => n.replies?.length ? { ...n, replies: removeItem(n.replies, id) } : n);
 
-  // ── Submit komentar ──
   const handleSubmit = async () => {
     const text = input.trim();
     if (!text || submitting) return;
@@ -515,7 +595,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
       return;
     }
 
-    // Ambil data profile user
     const { data: userProfile } = await supabase
       .from("profiles")
       .select("username, full_name, avatar_url, is_verified")
@@ -528,6 +607,8 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     const isUserVerified = userProfile?.is_verified || false;
     const parentId = replyTo?.id || null;
     const replyToUsername = replyTo?.username || null;
+    const parentCommentUserId = replyTo?.userId || null;
+    const parentCommentAuthor = replyTo?.name || null;
 
     const tempId = `temp_${Date.now()}`;
     const optimisticItem = {
@@ -570,8 +651,20 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
       if (error) throw error;
 
-      // Kirim notifikasi mention
+      // ========== 🔥 KIRIM NOTIFIKASI KE WARUNG_INFO ==========
+      
+      // 1. Notifikasi ke pemilik tempat (jika komentar utama)
+      if (!parentId) {
+        await sendNotificationToOwner(tempat.id, text, user, data.id);
+      }
+      
+      // 2. Notifikasi mention ke user yang disebut
       await sendMentionNotifications(text, data.id, tempat.id, user, replyToUsername);
+      
+      // 3. Notifikasi balasan ke komentar yang dibalas
+      if (parentId && parentCommentUserId) {
+        await sendReplyNotification(parentCommentUserId, parentCommentAuthor, text, user, tempat.id, data.id);
+      }
 
       if (parentId) {
         setKomentar(prev => replaceItem(prev, tempId, { ...data, replies: [], is_verified: isUserVerified }));
@@ -590,7 +683,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
     }
   };
 
-  // ── Like ──
   const handleLike = async (id, isLiked) => {
     setLikedIds(prev => {
       const next = new Set(prev);
@@ -619,14 +711,12 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
 
   const modal = (
     <div className="fixed inset-0 z-[2000] flex items-end justify-center">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60"
         style={{ opacity: Math.max(0, 0.6 - translateY / 400) }}
         onClick={onClose}
       />
 
-      {/* Panel */}
       <div
         ref={modalRef}
         className="relative w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col"
@@ -640,12 +730,10 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="w-10 h-1 bg-slate-200 rounded-full" />
         </div>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-lg">💬</span>
@@ -664,7 +752,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
           </div>
         </div>
 
-        {/* Reply indicator */}
         <AnimatePresence>
           {replyTo && (
             <motion.div
@@ -685,7 +772,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
           )}
         </AnimatePresence>
 
-        {/* Komentar list */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {loading ? (
             <div className="flex justify-center py-12">
@@ -703,7 +789,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
                 key={item.id}
                 item={item}
                 depth={0}
-                onReply={(id, name, username) => setReplyTo({ id, name, username })}
+                onReply={(id, name, username) => setReplyTo({ id, name, username, userId: item.user_id })}
                 onLike={handleLike}
                 onDelete={handleDelete}
                 onReport={handleReport}
@@ -716,7 +802,6 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
           <div className="h-2" />
         </div>
 
-        {/* Input */}
         <div className="flex-shrink-0 border-t border-slate-100 px-3 py-3 bg-white">
           {!user ? (
             <div className="flex items-center gap-3 py-1 px-1">

@@ -193,6 +193,7 @@ export default function LaporPanel({
           tempat_id: tempatIdValue,
           user_id: u.id,
           user_name: meta.full_name || meta.name || u.email?.split("@")[0] || "Warga",
+          username: session.user.user_metadata?.username || session.user.email?.split("@")[0], //
           user_avatar: meta.avatar_url || meta.picture || null,
           photo_url: mediaUrl ? (mediaType === "video" ? mediaUrl.replace(/\.[^/.]+$/, ".jpg") : mediaUrl) : null,
           video_url: mediaType === "video" ? mediaUrl : null,

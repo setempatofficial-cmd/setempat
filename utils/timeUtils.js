@@ -1,5 +1,70 @@
 // utils/timeUtils.js
 
+
+// utils/timeUtils.js
+
+/**
+ * Format waktu relatif (2 jam lalu, 1 hari lalu, dll)
+ * @param {string|Date} dateString - Tanggal yang akan diformat
+ * @returns {string} - Waktu relatif dalam bahasa Indonesia
+ */
+export function formatTimeAgo(dateString) {
+  const now = new Date();
+  const past = new Date(dateString);
+  const diffInSeconds = Math.floor((now - past) / 1000);
+  
+  if (isNaN(diffInSeconds)) return 'baru saja';
+  
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} detik lalu`;
+  }
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes} menit lalu`;
+  }
+  
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) {
+    return `${diffInHours} jam lalu`;
+  }
+  
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 7) {
+    return `${diffInDays} hari lalu`;
+  }
+  
+  if (diffInDays < 30) {
+    const weeks = Math.floor(diffInDays / 7);
+    return `${weeks} minggu lalu`;
+  }
+  
+  if (diffInDays < 365) {
+    const months = Math.floor(diffInDays / 30);
+    return `${months} bulan lalu`;
+  }
+  
+  const years = Math.floor(diffInDays / 365);
+  return `${years} tahun lalu`;
+}
+
+/**
+ * Format waktu lengkap dengan jam (contoh: 2 jam lalu • 14:30)
+ * @param {string|Date} dateString 
+ * @returns {string}
+ */
+export function formatTimeAgoWithClock(dateString) {
+  const date = new Date(dateString);
+  const timeAgo = formatTimeAgo(dateString);
+  const clock = date.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  return `${timeAgo} • ${clock}`;
+}
+
+
 /**
  * Menentukan waktu berdasarkan jam (sesuai kondisi Indonesia)
  * @param {Date|number} date - Date object atau timestamp

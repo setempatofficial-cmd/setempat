@@ -118,6 +118,7 @@ export default function Uploader({
           tempat_id: parseInt(tempatId),
           user_id: session.user.id,
           user_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Warga",
+          username: session.user.user_metadata?.username || session.user.email?.split("@")[0], //
           user_avatar: session.user.user_metadata?.avatar_url || null,
           photo_url: mediaType === "video" ? tempMediaUrl.replace(/\.[^/.]+$/, ".jpg") : tempMediaUrl,
           video_url: mediaType === "video" ? tempMediaUrl : null,
