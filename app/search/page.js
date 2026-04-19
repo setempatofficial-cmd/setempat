@@ -206,53 +206,58 @@ function SearchContent() {
   const deferredQuery = useDeferredValue(query);
   const isTypingDeferred = useDeferredValue(isTyping);
   
-  // ========== OPTIMASI: FETCH LEBIH SEDIKIT DATA ==========
-  const fetchFreshData = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
-    try {
-      // Ambil hanya 40 tempat (bukan 80)
-      const { data: tempatData, error: tempatError } = await supabase
+  // ========== FETCH DATA (PARALLEL) ==========
+const fetchFreshData = useCallback(async (showLoading = false) => {
+  if (showLoading) setLoading(true);
+  
+  try {
+    // ✅ PERUBAHAN 1: Parallel fetch, tidak berurutan
+    const [tempatResult, laporanResult] = await Promise.all([
+      supabase
         .from("tempat")
         .select("id, name, category, alamat, photos, latitude, longitude, created_at, image_url")
         .order("name", { ascending: true })
-        .limit(40);
-      if (tempatError) throw tempatError;
-      
-      const tempatIds = tempatData.map(t => t.id);
-      // Ambil hanya 200 laporan terbaru (bukan 500)
-      const { data: laporanData, error: laporanError } = await supabase
+        .limit(20),
+      supabase
         .from("laporan_warga")
         .select("id, tempat_id, photo_url, video_url, content, created_at, user_name, tipe, time_tag")
-        .in("tempat_id", tempatIds)
         .order("created_at", { ascending: false })
-        .limit(200);
-      if (laporanError) throw laporanError;
-      
-      const laporanMap = new Map();
-      for (const laporan of (laporanData || [])) {
-        if (!laporanMap.has(laporan.tempat_id)) laporanMap.set(laporan.tempat_id, []);
-        const list = laporanMap.get(laporan.tempat_id);
-        if (list.length < 3) list.push(laporan); // Hanya 3 laporan per tempat
+        .limit(100)
+    ]);
+    
+    if (tempatResult.error) throw tempatResult.error;
+    if (laporanResult.error) throw laporanResult.error;
+    
+    const tempatData = tempatResult.data || [];
+    const laporanData = laporanResult.data || [];
+    
+    // Group laporan by tempat_id
+    const laporanMap = new Map();
+    for (const laporan of laporanData) {
+      if (!laporanMap.has(laporan.tempat_id)) {
+        laporanMap.set(laporan.tempat_id, []);
       }
-      
-      const merged = tempatData.map(tempat => ({
-        ...tempat,
-        laporan_terbaru: laporanMap.get(tempat.id) || []
-      }));
-      
-      if (isMountedRef.current) {
-        setAllData(merged);
-        // Simpan ke sessionStorage
-        try {
-          sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
-        } catch (e) { console.warn('Cache save failed:', e); }
-      }
-    } catch (err) {
-      console.error("Fetch error:", err);
-    } finally {
-      if (isMountedRef.current && showLoading) setLoading(false);
+      const list = laporanMap.get(laporan.tempat_id);
+      if (list.length < 3) list.push(laporan);
     }
-  }, []);
+    
+    const merged = tempatData.map(tempat => ({
+      ...tempat,
+      laporan_terbaru: laporanMap.get(tempat.id) || []
+    }));
+    
+    if (isMountedRef.current) {
+      setAllData(merged);
+      try {
+        sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
+      } catch (e) {}
+    }
+  } catch (err) {
+    console.error("Fetch error:", err);
+  } finally {
+    if (isMountedRef.current && showLoading) setLoading(false);
+  }
+}, []);
   
   // ========== HITUNG ULANG FILTER ==========
   useEffect(() => {
@@ -347,58 +352,63 @@ function SearchContent() {
     router.refresh();
   }, [fetchFreshData, router]);
   
-  // ========== INITIAL LOAD & REALTIME (DENGAN PERTAMA KALI CEPAT) ==========
-  useEffect(() => {
-    if (initialLoadDone.current) return;
-    initialLoadDone.current = true;
+  // ========== INITIAL LOAD & REALTIME (FIXED) ==========
+useEffect(() => {
+  if (initialLoadDone.current) return;
+  initialLoadDone.current = true;
+  
+  const loadInitial = async () => {
+    // 1. TAMPILKAN SUGGESTIONS INSTAN
+    const instantSuggestions = getPreloadedSuggestions(placeName);
+    setSmartSuggestions(instantSuggestions);
     
-    const loadInitial = async () => {
-      // 1. TAMPILKAN SUGGESTIONS INSTAN (tanpa data)
-      const instantSuggestions = getPreloadedSuggestions(placeName);
-      setSmartSuggestions(instantSuggestions);
-      
-      // 2. Ambil dari cache dulu (instan)
-      try {
-        const cached = sessionStorage.getItem('search_cache_v2');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.length > 0) {
-            setAllData(parsed);
-            setLoading(false);
-          }
+    // 2. Ambil dari cache dulu (instan)
+    let hasValidCache = false;
+    try {
+      const cached = sessionStorage.getItem('search_cache_v2');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.length > 0) {
+          setAllData(parsed);
+          setLoading(false);
+          hasValidCache = true;
         }
-      } catch (e) {}
-      
-      // 3. Fetch data baru di background
-      await fetchFreshData(!allData.length);
-      
-      // 4. Update suggestions dengan data real
-      if (placeName) {
-        const updatedSuggestions = getPreloadedSuggestions(placeName);
-        setSmartSuggestions(updatedSuggestions);
       }
-    };
+    } catch (e) {}
     
-    loadInitial();
+    // 3. Hanya fetch jika TIDAK ada cache
+    if (!hasValidCache) {
+      await fetchFreshData(true);
+    } else {
+      // Fetch di background TANPA loading indicator
+      fetchFreshData(false);
+    }
     
-    // Setup realtime subscription (ringan)
-    const channel = supabase
-      .channel('search-laporan-updates')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laporan_warga' }, () => {
-        // Update di background tanpa loading
-        setTimeout(() => fetchFreshData(false), 3000);
-      })
-      .subscribe();
-    
-    // Load recent searches dari localStorage
-    const savedRecent = localStorage.getItem("recent_searches");
-    if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
-    
-    return () => {
-      isMountedRef.current = false;
-      supabase.removeChannel(channel);
-    };
-  }, [fetchFreshData, placeName, allData.length]);
+    // 4. Update suggestions dengan data real
+    if (placeName) {
+      const updatedSuggestions = getPreloadedSuggestions(placeName);
+      setSmartSuggestions(updatedSuggestions);
+    }
+  };
+  
+  loadInitial();
+  
+  // Setup realtime subscription
+  const channel = supabase
+    .channel('search-laporan-updates')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laporan_warga' }, () => {
+      setTimeout(() => fetchFreshData(false), 3000);
+    })
+    .subscribe();
+  
+  const savedRecent = localStorage.getItem("recent_searches");
+  if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
+  
+  return () => {
+    isMountedRef.current = false;
+    supabase.removeChannel(channel);
+  };
+}, []); // ✅ KOSONGKAN dependency array!
   
   // ========== RENDER ==========
   const getBorderColor = () => isMalam ? "border-white/[0.05]" : "border-black/[0.03]";
@@ -440,7 +450,7 @@ function SearchContent() {
       value={query}
       onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
       onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
-      placeholder="Cari tempat, lihat suasana dan kondisi..."
+      placeholder="Cari tempat, lihat suasana..."
       className={`flex-1 py-3 px-4 rounded-2xl text-sm font-bold outline-none border ${isMalam ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"}`}
       autoComplete="off"
       autoCorrect="off"
@@ -459,6 +469,7 @@ function SearchContent() {
       height="40"
       buttonColor="#E3655B"
       buttonIconColor="#FFFFFF"
+      language="id-ID"
     />
     
     {/* Tombol Refresh */}

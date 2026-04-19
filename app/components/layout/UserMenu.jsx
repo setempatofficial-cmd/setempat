@@ -66,7 +66,7 @@ export default function UserMenu({
   // Handle Balai Warga click (hanya untuk Warga Biasa)
   const handleBalaiWargaClick = () => {
     setIsOpen(false);
-    router.push("/balai-warga");
+    router.push("/rewang");
   };
 
   // Handle Kantor Setempat click (untuk Superadmin)

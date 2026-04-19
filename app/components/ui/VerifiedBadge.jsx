@@ -1,26 +1,26 @@
 "use client";
-import { ShieldCheck } from "lucide-react";
+import { BadgeCheck } from "lucide-react"; 
 import { useMemo } from "react";
 
 export default function VerifiedBadge({ size = "sm", showText = false, isMalam = true }) {
   const cfg = useMemo(() => {
-    const iconSizes = { xs: 12, sm: 14, md: 18, lg: 22 };
-    const textSizes = { xs: "text-[8px]", sm: "text-[10px]", md: "text-[11px]", lg: "text-[13px]" };
+    const iconSizes = { xs: 12, sm: 15, md: 20, lg: 24 };
+    const textSizes = { xs: "text-[9px]", sm: "text-[11px]", md: "text-[13px]", lg: "text-[15px]" };
     
     const theme = isMalam ? {
-      // MODE MALAM: Biru Neon Elektrik
-      container: "bg-gradient-to-tr from-blue-600/20 via-sky-500/10 to-blue-400/5 border-blue-500/30",
-      icon: "text-blue-400 fill-blue-400/10",
-      text: "text-blue-400 drop-shadow-[0_0_10px_rgba(56,189,248,0.6)]",
-      glow: "bg-blue-500/40",
-      shimmer: "after:from-white/20"
+      // MODE MALAM: Cyberpunk Blue (Glow & Glass)
+      container: "bg-blue-500/10 backdrop-blur-md border-blue-400/30 shadow-[0_0_15px_rgba(59,130,246,0.2)]",
+      icon: "text-blue-400 fill-blue-400/20",
+      text: "text-blue-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]",
+      glow: "bg-blue-400/30",
+      shimmer: "via-blue-400/40"
     } : {
-      // MODE SIANG: Biru Profesional Clean
-      container: "bg-gradient-to-tr from-blue-500 to-sky-400 border-blue-600 shadow-md",
-      icon: "text-white fill-white/10",
-      text: "text-white",
-      glow: "bg-blue-600",
-      shimmer: "after:from-white/40"
+      // MODE SIANG: Royal Crystal (Solid & Sharp)
+      container: "bg-gradient-to-br from-blue-600 to-blue-700 border-blue-700 shadow-lg",
+      icon: "text-white fill-white/20",
+      text: "text-white drop-shadow-sm",
+      glow: "bg-blue-600/40",
+      shimmer: "via-white/60"
     };
 
     return { ...theme, iconSize: iconSizes[size], textSize: textSizes[size] };
@@ -28,18 +28,23 @@ export default function VerifiedBadge({ size = "sm", showText = false, isMalam =
 
   const badgeContent = (
     <div className="flex items-center gap-1.5 relative z-10">
-      <ShieldCheck 
-        size={cfg.iconSize} 
-        strokeWidth={3} // Sedikit lebih tebal agar icon jelas
-        className={`
-          ${cfg.icon}
-          transition-all duration-700 group-hover:scale-125 group-hover:rotate-[12deg]
-          filter drop-shadow-[0_0_5px_rgba(56,189,248,0.4)]
-        `} 
-      />
+      <div className="relative flex items-center justify-center">
+        {/* Subtle Pulse Effect for VIP feel */}
+        <span className={`absolute inset-0 rounded-full animate-ping opacity-20 ${isMalam ? 'bg-blue-400' : 'bg-white'}`} style={{ animationDuration: '3s' }} />
+        
+        <BadgeCheck 
+          size={cfg.iconSize} 
+          strokeWidth={2.5}
+          className={`
+            ${cfg.icon}
+            transition-all duration-500 group-hover:rotate-[15deg] group-hover:scale-110
+          `} 
+        />
+      </div>
+
       {showText && (
         <span className={`
-          font-[1000] tracking-[0.15em] uppercase antialiased
+          font-black tracking-widest uppercase italic antialiased
           ${cfg.text} ${cfg.textSize}
         `}>
           Verified
@@ -48,28 +53,30 @@ export default function VerifiedBadge({ size = "sm", showText = false, isMalam =
     </div>
   );
 
+  // Layout untuk varian dengan teks (Pills)
   if (showText) {
     return (
       <div className={`
-        inline-flex items-center px-3 py-1 rounded-full border relative overflow-hidden group
-        ${cfg.container} transition-all duration-500 hover:shadow-[0_0_20px_rgba(56,189,248,0.3)]
+        inline-flex items-center px-4 py-1.5 rounded-full border relative overflow-hidden group cursor-default
+        ${cfg.container} transition-all duration-500 hover:scale-[1.02] active:scale-95
       `}>
-        {/* Efek Kilat (Sweep Shimmer) yang lebih halus */}
-        <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-[1200ms] ease-in-out bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+        {/* Sweep Shimmer Effect */}
+        <div className={`absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-[1500ms] ease-in-out bg-gradient-to-r from-transparent ${cfg.shimmer} to-transparent`} />
         {badgeContent}
       </div>
     );
   }
 
+  // Layout untuk varian Ikon saja (Minimalist)
   return (
     <div 
-      className="inline-flex items-center justify-center relative group cursor-help p-1"
+      className="inline-flex items-center justify-center relative group cursor-help p-0.5"
       title="Verified Account"
     >
-      {/* Dynamic Aura Glow saat Hover */}
+      {/* Background Aura */}
       <div className={`
-        absolute inset-0 blur-xl rounded-full opacity-0 
-        group-hover:opacity-100 transition-all duration-700 scale-50 group-hover:scale-150
+        absolute inset-0 blur-lg rounded-full opacity-0 
+        group-hover:opacity-100 transition-all duration-700 scale-150
         ${cfg.glow}
       `} />
       

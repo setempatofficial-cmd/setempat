@@ -2,12 +2,18 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Contact2 } from "lucide-react";
+import { Home, Compass, Plus, Bell, Contact2, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, onOpenProfile, onOpenUpload }) {
+export default function SmartBottomNav({ 
+  onOpenLaporanForm, 
+  onOpenNotification, 
+  onOpenProfile, 
+  onOpenUpload,
+  onRefreshFeed,  // Props untuk refresh feed
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const { isMalam } = useTheme();
@@ -15,14 +21,15 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
   const [activeTab, setActiveTab] = useState("");
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPressing, setIsPressing] = useState(false); // ✅ State untuk sentuhan
 
-  // Ambil jumlah notifikasi yang belum dibaca dari warung_info
+  // Ambil jumlah notifikasi yang belum dibaca
   useEffect(() => {
     if (!user?.id) return;
 
     const fetchUnreadCount = async () => {
       try {
-        // Hitung notifikasi yang belum dibaca dari warung_info
         const { count, error } = await supabase
           .from("warung_info")
           .select("*", { count: 'exact', head: true })
@@ -39,7 +46,6 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
 
     fetchUnreadCount();
 
-    // Subscribe ke perubahan is_read di warung_info untuk user ini
     const channel = supabase
       .channel(`unread_count_${user.id}`)
       .on('postgres_changes', { 
@@ -47,21 +53,13 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
         schema: 'public', 
         table: 'warung_info',
         filter: `user_id=eq.${user.id}`
-      }, (payload) => {
-        // Hanya refresh jika ada perubahan is_read
-        if (payload.new && typeof payload.new.is_read !== 'undefined') {
-          fetchUnreadCount();
-        }
-      })
+      }, () => fetchUnreadCount())
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'warung_info',
         filter: `user_id=eq.${user.id}`
-      }, () => {
-        // Notifikasi baru masuk
-        fetchUnreadCount();
-      })
+      }, () => fetchUnreadCount())
       .subscribe();
 
     return () => { 
@@ -82,11 +80,44 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
     else if (pathname.startsWith("/rewang")) setActiveTab("Rewang");
   }, [pathname]);
 
-  const handleNavigation = (tabId) => {
+  // ✅ FUNGSI REFRESH DENGAN FEEDBACK VISUAL
+  const handleHomePress = async () => {
+    // Jika sudah di halaman home, lakukan refresh
+    if (pathname === "/") {
+      if (isRefreshing) return; // Cegah double refresh
+      
+      setIsRefreshing(true);
+      
+      // Trigger refresh
+      if (onRefreshFeed) {
+        await onRefreshFeed();
+      } else {
+        window.dispatchEvent(new CustomEvent("refresh-feed"));
+      }
+      
+      // Animasi refresh selesai setelah 1 detik
+      setTimeout(() => setIsRefreshing(false), 1000);
+    } else {
+      // Jika tidak di home, navigasi ke home
+      router.push("/");
+    }
+  };
+
+  // ✅ HANDLE NAVIGASI DENGAN FEEDBACK SENTUHAN
+  const handleNavigation = async (tabId) => {
     setActiveTab(tabId);
+    
+    // Feedback sentuhan: scale effect
+    setIsPressing(true);
+    setTimeout(() => setIsPressing(false), 150);
+    
     switch (tabId) {
-      case "Home": router.push("/"); break;
-      case "Sekitar": router.push("/explore"); break;
+      case "Home": 
+        await handleHomePress();
+        break;
+      case "Sekitar": 
+        router.push("/explore"); 
+        break;
       case "Woro": 
         if (onOpenNotification) onOpenNotification();
         else router.push("/woro");
@@ -112,7 +143,7 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
   if (!mounted) return null;
 
   const tabs = [
-    { id: "Home", icon: <Home size={22} />, label: "Home" },
+    { id: "Home", icon: <Home size={22} />, refreshIcon: <RefreshCw size={22} />, label: "Home" },
     { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
     ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
@@ -134,6 +165,7 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
+          const isHomeRefreshing = tab.id === "Home" && isRefreshing && pathname === "/";
 
           if (tab.isAction) {
             return (
@@ -155,7 +187,11 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
             <button
               key={tab.id}
               onClick={() => handleNavigation(tab.id)}
-              className="relative flex flex-col items-center justify-center flex-1 h-full pt-1"
+              className={`
+                relative flex flex-col items-center justify-center flex-1 h-full pt-1
+                transition-transform duration-150
+                ${isPressing ? 'scale-95' : 'scale-100'}
+              `}
             >
               <div
                 className={`relative transition-all duration-300
@@ -163,9 +199,14 @@ export default function SmartBottomNav({ onOpenLaporanForm, onOpenNotification, 
                     ? "text-orange-500 -translate-y-0.5" 
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
-                {tab.icon}
+                {/* ✅ Tampilkan icon refresh berputar saat proses refresh di home */}
+                {isHomeRefreshing ? (
+                  <RefreshCw size={22} className="animate-spin" />
+                ) : (
+                  tab.icon
+                )}
                 
-                {/* BADGE NOTIFIKASI - Hanya tampil jika ada notifikasi belum dibaca */}
+                {/* BADGE NOTIFIKASI */}
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
                     rounded-full bg-red-600 px-1 text-[8px] font-black text-white 

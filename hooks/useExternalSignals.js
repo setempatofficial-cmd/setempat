@@ -1,4 +1,3 @@
-// hooks/useExternalSignals.js
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -23,6 +22,21 @@ export function useExternalSignals(tempatId, options = {}) {
   
   const abortControllerRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const fetchExternalSignals = useCallback(async (ignoreCache = false) => {
     if (!tempatId) return [];
@@ -30,17 +44,15 @@ export function useExternalSignals(tempatId, options = {}) {
     const cacheKey = `${tempatId}_${source}_${verifiedOnly}_${limit}`;
     const cached = cache.get(cacheKey);
     if (!ignoreCache && cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-      setSignals(cached.data);
-      setLastFetch(cached.timestamp);
+      if (isMountedRef.current) {
+        setSignals(cached.data);
+        setLastFetch(cached.timestamp);
+      }
       return cached.data;
     }
     
-    // Batalkan request sebelumnya
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    // ✅ PERUBAHAN: Jangan abort request sebelumnya
+    // Biarkan request selesai dengan normal
     
     setLoading(true);
     setError(null);
@@ -56,8 +68,7 @@ export function useExternalSignals(tempatId, options = {}) {
       if (source) query = query.eq('source', source);
       if (verifiedOnly) query = query.eq('verified', true);
       
-      // Gunakan abortSignal
-      const { data, error: dbError } = await query.abortSignal(abortController.signal);
+      const { data, error: dbError } = await query;
       
       if (dbError) throw dbError;
       
@@ -89,23 +100,27 @@ export function useExternalSignals(tempatId, options = {}) {
       }));
       
       cache.set(cacheKey, { data: formattedSignals, timestamp: Date.now() });
-      setSignals(formattedSignals);
-      setLastFetch(new Date());
+      
+      if (isMountedRef.current) {
+        setSignals(formattedSignals);
+        setLastFetch(new Date());
+      }
+      
       return formattedSignals;
       
     } catch (err) {
-      // AbortError diabaikan
       if (err.name === 'AbortError' || err.message?.includes('AbortError')) {
-        console.log('Request aborted, ignoring...');
+        // Silent ignore
         return [];
       }
       console.error('Error fetching external signals:', err);
-      setError(err.message || 'Gagal mengambil data');
+      if (isMountedRef.current) {
+        setError(err.message || 'Gagal mengambil data');
+      }
       return [];
     } finally {
-      setLoading(false);
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null;
+      if (isMountedRef.current) {
+        setLoading(false);
       }
     }
   }, [tempatId, limit, source, verifiedOnly]);

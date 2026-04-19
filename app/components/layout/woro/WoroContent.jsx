@@ -181,8 +181,8 @@ export default function WoroContent() {
         activeNav="notif" 
         onOpenNotification={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onOpenProfile={() => router.push("/rewang")}
-        onOpenLaporanForm={() => router.push("/lapor")}
-        onOpenUpload={() => router.push("/upload")}
+
+        
       />
     </main>
   );

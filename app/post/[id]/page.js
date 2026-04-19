@@ -1,13 +1,16 @@
+// app/post/[id]/page.js (SETELAH REFACTOR)
 "use client";
 
 import { use } from "react";
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { useLocation } from "@/components/LocationProvider";
+import { usePostDetail } from "@/hooks/usePostDetail";
+import RekomendasiFeed from "@/components/feed/RekomendasiFeed";
 import FeedCard from "@/app/components/feed/FeedCard";
 import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
@@ -19,206 +22,6 @@ import LaporanWarga from "@/app/components/layout/LaporanWarga";
 import FormLaporanAktif from "@/app/components/modals/FormLaporanAktif";
 import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import UploadModal from "@/components/UploadModal";
-
-// ==================== KOMPONEN REKOMENDASI ====================
-function RekomendasiFeed({
-  currentItemId,
-  userLocation,
-  locationReady,
-  theme,
-  onOpenAIModal,
-  onOpenKomentarModal,
-  onShare,
-}) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(0);
-  const [comments, setComments] = useState({});
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
-  const loaderRef = useRef(null);
-  const isMalam = theme.isMalam;
-
-  const MAX_ITEMS = 15;
-
-  useEffect(() => {
-    const loadCommentsForItems = async () => {
-      const commentsMap = {};
-      for (const item of items) {
-        const { data } = await supabase
-          .from("komentar")
-          .select("*")
-          .eq("tempat_id", item.id)
-          .order("created_at", { ascending: false });
-        commentsMap[item.id] = data || [];
-      }
-      setComments(commentsMap);
-    };
-    
-    if (items.length > 0) {
-      loadCommentsForItems();
-    }
-  }, [items]);
-
-  const fetchRekomendasi = useCallback(
-    async (reset = false) => {
-      if (!hasMore && !reset) return;
-      if (items.length >= MAX_ITEMS && !reset) return;
-
-      const currentPage = reset ? 0 : page;
-      const limit = 5;
-      const offset = currentPage * limit;
-
-      setLoading(true);
-
-      try {
-        let query = supabase
-          .from("feed_view")
-          .select("*")
-          .neq("id", currentItemId)
-          .order("created_at", { ascending: false })
-          .range(offset, offset + limit - 1);
-
-        if (locationReady && userLocation?.latitude) {
-          const radius = 10;
-          const lat = userLocation.latitude;
-          const lng = userLocation.longitude;
-          const latDelta = radius / 111;
-          const lngDelta = radius / (111 * Math.cos((lat * Math.PI) / 180));
-
-          query = query
-            .gte("latitude", lat - latDelta)
-            .lte("latitude", lat + latDelta)
-            .gte("longitude", lng - lngDelta);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-
-        const uniqueData = data
-          ? Array.from(new Map(data.map((item) => [item.id, item])).values())
-          : [];
-
-        let newItems;
-        if (reset) {
-          newItems = uniqueData || [];
-        } else {
-          const combined = [...items, ...(uniqueData || [])];
-          newItems = Array.from(
-            new Map(combined.map((item) => [item.id, item])).values()
-          );
-        }
-
-        if (newItems.length > MAX_ITEMS) {
-          newItems = newItems.slice(0, MAX_ITEMS);
-          setHasMore(false);
-        } else {
-          setHasMore(
-            (data || []).length === limit && newItems.length < MAX_ITEMS
-          );
-        }
-
-        setItems(newItems);
-        setPage(currentPage + 1);
-      } catch (err) {
-        console.error("Error fetching rekomendasi:", err);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [currentItemId, page, hasMore, locationReady, userLocation, items.length]
-  );
-
-  useEffect(() => {
-    if (!loaderRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          !loading &&
-          hasMore &&
-          items.length < MAX_ITEMS
-        ) {
-          fetchRekomendasi(false);
-        }
-      },
-      { threshold: 0.1, rootMargin: "200px" }
-    );
-
-    observer.observe(loaderRef.current);
-    return () => observer.disconnect();
-  }, [loading, hasMore, fetchRekomendasi, items.length]);
-
-  useEffect(() => {
-    fetchRekomendasi(true);
-  }, []);
-
-  if (loading && items.length === 0) {
-    return (
-      <div className="flex justify-center py-8">
-        <div className="w-5 h-5 border-2 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
-          Belum ada konten lain di sekitar
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <AnimatePresence mode="popLayout" initial={false}>
-      {items.map((item, index) => (
-        <motion.div
-          key={`rekomendasi-${item.id}`}
-          layout
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ duration: 0.3, delay: index * 0.05 }}
-          className="mb-6"
-        >
-          <FeedCard
-            item={item}
-            location={userLocation}
-            locationReady={locationReady}
-            comments={comments}
-            selectedPhotoIndex={selectedPhotoIndex}
-            setSelectedPhotoIndex={setSelectedPhotoIndex}
-            openAIModal={onOpenAIModal}
-            openKomentarModal={onOpenKomentarModal}
-            onShare={onShare}
-            priority={index < 2}
-          />
-        </motion.div>
-      ))}
-      
-      {hasMore && items.length < MAX_ITEMS && (
-        <div key="loader" ref={loaderRef} className="h-10" />
-      )}
-
-      {loading && items.length > 0 && (
-        <div key="loading-indicator" className="flex justify-center py-4">
-          <div className="w-4 h-4 border-2 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {!hasMore && items.length >= MAX_ITEMS && (
-        <div key="end-message" className="text-center py-4">
-          <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
-            ✨ Semua rekomendasi telah ditampilkan ✨
-          </p>
-        </div>
-      )}
-    </AnimatePresence>
-  );
-}
 
 // ==================== KOMPONEN UTAMA ====================
 function PostDetailContent({ id }) {
@@ -234,21 +37,16 @@ function PostDetailContent({ id }) {
     setManualLocation,
   } = useLocation();
 
-  // State untuk data
-  const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [errorType, setErrorType] = useState(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const [comments, setComments] = useState({});
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
-  const [highlightCommentId, setHighlightCommentId] = useState(null);
+  // ✅ PAKAI HOOK YANG SUDAH DIBUAT
+  const { 
+    data: postData, 
+    loading, 
+    error: fetchError, 
+    refresh 
+  } = usePostDetail(id, { cacheDuration: 5 * 60 * 1000 });
 
-  // Upload Modal States
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [userId, setUserId] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+  const item = postData?.item || null;
+  const comments = postData?.comments || {};
 
   // State untuk UI
   const [isScrolled, setIsScrolled] = useState(false);
@@ -258,13 +56,17 @@ function PostDetailContent({ id }) {
   const [showAIModal, setShowAIModal] = useState(false);
   const [showKomentarModal, setShowKomentarModal] = useState(false);
   const [showFormLaporan, setShowFormLaporan] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [selectedLaporanWarga, setSelectedLaporanWarga] = useState([]);
   const [selectedUploadSuccess, setSelectedUploadSuccess] = useState(null);
   const [aiContext, setAiContext] = useState("general");
   const [initialQuery, setInitialQuery] = useState("");
   const [forceShowLaporan, setForceShowLaporan] = useState(false);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
   const [toast, setToast] = useState({ show: false, message: "" });
+  const [userId, setUserId] = useState(null);
+  const [userRole, setUserRole] = useState(null);
 
   const cardRef = useRef(null);
   const isMalam = theme.isMalam;
@@ -292,164 +94,35 @@ function PostDetailContent({ id }) {
     getUser();
   }, []);
 
-  // Scroll handler untuk header
+  // Scroll handler
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Highlight comment dari URL
-  useEffect(() => {
-    if (komentarId) setHighlightCommentId(parseInt(komentarId));
-  }, [komentarId]);
-
-  // ==================== FETCH POST DETAIL DENGAN AUTO-RETRY ====================
-  const fetchPostDetail = useCallback(async (isManualRefresh = false) => {
-    if (isManualRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    
-    setError(null);
-    setErrorType(null);
-    
-    try {
-      // Validasi ID
-      if (!id || id === "undefined" || id === "null" || isNaN(parseInt(id))) {
-        setErrorType("invalid_id");
-        throw new Error("ID konten tidak valid");
-      }
-
-      const postId = parseInt(id);
-      
-      // Coba cari di tabel tempat
-      const { data: tempat, error: tempatError } = await supabase
-        .from("tempat")
-        .select("*")
-        .eq("id", postId)
-        .maybeSingle();
-
-      if (tempat && !tempatError) {
-        const { data: laporan } = await supabase
-          .from("laporan_warga")
-          .select("*")
-          .eq("tempat_id", postId)
-          .order("created_at", { ascending: false });
-
-        const { data: komentarData } = await supabase
-          .from("komentar")
-          .select("*")
-          .eq("tempat_id", postId)
-          .order("created_at", { ascending: false });
-
-        setItem({
-          ...tempat,
-          laporan_terbaru: laporan || [],
-        });
-        setComments({ [postId]: komentarData || [] });
-        
-        setRetryCount(0);
-        setLoading(false);
-        setIsRefreshing(false);
-        return;
-      }
-
-      // Coba cari di laporan_warga
-      const { data: laporan, error: laporanError } = await supabase
-        .from("laporan_warga")
-        .select("*, tempat:tempat_id(*)")
-        .eq("id", postId)
-        .maybeSingle();
-
-      if (laporan && laporan.tempat && !laporanError) {
-        setItem({
-          ...laporan.tempat,
-          laporan_terbaru: [laporan],
-        });
-        
-        const { data: komentarData } = await supabase
-          .from("komentar")
-          .select("*")
-          .eq("tempat_id", laporan.tempat_id)
-          .order("created_at", { ascending: false });
-          
-        setComments({ [laporan.tempat_id]: komentarData || [] });
-        
-        setRetryCount(0);
-        setLoading(false);
-        setIsRefreshing(false);
-        return;
-      }
-
-      // Data tidak ditemukan
-      setErrorType("not_found");
-      throw new Error("Konten tidak ditemukan");
-
-    } catch (err) {
-      console.error("Error fetchPostDetail:", err);
-      
-      // Auto retry untuk error jaringan (bukan not_found)
-      if (retryCount < 3 && err.message !== "Konten tidak ditemukan" && err.message !== "ID konten tidak valid") {
-        console.log(`🔄 Auto-retry attempt ${retryCount + 1}/3`);
-        setTimeout(() => {
-          setRetryCount(prev => prev + 1);
-          fetchPostDetail(false);
-        }, 1500);
-        return;
-      }
-      
-      // Set error message yang ramah
-      if (err.message === "Konten tidak ditemukan" || errorType === "not_found") {
-        setError("Konten yang Anda cari tidak tersedia atau telah dihapus");
-      } else if (err.message === "ID konten tidak valid") {
-        setError("Link yang Anda gunakan tidak valid");
-      } else {
-        setError("Terjadi kesalahan saat memuat konten. Silakan coba lagi.");
-      }
-      
-      setLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [id, retryCount]);
-
-  // Fetch data post
-  useEffect(() => {
-    fetchPostDetail();
-  }, [fetchPostDetail]);
-
   // ==================== HANDLER FUNCTIONS ====================
+  const openAICardModal = useCallback((item, onUploadSuccess, query = "") => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setSelectedTempat(item);
+    setSelectedLaporanWarga(item?.laporan_terbaru || []);
+    setSelectedUploadSuccess(() => onUploadSuccess);
+    setInitialQuery(query);
+    setAiContext("card");
+    setShowAIModal(true);
+  }, [user]);
 
-  const openAICardModal = useCallback(
-    (item, onUploadSuccess, query = "") => {
-      if (!user) {
-        setIsAuthModalOpen(true);
-        return;
-      }
-      setSelectedTempat(item);
-      setSelectedLaporanWarga(item?.laporan_terbaru || []);
-      setSelectedUploadSuccess(() => onUploadSuccess);
-      setInitialQuery(query);
-      setAiContext("card");
-      setShowAIModal(true);
-    },
-    [user]
-  );
-
-  const openKomentarModal = useCallback(
-    (item) => {
-      if (!user) {
-        setIsAuthModalOpen(true);
-        return;
-      }
-      setSelectedTempat(item);
-      setShowKomentarModal(true);
-    },
-    [user]
-  );
+  const openKomentarModal = useCallback((item) => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setSelectedTempat(item);
+    setShowKomentarModal(true);
+  }, [user]);
 
   const handleShare = useCallback(async (item) => {
     const shareUrl = `${window.location.origin}/post/${item.id}`;
@@ -505,42 +178,6 @@ function PostDetailContent({ id }) {
     setTimeout(() => setToast({ show: false, message: "" }), 2000);
   }, [setManualLocation]);
 
-  // ==================== PULL TO REFRESH ====================
-  useEffect(() => {
-    let startY = 0;
-    let isPulling = false;
-
-    const handleTouchStart = (e) => {
-      if (window.scrollY === 0 && !loading && !isRefreshing && !error) {
-        startY = e.touches[0].pageY;
-        isPulling = true;
-      }
-    };
-
-    const handleTouchMove = (e) => {
-      if (!isPulling || window.scrollY > 0) return;
-      const pullDistance = e.touches[0].pageY - startY;
-      if (pullDistance > 60 && !isRefreshing) {
-        setIsRefreshing(true);
-        fetchPostDetail(true);
-      }
-    };
-
-    const handleTouchEnd = () => {
-      isPulling = false;
-    };
-
-    window.addEventListener('touchstart', handleTouchStart);
-    window.addEventListener('touchmove', handleTouchMove);
-    window.addEventListener('touchend', handleTouchEnd);
-    
-    return () => {
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [loading, isRefreshing, error, fetchPostDetail]);
-
   // ==================== LOADING STATE ====================
   if (loading) {
     return (
@@ -555,48 +192,23 @@ function PostDetailContent({ id }) {
     );
   }
 
-  // ==================== REFRESHING STATE ====================
-  if (isRefreshing) {
-    return (
-      <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300`}>
-        <div className="relative z-10 flex flex-col items-center justify-center min-h-screen">
-          <div className="w-10 h-10 border-3 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
-          <p className={`text-sm mt-4 ${isMalam ? 'text-white/40' : 'text-slate-400'}`}>
-            Memuat ulang konten...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ==================== ERROR STATE YANG RAMAH ====================
-  if (error || !item) {
+  // ==================== ERROR STATE ====================
+  if (fetchError || !item) {
     return (
       <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300`}>
         <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-6 text-center">
-          <div className="text-8xl mb-6">
-            {errorType === "not_found" ? "🔍" : "⚠️"}
-          </div>
-          
-          <h1 className="text-2xl font-black mb-2 tracking-tight">
-            {errorType === "not_found" ? "Konten Tidak Ditemukan" : "Gagal Memuat Konten"}
-          </h1>
-          
+          <div className="text-8xl mb-6">⚠️</div>
+          <h1 className="text-2xl font-black mb-2 tracking-tight">Gagal Memuat Konten</h1>
           <p className={`text-sm mb-6 max-w-[280px] ${isMalam ? 'text-white/50' : 'text-slate-500'}`}>
-            {error}
+            {fetchError?.message || "Terjadi kesalahan saat memuat konten"}
           </p>
-          
           <div className="flex flex-col gap-3 w-full max-w-[280px]">
             <button
-              onClick={() => {
-                setRetryCount(0);
-                fetchPostDetail(true);
-              }}
+              onClick={() => refresh()}
               className="px-6 py-3 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white text-sm font-bold shadow-lg shadow-orange-500/25 active:scale-95 transition-all"
             >
-              🔄 Muat Ulang Halaman
+              🔄 Muat Ulang
             </button>
-            
             <button
               onClick={() => router.push("/")}
               className={`px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 ${isMalam ? 'bg-white/10 text-white/80' : 'bg-black/5 text-slate-700'}`}
@@ -604,13 +216,6 @@ function PostDetailContent({ id }) {
               🏠 Kembali ke Beranda
             </button>
           </div>
-          
-          {errorType !== "not_found" && (
-            <div className={`mt-8 text-[11px] ${isMalam ? 'text-white/30' : 'text-slate-400'}`}>
-              <p>💡 Tips: Periksa koneksi internet Anda</p>
-              <p className="mt-1">📞 Jika masalah berlanjut, coba lagi beberapa saat</p>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -619,28 +224,14 @@ function PostDetailContent({ id }) {
   // ==================== MAIN RETURN ====================
   return (
     <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300`}>
-      
       {/* Ambient Effects */}
       {theme.isMalam && (
         <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-          <div 
-            className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
-            style={{ backgroundColor: '#3b82f6' }} 
-          />
-          <div 
-            className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]"
-            style={{ backgroundColor: '#8b5cf6' }} 
-          />
+          <div className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]" style={{ backgroundColor: '#3b82f6' }} />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]" style={{ backgroundColor: '#8b5cf6' }} />
         </div>
       )}
 
-      {!theme.isMalam && (
-        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-30">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/5 to-transparent" />
-        </div>
-      )}
-
-      {/* Konten */}
       <div className="relative z-10">
         <main className="relative mx-auto w-[92%] max-w-[400px] bg-transparent">
           <Header
@@ -718,7 +309,6 @@ function PostDetailContent({ id }) {
                     openKomentarModal={openKomentarModal}
                     onShare={handleShare}
                     priority={true}
-                    highlightCommentId={highlightCommentId}
                   />
                 </motion.div>
 
@@ -731,7 +321,7 @@ function PostDetailContent({ id }) {
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/30 to-transparent" />
                 </div>
 
-                {/* REKOMENDASI */}
+                {/* REKOMENDASI - PAKAI KOMPONEN TERPISAH */}
                 <RekomendasiFeed
                   currentItemId={parseInt(id)}
                   userLocation={location}
@@ -775,7 +365,6 @@ function PostDetailContent({ id }) {
             isAdmin={isAdmin}
           />
 
-          {/* BOTTOM NAV with Upload Modal */}
           <SmartBottomNav 
             onOpenUpload={() => setShowUploadModal(true)}
             onOpenLaporanForm={() => setShowFormLaporan(true)}
@@ -783,7 +372,6 @@ function PostDetailContent({ id }) {
             onOpenProfile={() => router.push("/rewang")}            
           />
 
-          {/* UPLOAD MODAL for Superadmin & Admin */}
           <UploadModal
             isOpen={showUploadModal}
             onClose={() => setShowUploadModal(false)}

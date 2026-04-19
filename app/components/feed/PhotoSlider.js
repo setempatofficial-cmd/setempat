@@ -26,7 +26,7 @@ const normalizeOfficialPhotos = (photos) => {
   return result;
 };
 
-// ========== HOOK UNTUK TIME KEY (OPTIMIZED - UPDATE PER JAM) ==========
+// ========== HOOK UNTUK TIME KEY ==========
 const useTimeKey = () => {
   const [timeKey, setTimeKey] = useState(() => {
     const label = getIndonesianTimeLabel();
@@ -34,15 +34,13 @@ const useTimeKey = () => {
   });
 
   useEffect(() => {
-    // Update hanya ketika pergantian waktu (Pagi/Siang/Sore/Malam)
     let timeoutId = null;
     
     const scheduleNextCheck = () => {
       const now = new Date();
       const hour = now.getHours();
       
-      // Tentukan kapan waktu berikutnya berganti
-      let nextChangeHour = 10; // Siang
+      let nextChangeHour = 10;
       let nextChangeLabel = "Siang";
       
       if (hour < 10) {
@@ -70,7 +68,7 @@ const useTimeKey = () => {
       timeoutId = setTimeout(() => {
         const newLabel = getIndonesianTimeLabel().toLowerCase();
         setTimeKey(prev => prev !== newLabel ? newLabel : prev);
-        scheduleNextCheck(); // Schedule next change
+        scheduleNextCheck();
       }, delay);
     };
     
@@ -84,7 +82,7 @@ const useTimeKey = () => {
   return timeKey;
 };
 
-// ========== PRELOAD IMAGE (UNTUK LCP) ==========
+// ========== PRELOAD IMAGE ==========
 const preloadImage = (url, priority = false) => {
   if (!url || !priority) return;
   if (typeof window === 'undefined') return;
@@ -100,6 +98,10 @@ const preloadImage = (url, priority = false) => {
   }
 };
 
+// ========== CACHE UNTUK OFFICIAL PHOTOS ==========
+const officialPhotosCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 menit
+
 export default function PhotoSlider({
   photos = [],
   tempatId,
@@ -110,18 +112,25 @@ export default function PhotoSlider({
   setSelectedPhotoIndex,
   selectedPhotoIndex,
 }) {
-  // OPTIMIZED: Gunakan useTimeKey instead of useClock
   const currentTimeKey = useTimeKey();
   
-  const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
-  const [isLoading, setIsLoading] = useState(true);
+  const [officialPhotos, setOfficialPhotos] = useState(() => {
+    // ✅ Coba ambil dari cache dulu
+    const cached = officialPhotosCache.get(tempatId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+    return { pagi: [], siang: [], sore: [], malam: [] };
+  });
+  
+  const [isLoading, setIsLoading] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(() => selectedPhotoIndex || 0);
   const [shouldLoad, setShouldLoad] = useState(priority);
-  const [isPreloaded, setIsPreloaded] = useState(false);
   const sliderRef = useRef(null);
   const preloadDoneRef = useRef(false);
+  const hasFetchedRef = useRef(false);
   
-  // Sync with parent if needed
+  // Sync with parent
   useEffect(() => {
     if (selectedPhotoIndex !== undefined && selectedPhotoIndex !== currentPhotoIndex) {
       setCurrentPhotoIndex(selectedPhotoIndex);
@@ -138,7 +147,7 @@ export default function PhotoSlider({
     setCurrentPhotoIndex(0);
   }, [currentTimeKey]);
 
-  // INTERSECTION OBSERVER - Optimized
+  // Intersection Observer
   useEffect(() => {
     if (priority) {
       setShouldLoad(true);
@@ -166,59 +175,48 @@ export default function PhotoSlider({
     };
   }, [priority, shouldLoad]);
 
-  // PRELOAD IMAGE FOR LCP (KRITIS)
+  // ✅ PRELOAD FIRST IMAGE (LCP)
   useEffect(() => {
     if (!priority || preloadDoneRef.current || !shouldLoad) return;
     
-    const preloadFirstImage = async () => {
-      let firstImageUrl = null;
-      
-      // Cek foto warga terbaru
-      if (photos.length > 0) {
-        const freshWargaPhotos = photos.filter(p => {
-          const createdAt = p.created_at || p.timestamp;
-          if (!createdAt) return true;
-          return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
-        });
-        if (freshWargaPhotos.length > 0) {
-          firstImageUrl = freshWargaPhotos[0]?.url || freshWargaPhotos[0]?.photo_url;
-        }
-      }
-      
-      // Jika tidak ada, coba fetch official photos
-      if (!firstImageUrl && tempatId) {
-        try {
-          const { data } = await supabase
-            .from("tempat")
-            .select("photos")
-            .eq("id", tempatId)
-            .single();
-          
-          if (data?.photos) {
-            const normalized = normalizeOfficialPhotos(data.photos);
-            const timePhotos = normalized[currentTimeKey];
-            if (timePhotos?.length > 0) {
-              firstImageUrl = timePhotos[0]?.url || timePhotos[0];
-            }
-          }
-        } catch (e) {
-          // Silent fail
-        }
-      }
-      
-      if (firstImageUrl && typeof firstImageUrl === 'string' && firstImageUrl.startsWith('http')) {
-        preloadImage(firstImageUrl, true);
-        preloadDoneRef.current = true;
-        setIsPreloaded(true);
-      }
-    };
+    let firstImageUrl = null;
     
-    preloadFirstImage();
-  }, [priority, shouldLoad, photos, tempatId, currentTimeKey]);
+    // Prioritaskan dari props photos (sudah ada di cache)
+    if (photos.length > 0) {
+      const freshWargaPhotos = photos.filter(p => {
+        const createdAt = p.created_at || p.timestamp;
+        if (!createdAt) return true;
+        return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
+      });
+      if (freshWargaPhotos.length > 0) {
+        firstImageUrl = freshWargaPhotos[0]?.url || freshWargaPhotos[0]?.photo_url;
+      }
+    }
+    
+    // Jika tidak ada di photos, coba dari officialPhotos state (sudah ada)
+    if (!firstImageUrl && officialPhotos[currentTimeKey]?.length > 0) {
+      firstImageUrl = officialPhotos[currentTimeKey][0]?.url || officialPhotos[currentTimeKey][0];
+    }
+    
+    if (firstImageUrl && typeof firstImageUrl === 'string' && firstImageUrl.startsWith('http')) {
+      preloadImage(firstImageUrl, true);
+      preloadDoneRef.current = true;
+    }
+  }, [priority, shouldLoad, photos, officialPhotos, currentTimeKey]);
 
-  // Fetch official photos
+  // ✅ Fetch official photos (hanya sekali, dengan cache)
   const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId || !shouldLoad) return;
+    if (!tempatId || !shouldLoad || hasFetchedRef.current) return;
+    
+    // Cek cache lagi
+    const cached = officialPhotosCache.get(tempatId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      setOfficialPhotos(cached.data);
+      hasFetchedRef.current = true;
+      return;
+    }
+    
+    hasFetchedRef.current = true;
     
     try {
       const { data, error } = await supabase
@@ -228,22 +226,22 @@ export default function PhotoSlider({
         .single();
         
       if (!error && data?.photos) {
-        setOfficialPhotos(normalizeOfficialPhotos(data.photos));
+        const normalized = normalizeOfficialPhotos(data.photos);
+        setOfficialPhotos(normalized);
+        // Simpan ke cache
+        officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
       }
     } catch (err) {
       console.error("Fetch error:", err);
-    } finally {
-      setIsLoading(false);
     }
   }, [tempatId, shouldLoad]);
 
   useEffect(() => {
     if (!shouldLoad) return;
-    setIsLoading(true);
     fetchOfficialPhotos();
   }, [fetchOfficialPhotos, shouldLoad]);
 
-  // Realtime subscription (hanya jika perlu)
+  // Realtime subscription
   useEffect(() => {
     if (!tempatId || !shouldLoad) return;
     
@@ -256,7 +254,10 @@ export default function PhotoSlider({
         filter: `id=eq.${tempatId}`
       }, (payload) => {
         if (payload.new?.photos) {
-          setOfficialPhotos(normalizeOfficialPhotos(payload.new.photos));
+          const normalized = normalizeOfficialPhotos(payload.new.photos);
+          setOfficialPhotos(normalized);
+          // Update cache
+          officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
         }
       })
       .subscribe();
@@ -264,11 +265,9 @@ export default function PhotoSlider({
     return () => supabase.removeChannel(channel);
   }, [tempatId, shouldLoad]);
 
-  // Process current photos - OPTIMIZED
+  // ✅ Process current photos - LANGSUNG dari data yang sudah ada
   const currentPhotos = useMemo(() => {
-    if (!shouldLoad) return [];
-    
-    // Prioritaskan foto warga (24 jam terakhir)
+    // Prioritaskan foto warga dari props
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -291,7 +290,7 @@ export default function PhotoSlider({
       }
     }
     
-    // Foto official berdasarkan waktu
+    // Foto official
     const timePhotos = officialPhotos[currentTimeKey];
     if (timePhotos?.length > 0) {
       const sorted = [...timePhotos].sort((a, b) => {
@@ -308,7 +307,7 @@ export default function PhotoSlider({
     }
     
     return [];
-  }, [photos, officialPhotos, currentTimeKey, shouldLoad]);
+  }, [photos, officialPhotos, currentTimeKey]);
 
   const nextPhoto = useCallback(() => {
     if (currentPhotos.length <= 1) return;
@@ -322,9 +321,62 @@ export default function PhotoSlider({
 
   const currentPhoto = currentPhotos[currentPhotoIndex];
   const hasMultiplePhotos = currentPhotos.length > 1;
+  const hasNoPhoto = currentPhotos.length === 0 && !shouldLoad;
 
-  // Skeleton loading - TANPA animate-pulse (kurangi CSS blocking)
-  if (!shouldLoad) {
+  // ✅ TAMPILAN LEBIH CEPAT: Langsung render jika ada photos
+  if (currentPhotos.length > 0) {
+    return (
+      <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
+        <div className="absolute inset-0 z-0">
+          <OptimizedMedia 
+            src={currentPhoto.url} 
+            className="w-full h-full object-cover" 
+            alt={namaTempat}
+            autoPlay={true}
+            muted={true}
+            loop={true}
+            fetchPriority={priority ? "high" : "auto"}
+            loading={priority ? "eager" : "lazy"}
+            priority={priority}
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
+          
+          {currentPhoto.caption && (
+            <div className="absolute bottom-4 right-4 z-10 max-w-[45%]">
+              <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 rounded-xl shadow-sm">
+                <div className="w-1 h-1 rounded-full bg-white/40 shadow-[0_0_5px_white]" />
+                <p className="text-[8px] font-black uppercase tracking-tighter text-white/80 leading-none truncate">
+                  {currentPhoto.caption}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {hasMultiplePhotos && (
+          <>
+            <button onClick={prevPhoto} className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95">
+              <ChevronLeft size={16} />
+            </button>
+            <button onClick={nextPhoto} className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95">
+              <ChevronRight size={16} />
+            </button>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
+              {currentPhotos.map((_, idx) => (
+                <button key={idx} onClick={() => setCurrentPhotoIndex(idx)} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-blue-500/5" />}
+        <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+      </div>
+    );
+  }
+
+  // Loading state (hanya jika benar-benar tidak ada data)
+  if (!shouldLoad || (isLoading && currentPhotos.length === 0)) {
     return (
       <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-800/50 flex items-center justify-center">
         <div className="w-5 h-5 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
@@ -332,88 +384,15 @@ export default function PhotoSlider({
     );
   }
 
-  if (isLoading && !currentPhoto?.url) {
-    return (
-      <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-900 flex items-center justify-center">
-        <Zap className="text-zinc-700" size={18} />
-      </div>
-    );
-  }
-
+  // Empty state
   return (
-    <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
-      <div className="absolute inset-0 z-0">
-        {currentPhoto?.url ? (
-          <>
-            <OptimizedMedia 
-              src={currentPhoto.url} 
-              className="w-full h-full object-cover" 
-              alt={namaTempat}
-              autoPlay={true}
-              muted={true}
-              loop={true}
-              fetchPriority={priority ? "high" : "auto"}
-              loading={priority ? "eager" : "lazy"}
-              priority={priority}
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent opacity-60" />
-            
-            {currentPhoto.caption && (
-              <div className="absolute bottom-4 right-4 z-10 max-w-[45%]">
-                <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 rounded-xl shadow-sm">
-                  <div className="w-1 h-1 rounded-full bg-white/40 shadow-[0_0_5px_white]" />
-                  <p className="text-[8px] font-black uppercase tracking-tighter text-white/80 leading-none truncate">
-                    {currentPhoto.caption}
-                  </p>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/50 backdrop-blur-sm">
-            <MapPin className="text-zinc-700 mb-2" size={24} />
-            <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold italic">
-              Hasil Pantauan AI Setempat
-            </p>
-          </div>
-        )}
+    <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-900 flex items-center justify-center">
+      <div className="flex flex-col items-center justify-center bg-zinc-900/50 backdrop-blur-sm">
+        <MapPin className="text-zinc-700 mb-2" size={24} />
+        <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold italic">
+          Hasil Pantauan AI Setempat
+        </p>
       </div>
-
-      {/* Navigasi - hanya render jika ada multiple photos */}
-      {hasMultiplePhotos && currentPhoto?.url && (
-        <>
-          <button 
-            onClick={prevPhoto} 
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
-            aria-label="Previous photo"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <button 
-            onClick={nextPhoto} 
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
-            aria-label="Next photo"
-          >
-            <ChevronRight size={16} />
-          </button>
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
-            {currentPhotos.map((_, idx) => (
-              <button 
-                key={idx} 
-                onClick={() => setCurrentPhotoIndex(idx)} 
-                className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`}
-                aria-label={`Go to photo ${idx + 1}`}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Efek hujan - tanpa animate-pulse (kurangi CSS blocking) */}
-      {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-blue-500/5" />}
-      
-      {/* Gradient bottom */}
-      <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
     </div>
   );
 }

@@ -1,21 +1,24 @@
-"use client";
+'use client';
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageSquare, Heart, Share2, MapPin, Search, Bell, ShieldCheck } from "lucide-react";
+import { X, MessageSquare, Heart, Share2, MapPin, Search, Bell, ShieldCheck, Plus } from "lucide-react";
 import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import LaporPanel from "@/app/components/ai/LaporPanel";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import { useTheme } from "@/app/hooks/useTheme";
+import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
-  const [reports, setReports] = useState([]);
+  
+  // ✅ Hook dengan cache (handle fetch & cache otomatis)
+  const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 50 });
+  
   const [currentIndex, setCurrentIndex] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showLaporPanel, setShowLaporPanel] = useState(false);
   const [selectedTempat, setSelectedTempat] = useState(null);
@@ -29,6 +32,7 @@ export default function CitizenHub({ userId, userRole }) {
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
   const isScrollingRef = useRef(false);
+  const isAutoScrollingRef = useRef(false); // ✅ Tambahan untuk cegah konflik scroll
 
   // FUNGSI UNTUK MEMBUKA LAPOR PANEL
   const handleOpenUpload = () => {
@@ -36,9 +40,11 @@ export default function CitizenHub({ userId, userRole }) {
     setShowLaporPanel(true);
   };
 
-  // HANDLE SUCCESS LAPORAN
+  
+  // ✅ UPDATE handleLaporanSuccess untuk update cache
   const handleLaporanSuccess = (newReport) => {
-    setReports(prev => [newReport, ...prev]);
+    const updated = [newReport, ...(reports || [])];
+    updateCache(updated);
     setShowLaporPanel(false);
   };
 
@@ -74,23 +80,7 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, [currentIndex]);
 
-  // Scroll ke index
-  useEffect(() => {
-    if (currentIndex !== null && modalScrollRef.current) {
-      setTimeout(() => {
-        const container = modalScrollRef.current;
-        if (!container) return;
-
-        const targetElement = container.children[currentIndex];
-        if (targetElement) {
-          targetElement.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-          });
-        }
-      }, 100);
-    }
-  }, [currentIndex]);
+  // ✅ HAPUS useEffect scroll yang lama (diganti dengan requestAnimationFrame di openModal)
 
   // Get session
   useEffect(() => {
@@ -159,44 +149,22 @@ export default function CitizenHub({ userId, userRole }) {
     getCurrentUser();
   }, [activeUserId]);
 
-  // Get reports
-  useEffect(() => {
-    const getReports = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("laporan_warga")
-          .select(`
-            *,
-            tempat:tempat_id (name)
-          `)
-          .order("created_at", { ascending: false });
+  // ✅ LANGSUNG PAKAI reports dari hook, tanpa fetch manual
 
-        if (error) throw error;
-        setReports(data || []);
-      } catch (err) {
-        console.error("Reports fetch error:", err);
-        setReports([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    getReports();
-  }, []);
-
-  // Filtered reports
-  const filteredReports = reports.filter(r =>
+  const filteredReports = (reports || []).filter(r =>
     r.deskripsi?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.user_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Modal scroll handler
+  // ✅ UPDATE handleModalScroll dengan cek auto-scroll
   const handleModalScroll = (e) => {
-    if (isScrollingRef.current || currentIndex === null) return;
-
-    isScrollingRef.current = true;
-
-    const { scrollTop, clientHeight } = e.target;
+    // Jangan proses jika sedang auto-scroll dari openModal
+    if (isAutoScrollingRef.current) return;
+    
+    const container = e.target;
+    const { scrollTop, clientHeight } = container;
+    
+    // Gunakan threshold 0.5 untuk menentukan kapan index berpindah
     const newIndex = Math.round(scrollTop / clientHeight);
 
     if (newIndex !== currentIndex && newIndex >= 0 && newIndex < filteredReports.length) {
@@ -209,14 +177,37 @@ export default function CitizenHub({ userId, userRole }) {
   };
 
   // ================== MODAL FULLSCREEN ==================
+  // ✅ UPDATE openModal dengan requestAnimationFrame
   const openModal = (index) => {
     setCurrentIndex(index);
     document.body.style.overflow = 'hidden';
+    
+    // Set flag bahwa ini auto-scroll
+    isAutoScrollingRef.current = true;
+    
+    // Double requestAnimationFrame memastikan DOM sudah siap
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (modalScrollRef.current?.children[index]) {
+          modalScrollRef.current.children[index].scrollIntoView({
+            behavior: 'instant',
+            block: 'start'
+          });
+        }
+        
+        // Reset flag setelah scroll selesai
+        setTimeout(() => {
+          isAutoScrollingRef.current = false;
+        }, 150);
+      });
+    });
   };
 
+  // ✅ UPDATE closeModal dengan reset flag
   const closeModal = () => {
     setCurrentIndex(null);
     document.body.style.overflow = 'visible';
+    isAutoScrollingRef.current = false;
   };
 
   // Cleanup saat unmount
@@ -271,14 +262,14 @@ export default function CitizenHub({ userId, userRole }) {
     }
   };
 
-  // Card component
+  // Card component (sama seperti sebelumnya, tidak diubah)
   const ReportCard = ({ report, index }) => (
     <motion.div
       key={report.id}
       whileTap={{ scale: 0.98 }}
       onClick={() => openModal(index)}
-      className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"
-    >
+      className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"    
+>
       {report.photo_url || report.video_url ? (
         <>
           <img
@@ -346,7 +337,7 @@ export default function CitizenHub({ userId, userRole }) {
 
   return (
     <div className={`min-h-screen ${isMalam ? 'bg-black' : 'bg-gray-50'} flex justify-center font-sans`}>
-      <div className={`w-full max-w-md min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
+      <div className={`w-full max-w-[400px] min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
 
         {/* Header */}
         <motion.header
@@ -356,7 +347,7 @@ export default function CitizenHub({ userId, userRole }) {
             opacity: isHeaderVisible ? 1 : 0
           }}
           transition={{ duration: 0.25, ease: "easeInOut" }}
-          className={`fixed top-0 w-full max-w-md z-50 ${isMalam ? 'bg-zinc-900/95' : 'bg-white/95'} backdrop-blur-xl border-b ${isMalam ? 'border-white/10' : 'border-gray-200'}`}
+          className={`fixed top-0 w-full max-w-[400px] z-50 ${isMalam ? 'bg-zinc-900/95' : 'bg-white/95'} backdrop-blur-xl border-b ${isMalam ? 'border-white/10' : 'border-gray-200'}`}
         >
           <div className="px-4 pt-5 pb-3 space-y-3">
             <div className="flex justify-between items-center">
@@ -428,16 +419,18 @@ export default function CitizenHub({ userId, userRole }) {
         />
 
         {/* TOMBOL UPLOAD FLOATING */}
-        {!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
-          <div className="uploader-container-frame">
-            <button onClick={handleOpenUpload}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-          </div>
-        )}
+{!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
+  <div className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none z-[70]">
+    <div className="w-full max-w-[400px] relative h-[150px]">
+      <button 
+        onClick={handleOpenUpload}
+        className="uploader-floating-btn pointer-events-auto"
+      >
+        <Plus size={28} strokeWidth={3} />
+      </button>
+    </div>
+  </div>
+)}
 
         {/* LAPOR PANEL */}
         {showLaporPanel && (
@@ -480,13 +473,12 @@ export default function CitizenHub({ userId, userRole }) {
           {currentIndex !== null && (
             <motion.div
               key="modal-container"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              initial={{ opacity: 0, scale: 1.1 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.1 }}
               className="fixed inset-0 z-[99999] flex items-center justify-center"
             >
-              <div className={`w-full max-w-md h-full relative ${isMalam ? 'bg-black' : 'bg-white'}`}>
+              <div className={`w-full max-w-[400px] h-[100dvh] relative overflow-hidden ${isMalam ? 'bg-black' : 'bg-white'}`}>
                 {/* Backdrop */}
                 <div
                   className="absolute inset-0 bg-black/90"
@@ -496,21 +488,25 @@ export default function CitizenHub({ userId, userRole }) {
                 {/* Close Button */}
                 <button
                   onClick={closeModal}
-                  className="absolute top-4 right-4 z-[110] w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-all"
+                  className="absolute top-6 right-4 z-[110] w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-all"
                 >
-                  <X size={20} />
+                  <X size={24} />
                 </button>
 
                 {/* Scrollable Content */}
                 <div
                   ref={modalScrollRef}
                   onScroll={handleModalScroll}
-                  className="relative z-10 h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar scroll-smooth"
+                   className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar scroll-smooth touch-pan-y"
+                  style={{
+                     WebkitOverflowScrolling: 'touch',
+                     scrollSnapStop: 'always'
+                  }}
                 >
                   {filteredReports.map((report, idx) => (
                     <div
                       key={report.id}
-                      className="h-full w-full snap-start relative flex flex-col bg-zinc-950"
+                      className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden"
                     >
                       {/* Media Background - Full Screen */}
                       <div className="absolute inset-0 w-full h-full overflow-hidden">
@@ -628,98 +624,108 @@ export default function CitizenHub({ userId, userRole }) {
 </div>
                       ) : (
                         // TIDAK ADA FOTO: Konten di TENGAH
-                        <div className="relative h-full flex flex-col">
-                          {/* Konten Tengah - Deskripsi */}
-                          <div className="flex-1 flex flex-col items-center justify-center p-6">
-                            <div className="bg-white/5 p-8 rounded-3xl backdrop-blur-sm border border-white/10 max-w-sm w-full text-center">
-                              {/* Badge Kondisi */}
-                              {report.tipe && (
-                                <div className="mb-4 flex justify-center">
-                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border ${report.tipe === "Ramai"
-                                    ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
-                                    : report.tipe === "Antri"
-                                      ? "bg-rose-500/20 border-rose-500/40 text-rose-300"
-                                      : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                                    }`}>
-                                    <span className="text-base">
-                                      {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
-                                    </span>
-                                    <span>{report.tipe}</span>
-                                  </span>
-                                </div>
-                              )}
+<div className="relative h-full flex flex-col justify-between">
+  
+  {/* KONTEN UTAMA (Teks & Info) - PUSHED TO TOP */}
+  <div className="flex-1 flex flex-col items-center justify-center p-6 pt-12">
+    <div className="bg-white/5 p-8 rounded-3xl backdrop-blur-sm border border-white/10 max-w-sm w-full text-center">
+      
+      {/* NAMA TEMPAT - PALING ATAS */}
+      <div className="mb-3 flex justify-center">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 border border-white/20">
+          <MapPin size={12} className="text-[#E3655B]" />
+          <span className="text-white/80 text-xs font-medium uppercase tracking-wider">
+            {report.tempat?.name || "Lokasi"}
+          </span>
+        </span>
+      </div>
 
-                              {/* DESKRIPSI UTAMA - BESAR DI TENGAH */}
-                              <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed mb-6 tracking-tight">
-                                "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
-                              </p>
+      {/* Badge Kondisi (Ramai/Antri/Sepi) */}
+      {report.tipe && (
+        <div className="mb-4 flex justify-center">
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border ${
+            report.tipe === "Ramai" 
+              ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
+              : report.tipe === "Antri"
+              ? "bg-rose-500/20 border-rose-500/40 text-rose-300"
+              : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+          }`}>
+            <span className="text-base">
+              {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
+            </span>
+            <span>{report.tipe}</span>
+          </span>
+        </div>
+      )}
 
-                              {/* Info User */}
-                              <div className="flex items-center justify-center gap-2 mb-4">
-                                <img
-                                  src={report.user_avatar || "/default-avatar.png"}
-                                  className="w-6 h-6 rounded-full border border-white/30"
-                                  alt="avatar"
-                                  onError={(e) => { e.target.src = "/default-avatar.png"; }}
-                                />
-                                <span className="text-white/80 text-sm font-medium">
-                                  @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
-                                </span>
-                              </div>
+      {/* DESKRIPSI UTAMA */}
+      <p className="text-white font-black text-xl sm:text-2xl md:text-3xl leading-relaxed tracking-tight italic">
+        "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
+      </p>
 
-                              {/* Lokasi & Waktu */}
-                              <div className="flex items-center justify-center gap-2 text-white/40 text-xs pt-4 border-t border-white/10">
-                                <MapPin size={12} className="text-[#E3655B]/60" />
-                                <span>{report.tempat?.name || "Lokasi"}</span>
-                                <span>•</span>
-                                <span>{formatTimeAgo(report.created_at)}</span>
-                              </div>
-                            </div>
-                          </div>
+      {/* Info User & Waktu */}
+      <div className="flex items-center justify-center gap-2 mt-6 pt-4 border-t border-white/10">
+        <img
+          src={report.user_avatar || "/default-avatar.png"}
+          className="w-6 h-6 rounded-full border border-white/30"
+          alt="avatar"
+          onError={(e) => { e.target.src = "/default-avatar.png"; }}
+        />
+        <span className="text-white/80 text-sm font-medium">
+          @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+        </span>
+        <span className="text-white/40 text-xs">•</span>
+        <span className="text-white/40 text-xs">
+          {formatTimeAgo(report.created_at)}
+        </span>
+      </div>
+      
+    </div>
+  </div>
 
-                          {/* BAGIAN BAWAH: Kolom Komentar + Action Buttons */}
-                          <div className="p-4 pb-28 sm:p-7 sm:pb-24">
-                            <div className="flex justify-between items-end gap-3 sm:gap-5">
-                              <div className="flex-1 min-w-0">
-                                {/* Kolom Komentar */}
-                                <div className="flex gap-2">
-                                  <input
-                                    value={commentTexts[report.id] || ""}
-                                    onChange={(e) => setCommentTexts(prev => ({ ...prev, [report.id]: e.target.value }))}
-                                    placeholder="Tulis komentar..."
-                                    className="flex-1 h-10 sm:h-12 bg-white/10 border border-white/5 rounded-xl px-3 text-xs text-white outline-none focus:border-[#E3655B]/50 transition-all"
-                                  />
-                                  <button
-                                    onClick={() => handleSendComment(report)}
-                                    disabled={isSubmitting || !(commentTexts[report.id] || "").trim()}
-                                    className="px-4 bg-[#E3655B] text-white rounded-xl text-xs font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {isSubmitting ? "..." : "Kirim"}
-                                  </button>
-                                </div>
-                              </div>
+  {/* BAGIAN BAWAH: Kolom Komentar + Action Buttons - FIXED AT BOTTOM */}
+  <div className="sticky bottom-0 w-full bg-gradient-to-t from-black/90 via-black/70 to-transparent pt-8 pb-6 px-4">
+    <div className="flex justify-between items-end gap-3 sm:gap-5">
+      <div className="flex-1 min-w-0">
+        <div className="flex gap-2">
+          <input
+            value={commentTexts[report.id] || ""}
+            onChange={(e) => setCommentTexts(prev => ({ ...prev, [report.id]: e.target.value }))}
+            placeholder="Tulis komentar..."
+            className="flex-1 h-10 sm:h-12 bg-white/20 border border-white/10 rounded-xl px-3 text-xs text-white outline-none focus:border-[#E3655B]/50 transition-all placeholder:text-white/40 backdrop-blur-sm"
+          />
+          <button
+            onClick={() => handleSendComment(report)}
+            disabled={isSubmitting || !(commentTexts[report.id] || "").trim()}
+            className="px-4 bg-[#E3655B] text-white rounded-xl text-xs font-bold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? "..." : "Kirim"}
+          </button>
+        </div>
+      </div>
 
-                              {/* Action Buttons */}
-                              <div className="flex flex-col gap-4 items-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
-                                    <Heart size={20} />
-                                  </button>
-                                  <span className="text-[9px] font-bold text-white/60">Like</span>
-                                </div>
-                                <div className="flex flex-col items-center gap-1">
-                                  <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
-                                    <MessageSquare size={20} />
-                                  </button>
-                                  <span className="text-[9px] font-bold text-white/60">Chat</span>
-                                </div>
-                                <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#E3655B] flex items-center justify-center text-white hover:bg-[#E3655B]/80 transition-all">
-                                  <Share2 size={18} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+      {/* Action Buttons */}
+      <div className="flex flex-col gap-4 items-center">
+        <div className="flex flex-col items-center gap-1">
+          <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/30 transition-all">
+            <Heart size={20} />
+          </button>
+          <span className="text-[9px] font-bold text-white/60">Like</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/30 transition-all">
+            <MessageSquare size={20} />
+          </button>
+          <span className="text-[9px] font-bold text-white/60">Chat</span>
+        </div>
+        <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#E3655B] flex items-center justify-center text-white hover:bg-[#E3655B]/80 transition-all">
+          <Share2 size={18} />
+        </button>
+      </div>
+    </div>
+  </div>
+  
+</div>
                       )}
                     </div>
                   ))}
@@ -731,67 +737,61 @@ export default function CitizenHub({ userId, userRole }) {
       </div>
 
       <style jsx global>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .animate-spin { animation: spin 1s linear infinite; }
-        
-        nav { 
-          max-width: 28rem !important; 
-          margin: 0 auto !important; 
-          left: 0 !important; 
-          right: 0 !important; 
-        }
-        
-        html {
-          scroll-behavior: smooth;
-        }
-        
-        .snap-y {
-          scroll-snap-type: y mandatory;
-          scroll-snap-stop: always;
-        }
-        
-        .snap-start {
-          scroll-snap-align: start;
-        }
+  .uploader-floating-btn {
+    position: absolute !important;
+    bottom: 90px !important; 
+    right: 16px !important;
+    width: 56px !important;
+    height: 56px !important;
+    background: linear-gradient(to bottom right, #1e293b, #e3655b) !important;
+    color: #ffffff !important;
+    border-radius: 18px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 4px solid ${isMalam ? "#0C0C0C" : "#ffffff"} !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+    transition: all 0.2s ease !important;
+  }
 
-        /* UPLOADER BUTTON */
-        .uploader-container-frame button {
-          position: fixed !important; 
-          bottom: 100px !important;
-          left: 50% !important;
-          transform: translateX(140px) !important; 
-          width: 62px !important;
-          height: 62px !important;
-          border-radius: 22px !important;
-          background: linear-gradient(135deg, #E3655B 0%, #ff7d72 100%) !important;
-          box-shadow: 
-            0 10px 25px -5px rgba(0, 0, 0, 0.3),
-            0 8px 20px -5px rgba(227, 101, 91, 0.5) !important;
-          z-index: 100 !important; 
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          border: 2px solid rgba(255, 255, 255, 0.3) !important;
-          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-          cursor: pointer !important;
-        }
+  .uploader-floating-btn:active {
+    transform: scale(0.9) !important;
+    opacity: 0.9 !important;
+  }
 
-        .uploader-container-frame button:active {
-          transform: translateX(140px) scale(0.85) !important;
-          filter: brightness(1.1);
-          box-shadow: 0 5px 15px -3px rgba(227, 101, 91, 0.7) !important;
-        }
+  /* Mencegah tarikan layar (pull-to-refresh) saat buka story */
+  body.modal-open {
+    overflow: hidden;
+    overscroll-behavior-y: none;
+    -ms-overflow-style: none;
+  }
 
-        .uploader-container-frame button svg {
-          width: 32px !important;
-          height: 32px !important;
-          color: white !important;
-          stroke-width: 3px !important;
-          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-        }
-      `}</style>
+  /* Tambahkan ini agar transisi lebar smooth di desktop */
+  .max-w-\[400px\] {
+    transition: max-width 0.3s ease-in-out;
+  }
+
+  /* Memastikan Story Fullscreen benar-benar pas */
+  .snap-y {
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .snap-start {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    height: 100dvh;
+  }
+
+  /* Animasi halus untuk gambar */
+  .story-image {
+    transition: transform 0.5s ease;
+    will-change: transform;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  scrollbar-width: none;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+`}</style>
     </div>
   );
 }

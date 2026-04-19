@@ -240,15 +240,15 @@ function KomentarItem({ item, depth = 0, onReply, onLike, onDelete, onReport, li
           <Avatar name={item.user_name} avatar={item.user_avatar} size={depth === 0 ? 9 : 7} />
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[13px] font-bold text-slate-900">
-                {item.user_name || "Warga"}
-              </span>
-              {item.is_verified && (
-                <span className="relative -top-1.5 -ml-[5px] shrink-0">
-                  <VerifiedBadge size="xs" />
-                </span>
-              )}
+  <div className="flex items-center gap-1 flex-wrap">
+    <span className="text-[13px] font-bold text-slate-900 truncate">
+      {item.user_name || "Warga"}
+    </span>
+    {item.is_verified && (
+      <span className="shrink-0 transform translate-y-[0.5px]">
+        <VerifiedBadge size="xs" />
+      </span>
+    )}
               {item._pending ? (
                 <span className="text-[10px] text-slate-400 flex items-center gap-1">
                   <span className="w-2 h-2 border border-slate-300 border-t-transparent rounded-full animate-spin inline-block" />

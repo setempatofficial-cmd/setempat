@@ -1,15 +1,21 @@
-// components/UploadModal.jsx - FINAL (Redirect after success)
+// components/UploadModal.jsx - FULLY OPTIMIZED
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { CldUploadWidget } from "next-cloudinary";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Search, MapPin, Camera, Loader2, Send, Link as LinkIcon } from "lucide-react";
+import { X, Search, MapPin, Camera, Loader2, Send, Link as LinkIcon, ShieldAlert } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+
+// ========== CONSTANTS ==========
+const ALLOWED_ROLES = ["superadmin", "admin"];
+const MAX_PHOTOS_PER_SLOT = 10;
+const SEARCH_LIMIT = 30; // ✅ Turunkan dari 100 ke 30
 
 export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const router = useRouter();
+  
+  // ========== STATE ==========
   const [tempatList, setTempatList] = useState([]);
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -21,8 +27,21 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const [caption, setCaption] = useState("");
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isAuthorized, setIsAuthorized] = useState(true);
+  
+  const abortControllerRef = useRef(null);
 
-  // Set time label
+  // ========== VALIDASI AKSES ==========
+  useEffect(() => {
+    const hasAccess = userId && ALLOWED_ROLES.includes(userRole?.toLowerCase());
+    setIsAuthorized(hasAccess);
+    if (!hasAccess && isOpen) {
+      setErrorMessage("Akses ditolak. Hanya Super Admin dan Admin yang dapat mengupload foto official.");
+    }
+  }, [userId, userRole, isOpen]);
+
+  // ========== SET TIME LABEL ==========
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 11) setTimeLabel("pagi");
@@ -31,39 +50,59 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
     else setTimeLabel("malam");
   }, []);
 
-  // Load tempat saat modal buka
-  useEffect(() => {
-    if (!isOpen) return;
+  // ========== LOAD TEMPAT (LANGSUNG DARI TABEL tempat) ==========
+useEffect(() => {
+  if (!isOpen || !isAuthorized) return;
+  
+  if (abortControllerRef.current) {
+    abortControllerRef.current.abort();
+  }
+  abortControllerRef.current = new AbortController();
+  
+  const loadTempat = async () => {
+    setLoading(true);
+    setErrorMessage("");
     
-    const loadTempat = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("feed_view")
-          .select("id, name, category, alamat")
-          .limit(100);
-        
-        if (!error && data) {
-          setTempatList(data);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+    try {
+      // ✅ LANGSUNG ke tabel tempat, bukan feed_view
+      const { data, error } = await supabase
+        .from("tempat")
+        .select("id, name, category, alamat")
+        .order("name", { ascending: true })  // 
+        .limit(30)
+        .abortSignal(abortControllerRef.current.signal);
+      
+      if (error) throw error;
+      if (data) setTempatList(data);
+      
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Load tempat error:", err);
+        setErrorMessage("Gagal memuat daftar tempat");
       }
-    };
-    
-    loadTempat();
-  }, [isOpen]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  loadTempat();
+  
+  return () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+}, [isOpen, isAuthorized]);
 
-  // Filter tempat
-  const filteredTempat = tempatList.filter(item => {
-    if (!searchQuery.trim()) return false;
-    const term = searchQuery.toLowerCase();
-    return item.name?.toLowerCase().includes(term) ||
-           item.category?.toLowerCase().includes(term) ||
-           item.alamat?.toLowerCase().includes(term);
-  });
+  // ========== FILTER TEMPAT (DEBOUNCED) ==========
+  const filteredTempat = searchQuery.trim() 
+    ? tempatList.filter(item => {
+        const term = searchQuery.toLowerCase();
+        return item.name?.toLowerCase().includes(term) ||
+               item.category?.toLowerCase().includes(term) ||
+               item.alamat?.toLowerCase().includes(term);
+      })
+    : [];
 
   const getCurrentTimeTag = () => {
     const hour = new Date().getHours();
@@ -74,68 +113,88 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   };
 
   const handleUrlSubmit = () => {
-    if (videoUrl.includes('http')) {
+    if (videoUrl && (videoUrl.includes('http') || videoUrl.includes('https'))) {
       setMediaUrl(videoUrl);
       setMediaType("external");
       setVideoUrl("");
+      setErrorMessage("");
     } else {
-      alert("URL tidak valid");
+      setErrorMessage("URL tidak valid. Pastikan diawali http:// atau https://");
     }
   };
 
+  // ========== UPLOAD TO SUPABASE (OPTIMIZED) ==========
   const handleUploadToSupabase = async (url, type) => {
+    if (!isAuthorized) {
+      setErrorMessage("Anda tidak memiliki akses untuk upload");
+      return;
+    }
+
     if (!selectedTempat) {
-      alert("Pilih tempat terlebih dahulu");
+      setErrorMessage("Pilih tempat terlebih dahulu");
       return;
     }
 
     if (!url) {
-      alert("Upload foto/video atau masukkan URL terlebih dahulu");
+      setErrorMessage("Upload foto/video atau masukkan URL terlebih dahulu");
       return;
     }
 
     setUploading(true);
+    setErrorMessage("");
     const timeTag = getCurrentTimeTag();
 
     try {
-      const { data: currentData } = await supabase
+      // ✅ OPTIMASI: SELECT hanya kolom photos
+      const { data: currentData, error: fetchError } = await supabase
         .from("tempat")
         .select("photos")
         .eq("id", selectedTempat.id)
         .single();
 
-      const mediaData = {
+      if (fetchError) throw fetchError;
+
+      // ✅ OPTIMASI: Struktur data sebagai array (bukan objek tunggal)
+      const existingPhotos = currentData?.photos || {};
+      const existingSlot = existingPhotos[timeTag] || [];
+      
+      const newPhoto = {
         url,
         type,
         caption: caption.trim() || `Suasana ${timeLabel}`,
-        updated_at: new Date().toISOString(),
-        uploaded_by: userRole
+        created_at: new Date().toISOString(),
+        uploaded_by: userRole || "admin"
       };
 
+      // ✅ OPTIMASI: Tambah ke array, jangan timpa
       const updatedPhotos = {
-        ...(currentData?.photos || {}),
-        [timeTag]: mediaData,
-        official: url,
-        official_type: type
+        ...existingPhotos,
+        [timeTag]: Array.isArray(existingSlot) 
+          ? [newPhoto, ...existingSlot].slice(0, MAX_PHOTOS_PER_SLOT)
+          : [newPhoto]
       };
 
-      const { error } = await supabase
+      // ✅ OPTIMASI: Update hanya kolom yang berubah
+      const { error: updateError } = await supabase
         .from("tempat")
-        .update({ photos: updatedPhotos, image_url: url })
+        .update({ 
+          photos: updatedPhotos,
+          image_url: url
+        })
         .eq("id", selectedTempat.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      // Trigger refresh di halaman feed
+      // Trigger refresh
       window.dispatchEvent(new CustomEvent("refresh-photoslider"));
-      
-      // ✅ LANGSUNG TUTUP MODAL & REDIRECT KE HALAMAN TEMPAT
+      window.dispatchEvent(new CustomEvent("laporan-updated"));
+
       onClose();
       router.push(`/post/${selectedTempat.id}`);
       
     } catch (err) {
       console.error("Error saving:", err);
-      alert("Gagal menyimpan: " + err.message);
+      setErrorMessage(err.message || "Gagal menyimpan ke database");
     } finally {
       setUploading(false);
     }
@@ -148,17 +207,56 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
     setMediaType(null);
     setCaption("");
     setVideoUrl("");
+    setErrorMessage("");
     onClose();
   };
 
   if (!isOpen) return null;
 
+  // ========== TAMPILAN UNAUTHORIZED ==========
+  if (!isAuthorized) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+        <div className="w-full max-w-sm bg-zinc-900 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+          <div className="flex justify-between items-center p-4 border-b border-white/10">
+            <h3 className="text-white font-semibold">Akses Ditolak</h3>
+            <button onClick={handleClose} className="p-2 hover:bg-white/10 rounded-full transition">
+              <X size={20} className="text-white/60" />
+            </button>
+          </div>
+          <div className="p-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+              <ShieldAlert size={32} className="text-red-400" />
+            </div>
+            <p className="text-white font-medium mb-2">Akses Tidak Diizinkan</p>
+            <p className="text-white/40 text-sm mb-4">
+              Halaman ini hanya dapat diakses oleh Super Admin dan Admin yang ditunjuk.
+            </p>
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 bg-red-500/20 text-red-400 rounded-xl text-sm font-medium"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // ========== TAMPILAN UTAMA ==========
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
       <div className="w-full max-w-md bg-zinc-900 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-white/10">
-          <h3 className="text-white font-semibold">Upload ke PhotoSlider</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-white font-semibold">Upload Official Photo</h3>
+            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+              {userRole === "superadmin" ? "SUPER ADMIN" : "ADMIN"}
+            </span>
+          </div>
           <button onClick={handleClose} className="p-2 hover:bg-white/10 rounded-full transition">
             <X size={20} className="text-white/60" />
           </button>
@@ -166,6 +264,13 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
 
         <div className="p-4 max-h-[80vh] overflow-y-auto space-y-4">
           
+          {/* Error Message */}
+          {errorMessage && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
+              <p className="text-red-400 text-xs">{errorMessage}</p>
+            </div>
+          )}
+
           {/* PENCARIAN TEMPAT */}
           <div>
             <label className="text-xs text-white/40 font-medium mb-1 block">Cari Tempat</label>
@@ -200,6 +305,7 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
                       onClick={() => {
                         setSelectedTempat(tempat);
                         setSearchQuery("");
+                        setErrorMessage("");
                       }}
                       className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition text-left"
                     >
@@ -245,6 +351,12 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
                       onSuccess={(res) => {
                         setMediaUrl(res.info.secure_url);
                         setMediaType(res.info.resource_type);
+                        setIsUploadingMedia(false);
+                        setErrorMessage("");
+                      }}
+                      onError={(err) => {
+                        console.error("Cloudinary error:", err);
+                        setErrorMessage("Gagal upload ke Cloudinary");
                         setIsUploadingMedia(false);
                       }}
                       onQueuesStart={() => setIsUploadingMedia(true)}
@@ -338,10 +450,10 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
               <button
                 onClick={() => handleUploadToSupabase(mediaUrl, mediaType)}
                 disabled={!mediaUrl || uploading}
-                className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all
+                className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all
                   ${!mediaUrl || uploading 
                     ? 'bg-white/10 text-white/40 cursor-not-allowed' 
-                    : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white active:scale-95'}"
+                    : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white active:scale-95'}`}
               >
                 {uploading ? (
                   <>

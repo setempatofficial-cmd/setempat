@@ -219,6 +219,7 @@ export default function FeedContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
   const [feedOpacity, setFeedOpacity] = useState(1);
+  const [isActivatingLocation, setIsActivatingLocation] = useState(false);
 
   // ========== BREAK CARD STATE ==========
   const previousConditionsRef = useRef({});
@@ -245,7 +246,9 @@ export default function FeedContent() {
   // ========== REFS ==========
   const fetchIdRef = useRef(0);
   const lastCardRef = useRef(null);
-  const lastLocationCacheKeyRef = useRef(null);
+  const lastLocationCacheKeyRef = useRef(
+  typeof window !== 'undefined' ? sessionStorage.getItem('last_location_key') : null
+);
   const abortControllerRef = useRef(null);
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
@@ -750,6 +753,44 @@ export default function FeedContent() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // ========== DETEKSI LOKASI MATI/DINONAKTIFKAN ==========
+useEffect(() => {
+  const hadLocation = lastLocationCacheKeyRef.current !== null && 
+                      lastLocationCacheKeyRef.current !== 'feed_default';
+  
+  if (hadLocation && !locationReady) {
+    console.log('📍 Lokasi dinonaktifkan - membersihkan cache dan reset feed');
+    
+    setIsActivatingLocation(true);
+    
+    cacheManager.invalidate();
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
+    sessionStorage.removeItem('last_location_key');
+    
+    setOrderedIds([]);
+    setItemsMap(new Map());
+    setSearchRadius(DEFAULT_RADIUS);
+    setInitialLoad(true);
+    setHasMore(true);
+    setError(null);
+    
+    lastLoadedIdRef.current = null;
+    existingIdsRef.current.clear();
+    lastLocationCacheKeyRef.current = 'feed_default';
+    
+    loadPlaces(true, false).finally(() => {
+      setIsActivatingLocation(false);
+    });
+    
+    setToast({ 
+      show: true, 
+      message: "📍 Lokasi dinonaktifkan - menampilkan semua tempat" 
+    });
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+  }
+  
+}, [locationReady, cacheManager]); 
+
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
     
@@ -1010,30 +1051,70 @@ export default function FeedContent() {
     }
   }, []);
 
-  // RESPON PERUBAHAN LOKASI
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) return;
-    if (!locationReady) return;
+ // RESPON PERUBAHAN LOKASI (AKTIF)
+useEffect(() => {
+  if (!initialLoadDoneRef.current) return;
+  if (!locationReady) return;
 
-    const currentCacheKey = getCacheKey();
-    if (lastLocationCacheKeyRef.current === currentCacheKey) return;
-
-    console.log(`📍 Lokasi berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
+  const currentCacheKey = getCacheKey();
+  
+  // ✅ TAMBAHKAN INI: Jika lastLocationCacheKeyRef masih null (baru mount), skip
+  if (lastLocationCacheKeyRef.current === null) {
     lastLocationCacheKeyRef.current = currentCacheKey;
-    
-    cacheManager.invalidate();
-    loadPlaces(true, true);
+    sessionStorage.setItem('last_location_key', currentCacheKey);
+    return; // ✅ LANGSUNG RETURN, TIDAK FETCH
+  }
+  
+  if (lastLocationCacheKeyRef.current === currentCacheKey) return;
 
-    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
-    setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  }, [getCacheKey, locationReady, cacheManager, loadPlaces, villageLocation]);
+  console.log(`📍 Lokasi aktif/berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
+  
+  setIsActivatingLocation(true);
+  lastLocationCacheKeyRef.current = currentCacheKey;
+  
+  sessionStorage.setItem('last_location_key', currentCacheKey);
+  
+  cacheManager.invalidate();
+  sessionStorage.removeItem(SESSION_CACHE_KEY);
+  
+  loadPlaces(true, true).finally(() => {
+    setIsActivatingLocation(false);
+  });
+
+  setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
+  setTimeout(() => setToast({ show: false, message: "" }), 3000);
+  
+}, [getCacheKey, locationReady, cacheManager, villageLocation]);
 
   // Fetch kentongan
   useEffect(() => {
     fetchKentonganForFeed();
   }, [fetchKentonganForFeed]);
 	
-
+  // ========== LISTENER UNTUK REFRESH DARI BOTTOM NAV ==========
+useEffect(() => {
+  const handleRefreshFeed = async () => {
+    console.log('♻️ Refresh feed triggered from bottom nav');
+    setIsActivatingLocation(true); // Tampilkan loading overlay
+    
+    try {
+      cacheManager.invalidate();
+      sessionStorage.removeItem(SESSION_CACHE_KEY);
+      await loadPlaces(true, false);
+      setToast({ show: true, message: "♻️ Kondisi Update!" });
+      setTimeout(() => setToast({ show: false, message: "" }), 1500);
+    } finally {
+      setIsActivatingLocation(false);
+    }
+  };
+  
+  window.addEventListener('refresh-feed', handleRefreshFeed);
+  
+  return () => {
+    window.removeEventListener('refresh-feed', handleRefreshFeed);
+  };
+}, [cacheManager, loadPlaces]);
+  
   // ========== HANDLERS ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
@@ -1195,7 +1276,7 @@ export default function FeedContent() {
         onSelectManual={handleManualLocationSelect}
       />
 
-      <motion.div 
+            <motion.div 
         className="mt-4 space-y-2 min-h-[60vh] relative" 
         animate={{ opacity: feedOpacity }} 
         transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}
@@ -1272,11 +1353,12 @@ export default function FeedContent() {
           >
             <div className="flex flex-col items-center gap-3">
               <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <p className="text-white/60 text-xs font-medium">Memperbarui feed untuk lokasi baru...</p>
+              <p className="text-white/60 text-xs font-medium">Setempat Memperbarui lokasi baru...</p>
             </div>
           </motion.div>
         )}
       </motion.div>
+
 
       <Suspense fallback={null}>
         <SearchModal
