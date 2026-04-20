@@ -40,11 +40,33 @@ export default function LaporPanel({
   const [tempatQuery, setTempatQuery] = useState("");
   const [isLoadingTempat, setIsLoadingTempat] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  const [status, setStatus] = useState("idle"); // idle, uploading, success
+  const [status, setStatus] = useState("idle");
   const [uploadProgress, setUploadProgress] = useState({
     cloudinary: false,
     supabase: false
   });
+
+  // FUNGSI NOTIFIKASI LOGIN
+  const showLoginNotification = () => {
+    const toastNotif = document.createElement('div');
+    toastNotif.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-[1000002] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border bg-amber-950 border-amber-500/50 text-amber-100 animate-in';
+    toastNotif.innerHTML = `
+      <div class="text-2xl">🔐</div>
+      <div class="flex flex-col">
+        <span class="text-[12px] font-black uppercase tracking-widest">Perlu Login</span>
+        <span class="text-[10px] opacity-80">Silakan login untuk membuat laporan</span>
+      </div>
+      <button class="ml-2 px-3 py-1 bg-amber-500/20 rounded-full text-[10px] font-bold hover:bg-amber-500/30 transition">Login</button>
+    `;
+    
+    const loginBtn = toastNotif.querySelector('button');
+    loginBtn?.addEventListener('click', () => {
+      window.location.href = '/login';
+    });
+    
+    document.body.appendChild(toastNotif);
+    setTimeout(() => toastNotif.remove(), 4000);
+  };
 
   // Cek kategori
   const kategoriLower = (pickedTempat?.category || tempat?.category || "").toLowerCase();
@@ -142,8 +164,8 @@ export default function LaporPanel({
     }
   };
 
+  // FINALIZE UPLOAD - SATU VERSION SAJA
   const finalizeUpload = async () => {
-     
     if (!activeTempat?.id) {
       alert("Tempat tidak valid. Silakan pilih tempat terlebih dahulu.");
       setStep("pick_tempat");
@@ -173,8 +195,14 @@ export default function LaporPanel({
     }, 15000);
     
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Login diperlukan");
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      // CEK SESSION - TAMPILKAN NOTIFIKASI LOGIN
+      if (sessionError || !session?.user) {
+        console.error("Session error:", sessionError);
+        showLoginNotification();
+        throw new Error("Silakan login kembali");
+      }
       
       const u = session.user;
       const meta = u.user_metadata || {};
@@ -193,7 +221,7 @@ export default function LaporPanel({
           tempat_id: tempatIdValue,
           user_id: u.id,
           user_name: meta.full_name || meta.name || u.email?.split("@")[0] || "Warga",
-          username: session.user.user_metadata?.username || session.user.email?.split("@")[0], //
+          username: session.user.user_metadata?.username || session.user.email?.split("@")[0],
           user_avatar: meta.avatar_url || meta.picture || null,
           photo_url: mediaUrl ? (mediaType === "video" ? mediaUrl.replace(/\.[^/.]+$/, ".jpg") : mediaUrl) : null,
           video_url: mediaType === "video" ? mediaUrl : null,
@@ -212,40 +240,38 @@ export default function LaporPanel({
       
       if (error) throw error;
       
-      // ========== SOLUSI SEDERHANA ==========
+      // SUCCESS HANDLING
+      setStatus("success");
+      
       if (mediaUrl) {
-  // Ada foto/video → StoryCircle → trigger callback
-  setStatus("success");
-  setTimeout(() => {
-    setStatus("idle");
-    onSuccess?.(data);
-    onClose();
-  }, 2000);
-} else {
-  // Tanpa foto → LiveInsight → tutup panel, NOTIFIKASI LANGSUNG DI SINI
-  setStatus("success");
-  
-  // Tampilkan toast notifikasi lokal
-  const toastNotif = document.createElement('div');
-  toastNotif.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-6 py-4 rounded-3xl shadow-2xl flex flex-col items-center gap-1 min-w-[280px] border text-center bg-emerald-950 border-emerald-500/50 text-emerald-100';
-  toastNotif.innerHTML = `
-    <div class="text-2xl mb-1">✅</div>
-    <span class="text-[12px] font-black uppercase tracking-widest">Masuk ke LiveInsight</span>
-    <span class="text-[10px] opacity-70">Laporanmu sudah tayang, Lur!</span>
-  `;
-  document.body.appendChild(toastNotif);
-  
-  setTimeout(() => {
-    setStatus("idle");
-    toastNotif.remove();
-    onClose();  // LANGSUNG TUTUP, TANPA PANGGIL onSuccess
-  }, 1500);
-}
-      // ========== END SOLUSI SEDERHANA ==========
+        setTimeout(() => {
+          setStatus("idle");
+          onSuccess?.(data);
+          onClose();
+        }, 2000);
+      } else {
+        const toastNotif = document.createElement('div');
+        toastNotif.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-6 py-4 rounded-3xl shadow-2xl flex flex-col items-center gap-1 min-w-[280px] border text-center bg-emerald-950 border-emerald-500/50 text-emerald-100';
+        toastNotif.innerHTML = `
+          <div class="text-2xl mb-1">✅</div>
+          <span class="text-[12px] font-black uppercase tracking-widest">Masuk ke LiveInsight</span>
+          <span class="text-[10px] opacity-70">Laporanmu sudah tayang, Lur!</span>
+        `;
+        document.body.appendChild(toastNotif);
+        
+        setTimeout(() => {
+          setStatus("idle");
+          toastNotif.remove();
+          onClose();
+        }, 1500);
+      }
       
     } catch (err) {
       console.error("Upload Error:", err);
-      alert("Gagal mengirim: " + err.message);
+      
+      if (!err.message.includes("Silakan login")) {
+        alert("Gagal mengirim: " + err.message);
+      }
       setStatus("idle");
     } finally {
       clearTimeout(timeoutId);
@@ -286,7 +312,7 @@ export default function LaporPanel({
         )}
       </AnimatePresence>
       
-      {/* TOAST SUCCESS - Kontras Pembeda */}
+      {/* TOAST SUCCESS */}
       <AnimatePresence>
         {status === "success" && createPortal(
           <motion.div
@@ -384,46 +410,62 @@ export default function LaporPanel({
 
           {/* UPLOAD SECTION */}
           {step === "upload" && (
-            <div className="p-5 flex flex-col gap-4">
-              <CldUploadWidget
-                uploadPreset="setempat_preset"
-                onSuccess={handleUploadDone}
-                options={{ 
-                  maxFiles: 1, 
-                  resourceType: "auto",
-                  sources: ["camera", "local"],
-                  maxImageFileSize: 5000000,
-                  transformations: [{ quality: "auto", width: 1200, crop: "limit" }]
-                }}
-              >
-                {({ open }) => (
-                  <button 
-                    onClick={() => open()} 
-                    className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all group"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">📸</div>
-                    <div className="text-center">
-                      <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
-                      <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
-                    </div>
-                  </button>
-                )}
-              </CldUploadWidget>
-              
-              <div className="relative py-2 flex items-center">
-                <div className="flex-1 h-px bg-slate-100" />
-                <span className="px-4 text-[10px] font-bold text-slate-300">ATAU</span>
-                <div className="flex-1 h-px bg-slate-100" />
-              </div>
+  <div className="p-5 flex flex-col gap-4">
+    <CldUploadWidget
+      uploadPreset="setempat_preset"
+      onSuccess={handleUploadDone}
+      options={{ 
+        maxFiles: 1, 
+        resourceType: "auto",
+        sources: ["camera", "local"],
+        maxImageFileSize: 5000000,
+        transformations: [{ quality: "auto", width: 1200, crop: "limit" }]
+      }}
+    >
+      {({ open }) => (
+        <button 
+          onClick={() => {
+            // Feedback visual langsung
+            const btn = document.activeElement;
+            if (btn) btn.style.transform = 'scale(0.97)';
+            
+            // Delay kecil 50ms untuk memastikan UI responsif
+            setTimeout(() => {
+              open();
+              // Reset transform
+              setTimeout(() => {
+                if (btn) btn.style.transform = '';
+              }, 150);
+            }, 50);
+          }}
+          className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95 group"
+        >
+          <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
+            📸
+          </div>
+          <div className="text-center">
+            <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
+            <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
+          </div>
+        </button>
+      )}
+    </CldUploadWidget>
+    
+    {/* ATAU - tambahkan opsi galeri langsung */}
+    <div className="relative py-2 flex items-center">
+      <div className="flex-1 h-px bg-slate-100" />
+      <span className="px-4 text-[10px] font-bold text-slate-300">ATAU</span>
+      <div className="flex-1 h-px bg-slate-100" />
+    </div>
 
-              <button 
-                onClick={() => setStep("form")} 
-                className="w-full py-4 rounded-2xl border border-slate-200 text-[11px] font-black text-slate-500 hover:bg-slate-50 transition-colors uppercase tracking-[0.1em]"
-              >
-                Lapor Tulisan Saja →
-              </button>
-            </div>
-          )}
+    <button 
+      onClick={() => setStep("form")} 
+      className="w-full py-4 rounded-2xl border border-slate-200 text-[11px] font-black text-slate-500 hover:bg-slate-50 transition-colors uppercase tracking-[0.1em]"
+    >
+      Lapor Tulisan Saja →
+    </button>
+  </div>
+)}
 
           {/* FORM SECTION */}
           {step === "form" && (
@@ -537,10 +579,33 @@ export default function LaporPanel({
         </div>
       </motion.div>
 
-      <style jsx global>{`
+            <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translate(-50%, -10px); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        @keyframes slideInFromTop {
+          from { opacity: 0; transform: translate(-50%, -20px); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        .animate-in {
+          animation: slideInFromTop 0.3s ease-out;
+        }
+
+        button {
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        button:active {
+          transform: scale(0.97);
+          transition: transform 0.05s;
+        }
+
       `}</style>
     </>
   );

@@ -206,23 +206,24 @@ function SearchContent() {
   const deferredQuery = useDeferredValue(query);
   const isTypingDeferred = useDeferredValue(isTyping);
   
-  // ========== FETCH DATA (PARALLEL) ==========
+  // ========== FETCH DATA (PARALLEL) - TANPA LIMIT ==========
 const fetchFreshData = useCallback(async (showLoading = false) => {
   if (showLoading) setLoading(true);
   
   try {
-    // ✅ PERUBAHAN 1: Parallel fetch, tidak berurutan
+    // ✅ PERUBAHAN UTAMA: Hapus limit, ambil semua data
     const [tempatResult, laporanResult] = await Promise.all([
       supabase
         .from("tempat")
         .select("id, name, category, alamat, photos, latitude, longitude, created_at, image_url")
         .order("name", { ascending: true })
-        .limit(20),
+        // .limit(20) ← HAPUS LIMIT INI! Ambil semua data
+        ,
       supabase
         .from("laporan_warga")
         .select("id, tempat_id, photo_url, video_url, content, created_at, user_name, tipe, time_tag")
         .order("created_at", { ascending: false })
-        .limit(100)
+        // .limit(100) ← HAPUS LIMIT INI! Ambil semua data
     ]);
     
     if (tempatResult.error) throw tempatResult.error;
@@ -271,7 +272,7 @@ const fetchFreshData = useCallback(async (showLoading = false) => {
           distance: calculateDistance(location.latitude, location.longitude, item.latitude, item.longitude)
         }))
         .sort((a, b) => a.distance - b.distance)
-        .slice(0, 20);
+        .slice(0, 20); // Tetap limit 20 untuk tampilan, tapi dari semua data
       setNearbyResults(withDistance);
     } else {
       setNearbyResults([]);
@@ -284,11 +285,11 @@ const fetchFreshData = useCallback(async (showLoading = false) => {
         return { ...item, latestReportDate: latestDate };
       })
       .sort((a, b) => new Date(b.latestReportDate) - new Date(a.latestReportDate))
-      .slice(0, 20);
+      .slice(0, 20); // Tetap limit 20 untuk tampilan, tapi dari semua data
     setRecentResults(withRecent);
   }, [allData, location]);
   
-  // ========== HASIL FILTER ==========
+  // ========== HASIL FILTER (PENCARIAN) - TANPA LIMIT ==========
   const results = useMemo(() => {
     if (activeFilter === "Sekitarmu") return nearbyResults;
     if (activeFilter === "Baru terjadi") return recentResults;
@@ -305,7 +306,7 @@ const fetchFreshData = useCallback(async (showLoading = false) => {
     if (activeFilter === "Lagi ramai") {
       filtered = filtered.filter(item => item.laporan_terbaru?.some(l => l.tipe === "Ramai"));
     }
-    return filtered.slice(0, 20);
+    return filtered; // ← HAPUS .slice(0,20) agar semua hasil pencarian muncul!
   }, [deferredQuery, allData, activeFilter, nearbyResults, recentResults]);
   
   // ========== HANDLERS ==========
@@ -455,6 +456,10 @@ useEffect(() => {
       autoComplete="off"
       autoCorrect="off"
       autoCapitalize="off"
+      spellCheck="false"
+      name={`search_${Math.random().toString(36).substring(7)}`}
+      data-lpignore="true"
+      data-form-type="other"
     />
     
     {/* ========== VOICE SEARCH ========== */}
@@ -550,7 +555,7 @@ useEffect(() => {
             </div>
           )}
           
-          {/* GRID CARDS */}
+          {/* GRID CARDS - SEKARANG SEMUA HASIL PENCARIAN MUNCUL */}
           {!isTypingDeferred && !exploreMode && (
             <>
               {activeFilter === "Sekitarmu" && !location?.latitude && (

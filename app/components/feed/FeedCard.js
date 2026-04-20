@@ -290,7 +290,7 @@ function FeedCard({
                 )}
               </div>
               <h3 className={`text-[13px] sm:text-[15px] font-[1000] uppercase tracking-tight leading-tight ${theme.text}`}>
-                {safeItem.name}
+                ⭕{safeItem.name}
               </h3>
             </div>
 

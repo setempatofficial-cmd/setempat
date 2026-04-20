@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,13 +10,16 @@ import LaporPanel from "@/app/components/ai/LaporPanel";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
+import UserMenu from "@/app/components/layout/UserMenu";
+import AuthModal from "@/app/components/auth/AuthModal";
+import { useAuth } from "@/app/context/AuthContext";
 
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
   
-  // ✅ Hook dengan cache (handle fetch & cache otomatis)
-  const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 50 });
+  // ✅ Tambah limit jadi lebih besar agar semua data tercakup
+  const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 500 });
   
   const [currentIndex, setCurrentIndex] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,21 +30,19 @@ export default function CitizenHub({ userId, userRole }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [sessionUserId, setSessionUserId] = useState(null);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); //
+  const { user, isAdmin } = useAuth();
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
   const isScrollingRef = useRef(false);
-  const isAutoScrollingRef = useRef(false); // ✅ Tambahan untuk cegah konflik scroll
+  const isAutoScrollingRef = useRef(false);
 
-  // FUNGSI UNTUK MEMBUKA LAPOR PANEL
   const handleOpenUpload = () => {
     setSelectedTempat(null);
     setShowLaporPanel(true);
   };
 
-  
-  // ✅ UPDATE handleLaporanSuccess untuk update cache
   const handleLaporanSuccess = (newReport) => {
     const updated = [newReport, ...(reports || [])];
     updateCache(updated);
@@ -80,8 +81,6 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, [currentIndex]);
 
-  // ✅ HAPUS useEffect scroll yang lama (diganti dengan requestAnimationFrame di openModal)
-
   // Get session
   useEffect(() => {
     let isMounted = true;
@@ -115,56 +114,151 @@ export default function CitizenHub({ userId, userRole }) {
 
   const activeUserId = userId || sessionUserId;
 
-  // Get user data
-  useEffect(() => {
-    const getCurrentUser = async () => {
-      if (!activeUserId) return;
+  // Get user data - sudah ada di kode Anda
+useEffect(() => {
+  const getCurrentUser = async () => {
+    if (!activeUserId) return;
 
-      try {
-        const { data, error } = await supabase
-          .from("users")
-          .select("username, full_name, avatar_url")
-          .eq("id", activeUserId)
-          .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("username, full_name, avatar_url")
+        .eq("id", activeUserId)
+        .maybeSingle();
 
-        if (!error && data) {
-          setCurrentUser(data);
-        } else {
-          setCurrentUser({
-            username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
-            full_name: "Warga",
-            avatar_url: null
-          });
-        }
-      } catch (err) {
-        console.error("User fetch error:", err);
+      if (!error && data) {
+        setCurrentUser(data);
+      } else {
         setCurrentUser({
           username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
           full_name: "Warga",
           avatar_url: null
         });
       }
+    } catch (err) {
+      console.error("User fetch error:", err);
+      setCurrentUser({
+        username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
+        full_name: "Warga",
+        avatar_url: null
+      });
+    }
+  };
+
+  getCurrentUser();
+}, [activeUserId]);
+
+  // ========== PENCARIAN CERDAS (FIXED) ==========
+  const filteredReports = useMemo(() => {
+    const reportsList = reports || [];
+    const searchLower = searchQuery.toLowerCase().trim();
+    
+    if (!searchLower) return reportsList;
+    
+    // Ekstrak kata kunci dari query
+    const searchWords = searchLower.split(/\s+/);
+    
+    // Daftar tempat populer di Pasuruan (bisa ditambah)
+    const popularPlaces = [
+      "alun-alun", "alun alun", "alun", "bangil", "pasar bangil", 
+      "pura", "taman", "stasiun", "terminal", "masjid", "gereja"
+    ];
+    
+    // Deteksi apakah query mengandung nama tempat
+    const extractPlaceName = (query) => {
+      for (const place of popularPlaces) {
+        if (query.includes(place)) {
+          return place;
+        }
+      }
+      // Jika tidak ada di list, ambil kata terpanjang yang mungkin nama tempat
+      const words = query.split(/\s+/);
+      return words.length > 1 ? words[0] : null;
     };
+    
+    const targetPlace = extractPlaceName(searchLower);
+    
+    // Deteksi kondisi yang dicari
+    const detectCondition = (query) => {
+      if (query.includes("ramai") || query.includes("rame") || query.includes("padat") || query.includes("banyak")) {
+        return "ramai";
+      }
+      if (query.includes("sepi") || query.includes("sunyi") || query.includes("lengang") || query.includes("kosong")) {
+        return "sepi";
+      }
+      if (query.includes("antri") || query.includes("macet") || query.includes("ngantri") || query.includes("panjang")) {
+        return "antri";
+      }
+      return null;
+    };
+    
+    const targetCondition = detectCondition(searchLower);
+    
+    // Filter berdasarkan logika cerdas
+    const filtered = reportsList.filter(report => {
+      const tempatName = (report.tempat?.name || "").toLowerCase();
+      const deskripsi = (report.deskripsi || "").toLowerCase();
+      const userName = (report.user_name || "").toLowerCase();
+      const tipe = (report.tipe || "").toLowerCase();
+      
+      // KASUS 1: Mencari kombinasi "tempat + kondisi" (ex: "alun-alun ramai")
+      if (targetPlace && targetCondition) {
+        const matchesPlace = tempatName.includes(targetPlace);
+        const matchesCondition = tipe === targetCondition;
+        return matchesPlace && matchesCondition;
+      }
+      
+      // KASUS 2: Mencari hanya nama tempat (ex: "alun-alun", "bangil")
+      if (targetPlace && !targetCondition) {
+        return tempatName.includes(targetPlace);
+      }
+      
+      // KASUS 3: Mencari hanya kondisi (ex: "suasana ramai", "tempat sepi")
+      if (targetCondition && !targetPlace) {
+        // Untuk pencarian kondisi, cek tipe ATAU deskripsi yang mengandung kata kondisi
+        return tipe === targetCondition || deskripsi.includes(targetCondition);
+      }
+      
+      // KASUS 4: Pencarian umum (default)
+      // Cek apakah salah satu kata dalam query cocok dengan data
+      return searchWords.some(word => 
+        tempatName.includes(word) || 
+        deskripsi.includes(word) || 
+        userName.includes(word) ||
+        (word.length > 2 && tipe.includes(word))
+      );
+    });
+    
+    // Urutkan berdasarkan relevansi
+    return filtered.sort((a, b) => {
+      const aTempat = (a.tempat?.name || "").toLowerCase();
+      const bTempat = (b.tempat?.name || "").toLowerCase();
+      const aTipe = (a.tipe || "").toLowerCase();
+      const bTipe = (b.tipe || "").toLowerCase();
+      
+      // Prioritas: match tepat nama tempat > match kondisi > tanggal terbaru
+      const aExactPlace = targetPlace && aTempat.includes(targetPlace);
+      const bExactPlace = targetPlace && bTempat.includes(targetPlace);
+      
+      if (aExactPlace && !bExactPlace) return -1;
+      if (!aExactPlace && bExactPlace) return 1;
+      
+      const aExactCondition = targetCondition && aTipe === targetCondition;
+      const bExactCondition = targetCondition && bTipe === targetCondition;
+      
+      if (aExactCondition && !bExactCondition) return -1;
+      if (!aExactCondition && bExactCondition) return 1;
+      
+      // Fallback ke tanggal terbaru
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+  }, [reports, searchQuery]);
 
-    getCurrentUser();
-  }, [activeUserId]);
-
-  // ✅ LANGSUNG PAKAI reports dari hook, tanpa fetch manual
-
-  const filteredReports = (reports || []).filter(r =>
-    r.deskripsi?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.user_name?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // ✅ UPDATE handleModalScroll dengan cek auto-scroll
   const handleModalScroll = (e) => {
-    // Jangan proses jika sedang auto-scroll dari openModal
     if (isAutoScrollingRef.current) return;
     
     const container = e.target;
     const { scrollTop, clientHeight } = container;
-    
-    // Gunakan threshold 0.5 untuk menentukan kapan index berpindah
     const newIndex = Math.round(scrollTop / clientHeight);
 
     if (newIndex !== currentIndex && newIndex >= 0 && newIndex < filteredReports.length) {
@@ -176,16 +270,11 @@ export default function CitizenHub({ userId, userRole }) {
     }, 100);
   };
 
-  // ================== MODAL FULLSCREEN ==================
-  // ✅ UPDATE openModal dengan requestAnimationFrame
   const openModal = (index) => {
     setCurrentIndex(index);
     document.body.style.overflow = 'hidden';
-    
-    // Set flag bahwa ini auto-scroll
     isAutoScrollingRef.current = true;
     
-    // Double requestAnimationFrame memastikan DOM sudah siap
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (modalScrollRef.current?.children[index]) {
@@ -195,7 +284,6 @@ export default function CitizenHub({ userId, userRole }) {
           });
         }
         
-        // Reset flag setelah scroll selesai
         setTimeout(() => {
           isAutoScrollingRef.current = false;
         }, 150);
@@ -203,21 +291,18 @@ export default function CitizenHub({ userId, userRole }) {
     });
   };
 
-  // ✅ UPDATE closeModal dengan reset flag
   const closeModal = () => {
     setCurrentIndex(null);
     document.body.style.overflow = 'visible';
     isAutoScrollingRef.current = false;
   };
 
-  // Cleanup saat unmount
   useEffect(() => {
     return () => {
       document.body.style.overflow = 'visible';
     };
   }, []);
 
-  // Handle send comment
   const handleSendComment = async (report) => {
     const currentCommentText = commentTexts[report.id] || "";
     if (!currentCommentText.trim() || isSubmitting) return;
@@ -262,14 +347,14 @@ export default function CitizenHub({ userId, userRole }) {
     }
   };
 
-  // Card component (sama seperti sebelumnya, tidak diubah)
+  // Report Card Component
   const ReportCard = ({ report, index }) => (
     <motion.div
       key={report.id}
       whileTap={{ scale: 0.98 }}
       onClick={() => openModal(index)}
       className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"    
->
+    >
       {report.photo_url || report.video_url ? (
         <>
           <img
@@ -346,50 +431,68 @@ export default function CitizenHub({ userId, userRole }) {
             y: isHeaderVisible ? 0 : -120,
             opacity: isHeaderVisible ? 1 : 0
           }}
-          transition={{ duration: 0.25, ease: "easeInOut" }}
-          className={`fixed top-0 w-full max-w-[400px] z-50 ${isMalam ? 'bg-zinc-900/95' : 'bg-white/95'} backdrop-blur-xl border-b ${isMalam ? 'border-white/10' : 'border-gray-200'}`}
+          transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+          className={`fixed top-0 w-full max-w-[400px] z-50 ${isMalam ? 'bg-zinc-900/80' : 'bg-white/80'} backdrop-blur-md border-b ${isMalam ? 'border-white/5' : 'border-gray-100'}`}
         >
-          <div className="px-4 pt-5 pb-3 space-y-3">
-            <div className="flex justify-between items-center">
+          <div className="px-5 pt-6 pb-4 space-y-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <div className="flex justify-between items-start">
               <div>
-                <h1 className="text-lg sm:text-xl font-black tracking-tighter text-[#E3655B] leading-none">
-                  CERITA RONDA
+                <h1 className="text-2xl font-[900] tracking-tighter text-[#E3655B] leading-none italic drop-shadow-sm">
+                  RONDA
                 </h1>
-                <p className={`text-[8px] sm:text-[10px] ${isMalam ? 'text-white/40' : 'text-gray-500'} font-bold tracking-[0.2em] uppercase mt-1`}>
-                  Warga Setempat
+                <p className={`text-[9px] ${isMalam ? 'text-white/30' : 'text-gray-400'} font-bold tracking-[0.25em] uppercase mt-1.5 ml-0.5`}>
+                  Cerita Warga Setempat
                 </p>
               </div>
-              <button
-                onClick={() => router.push("/woro")}
-                className={`p-2 ${isMalam ? 'text-white/70 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
-                <Bell size={18} className="sm:w-5 sm:h-5" />
-              </button>
+
+              {/* Avatar User yang Sinkron dengan UserMenu Global */}
+<div className={`pl-2 border-l flex-shrink-0 ${isMalam ? "border-white/10" : "border-black/5"}`}>
+  <UserMenu 
+    user={currentUser} 
+    isAdmin={userRole === 'admin'} 
+    isScrolled={!isHeaderVisible}
+    onOpenAuthModal={() => setIsAuthModalOpen(true)} 
+    theme={{ isMalam, text: isMalam ? 'text-white' : 'text-slate-900' }} 
+  />
+</div>
             </div>
 
+            {/* Search Bar */}
             <div className="relative group">
-              <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isMalam ? 'text-white/30' : 'text-gray-400'} group-focus-within:text-[#E3655B] transition-colors`} />
+              <div className={`absolute left-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg ${isMalam ? 'bg-white/5' : 'bg-gray-200/50'}`}>
+                <Search size={14} className={`${isMalam ? 'text-white/40' : 'text-gray-500'} group-focus-within:text-[#E3655B] transition-colors`} />
+              </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari kejadian di sekitar..."
-                className={`w-full ${isMalam ? 'bg-white/10 border-white/10 text-white placeholder:text-white/40' : 'bg-gray-100 border-gray-200 text-gray-900 placeholder:text-gray-400'} border rounded-xl py-2.5 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-[#E3655B]/50 focus:bg-white/15 transition-all`} />
+                placeholder="Cek Ceritane Lokasi Sekitar..."
+                className={`w-full ${
+                  isMalam 
+                  ? 'bg-white/5 border-white/5 text-white placeholder:text-white/20' 
+                  : 'bg-gray-50 border-gray-100 text-gray-900 placeholder:text-gray-400'
+                } border rounded-2xl py-3 pl-12 pr-4 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#E3655B]/20 focus:bg-transparent transition-all shadow-sm`} 
+              />
             </div>
           </div>
         </motion.header>
 
-        <div className="h-[115px] sm:h-[125px]" />
-
-        <main className={`flex-1 overflow-y-auto no-scrollbar px-3 pb-32 ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}>
+        <main className={`flex-1 overflow-y-auto no-scrollbar px-3 pb-32 pt-[150px] ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}>
           {loading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E3655B]"></div>
             </div>
           ) : filteredReports.length === 0 ? (
-            <div className="flex flex-col justify-center items-center h-64">
-              <MapPin size={48} className={`mb-3 opacity-30 ${isMalam ? 'text-white/40' : 'text-gray-400'}`} />
-              <p className={`text-sm ${isMalam ? 'text-white/40' : 'text-gray-500'}`}>Belum ada laporan</p>
-              <p className={`text-xs mt-1 ${isMalam ? 'text-white/30' : 'text-gray-400'}`}>Jadilah yang pertama melaporkan</p>
+            <div className="flex flex-col justify-center items-center h-64 text-center px-8">
+              <Search size={48} className={`mb-3 opacity-30 ${isMalam ? 'text-white/40' : 'text-gray-400'}`} />
+              <p className={`text-sm font-medium ${isMalam ? 'text-white/60' : 'text-gray-600'}`}>
+                {searchQuery ? `Tidak ada cerita untuk "${searchQuery}"` : "Belum ada laporan"}
+              </p>
+              <p className={`text-xs mt-1 ${isMalam ? 'text-white/30' : 'text-gray-400'}`}>
+                {searchQuery 
+                  ? "Coba kata kunci lain seperti: alun-alun, ramai, sepi" 
+                  : "Jadilah yang pertama melaporkan"}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -400,7 +503,6 @@ export default function CitizenHub({ userId, userRole }) {
           )}
         </main>
 
-        {/* SmartBottomNav */}
         <SmartBottomNav
           onOpenUpload={() => {
             if (userRole === 'admin') {
@@ -419,18 +521,18 @@ export default function CitizenHub({ userId, userRole }) {
         />
 
         {/* TOMBOL UPLOAD FLOATING */}
-{!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
-  <div className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none z-[70]">
-    <div className="w-full max-w-[400px] relative h-[150px]">
-      <button 
-        onClick={handleOpenUpload}
-        className="uploader-floating-btn pointer-events-auto"
-      >
-        <Plus size={28} strokeWidth={3} />
-      </button>
-    </div>
-  </div>
-)}
+        {!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
+          <div className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none z-[70]">
+            <div className="w-full max-w-[400px] relative h-[150px]">
+              <button 
+                onClick={handleOpenUpload}
+                className="uploader-floating-btn pointer-events-auto"
+              >
+                <Plus size={28} strokeWidth={3} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* LAPOR PANEL */}
         {showLaporPanel && (
@@ -468,7 +570,7 @@ export default function CitizenHub({ userId, userRole }) {
           </div>
         )}
 
-        {/* MODAL FULLSCREEN */}
+                {/* MODAL FULLSCREEN */}
         <AnimatePresence mode="wait">
           {currentIndex !== null && (
             <motion.div
@@ -734,6 +836,12 @@ export default function CitizenHub({ userId, userRole }) {
             </motion.div>
           )}
         </AnimatePresence>
+
+     <AuthModal 
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          theme={{ isMalam }}
+        />
       </div>
 
       <style jsx global>{`

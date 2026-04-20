@@ -823,14 +823,28 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
               <Avatar name={user.user_metadata?.full_name || user.email} avatar={user.user_metadata?.avatar_url} size={8} />
               <div className="flex-1 bg-slate-100 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-[#E3655B]/30">
                 <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder={replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar... Gunakan @ untuk mention"}
-                  className="w-full bg-transparent text-[13px] text-slate-900 placeholder-slate-400 focus:outline-none"
-                  onKeyPress={e => e.key === "Enter" && handleSubmit()}
-                />
+
+  ref={inputRef}
+  rows={1}
+  name="pesan_warga_setempat" // Nama unik agar tidak muncul icon kartu kredit
+  autoComplete="off"
+  inputMode="text"
+  value={input}
+  onChange={(e) => { // Pembungkus fungsi dimulai
+    setInput(e.target.value);
+    // Logic auto-resize tinggi
+    e.target.style.height = 'auto';
+    e.target.style.height = `${e.target.scrollHeight}px`;
+  }} // Pembungkus fungsi berakhir
+  placeholder={replyTo ? `Balas @${replyTo.username}...` : "Tulis komentar..."}
+  className="w-full bg-transparent text-[14px] text-slate-900 focus:outline-none resize-none py-1 max-h-32"
+  onKeyDown={(e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }}
+/>
               </div>
               <button
                 onClick={handleSubmit}

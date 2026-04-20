@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabaseClient";
 // ========== CONSTANTS ==========
 const ALLOWED_ROLES = ["superadmin", "admin"];
 const MAX_PHOTOS_PER_SLOT = 10;
-const SEARCH_LIMIT = 30; // ✅ Turunkan dari 100 ke 30
+const SEARCH_LIMIT = 100; // 
 
 export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const router = useRouter();
@@ -69,7 +69,7 @@ useEffect(() => {
         .from("tempat")
         .select("id, name, category, alamat")
         .order("name", { ascending: true })  // 
-        .limit(30)
+        .limit(100)
         .abortSignal(abortControllerRef.current.signal);
       
       if (error) throw error;

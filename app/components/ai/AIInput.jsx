@@ -26,7 +26,7 @@ const AIInput = memo(({ value, onChange, onSend, onLaporClick, isTyping, placeho
         </button>
 
         <input
-          type="text"
+          type="search"
           value={value}
           onChange={onChange}
           placeholder={placeholder || "Tanya atau cerita kondisi..."}
@@ -37,12 +37,12 @@ const AIInput = memo(({ value, onChange, onSend, onLaporClick, isTyping, placeho
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
-          inputMode="text"
-          // Khusus untuk menghilangkan saran kartu kredit/password
-          name="_ai_chat_input"
-          id="_ai_chat_input"
-          // Mencegah browser menyimpan data sebagai form
+          inputMode="search"
+          style={{ WebkitAppearance: 'none' }}
+          name={`chat-message-${Math.random()}`}
+          id="chat-input"
           data-form-type="other"
+          
         />
       </div>
 

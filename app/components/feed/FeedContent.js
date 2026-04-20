@@ -166,10 +166,15 @@ const EndOfFeed = memo(() => (
 const PullToRefreshIndicator = memo(({ refreshing }) => (
   <AnimatePresence>
     {refreshing && (
-      <motion.div initial={{ y: -60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -60, opacity: 0 }} className="fixed top-0 left-0 right-0 bg-gradient-to-r from-emerald-600/95 to-teal-600/95 backdrop-blur-md py-3 text-center text-white text-sm z-50 shadow-lg">
+      <motion.div 
+        initial={{ y: -60, opacity: 0 }} 
+        animate={{ y: 0, opacity: 1 }} 
+        exit={{ y: -60, opacity: 0 }} 
+        className="fixed top-0 left-0 right-0 bg-black/80 backdrop-blur-md py-3 text-center text-white/70 text-sm z-50 shadow-lg"
+      >
         <div className="flex items-center justify-center gap-2">
           <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          <span>Memperbarui feed...</span>
+          <span>Refresh Kondisi Setempat ...</span>
         </div>
       </motion.div>
     )}
@@ -220,6 +225,9 @@ export default function FeedContent() {
   const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
   const [feedOpacity, setFeedOpacity] = useState(1);
   const [isActivatingLocation, setIsActivatingLocation] = useState(false);
+
+  // ========== DETEKSI ARAH SCROLL ==========
+ const [scrollDirection, setScrollDirection] = useState('down');  
 
   // ========== BREAK CARD STATE ==========
   const previousConditionsRef = useRef({});
@@ -746,6 +754,24 @@ export default function FeedContent() {
     getUser();
   }, []);
 
+
+ useEffect(() => {
+    let lastScrollY = window.scrollY;
+    
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY > lastScrollY) {
+        setScrollDirection('down');
+      } else if (currentScrollY < lastScrollY) {
+        setScrollDirection('up');
+      }
+      lastScrollY = currentScrollY;
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
@@ -930,6 +956,7 @@ useEffect(() => {
   }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length]);
 
   // Pull to refresh
+  
   useEffect(() => {
     let startY = 0;
     let isPulling = false;
