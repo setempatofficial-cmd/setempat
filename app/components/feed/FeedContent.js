@@ -737,22 +737,49 @@ export default function FeedContent() {
   }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager]);
 
   // ========== EFFECTS ==========
+
+useEffect(() => {
+  let isMounted = true;
   
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
+  const getUser = async () => {
+    try {
+      // Ganti dari getUser() ke getSession()
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.warn("Session error:", error.message);
+        return;
+      }
+      
+      const authUser = session?.user;
+      
+      if (authUser && isMounted) {
         setUserId(authUser.id);
-        const { data: profile } = await supabase
+        
+        // Gunakan maybeSingle() biar tidak error jika profile tidak ada
+        const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', authUser.id)
-          .single();
-        setUserRole(profile?.role || 'warga');
+          .maybeSingle(); // ✅ Ganti .single() dengan .maybeSingle()
+        
+        if (!profileError && profile) {
+          setUserRole(profile?.role || 'warga');
+        } else {
+          setUserRole('warga'); // Default role
+        }
       }
-    };
-    getUser();
-  }, []);
+    } catch (err) {
+      console.warn("Auth error:", err.message);
+    }
+  };
+  
+  getUser();
+  
+  return () => {
+    isMounted = false;
+  };
+}, []);
 
 
  useEffect(() => {

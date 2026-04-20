@@ -16,9 +16,16 @@ export default function WoroPage() {
 
   const checkAccess = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      // ✅ Gunakan getSession() bukan getUser()
+      const { data: { session }, error } = await supabase.auth.getSession();
       
-      if (!user) {
+      if (error) {
+        console.error("Session error:", error.message);
+        router.push("/");
+        return;
+      }
+      
+      if (!session?.user) {
         router.push("/");
         return;
       }

@@ -1,12 +1,15 @@
+// components/UploaderAdmin.jsx
 "use client";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { CldUploadWidget } from "next-cloudinary";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, Check, Loader2, X, AlertCircle, Link as LinkIcon, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) {
+export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, onSuccess }) {
+  const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [tempUrl, setTempUrl] = useState("");
@@ -16,7 +19,6 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
   const [toast, setToast] = useState({ show: false, message: "", isError: false });
   const [mounted, setMounted] = useState(false);
 
-  // Gunakan useEffect untuk mount client-side
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -69,11 +71,20 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
       if (error) throw error;
 
       showToast(`Berhasil memperbarui ${timeLabel}!`);
-      resetModal();
+      
       if (onRefreshNeeded) onRefreshNeeded();
+      
+      setTimeout(() => {
+        resetModal();
+        if (onSuccess) {
+          onSuccess(tempatId);
+        } else {
+          router.push(`/post/${tempatId}`);
+        }
+      }, 1500);
+      
     } catch (err) {
       showToast(err.message || "Gagal menyimpan", true);
-    } finally {
       setIsUploading(false);
     }
   };
@@ -83,15 +94,14 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
     setTempUrl("");
     setVideoUrl("");
     setCaption("");
+    setIsUploading(false);
   };
 
   if (!mounted) return null;
 
   return (
     <div className="w-full max-w-md mx-auto space-y-3">
-      {/* Tombol Utama */}
       <div className="grid grid-cols-5 gap-2">
-        {/* Tombol Link - Sekarang di kiri */}
         <div className="col-span-2 relative">
           <input
             type="text"
@@ -116,7 +126,6 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
           </button>
         </div>
 
-        {/* Tombol Foto - Sekarang di kanan */}
         <CldUploadWidget
           uploadPreset="setempat_preset"
           onSuccess={(res) => {
@@ -142,7 +151,6 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
         </CldUploadWidget>
       </div>
 
-      {/* Portal Modal */}
       {createPortal(
         <AnimatePresence>
           {showModal && (
@@ -154,13 +162,11 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
                 className="w-full max-w-sm bg-zinc-950 border border-white/10 rounded-t-[2rem] sm:rounded-[2rem] overflow-hidden"
               >
                 <div className="p-6">
-                  {/* Header */}
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-white font-medium">Konfirmasi Upload</h3>
                     <button onClick={resetModal} className="p-2 bg-zinc-900 rounded-full text-zinc-400"><X size={18}/></button>
                   </div>
 
-                  {/* Preview */}
                   <div className="aspect-video w-full bg-zinc-900 rounded-2xl mb-4 overflow-hidden border border-white/5">
                     {mediaType === "image" ? (
                       <img src={tempUrl} className="w-full h-full object-cover" alt="Preview" />
@@ -196,7 +202,6 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded }) 
         document.body
       )}
 
-      {/* Toast Notification */}
       <AnimatePresence>
         {toast.show && (
           <motion.div
