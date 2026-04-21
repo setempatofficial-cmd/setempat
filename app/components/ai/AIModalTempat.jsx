@@ -14,6 +14,7 @@ export default function AIModalTempat({
   isOpen,
   onClose,
   tempat,
+  activeReport = null,
   reports = [],
   stats = { total: 0, ramai: 0, sepi: 0, antri: 0 },
   weather = null,
@@ -53,7 +54,14 @@ export default function AIModalTempat({
     if (messages.length > 0) setTimeout(scrollToBottom, 100);
   }, [messages]);
 
-  // OPENING MESSAGE SEDERHANA
+  // 🔥 RESET INITIALIZED SAAT ACTIVE REPORT BERUBAH (UNTUK CITIZENHUB)
+  useEffect(() => {
+    if (isOpen && activeReport) {
+      hasInitialized.current = false;
+    }
+  }, [activeReport, isOpen]);
+
+  // ========== OPENING MESSAGE ==========
   useEffect(() => {
     if (!isOpen || !tempat?.id) return;
     if (hasInitialized.current) return;
@@ -64,14 +72,42 @@ export default function AIModalTempat({
     const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
     const jarakText = jarak ? ` (${jarak} dari lokasi Anda)` : "";
 
-    let cuacaText = "";
-    if (weather && weather.weather_desc) {
-      cuacaText = `\n\n☀️ **Cuaca:** ${weather.weather_desc}, ${weather.t}°C`;
+    let sambutan = "";
+    
+    // 🔥 CEK APAKAH ADA ACTIVE REPORT
+    if (activeReport && activeReport.tipe) {
+      const tipeEmoji = {
+        'Ramai': '👥',
+        'Sepi': '🍃',
+        'Antri': '⏳'
+      };
+      const emoji = tipeEmoji[activeReport.tipe] || '📝';
+      const kondisi = activeReport.tipe || "kondisi";
+      const deskripsi = activeReport.deskripsi?.substring(0, 100) || "";
+      
+      sambutan = `${greeting}, Sobat! 👋 Saya lihat Anda penasaran dengan kondisi **${kondisi}** di **${tempat.name}**${jarakText}\n\n${emoji} *"${deskripsi}"*\n\n`;
+      
+      // Tambahkan rekomendasi berdasarkan tipe
+      if (activeReport.tipe === "Ramai") {
+        sambutan += `📌 **Tips:** Kalau mau hindari keramaian, coba datang di pagi atau sore hari ya!\n\n`;
+      } else if (activeReport.tipe === "Antri") {
+        sambutan += `⏳ **Tips:** Siapkan waktu ekstra atau cari alternatif tempat lain!\n\n`;
+      } else if (activeReport.tipe === "Sepi") {
+        sambutan += `🍃 **Tips:** Waktu yang tepat untuk santai atau foto-foto!\n\n`;
+      }
+      
+      sambutan += `💬 Ada yang mau ditanyakan lebih lanjut seputar kondisi ini?`;
     } else {
-      cuacaText = `\n\n🌤️ Cuaca: ${hour < 15 ? "Siang panas, jangan lupa topi dan minum!" : "Sore teduh, enak santai."}`;
+      // Sambutan default (tanpa laporan spesifik)
+      let cuacaText = "";
+      if (weather && weather.weather_desc) {
+        cuacaText = `\n\n☀️ **Cuaca:** ${weather.weather_desc}, ${weather.t}°C`;
+      } else {
+        cuacaText = `\n\n🌤️ Cuaca: ${hour < 15 ? "Siang panas, jangan lupa topi dan minum!" : "Sore teduh, enak santai."}`;
+      }
+      
+      sambutan = `${greeting}, Sobat! 👋 Selamat datang di **${tempat.name}**${jarakText}${cuacaText}\n\n💬 Tanya kondisi terkini atau langsung lapor ya!`;
     }
-
-    const sambutan = `${greeting}, Sobat! 👋 Selamat datang di **${tempat.name}**${jarakText}${cuacaText}\n\n💬 Tanya kondisi terkini atau langsung lapor ya!`;
 
     setMessages([
       {
@@ -82,7 +118,7 @@ export default function AIModalTempat({
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       },
     ]);
-  }, [isOpen, tempat?.id, tempat?.name, jarak, weather, getUniqueId]);
+  }, [isOpen, tempat?.id, tempat?.name, jarak, weather, activeReport, getUniqueId]);
 
   // Reset saat modal ditutup
   useEffect(() => {

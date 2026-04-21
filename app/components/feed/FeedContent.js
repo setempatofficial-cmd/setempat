@@ -433,52 +433,60 @@ export default function FeedContent() {
     };
   }, [kentonganForFeed, openAIModalWithKentongan]); 
 
-  // ========== GABUNGKAN FEED CARD DAN BREAK CARD ==========
-  const feedItemsWithBreaks = useMemo(() => {
-    if (!tempat.length) return [];
+  // ========== GABUNGKAN FEED CARD DAN BREAK CARD (OPTIMIZED) ==========
+const feedItemsWithBreaks = useMemo(() => {
+  if (!tempat.length) return [];
+  
+  // 1. Batasi hanya 50 item pertama yang disisipi Break Card
+  const limit = 50;
+  const itemsToProcess = tempat.slice(0, limit);
+  const remainingItems = tempat.slice(limit);
+  
+  const result = [];
+  let cardsSinceLastBreak = 0;
+  
+  // 2. Loop hanya pada itemsToProcess
+  for (let i = 0; i < itemsToProcess.length; i++) {
+    result.push(itemsToProcess[i]);
+    cardsSinceLastBreak++;
     
-    const items = [];
-    let cardsSinceLastBreak = 0;
-    
-    for (let i = 0; i < tempat.length; i++) {
-      items.push(tempat[i]);
-      cardsSinceLastBreak++;
+    const shouldAddBreak = (() => {
+      if (cardsSinceLastBreak < 2) return false;
+      if (cardsSinceLastBreak >= 5) return true;
       
-      const shouldAddBreak = (() => {
-        if (cardsSinceLastBreak < 2) return false;
-        if (cardsSinceLastBreak >= 5) return true;
-        
-        const recentPlaces = tempat.slice(Math.max(0, i - 2), i + 1);
-        const hasViral = recentPlaces.some(p => p.isViral === true);
-        const hasManyReports = recentPlaces.some(p => (p.laporan_terbaru?.length || 0) > 3);
-        
-        let hasStatusChange = false;
-        if (recentPlaces.length >= 2) {
-          const statuses = recentPlaces.map(p => p.isRamai ? "ramai" : (p.isViral ? "viral" : "normal"));
-          hasStatusChange = statuses[0] !== statuses[statuses.length - 1];
-        }
-        
-        return (hasViral || hasManyReports || hasStatusChange) || cardsSinceLastBreak >= 4;
-      })();
+      const recentPlaces = itemsToProcess.slice(Math.max(0, i - 2), i + 1);
+      const hasViral = recentPlaces.some(p => p.isViral === true);
+      const hasManyReports = recentPlaces.some(p => (p.laporan_terbaru?.length || 0) > 3);
       
-      if (shouldAddBreak && i !== tempat.length - 1) {
-        const breakCard = generateBreakCard(i + 1, tempat.slice(0, i + 1), tempat);
-        if (breakCard) {
-          items.push({
-            _isBreak: true,
-            id: `break-${i}-${Date.now()}`,
-            type: breakCard.type,
-            level: breakCard.level,
-            data: breakCard.data,
-            onClick: breakCard.onClick,
-          });
-        }
-        cardsSinceLastBreak = 0;
+      let hasStatusChange = false;
+      if (recentPlaces.length >= 2) {
+        const statuses = recentPlaces.map(p => p.isRamai ? "ramai" : (p.isViral ? "viral" : "normal"));
+        hasStatusChange = statuses[0] !== statuses[statuses.length - 1];
       }
-    }
+      
+      return (hasViral || hasManyReports || hasStatusChange) || cardsSinceLastBreak >= 4;
+    })();
     
-    return items;
-  }, [tempat, generateBreakCard]);
+    if (shouldAddBreak && i !== itemsToProcess.length - 1) {
+      const breakCard = generateBreakCard(i + 1, itemsToProcess.slice(0, i + 1), itemsToProcess);
+      if (breakCard) {
+        result.push({
+          _isBreak: true,
+          id: `break-${i}-${Date.now()}`,
+          type: breakCard.type,
+          level: breakCard.level,
+          data: breakCard.data,
+          onClick: breakCard.onClick,
+        });
+      }
+      cardsSinceLastBreak = 0;
+    }
+  }
+  
+  // 3. Gabungkan langsung sisanya tanpa proses logika tambahan
+  return [...result, ...remainingItems];
+
+}, [tempat, generateBreakCard]);
 
   // ========== CACHE MANAGER ==========
   const getCacheKey = useCallback(() => {

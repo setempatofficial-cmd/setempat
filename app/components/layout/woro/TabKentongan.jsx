@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/app/context/AuthContext";
+import AIModal from "@/app/components/ai/AIModal";
 import { useRouter } from "next/navigation";
 import {
   Megaphone,
@@ -39,6 +40,9 @@ export default function TabKentongan({ theme }) {
   const [imageFile, setImageFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
 
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [selectedForAI, setSelectedForAI] = useState(null);
+
   // 🔥 STATE UNTUK DELETE & EDIT
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
@@ -70,29 +74,37 @@ export default function TabKentongan({ theme }) {
   const canSendKentongan = isSuperAdmin || isAdmin;
 
   // --- FUNGSI CLOUDINARY ---
-  const uploadToCloudinary = async (file) => {
-    const cloudName = "dlluhhe83";
-    const uploadPreset = "setempat_preset";
+ const uploadToCloudinary = async (file) => {
+  // Sebaiknya simpan di file .env
+  const CLOUD_NAME = "dlluhhe83";
+  const UPLOAD_PRESET = "setempat_preset";
+  const API_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
 
-    const formDataCloud = new FormData();
-    formDataCloud.append("file", file);
-    formDataCloud.append("upload_preset", uploadPreset);
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("upload_preset", UPLOAD_PRESET);
 
-    try {
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        { method: "POST", body: formDataCloud }
-      );
+  try {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      body: formData,
+    });
 
-      if (!res.ok) throw new Error("Gagal upload ke server Cloudinary");
-
-      const data = await res.json();
-      return data.secure_url.replace("/upload/", "/upload/f_auto,q_auto/");
-    } catch (err) {
-      console.error("Cloudinary Error:", err);
-      throw new Error("Gagal upload gambar: " + err.message);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || "Gagal upload ke Cloudinary");
     }
-  };
+
+    const data = await response.json();
+
+    // Optimasi otomatis: f_auto (format), q_auto (kualitas)
+    return data.secure_url.replace("/upload/", "/upload/f_auto,q_auto/");
+    
+  } catch (err) {
+    console.error("Cloudinary Upload Error:", err);
+    throw err; // Lempar error agar bisa ditangkap oleh UI/komponen pemanggil
+  }
+};
 
   // Fetch Profile & Data
   useEffect(() => {
@@ -318,10 +330,20 @@ export default function TabKentongan({ theme }) {
     }
   };
 
-  const handleKentonganClick = (kentongan) => {
-    sessionStorage.setItem("selected_kentongan", JSON.stringify(kentongan));
-    router.push("/");
-  };
+const handleOpenAIModal = (item, e) => {
+  e.stopPropagation();
+  setSelectedForAI(item);
+  setShowAIModal(true);
+};
+
+// 🔥 FUNGSI INI YANG BENAR (TANPA return JSX)
+const handleKentonganClick = (item, e) => {
+  if (e) e.stopPropagation();
+  setSelectedForAI(item);
+  setShowAIModal(true);
+};
+
+// KEMUDIAN RETURN COMPONENT
 
   return (
     <div className={`pb-20 max-w-2xl mx-auto px-4 sm:px-0 transition-colors duration-300`}>
@@ -822,6 +844,20 @@ export default function TabKentongan({ theme }) {
           </div>
         </div>
       )}
+
+     {/* ========================================== */}
+      <AIModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        kentongan={selectedForAI}
+        theme={{ 
+          isMalam,
+          card: isMalam ? "bg-slate-900" : "bg-white",
+          border: isMalam ? "border-white/10" : "border-gray-100",
+          text: isMalam ? "text-white" : "text-gray-900"
+        }}
+      />
+
     </div>
   );
 }

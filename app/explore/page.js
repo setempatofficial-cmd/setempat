@@ -13,6 +13,14 @@ import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 import UserMenu from "@/app/components/layout/UserMenu";
 import AuthModal from "@/app/components/auth/AuthModal";
 import { useAuth } from "@/app/context/AuthContext";
+import AIModalTempat from "@/app/components/ai/AIModalTempat";
+
+
+const getAvatarUrl = (report) => {
+  if (report?.user_avatar) return report.user_avatar;
+  const name = report?.user_name || "Warga";
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`;
+};
 
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
@@ -37,6 +45,12 @@ export default function CitizenHub({ userId, userRole }) {
   const scrollTimeoutRef = useRef(null);
   const isScrollingRef = useRef(false);
   const isAutoScrollingRef = useRef(false);
+
+  // ========== STATE ==========
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [selectedAITempat, setSelectedAITempat] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
+
 
   const handleOpenUpload = () => {
     setSelectedTempat(null);
@@ -272,6 +286,7 @@ useEffect(() => {
 
   const openModal = (index) => {
     setCurrentIndex(index);
+    setSelectedReport(filteredReports[index]);
     document.body.style.overflow = 'hidden';
     isAutoScrollingRef.current = true;
     
@@ -347,6 +362,23 @@ useEffect(() => {
     }
   };
 
+  // ========== FUNGSI ==========
+const openAIChat = (report, e) => {
+  e?.stopPropagation();
+  if (report?.tempat) {
+
+  closeModal();
+
+setTimeout(() => {
+      setSelectedAITempat(report.tempat);
+      setSelectedReport(report);
+      setIsAIModalOpen(true);
+    }, 150);
+  } else {
+    alert("Informasi tempat tidak tersedia");
+  }
+};
+
   // Report Card Component
   const ReportCard = ({ report, index }) => (
     <motion.div
@@ -393,11 +425,12 @@ useEffect(() => {
 
       <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full">
         <img
-          src={report.user_avatar || "/default-avatar.png"}
+          src={getAvatarUrl(report)}
           className="w-4 h-4 rounded-full border border-white/30"
           alt="avatar"
+          referrerPolicy="no-referrer"
           onError={(e) => {
-            e.target.src = "/default-avatar.png";
+            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`;
           }}
         />
         <span className="text-[9px] text-white font-medium truncate max-w-[60px]">
@@ -637,10 +670,12 @@ useEffect(() => {
       <div className="flex items-center gap-2 sm:gap-2.5 mb-2 sm:mb-3">
         <div className="relative shrink-0">
           <img
-            src={report.user_avatar || "/default-avatar.png"}
+            src={getAvatarUrl(report)}
             className="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-white/30"
             alt="avatar"
-            onError={(e) => { e.target.src = "/default-avatar.png"; }}
+            referrerPolicy="no-referrer"
+            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`;
+  }}
           />
           <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
             <ShieldCheck size={7} className="text-white sm:w-[9px] sm:h-[9px]" />
@@ -713,7 +748,9 @@ useEffect(() => {
         <span className="text-[8px] font-medium text-white/50">Like</span>
       </div>
       <div className="flex flex-col items-center gap-0.5">
-        <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
+        <button 
+         onClick={(e) => openAIChat(report, e)}
+         className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all">
           <MessageSquare size={18} />
         </button>
         <span className="text-[8px] font-medium text-white/50">Chat</span>
@@ -768,10 +805,12 @@ useEffect(() => {
       {/* Info User & Waktu */}
       <div className="flex items-center justify-center gap-2 mt-6 pt-4 border-t border-white/10">
         <img
-          src={report.user_avatar || "/default-avatar.png"}
+          src={getAvatarUrl(report)}
           className="w-6 h-6 rounded-full border border-white/30"
           alt="avatar"
-          onError={(e) => { e.target.src = "/default-avatar.png"; }}
+          referrerPolicy="no-referrer"
+          onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; 
+         }}
         />
         <span className="text-white/80 text-sm font-medium">
           @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
@@ -815,7 +854,9 @@ useEffect(() => {
           <span className="text-[9px] font-bold text-white/60">Like</span>
         </div>
         <div className="flex flex-col items-center gap-1">
-          <button className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/30 transition-all">
+          <button 
+           onClick={(e) => openAIChat(report, e)}
+           className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/30 transition-all">
             <MessageSquare size={20} />
           </button>
           <span className="text-[9px] font-bold text-white/60">Chat</span>
@@ -842,6 +883,33 @@ useEffect(() => {
           onClose={() => setIsAuthModalOpen(false)}
           theme={{ isMalam }}
         />
+{/* Pastikan mengirim props dengan benar */}
+<AIModalTempat
+  isOpen={isAIModalOpen}
+  onClose={() => {
+    setIsAIModalOpen(false);
+    setSelectedAITempat(null);
+    setSelectedReport(null);
+  }}
+  tempat={selectedAITempat}
+  activeReport={selectedReport}  // 🔥 KIRIM LAPORAN YANG DIKLIK
+  reports={filteredReports}       // 🔥 KIRIM SEMUA LAPORAN
+  stats={{
+    total: filteredReports.length,
+    ramai: filteredReports.filter(r => r.tipe === 'Ramai').length,
+    sepi: filteredReports.filter(r => r.tipe === 'Sepi').length,
+    antri: filteredReports.filter(r => r.tipe === 'Antri').length,
+  }}
+  theme={{ 
+    isMalam: isMalam,
+    card: isMalam ? 'bg-slate-900' : 'bg-white',
+    border: isMalam ? 'border-white/10' : 'border-gray-100',
+    text: isMalam ? 'text-white' : 'text-gray-900'
+  }}
+  onOpenAuthModal={() => setIsAuthModalOpen(true)}
+  onUploadSuccess={() => {}}
+/>
+
       </div>
 
       <style jsx global>{`

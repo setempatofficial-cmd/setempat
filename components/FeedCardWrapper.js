@@ -1,44 +1,37 @@
 "use client";
 
-import { motion, useScroll, useTransform, useSpring } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
 
-export default function FeedCardWrapper({ children, theme }) {
+export default function FeedCardWrapper({ children }) {
   const cardRef = useRef(null);
-  const isMalam = theme?.isMalam;
 
+  // Gunakan scroll progress langsung tanpa spring untuk responsivitas instan
   const { scrollYProgress } = useScroll({
     target: cardRef,
-    // Offset Pixel agar presisi di semua ukuran layar HP
-    offset: ["start 150px", "end 60px"] 
-  });
-
-  const smoothProgress = useSpring(scrollYProgress, { 
-    stiffness: 100, 
-    damping: 30,
-    mass: 0.8
+    // Start saat card mulai masuk area bawah, end saat hampir keluar atas
+    offset: ["start end", "end start"]
   });
 
   /**
-   * LOGIKA SINKRON:
-   * [0 ke 0.7]: Zona Baca (Scale 1, Blur 0, Opacity 1)
-   * [0.7 ke 1]: Zona Meledak (Menciut & Blur bareng AI Button)
+   * OPTIMASI PERFORMA:
+   * 1. Hapus 'filter: blur' karena sangat berat untuk GPU saat scroll cepat.
+   * 2. Fokus pada Scale dan Opacity (Transformations yang hardware-accelerated).
+   * 3. Range 0.8 ke 1 memastikan efek hanya terjadi di ujung atas layar.
    */
-  const cardScale = useTransform(smoothProgress, [0, 0.7, 1], [1, 1, 0.90]); 
-  const cardBlur = useTransform(smoothProgress, [0, 0.7, 1], ["blur(0px)", "blur(0px)", "blur(12px)"]);
-  const cardOpacity = useTransform(smoothProgress, [0, 0.8, 1], [1, 1, 0]);
+  const scale = useTransform(scrollYProgress, [0.8, 1], [1, 0.92]);
+  const opacity = useTransform(scrollYProgress, [0.8, 0.95], [1, 0]);
 
   return (
     <motion.div
       ref={cardRef}
       style={{ 
-        scale: cardScale, 
-        filter: cardBlur,
-        opacity: cardOpacity,
-        willChange: "transform, filter, opacity" 
+        scale, 
+        opacity,
+        // Hint bagi browser untuk mengoptimalkan layer ini
+        willChange: "transform, opacity" 
       }}
-      // PENTING: p-4 dihapus agar padding tidak dobel (sesuai request kamu)
-      className="relative w-full mb-8 overflow-visible"
+      className="relative w-full mb-6 overflow-visible"
     >
       {children}
     </motion.div>
