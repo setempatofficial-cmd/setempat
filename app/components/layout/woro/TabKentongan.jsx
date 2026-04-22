@@ -27,6 +27,45 @@ function formatTime(dateString) {
   return date.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
 }
 
+// 🔥 FUNGSI COMPRESS IMAGE
+const compressImage = (file) => {
+  return new Promise((resolve, reject) => {
+    if (file.size < 1024 * 1024) {
+      resolve(file);
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxWidth = 1024;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.8);
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 export default function TabKentongan({ theme }) {
   const { user, isSuperAdmin, isAdmin } = useAuth();
   const [announcements, setAnnouncements] = useState([]);
@@ -43,12 +82,10 @@ export default function TabKentongan({ theme }) {
   const [showAIModal, setShowAIModal] = useState(false);
   const [selectedForAI, setSelectedForAI] = useState(null);
 
-  // 🔥 STATE UNTUK DELETE & EDIT
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [deleting, setDeleting] = useState(false);
   
-  // 🔥 STATE UNTUK EDIT
   const [editingItem, setEditingItem] = useState(null);
   const [editFormData, setEditFormData] = useState({
     title: "",
@@ -73,40 +110,53 @@ export default function TabKentongan({ theme }) {
   const isMalam = theme?.isMalam ?? true;
   const canSendKentongan = isSuperAdmin || isAdmin;
 
-  // --- FUNGSI CLOUDINARY ---
- const uploadToCloudinary = async (file) => {
-  // Sebaiknya simpan di file .env
-  const CLOUD_NAME = "dlluhhe83";
-  const UPLOAD_PRESET = "setempat_preset";
-  const API_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
-
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
-
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || "Gagal upload ke Cloudinary");
+  // 🔥 UPLOAD KE CLOUDINARY DENGAN TIMEOUT
+  const uploadToCloudinary = async (file) => {
+    // Validasi ukuran file (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error("Ukuran file maksimal 2MB. Silakan kompres gambar terlebih dahulu.");
     }
 
-    const data = await response.json();
+    const CLOUD_NAME = "dlluhhe83";
+    const UPLOAD_PRESET = "setempat_preset";
+    const API_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
 
-    // Optimasi otomatis: f_auto (format), q_auto (kualitas)
-    return data.secure_url.replace("/upload/", "/upload/f_auto,q_auto/");
-    
-  } catch (err) {
-    console.error("Cloudinary Upload Error:", err);
-    throw err; // Lempar error agar bisa ditangkap oleh UI/komponen pemanggil
-  }
-};
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", UPLOAD_PRESET);
 
-  // Fetch Profile & Data
+    // 🔥 Tambahkan timeout 15 detik
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || "Gagal upload ke Cloudinary");
+      }
+
+      const data = await response.json();
+      return data.secure_url.replace("/upload/", "/upload/f_auto,q_auto/");
+      
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error("Upload timeout, coba dengan file yang lebih kecil");
+      }
+      console.error("Cloudinary Upload Error:", err);
+      throw err;
+    }
+  };
+
+  // Fetch Profile
   useEffect(() => {
     if (user?.id) {
       const fetchProfile = async () => {
@@ -171,15 +221,22 @@ export default function TabKentongan({ theme }) {
     };
   }, [fetchAnnouncements]);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setImageFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      try {
+        // 🔥 Kompres file sebelum preview
+        const compressed = await compressImage(file);
+        setImageFile(compressed);
+        setPreviewUrl(URL.createObjectURL(compressed));
+      } catch (err) {
+        console.error("Compress error:", err);
+        setImageFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
+      }
     }
   };
 
-  // 🔥 FUNGSI EDIT
   const openEditModal = (item, e) => {
     e.stopPropagation();
     setEditingItem(item);
@@ -195,11 +252,17 @@ export default function TabKentongan({ theme }) {
     setEditImageFile(null);
   };
 
-  const handleEditFileChange = (e) => {
+  const handleEditFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setEditImageFile(file);
-      setEditPreviewUrl(URL.createObjectURL(file));
+      try {
+        const compressed = await compressImage(file);
+        setEditImageFile(compressed);
+        setEditPreviewUrl(URL.createObjectURL(compressed));
+      } catch (err) {
+        setEditImageFile(file);
+        setEditPreviewUrl(URL.createObjectURL(file));
+      }
     }
   };
 
@@ -234,7 +297,7 @@ export default function TabKentongan({ theme }) {
       setEditFormData({ title: "", content: "", is_urgent: false, is_pinned: false });
       setEditImageFile(null);
       setEditPreviewUrl(null);
-      fetchAnnouncements();
+      // 🔥 Tidak perlu panggil fetchAnnouncements, subscription akan update
     } catch (err) {
       console.error("Update Error:", err);
       alert("Gagal update pengumuman: " + err.message);
@@ -243,7 +306,6 @@ export default function TabKentongan({ theme }) {
     }
   };
 
-  // 🔥 FUNGSI DELETE
   const handleDeleteAnnouncement = async () => {
     if (!selectedAnnouncement) return;
     
@@ -256,9 +318,9 @@ export default function TabKentongan({ theme }) {
       
       if (error) throw error;
       
-      await fetchAnnouncements();
       setShowDeleteConfirm(false);
       setSelectedAnnouncement(null);
+      // 🔥 Tidak perlu panggil fetchAnnouncements, subscription akan update
       
     } catch (err) {
       console.error("Delete Error:", err);
@@ -274,6 +336,7 @@ export default function TabKentongan({ theme }) {
     setShowDeleteConfirm(true);
   };
 
+  // 🔥 HANDLE SEND YANG DIPERBAIKI
   const handleSendKentongan = async (e) => {
     e.preventDefault();
     if (!formData.title.trim() || !formData.content.trim()) return;
@@ -306,9 +369,21 @@ export default function TabKentongan({ theme }) {
           : profile?.kecamatan,
       };
 
-      const { error } = await supabase.from("kentongan").insert(payload);
-      if (error) throw error;
+      console.log("📤 Sending payload:", payload);
 
+      const { data, error } = await supabase
+        .from("kentongan")
+        .insert(payload)
+        .select();
+
+      if (error) {
+        console.error("Supabase Error:", error);
+        throw new Error(error.message);
+      }
+
+      console.log("✅ Berhasil tersimpan:", data);
+
+      // Reset form
       setFormData({
         title: "",
         content: "",
@@ -321,29 +396,29 @@ export default function TabKentongan({ theme }) {
       setImageFile(null);
       setPreviewUrl(null);
       setShowForm(false);
-      fetchAnnouncements();
+      
+      // 🔥 HAPUS fetchAnnouncements() - subscription akan update otomatis
+      
     } catch (err) {
       console.error("Error:", err);
-      alert(err.message);
+      let errorMessage = err.message;
+      if (err.message.includes("JWT")) {
+        errorMessage = "Sesi login Anda habis, silakan refresh halaman dan login ulang.";
+      } else if (err.message.includes("timeout")) {
+        errorMessage = "Upload terlalu lama, coba dengan ukuran gambar yang lebih kecil.";
+      }
+      alert(`Gagal mengirim: ${errorMessage}`);
     } finally {
       setSending(false);
     }
   };
 
-const handleOpenAIModal = (item, e) => {
-  e.stopPropagation();
-  setSelectedForAI(item);
-  setShowAIModal(true);
-};
-
-// 🔥 FUNGSI INI YANG BENAR (TANPA return JSX)
-const handleKentonganClick = (item, e) => {
-  if (e) e.stopPropagation();
-  setSelectedForAI(item);
-  setShowAIModal(true);
-};
-
-// KEMUDIAN RETURN COMPONENT
+  // 🔥 SATU HANDLER UNTUK MODAL AI
+  const handleOpenAIModal = (item, e) => {
+    if (e) e.stopPropagation();
+    setSelectedForAI(item);
+    setShowAIModal(true);
+  };
 
   return (
     <div className={`pb-20 max-w-2xl mx-auto px-4 sm:px-0 transition-colors duration-300`}>
@@ -386,7 +461,6 @@ const handleKentonganClick = (item, e) => {
 
           {showForm && (
             <form onSubmit={handleSendKentongan} className="p-5 pt-0 space-y-5">
-              {/* Form fields sama seperti sebelumnya */}
               <div className="space-y-3">
                 <input
                   type="text"
@@ -403,7 +477,7 @@ const handleKentonganClick = (item, e) => {
 
                 <div className="space-y-2">
                   <p className={`text-[10px] font-black uppercase tracking-widest ${isMalam ? "text-white/40" : "text-slate-500"}`}>
-                    Foto Berita (Opsional)
+                    Foto Berita (Opsional, max 2MB)
                   </p>
                   <label
                     className={`relative group flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-xl cursor-pointer transition-all overflow-hidden
@@ -584,101 +658,95 @@ const handleKentonganClick = (item, e) => {
           </div>
         ) : (
           announcements.map((item) => (
-  <div
-    key={item.id}
-    onClick={() => handleKentonganClick(item)}
-    className={`group relative rounded-2xl p-5 border transition-all cursor-pointer ${
-      isMalam
-        ? "bg-slate-900/40 border-white/5 hover:bg-slate-900/60 hover:border-orange-500/30"
-        : "bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-orange-200"
-    }`}
-  >
-    {/* Tombol Edit & Delete - kiri atas */}
-    {isSuperAdmin && (
-      <div className="absolute top-4 left-4 flex gap-2 z-10">
-        <button
-          onClick={(e) => openEditModal(item, e)}
-          className="p-1.5 rounded-full bg-blue-500/80 text-white hover:bg-blue-600 transition-all backdrop-blur-sm shadow-md"
-          title="Edit pengumuman"
-        >
-          <Edit size={14} />
-        </button>
-        <button
-          onClick={(e) => openDeleteConfirm(item, e)}
-          className="p-1.5 rounded-full bg-red-500/80 text-white hover:bg-red-600 transition-all backdrop-blur-sm shadow-md"
-          title="Hapus pengumuman"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-    )}
+            <div
+              key={item.id}
+              onClick={(e) => handleOpenAIModal(item, e)}
+              className={`group relative rounded-2xl p-5 border transition-all cursor-pointer ${
+                isMalam
+                  ? "bg-slate-900/40 border-white/5 hover:bg-slate-900/60 hover:border-orange-500/30"
+                  : "bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-orange-200"
+              }`}
+            >
+              {/* Tombol Edit & Delete */}
+              {isSuperAdmin && (
+                <div className="absolute top-4 left-4 flex gap-2 z-10">
+                  <button
+                    onClick={(e) => openEditModal(item, e)}
+                    className="p-1.5 rounded-full bg-blue-500/80 text-white hover:bg-blue-600 transition-all backdrop-blur-sm shadow-md"
+                    title="Edit pengumuman"
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => openDeleteConfirm(item, e)}
+                    className="p-1.5 rounded-full bg-red-500/80 text-white hover:bg-red-600 transition-all backdrop-blur-sm shadow-md"
+                    title="Hapus pengumuman"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              )}
 
-    {/* Label DARURAT - kanan atas */}
-    {item.is_urgent && (
-      <div className="absolute top-4 right-4 z-10">
-        <span className="bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full animate-pulse shadow-lg">
-          DARURAT
-        </span>
-      </div>
-    )}
+              {/* Label DARURAT */}
+              {item.is_urgent && (
+                <div className="absolute top-4 right-4 z-10">
+                  <span className="bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full animate-pulse shadow-lg">
+                    DARURAT
+                  </span>
+                </div>
+              )}
 
-    {/* Konten - beri padding top */}
-    <div className="mt-6">
-      <div className="flex justify-between items-start gap-3">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          {/* Icon */}
-          <div
-            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-              item.is_urgent
-                ? "bg-red-500/10 text-red-500"
-                : "bg-amber-500/10 text-amber-600"
-            }`}
-          >
-            {item.is_urgent ? <Megaphone size={18} /> : <Crown size={18} />}
-          </div>
-          
-          {/* 🔥 JUDUL - lebih gelap untuk mode terang */}
-          <h3 className={`font-black text-[16px] break-words flex-1 ${
-            isMalam ? "text-white" : "text-slate-900"
-          }`}>
-            {item.title}
-            {item.is_pinned && <span className="ml-2 text-amber-500 inline-block">📌</span>}
-          </h3>
-        </div>
-        
-        {/* 🔥 WAKTU - lebih gelap */}
-        <span className={`text-[10px] font-bold flex-shrink-0 whitespace-nowrap ${
-          isMalam ? "text-white/40" : "text-slate-500"
-        }`}>
-          {formatTime(item.created_at)}
-        </span>
-      </div>
+              <div className="mt-6">
+                <div className="flex justify-between items-start gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div
+                      className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                        item.is_urgent
+                          ? "bg-red-500/10 text-red-500"
+                          : "bg-amber-500/10 text-amber-600"
+                      }`}
+                    >
+                      {item.is_urgent ? <Megaphone size={18} /> : <Crown size={18} />}
+                    </div>
+                    
+                    <h3 className={`font-black text-[16px] break-words flex-1 ${
+                      isMalam ? "text-white" : "text-slate-900"
+                    }`}>
+                      {item.title}
+                      {item.is_pinned && <span className="ml-2 text-amber-500 inline-block">📌</span>}
+                    </h3>
+                  </div>
+                  
+                  <span className={`text-[10px] font-bold flex-shrink-0 whitespace-nowrap ${
+                    isMalam ? "text-white/40" : "text-slate-500"
+                  }`}>
+                    {formatTime(item.created_at)}
+                  </span>
+                </div>
 
-      {/* Gambar (jika ada) */}
-      {item.image_url && (
-        <div className="relative w-full h-48 mt-3 mb-3 rounded-xl overflow-hidden border border-black/5 bg-slate-100">
-          <img
-            src={item.image_url}
-            alt={item.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            loading="lazy"
-          />
-        </div>
-      )}
+                {item.image_url && (
+                  <div className="relative w-full h-48 mt-3 mb-3 rounded-xl overflow-hidden border border-black/5 bg-slate-100">
+                    <img
+                      src={item.image_url}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
 
-      {/* 🔥 KONTEN/DESKRIPSI - lebih gelap dan kontras */}
-      <p className={`text-[14px] leading-relaxed font-medium line-clamp-3 mt-1 ${
-        isMalam ? "text-slate-300" : "text-slate-800"
-      }`}>
-        {item.content}
-      </p>
-    </div>
-  </div>
-))
+                <p className={`text-[14px] leading-relaxed font-medium line-clamp-3 mt-1 ${
+                  isMalam ? "text-slate-300" : "text-slate-800"
+                }`}>
+                  {item.content}
+                </p>
+              </div>
+            </div>
+          ))
         )}
       </div>
 
-      {/* 🔥 MODAL KONFIRMASI DELETE */}
+      {/* MODAL KONFIRMASI DELETE */}
       {showDeleteConfirm && selectedAnnouncement && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/70 animate-in fade-in">
           <div className={`max-w-sm w-full rounded-2xl p-6 shadow-2xl ${isMalam ? "bg-slate-900" : "bg-white"}`}>
@@ -723,7 +791,7 @@ const handleKentonganClick = (item, e) => {
         </div>
       )}
 
-      {/* 🔥 MODAL EDIT */}
+      {/* MODAL EDIT */}
       {editingItem && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/70 animate-in fade-in overflow-y-auto">
           <div className={`max-w-md w-full rounded-2xl p-6 shadow-2xl ${isMalam ? "bg-slate-900" : "bg-white"}`}>
@@ -845,7 +913,6 @@ const handleKentonganClick = (item, e) => {
         </div>
       )}
 
-     {/* ========================================== */}
       <AIModal
         isOpen={showAIModal}
         onClose={() => setShowAIModal(false)}
@@ -857,7 +924,6 @@ const handleKentonganClick = (item, e) => {
           text: isMalam ? "text-white" : "text-gray-900"
         }}
       />
-
     </div>
   );
 }

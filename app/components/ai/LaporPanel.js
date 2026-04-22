@@ -1,7 +1,6 @@
-// app/components/feed/LaporPanel.js
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
@@ -12,6 +11,11 @@ const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
 
 // KATEGORI YANG MEMILIKI LALU LINTAS
 const TRAFFIC_CATEGORIES = ['jalan', 'jalan raya', 'simpang', 'tol', 'bypass', 'lingkar'];
+
+// 🔥 CACHE GLOBAL UNTUK TEMPAT (10 menit)
+let tempatCache = null;
+let tempatCacheTime = null;
+const CACHE_DURATION = 10 * 60 * 1000; // 10 menit
 
 export default function LaporPanel({ 
   tempat, 
@@ -45,6 +49,30 @@ export default function LaporPanel({
     cloudinary: false,
     supabase: false
   });
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 🔥 FUNGSI TOAST
+  const showToast = (message, type = 'error') => {
+    const colors = {
+      error: 'bg-red-950 border-red-500/50 text-red-100',
+      success: 'bg-emerald-950 border-emerald-500/50 text-emerald-100',
+      warning: 'bg-amber-950 border-amber-500/50 text-amber-100',
+      info: 'bg-blue-950 border-blue-500/50 text-blue-100'
+    };
+    
+    const toast = document.createElement('div');
+    toast.className = `fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border ${colors[type]} animate-in`;
+    toast.innerHTML = `
+      <div class="text-xl">${type === 'error' ? '⚠️' : type === 'success' ? '✅' : type === 'warning' ? '⚡' : 'ℹ️'}</div>
+      <div class="flex flex-col">
+        <span class="text-[11px] font-black uppercase tracking-widest">${type.toUpperCase()}</span>
+        <span class="text-[10px] opacity-80">${message}</span>
+      </div>
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  };
 
   // FUNGSI NOTIFIKASI LOGIN
   const showLoginNotification = () => {
@@ -82,34 +110,79 @@ export default function LaporPanel({
     [kategoriLower, namaLower]
   );
 
+  // 🔥 FETCH TEMPAT LANGSUNG DARI TABEL `tempat` (BUKAN feed_view)
+  const fetchTempatList = async (force = false) => {
+    // 🔥 CEK CACHE
+    if (!force && tempatCache && tempatCacheTime && 
+        (Date.now() - tempatCacheTime) < CACHE_DURATION) {
+      console.log("📦 Menggunakan cache tempat");
+      setTempatList(tempatCache);
+      return;
+    }
+    
+    setIsLoadingTempat(true);
+    try {
+      const { data, error } = await supabase
+        .from("tempat")  // 🔥 LANGSUNG KE TABEL TEMPAT
+        .select("id, name, category, alamat")
+        .eq('status', 'active')  // Hanya tempat aktif
+        .limit(200)
+        .order('name');
+      
+      if (error) throw error;
+      
+      // 🔥 SIMPAN KE CACHE
+      tempatCache = data || [];
+      tempatCacheTime = Date.now();
+      
+      setTempatList(data || []);
+      console.log(`✅ Load ${data?.length || 0} tempat dari database`);
+      
+    } catch (err) {
+      console.error("Error fetching places:", err);
+      
+      // 🔥 FALLBACK KE CACHE LAMA
+      if (tempatCache && tempatCache.length > 0) {
+        setTempatList(tempatCache);
+        showToast("Menggunakan data tempat tersimpan", "info");
+      } else {
+        setTempatList([]);
+        showToast("Gagal memuat daftar tempat, coba refresh", "error");
+      }
+    } finally {
+      setIsLoadingTempat(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // 🔥 REFRESH MANUAL
+  const handleRefreshTempat = () => {
+    setIsRefreshing(true);
+    fetchTempatList(true);
+    showToast("Memperbarui daftar tempat...", "info");
+  };
+
   useEffect(() => {
     if (tempat?.id) return;
     fetchTempatList();
   }, [tempat?.id]);
 
-  const fetchTempatList = async () => {
-    setIsLoadingTempat(true);
-    try {
-      const { data, error } = await supabase
-        .from("feed_view")
-        .select("id, name, category, alamat")
-        .limit(30);
-      
-      if (error) throw error;
-      setTempatList(data || []);
-    } catch (err) {
-      console.error("Error fetching places:", err);
-      setTempatList([]);
-    } finally {
-      setIsLoadingTempat(false);
-    }
-  };
-
+  // 🔥 FILTER DENGAN DEBOUNCE (opsional)
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const debounceTimer = useRef(null);
+  
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedQuery(tempatQuery);
+    }, 300);
+  }, [tempatQuery]);
+  
   const filteredTempat = tempatList.filter(t =>
-    !tempatQuery ||
-    t.name?.toLowerCase().includes(tempatQuery.toLowerCase()) ||
-    t.category?.toLowerCase().includes(tempatQuery.toLowerCase()) ||
-    t.alamat?.toLowerCase().includes(tempatQuery.toLowerCase())
+    !debouncedQuery ||
+    t.name?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+    t.category?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+    t.alamat?.toLowerCase().includes(debouncedQuery.toLowerCase())
   );
 
   const activeTempat = pickedTempat || tempat;
@@ -158,48 +231,66 @@ export default function LaporPanel({
       setMediaUrl(res.info.secure_url);
       setStep("form");
       setUploadProgress(prev => ({ ...prev, cloudinary: true }));
+      showToast("Foto/Video berhasil diupload!", "success");
     } else if (res?.event === "error") {
       setUploadError("Gagal upload gambar. Coba lagi nanti.");
       console.error("Upload error:", res);
+      showToast("Upload gagal, coba dengan file yang lebih kecil", "error");
     }
   };
 
-  // FINALIZE UPLOAD - SATU VERSION SAJA
+  // 🔥 FINALIZE UPLOAD DENGAN PRIORITAS CAPTION USER
   const finalizeUpload = async () => {
     if (!activeTempat?.id) {
-      alert("Tempat tidak valid. Silakan pilih tempat terlebih dahulu.");
+      showToast("Tempat tidak valid. Silakan pilih tempat terlebih dahulu.", "warning");
       setStep("pick_tempat");
       return;
     }
     
     if (!condition && !trafficCondition) {
-      alert("Pilih kondisi tempat atau lalu lintas terlebih dahulu");
+      showToast("Pilih kondisi tempat atau lalu lintas terlebih dahulu", "warning");
       return;
     }
     
     if (condition === "Antri" && !waitTime) {
-      alert("Pilih estimasi waktu antrian");
+      showToast("Pilih estimasi waktu antrian", "warning");
       return;
     }
     
     if (status === "uploading") return;
     
+    // 🔥 VALIDASI CAPTION UNTUK LAPORAN TULISAN
+    const userCaption = caption.trim();
+    if (!mediaUrl && !userCaption) {
+      showToast("Silakan tulis keterangan untuk laporan Anda, Lur!", "warning");
+      return;
+    }
+    
     setUploadProgress({ cloudinary: !!mediaUrl, supabase: false });
     setStatus("uploading");
     
-    const timeoutId = setTimeout(() => {
-      if (status === "uploading") {
-        setStatus("idle");
-        alert("Proses penyimpanan sedang lambat. Coba lagi dalam beberapa saat.");
-      }
-    }, 15000);
+    // 🔥 TIMEOUT 20 DETIK
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // 🔥 CEK SESSION DENGAN RETRY (3x)
+      let session = null;
+      let sessionError = null;
       
-      // CEK SESSION - TAMPILKAN NOTIFIKASI LOGIN
+      for (let i = 0; i < 3; i++) {
+        const result = await supabase.auth.getSession();
+        if (result.data?.session) {
+          session = result.data.session;
+          sessionError = null;
+          break;
+        }
+        sessionError = result.error;
+        if (i < 2) await new Promise(r => setTimeout(r, 500));
+      }
+      
       if (sessionError || !session?.user) {
-        console.error("Session error:", sessionError);
+        console.error("Session error after retry:", sessionError);
         showLoginNotification();
         throw new Error("Silakan login kembali");
       }
@@ -211,7 +302,10 @@ export default function LaporPanel({
       const estimatedPeople = condition ? getEstimatedPeople(condition, currentTimeTag) : null;
       const estimatedWaitTime = condition === "Antri" ? waitTime : null;
       const mainType = condition || (trafficCondition ? "Lalu Lintas" : null);
-      const finalDesc = caption.trim() || getConditionDescription(condition, waitTime, trafficCondition);
+      
+      // 🔥 PRIORITAS: Caption User > Auto Description
+      const autoDescription = getConditionDescription(condition, waitTime, trafficCondition);
+      const finalDesc = userCaption || autoDescription;
       
       setUploadProgress(prev => ({ ...prev, supabase: true }));
       
@@ -232,49 +326,47 @@ export default function LaporPanel({
           estimated_wait_time: estimatedWaitTime,
           traffic_condition: trafficCondition,
           deskripsi: finalDesc,
-          content: caption.trim(),
+          content: userCaption,
           status: "approved",
         }])
         .select()
         .single();
       
-      if (error) throw error;
+      clearTimeout(timeoutId);
+      
+      if (error) {
+        // 🔥 RETRY ON NETWORK ERROR (max 2 kali)
+        if (retryCount < 2 && (error.message?.includes("network") || error.message?.includes("timeout") || error.message?.includes("fetch"))) {
+          console.log(`Retry attempt ${retryCount + 1}...`);
+          setRetryCount(prev => prev + 1);
+          setStatus("idle");
+          setTimeout(() => finalizeUpload(), 1000);
+          return;
+        }
+        throw error;
+      }
       
       // SUCCESS HANDLING
       setStatus("success");
+      setRetryCount(0);
       
-      if (mediaUrl) {
-        setTimeout(() => {
-          setStatus("idle");
-          onSuccess?.(data);
-          onClose();
-        }, 2000);
-      } else {
-        const toastNotif = document.createElement('div');
-        toastNotif.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-6 py-4 rounded-3xl shadow-2xl flex flex-col items-center gap-1 min-w-[280px] border text-center bg-emerald-950 border-emerald-500/50 text-emerald-100';
-        toastNotif.innerHTML = `
-          <div class="text-2xl mb-1">✅</div>
-          <span class="text-[12px] font-black uppercase tracking-widest">Masuk ke LiveInsight</span>
-          <span class="text-[10px] opacity-70">Laporanmu sudah tayang, Lur!</span>
-        `;
-        document.body.appendChild(toastNotif);
-        
-        setTimeout(() => {
-          setStatus("idle");
-          toastNotif.remove();
-          onClose();
-        }, 1500);
-      }
+      setTimeout(() => {
+        setStatus("idle");
+        onSuccess?.(data);
+        onClose();
+      }, 2000);
       
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Upload Error:", err);
       
-      if (!err.message.includes("Silakan login")) {
-        alert("Gagal mengirim: " + err.message);
+      if (err.name === 'AbortError') {
+        showToast("Koneksi timeout, coba lagi dengan jaringan yang lebih stabil", "error");
+      } else if (!err.message.includes("Silakan login")) {
+        showToast(err.message || "Gagal mengirim laporan", "error");
       }
       setStatus("idle");
-    } finally {
-      clearTimeout(timeoutId);
+      setRetryCount(0);
     }
   };
 
@@ -353,7 +445,7 @@ export default function LaporPanel({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className={`text-base font-black ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>Pilih Lokasi</h3>
-                  <p className="text-[10px] text-slate-500 font-medium">Kabari warga sekitar area ini</p>
+                  <p className="text-[10px] text-slate-500 font-medium">📍 Wajib pilih tempat sebelum lapor</p>
                 </div>
                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400">✕</button>
               </div>
@@ -372,20 +464,38 @@ export default function LaporPanel({
 
               <div className="overflow-y-auto flex flex-col gap-2 pr-1 custom-scrollbar" style={{ maxHeight: "45vh" }}>
                 {isLoadingTempat ? (
-                  <div className="py-20 flex flex-col items-center opacity-50"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent animate-spin rounded-full" /></div>
-                ) : filteredTempat.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setPickedTempat(t); setStep(mode === "text" ? "form" : "upload"); }}
-                    className="flex items-center gap-3 p-3 rounded-2xl border border-transparent bg-slate-50 hover:bg-emerald-50 hover:border-emerald-100 text-left transition-all group"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-lg group-hover:scale-110 transition-transform">📍</div>
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-bold text-slate-800 truncate">{t.name}</p>
-                      <p className="text-[10px] text-slate-500 truncate">{t.category} • {t.alamat}</p>
-                    </div>
-                  </button>
-                ))}
+                  <div className="py-20 flex flex-col items-center gap-3">
+                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent animate-spin rounded-full" />
+                    <p className="text-[11px] text-slate-400">Memuat daftar tempat...</p>
+                  </div>
+                ) : filteredTempat.length === 0 ? (
+                  <div className="py-20 text-center">
+                    <div className="text-4xl mb-2 opacity-30">📍</div>
+                    <p className="text-[12px] font-medium text-slate-500">Tempat tidak ditemukan</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Coba kata kunci lain</p>
+                    <button 
+                      onClick={handleRefreshTempat}
+                      disabled={isRefreshing}
+                      className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-[10px] font-bold text-slate-600 active:scale-95 transition-all"
+                    >
+                      {isRefreshing ? "Memuat..." : "🔄 Refresh Daftar"}
+                    </button>
+                  </div>
+                ) : (
+                  filteredTempat.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setPickedTempat(t); setStep(mode === "text" ? "form" : "upload"); }}
+                      className="flex items-center gap-3 p-3 rounded-2xl border border-transparent bg-slate-50 hover:bg-emerald-50 hover:border-emerald-100 text-left transition-all group"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-lg group-hover:scale-110 transition-transform">📍</div>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-bold text-slate-800 truncate">{t.name}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{t.category} • {t.alamat}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -410,62 +520,63 @@ export default function LaporPanel({
 
           {/* UPLOAD SECTION */}
           {step === "upload" && (
-  <div className="p-5 flex flex-col gap-4">
-    <CldUploadWidget
-      uploadPreset="setempat_preset"
-      onSuccess={handleUploadDone}
-      options={{ 
-        maxFiles: 1, 
-        resourceType: "auto",
-        sources: ["camera", "local"],
-        maxImageFileSize: 5000000,
-        transformations: [{ quality: "auto", width: 1200, crop: "limit" }]
-      }}
-    >
-      {({ open }) => (
-        <button 
-          onClick={() => {
-            // Feedback visual langsung
-            const btn = document.activeElement;
-            if (btn) btn.style.transform = 'scale(0.97)';
-            
-            // Delay kecil 50ms untuk memastikan UI responsif
-            setTimeout(() => {
-              open();
-              // Reset transform
-              setTimeout(() => {
-                if (btn) btn.style.transform = '';
-              }, 150);
-            }, 50);
-          }}
-          className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95 group"
-        >
-          <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
-            📸
-          </div>
-          <div className="text-center">
-            <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
-            <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
-          </div>
-        </button>
-      )}
-    </CldUploadWidget>
-    
-    {/* ATAU - tambahkan opsi galeri langsung */}
-    <div className="relative py-2 flex items-center">
-      <div className="flex-1 h-px bg-slate-100" />
-      <span className="px-4 text-[10px] font-bold text-slate-300">ATAU</span>
-      <div className="flex-1 h-px bg-slate-100" />
-    </div>
+            <div className="p-5 flex flex-col gap-4">
+              <CldUploadWidget
+                uploadPreset="setempat_preset"
+                onSuccess={handleUploadDone}
+                onError={(err) => {
+                  console.error("Widget error:", err);
+                  showToast("Gagal membuka kamera/gallery", "error");
+                }}
+                options={{ 
+                  maxFiles: 1, 
+                  resourceType: "auto",
+                  sources: ["local"],
+                  maxImageFileSize: 5000000,
+                  transformations: [{ quality: "auto", width: 1200, crop: "limit" }],
+                  clientAllowedFormats: ["image", "video"],
+                }}
+              >
+                {({ open }) => (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const btn = document.activeElement;
+                      if (btn) btn.style.transform = 'scale(0.97)';
+                      setTimeout(() => {
+                        open();
+                        setTimeout(() => {
+                          if (btn) btn.style.transform = '';
+                        }, 150);
+                      }, 50);
+                    }}
+                    className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95 group"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
+                      📸
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
+                      <p className="text-[10px] text-slate-400">Buka kamera atau galeri HP</p>
+                    </div>
+                  </button>
+                )}
+              </CldUploadWidget>
+              
+              <div className="relative py-2 flex items-center">
+                <div className="flex-1 h-px bg-slate-100" />
+                <span className="px-4 text-[10px] font-bold text-slate-300">ATAU</span>
+                <div className="flex-1 h-px bg-slate-100" />
+              </div>
 
-    <button 
-      onClick={() => setStep("form")} 
-      className="w-full py-4 rounded-2xl border border-slate-200 text-[11px] font-black text-slate-500 hover:bg-slate-50 transition-colors uppercase tracking-[0.1em]"
-    >
-      Lapor Tulisan Saja →
-    </button>
-  </div>
-)}
+              <button 
+                onClick={() => setStep("form")} 
+                className="w-full py-4 rounded-2xl border border-slate-200 text-[11px] font-black text-slate-500 hover:bg-slate-50 transition-colors uppercase tracking-[0.1em]"
+              >
+                Lapor Tulisan Saja →
+              </button>
+            </div>
+          )}
 
           {/* FORM SECTION */}
           {step === "form" && (
@@ -479,7 +590,7 @@ export default function LaporPanel({
                   )}
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <button 
-                      onClick={() => { setMediaUrl(null); setStep("upload"); }}
+                      onClick={() => { setMediaUrl(null); setMediaType(null); setStep("upload"); }}
                       className="px-4 py-2 bg-white/90 rounded-full text-[10px] font-black text-red-500 shadow-xl"
                     >HAPUS MEDIA</button>
                   </div>
@@ -487,13 +598,18 @@ export default function LaporPanel({
               )}
               
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Keterangan Tambahan</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">
+                  Keterangan Tambahan {!mediaUrl && <span className="text-red-500">*</span>}
+                </label>
                 <textarea
-                  placeholder="Apa yang sedang terjadi di sana, Lur?"
+                  placeholder={!mediaUrl ? "Wajib diisi: Ceritakan situasi di sana..." : "Apa yang sedang terjadi di sana, Lur? (opsional)"}
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-[13px] text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/20 min-h-[80px] resize-none"
-                  defaultValue={caption} 
-                  onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  value={caption} 
+                  onChange={(e) => setCaption(e.target.value)}
                 />
+                {!mediaUrl && (
+                  <p className="text-[9px] text-slate-400 ml-1">💡 Tulis keterangan agar laporanmu lebih informatif</p>
+                )}
               </div>
 
               {/* Status Selector */}
@@ -522,7 +638,7 @@ export default function LaporPanel({
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1 mb-2 block">Lama Antrian</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[5, 15, 20].map((v) => (
-                      <button key={v} onClick={() => setWaitTime(v)} className={`py-2.5 rounded-xl text-[10px] font-black border-2 transition-all ${waitTime === v ? 'bg-cyan-500 border-cyan-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}>
+                      <button key={v} type="button" onClick={() => setWaitTime(v)} className={`py-2.5 rounded-xl text-[10px] font-black border-2 transition-all ${waitTime === v ? 'bg-cyan-500 border-cyan-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}>
                         {v === 5 ? "< 5 Menit" : v === 15 ? "5-15 Menit" : "> 15 Menit"}
                       </button>
                     ))}
@@ -579,7 +695,7 @@ export default function LaporPanel({
         </div>
       </motion.div>
 
-            <style jsx global>{`
+      <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
@@ -605,7 +721,6 @@ export default function LaporPanel({
           transform: scale(0.97);
           transition: transform 0.05s;
         }
-
       `}</style>
     </>
   );
