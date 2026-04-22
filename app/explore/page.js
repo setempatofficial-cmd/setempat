@@ -63,6 +63,26 @@ export default function CitizenHub({ userId, userRole }) {
     setShowLaporPanel(false);
   };
 
+  // CitizenHub.js - TAMBAHKAN DI ATAS (sebelum return)
+const [cachedReports, setCachedReports] = useState(null);
+
+useEffect(() => {
+  // Load dari cache IMMEDIATELY
+  const cached = sessionStorage.getItem('citizenhub_reports');
+  if (cached) {
+    try {
+      const { data } = JSON.parse(cached);
+      if (data?.length) {
+        setCachedReports(data);
+      }
+    } catch(e) {}
+  }
+}, []);
+
+// Gunakan cachedReports untuk render awal
+const displayReports = cachedReports || reports || [];
+const isActuallyLoading = loading && !cachedReports;
+
   // Header visibility
   useEffect(() => {
     const handleScroll = () => {
@@ -511,30 +531,20 @@ setTimeout(() => {
         </motion.header>
 
         <main className={`flex-1 overflow-y-auto no-scrollbar px-3 pb-32 pt-[150px] ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}>
-          {loading ? (
-            <div className="flex justify-center items-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E3655B]"></div>
-            </div>
-          ) : filteredReports.length === 0 ? (
-            <div className="flex flex-col justify-center items-center h-64 text-center px-8">
-              <Search size={48} className={`mb-3 opacity-30 ${isMalam ? 'text-white/40' : 'text-gray-400'}`} />
-              <p className={`text-sm font-medium ${isMalam ? 'text-white/60' : 'text-gray-600'}`}>
-                {searchQuery ? `Tidak ada cerita untuk "${searchQuery}"` : "Belum ada laporan"}
-              </p>
-              <p className={`text-xs mt-1 ${isMalam ? 'text-white/30' : 'text-gray-400'}`}>
-                {searchQuery 
-                  ? "Coba kata kunci lain seperti: alun-alun, ramai, sepi" 
-                  : "Jadilah yang pertama melaporkan"}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              {filteredReports.map((report, index) => (
-                <ReportCard key={report.id} report={report} index={index} />
-              ))}
-            </div>
-          )}
-        </main>
+  
+  {isActuallyLoading ? (
+    <div className="flex justify-center items-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E3655B]"></div>
+    </div>
+  ) : (
+    <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      {filteredReports.map((report, index) => (
+        <ReportCard key={report.id} report={report} index={index} />
+      ))}
+    </div>
+  )}
+  
+</main>
 
         <SmartBottomNav
           onOpenUpload={() => {

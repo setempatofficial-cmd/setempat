@@ -75,6 +75,8 @@ function FeedCard({
   onShare,
   onRefreshNeeded,
   priority = false,
+  preloadNext = false,
+  cardIndex = 0, 
 }) {
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
@@ -158,7 +160,7 @@ function FeedCard({
             observerRef.current?.disconnect();
           }
         },
-        { threshold: 0.05, rootMargin: "200px" }
+        { threshold: 0.05, rootMargin: "1000px" }
       );
       observerRef.current.observe(currentCard);
     };
@@ -464,6 +466,10 @@ function FeedCard({
               theme={theme}
               isCompact={isNarrow}
               currentUser={user}
+              tempatCategory={safeItem?.category}
+              tempatDescription={safeItem?.description || item?.description || null}
+              tempatData={safeItem}
+              tempatId={safeItem.id} 
             />
           </div>
 

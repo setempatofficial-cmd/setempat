@@ -1,240 +1,263 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { formatRelativeTime } from "@/lib/feedEngine";
-import { useDataContext } from "@/contexts/DataContext";
-import { generateFallbackInsight } from "@/lib/insightTone";
 import { supabase } from "@/lib/supabaseClient";
 
+// ============================================
+// 🎯 FUNGSI AVATAR SAMA PERSIS DENGAN CITIZENHUB
+// ============================================
+const getAvatarUrl = (report) => {
+  // Prioritas 1: avatar dari database (user_avatar)
+  if (report?.user_avatar) return report.user_avatar;
+  // Prioritas 2: fallback ke UI Avatars
+  const name = report?.user_name || "Warga";
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`;
+};
+
+// Komponen Avatar dengan error handling
+const AvatarImage = ({ report, isDark }) => {
+  const [imgError, setImgError] = useState(false);
+  
+  const avatarUrl = !imgError ? getAvatarUrl(report) : 
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(report?.user_name || "Warga")}&background=0D8ABC&color=fff`;
+  
+  return (
+    <img 
+      src={avatarUrl}
+      className={`w-7 h-7 rounded-full object-cover ring-1 flex-shrink-0 ${isDark ? 'ring-slate-700' : 'ring-slate-100'}`}
+      alt={report?.user_name || "avatar"}
+      referrerPolicy="no-referrer"
+      onError={() => setImgError(true)}
+      loading="lazy"
+    />
+  );
+};
+
 export default function LiveInsight({ 
-  signals, 
+  signals = [], 
   theme, 
   locationName = "Sekitar", 
   currentUser = null,
   tempatId = null,
-  placeCategory = "umum"
+  tempatData = null 
 }) {
   const [index, setIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
-  const [userAvatars, setUserAvatars] = useState({});
-  const { feedData, getAIContext } = useDataContext();
-  
-  // Ref untuk handle swipe manual
+  const [descriptionFromDB, setDescriptionFromDB] = useState(null);
   const touchStart = useRef(null);
-
+  const touchMoved = useRef(false);
+  const containerRef = useRef(null);
+  
   const isDark = theme?.isMalam || theme?.name === "MALAM";
 
-  // --- LOGIC: DATA FETCHING (ASLI) ---
-  const effectiveSignals = useMemo(() => {
-    if (signals?.length > 0) return signals;
-    if (tempatId) return getAIContext(tempatId)?.recentReports || [];
-    return feedData || [];
-  }, [signals, tempatId, getAIContext, feedData]);
-
-  // 🔥 FETCH AVATAR (ASLI)
-  useEffect(() => {
-    const fetchAvatars = async () => {
-      const userIds = [...new Set(
-        effectiveSignals
-          .filter(s => s.user_id && !s.source_platform)
-          .map(s => s.user_id)
-      )];
-      if (userIds.length === 0) return;
-      try {
-        const { data, error } = await supabase.from('profiles').select('id, avatar_url').in('id', userIds);
-        if (data && !error) {
-          const avatarMap = {};
-          data.forEach(profile => { avatarMap[profile.id] = profile.avatar_url; });
-          setUserAvatars(avatarMap);
-        }
-      } catch (err) { console.error('Error fetching avatars:', err); }
-    };
-    fetchAvatars();
-  }, [effectiveSignals]);
-
-  // --- LOGIC: DATA MAPPING (ASLI - SEMUA KONDISI DIKEMBALIKAN) ---
-  const insights = useMemo(() => {
-    const getSourceInfo = (item) => {
-      const platform = (item.source_platform || item.source || "").toLowerCase();
-      const isFromWarga = item.user_id && !item.source_platform;
-      const username = item.username || item.user_name || "";
-      const userId = item.user_id;
-      
-      if (isFromWarga || (!item.source_platform && item.user_name)) {
-        let name = item.user_name || "Warga";
-        let avatarUrl = userAvatars[userId];
-        if (currentUser && item.user_id === currentUser.id) {
-          name = currentUser.user_metadata?.full_name || name;
-          avatarUrl = currentUser.user_metadata?.avatar_url || avatarUrl;
-        }
-        return { icon: avatarUrl ? null : "👤", avatarUrl, name, source: "warga", label: "CERITA WARGA" };
-      }
-      
-      const platforms = {
-        instagram: { icon: "📷", label: "INSTAGRAM" },
-        tiktok: { icon: "🎵", label: "TIKTOK" },
-        facebook: { icon: "📘", label: "FACEBOOK" },
-        wartabromo: { icon: "📰", label: "WARTABROMO" },
-        'radar bromo': { icon: "📰", label: "RADAR BROMO" },
-        news: { icon: "📰", label: "MEDIA" }
-      };
-
-      const info = platforms[platform] || { icon: "📍", label: "UPDATE" };
-      return { 
-        icon: info.icon, 
-        name: username || info.label, 
-        isVerified: item.verified || platform.includes('bromo'), 
-        source: platform === 'radar bromo' ? 'radarbromo' : platform,
-        label: info.label
-      };
-    };
-
-    if (!effectiveSignals?.length) return [generateFallbackInsight(locationName)];
-
-    const recentSignals = effectiveSignals.filter(item => {
-      const date = new Date(item.created_at || item.timestamp);
-      return !isNaN(date) && (Date.now() - date.getTime()) <= 86400000;
+  // Navigasi dengan loop
+  const navigate = useCallback((direction) => {
+    setIndex(prev => {
+      if (direction === 'next') return (prev + 1) % insightsLength;
+      return (prev - 1 + insightsLength) % insightsLength;
     });
+  }, []);
 
-    if (recentSignals.length === 0) return [generateFallbackInsight(locationName)];
+  // Fetch Info Tempat
+  useEffect(() => {
+    async function fetchInfo() {
+      if (tempatData?.description) { 
+        setDescriptionFromDB(tempatData.description); 
+        return; 
+      }
+      if (!tempatId) return;
+      
+      const { data } = await supabase
+        .from('tempat')
+        .select('name, description, category')
+        .eq('id', tempatId)
+        .single();
+      
+      if (data) setDescriptionFromDB({ 
+        text: data.description, 
+        name: data.name, 
+        category: data.category 
+      });
+    }
+    fetchInfo();
+  }, [tempatId, tempatData]);
 
-    return recentSignals
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 5)
-      .map(s => {
-        const sourceInfo = getSourceInfo(s);
-        const isUrgent = /(macet|kecelakaan|banjir|kebakaran|ramai|padat|antri|longsor)/i.test(
-          (s.tipe || s.content || s.deskripsi || "").toLowerCase()
-        );
+  // Generate insights
+  const insights = useMemo(() => {
+    let list = [];
+
+    if (signals?.length > 0) {
+      const now = Date.now();
+      const recentSignals = signals
+        .filter(s => (now - new Date(s.created_at).getTime()) <= 86400000)
+        .sort((a, b) => {
+          if (currentUser && a.user_id === currentUser.id) return -1;
+          if (currentUser && b.user_id === currentUser.id) return 1;
+          return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+      list = recentSignals.slice(0, 5).map(s => {
+        const isMe = currentUser && s.user_id === currentUser.id;
+        const authorName = isMe 
+          ? (currentUser.user_metadata?.full_name || "Anda") 
+          : (s.user_name || "Warga");
         
-        let text = s.deskripsi || s.content || "Update tersedia";
-        if (s.estimated_wait_time) text += `, antri ${s.estimated_wait_time}m`;
-        if (text.length > 120) text = text.substring(0, 117) + "...";
-
         return {
-          ...s, text, author: sourceInfo.name, icon: sourceInfo.icon, avatarUrl: sourceInfo.avatarUrl,
-          isVerified: sourceInfo.isVerified, time: formatRelativeTime(s.created_at),
-          sourceLabel: sourceInfo.label, sourceType: sourceInfo.source, isUrgent,
-          isAi: !!(s.is_ai || s.deskripsi_ai)
+          id: s.id,
+          text: s.deskripsi || s.content || "Update tersedia",
+          author: authorName,
+          reportData: s, // ✅ Kirim seluruh data report untuk avatar
+          time: formatRelativeTime(s.created_at),
+          sourceLabel: isMe ? "LAPORAN ANDA" : "WARGA",
+          isUrgent: /(macet|kecelakaan|banjir|ramai|antri)/i.test((s.deskripsi || "").toLowerCase()),
+          tipe: s.tipe || "Update",
+          isMe
         };
       });
-  }, [effectiveSignals, locationName, currentUser, placeCategory, userAvatars]);
+    }
 
-  // --- LOGIC: NAVIGATION (Pindah Manual) ---
-  const navigate = (direction) => {
-    setIsVisible(false);
-    setTimeout(() => {
-      if (direction === 'next') setIndex((prev) => (prev + 1) % insights.length);
-      else setIndex((prev) => (prev - 1 + insights.length) % insights.length);
-      setIsVisible(true);
-    }, 300);
-  };
+    // Fallback ke info tempat
+    if (list.length === 0 && descriptionFromDB) {
+      const text = typeof descriptionFromDB === 'string' ? descriptionFromDB : descriptionFromDB.text;
+      list.push({
+        id: "desc",
+        text: text,
+        author: descriptionFromDB.name || locationName,
+        reportData: null,
+        time: "Terkini",
+        sourceLabel: "TENTANG TEMPAT",
+        fromDescription: true,
+        isUrgent: false,
+        tipe: "Informasi"
+      });
+    }
 
-  // --- LOGIC: AUTO-SLIDE (ASLI) ---
+    return list;
+  }, [signals, currentUser, descriptionFromDB, locationName]);
+
+  const insightsLength = insights.length;
+  
+  // Auto slide
   useEffect(() => {
-    if (insights.length <= 1) return;
-    const interval = setInterval(() => navigate('next'), 5000);
+    if (insightsLength <= 1) return;
+    const interval = setInterval(() => {
+      setIndex(prev => (prev + 1) % insightsLength);
+    }, 5000);
     return () => clearInterval(interval);
-  }, [insights]);
+  }, [insightsLength]);
 
-  // --- LOGIC: SWIPE GESTURE ---
-  const onTouchStart = (e) => touchStart.current = e.touches[0].clientX;
-  const onTouchEnd = (e) => {
+  // Fix index jika melebihi length
+  useEffect(() => {
+    if (insightsLength > 0 && index >= insightsLength) {
+      setIndex(0);
+    }
+  }, [index, insightsLength]);
+
+  // Touch handlers untuk swipe di HP
+  const onTouchStart = (e) => {
+    touchStart.current = e.touches[0].clientX;
+    touchMoved.current = false;
+  };
+  
+  const onTouchMove = (e) => {
     if (!touchStart.current) return;
+    const diff = Math.abs(touchStart.current - e.touches[0].clientX);
+    if (diff > 10) touchMoved.current = true;
+  };
+  
+  const onTouchEnd = (e) => {
+    if (!touchStart.current || !touchMoved.current || insightsLength <= 1) {
+      touchStart.current = null;
+      touchMoved.current = false;
+      return;
+    }
+    
     const touchEnd = e.changedTouches[0].clientX;
-    if (touchStart.current - touchEnd > 70) navigate('next'); // Swipe Kiri
-    if (touchStart.current - touchEnd < -70) navigate('prev'); // Swipe Kanan
+    const diff = touchStart.current - touchEnd;
+    
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) {
+        setIndex(prev => (prev + 1) % insightsLength);
+      } else {
+        setIndex(prev => (prev - 1 + insightsLength) % insightsLength);
+      }
+    }
+    
     touchStart.current = null;
+    touchMoved.current = false;
   };
 
-  const current = insights[index] || insights[0] || {};
-
-  const getThemeColor = () => {
-    if (current?.tipe === 'Ramai') return 'bg-yellow-500';
-    if (current?.tipe === 'Antri') return 'bg-rose-500';
-    if (current?.tipe === 'Sepi') return 'bg-emerald-500';
-    if (current?.isUrgent) return 'bg-rose-600';
-    if (current?.isAi) return 'bg-cyan-400';
-    return isDark ? 'bg-emerald-400' : 'bg-emerald-600';
-  };
+  const current = insights[index] || insights[0];
+  if (!current || insightsLength === 0) return null;
 
   return (
     <div 
+      ref={containerRef}
+      className="px-3 py-1 w-full max-w-full overflow-hidden"
       onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      className={`rounded-[32px] p-6 border transition-all duration-700 relative overflow-hidden shadow-xl backdrop-blur-xl cursor-grab active:cursor-grabbing ${
-        isDark ? "bg-slate-900/60 border-white/10" : "bg-white/90 border-slate-200/60"
-      }`}
     >
-      {/* Background Glow */}
-      <div className={`absolute -right-4 -top-4 w-32 h-32 blur-[50px] rounded-full opacity-20 transition-colors duration-1000 ${getThemeColor()}`} />
-
-      <div className="flex items-start gap-4 relative z-10">
-        {/* Live Pulse */}
-        <div className="mt-2 relative flex h-2.5 w-2.5">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${getThemeColor()}`} />
-          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${getThemeColor()}`} />
+      <div className={`relative rounded-2xl overflow-hidden shadow-sm transition-all duration-300 border-l-[5px] ${
+        isDark ? "bg-slate-900/90 border-l-emerald-500" : "bg-white border-l-emerald-600"
+      } ${current?.isMe ? '!border-l-orange-500' : ''}`}>
+        
+        {/* Label Badge */}
+        <div className={`absolute top-0 right-0 px-2 py-0.5 rounded-bl-lg text-[8px] font-black text-white z-10 ${
+          current?.isMe ? 'bg-gradient-to-r from-orange-500 to-amber-600' : 
+          current?.isUrgent ? 'bg-gradient-to-r from-red-500 to-rose-600' : 
+          'bg-gradient-to-r from-emerald-500 to-teal-600'
+        }`}>
+          {current?.sourceLabel}
         </div>
 
-        <div className="flex-1 min-w-0">
-          {/* Header */}
-          <div className={`flex items-center gap-2 mb-2 transition-all duration-500 ${isVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"}`}>
-            {current?.avatarUrl ? (
-              <img src={current.avatarUrl} alt={current.author} className="w-5 h-5 rounded-full object-cover border border-white/20" />
+        <div className="p-3">
+          {/* Header dengan Avatar - PAKAI KOMPONEN AVATAR YANG SAMA */}
+          <div className="flex items-center gap-2 mb-1.5">
+            {current.reportData ? (
+              <AvatarImage report={current.reportData} isDark={isDark} />
             ) : (
-              <span className="text-xs">{current?.icon}</span>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-gray-200'}`}>
+                <span className="text-[20px] font-bold">🏠</span>
+              </div>
             )}
-            
-            <span className={`text-[10px] font-black uppercase tracking-[0.2em] truncate ${current?.isAi ? 'text-cyan-500' : isDark ? 'text-slate-300' : 'text-slate-500'}`}>
-              {current?.isAi ? "✨ AI WARGA LOKAL" : current?.author}
-            </span>
-            
-            {current?.isVerified && (
-              <svg className="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
-              </svg>
-            )}
-            <span className="ml-auto text-[10px] font-bold italic opacity-40 whitespace-nowrap">{current?.time}</span>
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className={`text-[11px] font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {current?.author}
+              </span>
+              <span className="text-[8px] opacity-50 uppercase tracking-wide">{current?.time}</span>
+            </div>
           </div>
 
           {/* Content */}
-          <p className={`text-[16px] font-bold leading-snug tracking-tight transition-all duration-700 min-h-[48px] ${
-            isVisible ? "opacity-100 scale-100" : "opacity-0 scale-[0.98]"
-          } ${isDark ? "text-slate-100" : "text-slate-800"}`}>
-            "{current?.text}"
-          </p>
+          <div className="min-h-[40px] flex items-center">
+            <p className={`text-[12px] leading-relaxed line-clamp-2 italic ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+              “{current?.text}”
+            </p>
+          </div>
 
-          {/* Footer Area */}
-          <div className="mt-4 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 opacity-80">
-                <span className="text-xs">{current?.icon}</span>
-                <span className={`text-[9px] font-black tracking-[0.1em] ${
-                  current?.sourceType === 'instagram' ? 'text-pink-500' :
-                  current?.sourceType === 'tiktok' ? 'text-slate-400' :
-                  current?.sourceType === 'wartabromo' ? 'text-blue-400' :
-                  'text-slate-500'
-                }`}>
-                  {current?.sourceLabel}
-                </span>
+          {/* Footer Indicators */}
+          <div className="mt-2 flex justify-between items-center">
+            <div className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${current?.isUrgent ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+              <span className="text-[8px] font-bold opacity-60 uppercase tracking-wide">{current?.tipe}</span>
+            </div>
+            
+            {/* Dot Indicators */}
+            {insightsLength > 1 && (
+              <div className="flex gap-1.5">
+                {insights.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setIndex(i)}
+                    className={`h-1 rounded-full transition-all duration-300 ${
+                      index === i ? 'w-3 bg-emerald-500' : 'w-1 bg-slate-300'
+                    }`}
+                    aria-label={`Go to slide ${i + 1}`}
+                  />
+                ))}
               </div>
-              <span className={`text-[9px] font-black tracking-widest ${
-                current?.tipe === 'Ramai' ? 'text-yellow-500' : 
-                current?.tipe === 'Antri' ? 'text-rose-500' : 
-                isDark ? 'text-emerald-400/70' : 'text-emerald-600/70'
-              }`}>
-                {current?.estimated_people ? `👥 ${current.estimated_people} ORG` : (current?.tipe || "UPDATE")}
-              </span>
-            </div>
-
-            {/* Progress Bar Sinkron */}
-            <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
-              <div
-                key={`${index}-${isVisible}`} // Reset animasi saat pindah
-                className={`h-full transition-all duration-[5000ms] ease-linear ${getThemeColor()}`}
-                style={{ width: isVisible ? '100%' : '0%' }}
-              />
-            </div>
+            )}
           </div>
         </div>
       </div>

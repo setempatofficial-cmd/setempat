@@ -30,13 +30,13 @@ const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
 // Constants
-const CACHE_DURATION = 5 * 60 * 1000;
+const CACHE_DURATION = 30 * 60 * 1000;
 const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.7;
 const DISTANCE_WEIGHT = 0.3;
 const SESSION_CACHE_KEY = 'feed_backup';  // TAMBAHKAN INI
-const SESSION_CACHE_DURATION = 10 * 60 * 1000; // 10 menit, TAMBAHKAN INI
+const SESSION_CACHE_DURATION = 30 * 60 * 1000; 
 
 // Helper Functions
 const getDynamicLimit = () => {
@@ -529,7 +529,14 @@ const feedItemsWithBreaks = useMemo(() => {
   }), [networkInfo.isSlowConnection]);
 
   // ========== RESET FEED ==========
-  const resetFeed = useCallback(() => {
+const resetFeed = useCallback((soft = false) => {
+  if (soft) {
+    // Soft reset: hanya clear flag, data tetap ada
+    setHasMore(true);
+    setInitialLoad(false);
+    setError(null);
+  } else {
+    // Hard reset: bersihkan semua (hanya untuk ganti lokasi)
     setOrderedIds([]);
     setItemsMap(new Map());
     setHasMore(true);
@@ -537,7 +544,8 @@ const feedItemsWithBreaks = useMemo(() => {
     setError(null);
     lastLoadedIdRef.current = null;
     existingIdsRef.current.clear();
-  }, []);
+  }
+}, []);
 
   // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
@@ -1030,88 +1038,33 @@ useEffect(() => {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-    // ========== RESTORE FROM SESSION STORAGE (SEBELUM INITIAL LOAD) ==========
-  useEffect(() => {
-    const tryRestoreFromBackup = () => {
-      try {
-        const backupRaw = sessionStorage.getItem(SESSION_CACHE_KEY);
-        if (!backupRaw) return false;
-        
-        const backup = JSON.parse(backupRaw);
-        
-        // Cek apakah backup masih fresh (belum expired)
-        const isFresh = (Date.now() - backup.timestamp) < SESSION_CACHE_DURATION;
-        if (!isFresh) {
-          console.log('⏰ Feed backup expired, will fetch fresh data');
-          return false;
-        }
-        
-        // Cek apakah backup memiliki data yang valid
-        if (!backup.orderedIds || backup.orderedIds.length === 0) {
-          return false;
-        }
-        
-        // Restore data dari backup
-        const restoredMap = new Map(backup.itemsMap);
-        const restoredIds = backup.orderedIds;
-        const restoredRadius = backup.searchRadius || DEFAULT_RADIUS;
-        
-        console.log(`📦 Feed restored from backup: ${restoredIds.length} items`);
-        
-        // Update state dengan data dari backup
-        setItemsMap(restoredMap);
-        setOrderedIds(restoredIds);
-        setSearchRadius(restoredRadius);
-        setHasMore(true);
+    // ========== RESTORE FROM SESSION STORAGE (INITIAL LOAD) ==========
+useEffect(() => {
+  const backup = sessionStorage.getItem(SESSION_CACHE_KEY);
+  
+  if (backup && !initialLoadDoneRef.current) {
+    try {
+      const data = JSON.parse(backup);
+      const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
+      
+      if (data.orderedIds?.length > 0 && isFresh) {
+        setItemsMap(new Map(data.itemsMap));
+        setOrderedIds(data.orderedIds);
         setInitialLoad(false);
-        setLoading(false);
-        
-        // Update refs
-        if (restoredIds.length > 0) {
-          lastLoadedIdRef.current = restoredIds[restoredIds.length - 1];
-        }
-        
-        // Update existingIdsRef
-        existingIdsRef.current.clear();
-        restoredIds.forEach(id => existingIdsRef.current.add(id));
-        
-        // Set flag bahwa kita sudah restore dari backup
-        window.__feedRestoredFromBackup = true;
-        
-        return true;
-      } catch (e) {
-        console.warn('Failed to restore feed backup:', e);
-        return false;
+        initialLoadDoneRef.current = true;
+        console.log(`✅ Restored ${data.orderedIds.length} items from cache`);
+        return;
       }
-    };
-    
-    // Coba restore dari backup TERLEBIH DAHULU
-    const restored = tryRestoreFromBackup();
-    
-    // Jika restore berhasil, kita tidak perlu fetch ulang
-    if (restored) {
-      initialLoadDoneRef.current = true;
+    } catch(e) {
+      console.warn('Failed to restore cache:', e);
     }
-  }, []);
-
-  // INITIAL LOAD - HANYA JIKA BELUM ADA BACKUP
-  useEffect(() => {
-    // Cek apakah sudah pernah restore dari backup
-    const hasRestoredFromBackup = window.__feedRestoredFromBackup === true;
-    
-    // Jika sudah restore dari backup, jangan fetch lagi
-    if (hasRestoredFromBackup) {
-      console.log('✅ Using restored feed data, skipping initial fetch');
-      return;
-    }
-    
-    // Jika belum pernah load sama sekali, lakukan fetch
-    if (!initialLoadDoneRef.current) {
-      initialLoadDoneRef.current = true;
-      console.log('🔄 No valid backup found, fetching fresh data...');
-      loadPlaces(true, false);
-    }
-  }, []);
+  }
+  
+  if (!initialLoadDoneRef.current) {
+    initialLoadDoneRef.current = true;
+    loadPlaces(true, false);
+  }
+}, []);
 
  // RESPON PERUBAHAN LOKASI (AKTIF)
 useEffect(() => {
@@ -1370,6 +1323,8 @@ useEffect(() => {
                     
                     const isLast = index === feedItemsWithBreaks.length - 1;
                     const isPriority = index < 3;
+					const isNearby = index < 10;
+					const isNearViewport = index < 15;
                     return (
                       <motion.div
                         key={item.id}
@@ -1392,6 +1347,8 @@ useEffect(() => {
                             openKomentarModal={openKomentarModal}
                             onShare={handleShare}
                             priority={isPriority}
+							preloadNext={isNearby}
+						    shouldRender={isNearViewport}
                           />
                         </FeedCardWrapper>
                       </motion.div>

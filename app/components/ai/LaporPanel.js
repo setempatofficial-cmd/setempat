@@ -491,8 +491,8 @@ export default function LaporPanel({
                 <textarea
                   placeholder="Apa yang sedang terjadi di sana, Lur?"
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-[13px] text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/20 min-h-[80px] resize-none"
-                  value={caption} 
-                  onChange={(e) => setCaption(e.target.value)}
+                  defaultValue={caption} 
+                  onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                 />
               </div>
 
