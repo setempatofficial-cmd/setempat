@@ -9,6 +9,7 @@ import AIModal from "@/app/components/ai/AIModal";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import { calculateDistance } from "@/lib/distance";
 import dynamic from 'next/dynamic';
+import { ChevronLeft } from 'lucide-react';
 
 // Import komponen secara dinamis untuk mencegah error SSR
 const VoiceSearch = dynamic(() => import('react-voice-search'), {
@@ -437,18 +438,18 @@ useEffect(() => {
           {/* HEADER */}
 <div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-xl ${isMalam ? "bg-black/80 border-b border-white/10" : "bg-white/80 border-b border-slate-100"}`}>
   <div className="flex items-center gap-2">
-    {/* Tombol Back */}
-    <button 
-      onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
-      className={`p-2 rounded-xl ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}
-    >
-      ←
-    </button>
+   {/* Tombol Back */}
+<button 
+  onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
+  className={`p-2 rounded-xl transition-colors ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}
+>
+  <ChevronLeft size={18} />
+</button>
     
     {/* Input Teks */}
     <input
       autoFocus
-      value={query}
+      defaultValue={query}
       onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
       onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
       placeholder="Cari tempat, lihat suasana..."
@@ -463,20 +464,21 @@ useEffect(() => {
     />
     
     {/* ========== VOICE SEARCH ========== */}
-    <VoiceSearch
-      handleSearch={(transcript) => {
-        console.log('🎤 Voice search result:', transcript);
-        handleSearch(transcript); // Gunakan handleSearch yang sudah ada
-      }}
-      Error={(error) => console.error("Voice Search Error:", error)}
-      placeholder="Klik dan bicara..."
-      width="40"
-      height="40"
-      buttonColor="#E3655B"
-      buttonIconColor="#FFFFFF"
-      language="id-ID"
-    />
-    
+    <div className={`rounded-full p-1 ${isMalam ? "bg-white/10" : "bg-transparent"}`}>
+  <VoiceSearch
+    handleSearch={(transcript) => {
+      console.log('🎤 Voice search result:', transcript);
+      handleSearch(transcript);
+    }}
+    Error={(error) => console.error("Voice Search Error:", error)}
+    placeholder="Klik dan bicara..."
+    width="48"
+    height="48"
+    buttonColor={isMalam ? "#FFFFFF" : "#E3655B"}  // ← putih saat gelap
+    buttonIconColor={isMalam ? "#1a1a1a" : "#FFFFFF"}  // ← icon hitam saat gelap
+    language="id-ID"
+  />
+</div>
     {/* Tombol Refresh */}
     <button 
       onClick={handleGlobalRefresh} 

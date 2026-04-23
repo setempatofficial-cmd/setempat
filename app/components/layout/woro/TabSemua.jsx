@@ -15,7 +15,7 @@ const formatTime = (date) => {
   return new Date(date).toLocaleDateString("id-ID", { day: "numeric", month: "short" });
 };
 
-export default function TabSemua({ theme, user }) {
+export default function TabSemua({ theme, user, onTabChange }) {
   const router = useRouter();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -66,22 +66,27 @@ export default function TabSemua({ theme, user }) {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleRead = async (notif) => {
-    // Optimistic Update
-    setNotifications(prev => prev.map(n => n.uId === notif.uId ? { ...n, isRead: true } : n));
-    
+    // Update read status untuk warung info
     if (notif.type === "warung" && !notif.isRead) {
       await supabase.from("warung_info").update({ is_read: true }).eq("id", notif.id);
+      
+      // Update local state
+      setNotifications(prev => prev.map(n => 
+        n.uId === notif.uId ? { ...n, isRead: true } : n
+      ));
     }
     
-    const tid = notif.related_id || notif.tempat_id;
-    if (tid) router.push(`/post/${tid}`);
+    // ✅ Tentukan tab tujuan
+    let targetTab = "semua";
+    if (notif.type === "kentongan") targetTab = "kentongan";
+    if (notif.type === "warung") targetTab = "warung";
+    if (notif.type === "kampung") targetTab = "kampung";
+    
+    // ✅ Panggil fungsi dari parent untuk ganti tab (tanpa reload!)
+    if (onTabChange) {
+      onTabChange(targetTab);
+    }
   };
-
-  if (loading) return (
-    <div className="flex justify-center py-20">
-      <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-    </div>
-  );
 
   return (
     <div className={`flex flex-col ${colors.bg}`}>

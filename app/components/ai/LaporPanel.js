@@ -1,3 +1,4 @@
+// app/components/feed/LaporPanel.js
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
@@ -11,11 +12,6 @@ const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
 
 // KATEGORI YANG MEMILIKI LALU LINTAS
 const TRAFFIC_CATEGORIES = ['jalan', 'jalan raya', 'simpang', 'tol', 'bypass', 'lingkar'];
-
-// 🔥 CACHE GLOBAL UNTUK TEMPAT (10 menit)
-let tempatCache = null;
-let tempatCacheTime = null;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 menit
 
 export default function LaporPanel({ 
   tempat, 
@@ -49,30 +45,6 @@ export default function LaporPanel({
     cloudinary: false,
     supabase: false
   });
-  const [retryCount, setRetryCount] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // 🔥 FUNGSI TOAST
-  const showToast = (message, type = 'error') => {
-    const colors = {
-      error: 'bg-red-950 border-red-500/50 text-red-100',
-      success: 'bg-emerald-950 border-emerald-500/50 text-emerald-100',
-      warning: 'bg-amber-950 border-amber-500/50 text-amber-100',
-      info: 'bg-blue-950 border-blue-500/50 text-blue-100'
-    };
-    
-    const toast = document.createElement('div');
-    toast.className = `fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border ${colors[type]} animate-in`;
-    toast.innerHTML = `
-      <div class="text-xl">${type === 'error' ? '⚠️' : type === 'success' ? '✅' : type === 'warning' ? '⚡' : 'ℹ️'}</div>
-      <div class="flex flex-col">
-        <span class="text-[11px] font-black uppercase tracking-widest">${type.toUpperCase()}</span>
-        <span class="text-[10px] opacity-80">${message}</span>
-      </div>
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-  };
 
   // FUNGSI NOTIFIKASI LOGIN
   const showLoginNotification = () => {
@@ -110,79 +82,58 @@ export default function LaporPanel({
     [kategoriLower, namaLower]
   );
 
-  // 🔥 FETCH TEMPAT LANGSUNG DARI TABEL `tempat` (BUKAN feed_view)
-  const fetchTempatList = async (force = false) => {
-    // 🔥 CEK CACHE
-    if (!force && tempatCache && tempatCacheTime && 
-        (Date.now() - tempatCacheTime) < CACHE_DURATION) {
-      console.log("📦 Menggunakan cache tempat");
-      setTempatList(tempatCache);
-      return;
-    }
-    
+  // 🔥 FETCH TEMPAT DARI feed_view (TANPA CACHE)
+  const fetchTempatList = useCallback(async (searchQuery = "") => {
     setIsLoadingTempat(true);
     try {
-      const { data, error } = await supabase
-        .from("tempat")  // 🔥 LANGSUNG KE TABEL TEMPAT
+      let query = supabase
+        .from("feed_view")
         .select("id, name, category, alamat")
-        .eq('status', 'active')  // Hanya tempat aktif
-        .limit(200)
-        .order('name');
+        .limit(30);
+      
+      // 🔥 FILTER LANGSUNG DI DATABASE
+      if (searchQuery.trim()) {
+        query = query.ilike('name', `%${searchQuery}%`);
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
-      
-      // 🔥 SIMPAN KE CACHE
-      tempatCache = data || [];
-      tempatCacheTime = Date.now();
-      
       setTempatList(data || []);
-      console.log(`✅ Load ${data?.length || 0} tempat dari database`);
-      
     } catch (err) {
       console.error("Error fetching places:", err);
-      
-      // 🔥 FALLBACK KE CACHE LAMA
-      if (tempatCache && tempatCache.length > 0) {
-        setTempatList(tempatCache);
-        showToast("Menggunakan data tempat tersimpan", "info");
-      } else {
-        setTempatList([]);
-        showToast("Gagal memuat daftar tempat, coba refresh", "error");
-      }
+      setTempatList([]);
     } finally {
       setIsLoadingTempat(false);
-      setIsRefreshing(false);
     }
-  };
+  }, []);
 
-  // 🔥 REFRESH MANUAL
-  const handleRefreshTempat = () => {
-    setIsRefreshing(true);
-    fetchTempatList(true);
-    showToast("Memperbarui daftar tempat...", "info");
-  };
-
-  useEffect(() => {
-    if (tempat?.id) return;
-    fetchTempatList();
-  }, [tempat?.id]);
-
-  // 🔥 FILTER DENGAN DEBOUNCE (opsional)
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // 🔥 DEBOUNCE UNTUK PENCARIAN
   const debounceTimer = useRef(null);
   
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      setDebouncedQuery(tempatQuery);
-    }, 300);
-  }, [tempatQuery]);
-  
+      if (tempatQuery.length > 1 || tempatQuery === "") {
+        fetchTempatList(tempatQuery);
+      }
+    }, 400);
+    
+    return () => clearTimeout(debounceTimer.current);
+  }, [tempatQuery, fetchTempatList]);
+
+  // Initial load
+  useEffect(() => {
+    if (tempat?.id) return;
+    fetchTempatList("");
+  }, [tempat?.id, fetchTempatList]);
+
+  // 🔥 FILTER DI FRONTEND (untuk pencarian yang sudah di-debounce)
   const filteredTempat = tempatList.filter(t =>
-    !debouncedQuery ||
-    t.name?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-    t.category?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-    t.alamat?.toLowerCase().includes(debouncedQuery.toLowerCase())
+    !tempatQuery ||
+    t.name?.toLowerCase().includes(tempatQuery.toLowerCase()) ||
+    t.category?.toLowerCase().includes(tempatQuery.toLowerCase()) ||
+    t.alamat?.toLowerCase().includes(tempatQuery.toLowerCase())
   );
 
   const activeTempat = pickedTempat || tempat;
@@ -231,66 +182,47 @@ export default function LaporPanel({
       setMediaUrl(res.info.secure_url);
       setStep("form");
       setUploadProgress(prev => ({ ...prev, cloudinary: true }));
-      showToast("Foto/Video berhasil diupload!", "success");
     } else if (res?.event === "error") {
       setUploadError("Gagal upload gambar. Coba lagi nanti.");
       console.error("Upload error:", res);
-      showToast("Upload gagal, coba dengan file yang lebih kecil", "error");
     }
   };
 
-  // 🔥 FINALIZE UPLOAD DENGAN PRIORITAS CAPTION USER
+  // FINALIZE UPLOAD
   const finalizeUpload = async () => {
     if (!activeTempat?.id) {
-      showToast("Tempat tidak valid. Silakan pilih tempat terlebih dahulu.", "warning");
+      alert("Tempat tidak valid. Silakan pilih tempat terlebih dahulu.");
       setStep("pick_tempat");
       return;
     }
     
     if (!condition && !trafficCondition) {
-      showToast("Pilih kondisi tempat atau lalu lintas terlebih dahulu", "warning");
+      alert("Pilih kondisi tempat atau lalu lintas terlebih dahulu");
       return;
     }
     
     if (condition === "Antri" && !waitTime) {
-      showToast("Pilih estimasi waktu antrian", "warning");
+      alert("Pilih estimasi waktu antrian");
       return;
     }
     
     if (status === "uploading") return;
     
-    // 🔥 VALIDASI CAPTION UNTUK LAPORAN TULISAN
-    const userCaption = caption.trim();
-    if (!mediaUrl && !userCaption) {
-      showToast("Silakan tulis keterangan untuk laporan Anda, Lur!", "warning");
-      return;
-    }
-    
     setUploadProgress({ cloudinary: !!mediaUrl, supabase: false });
     setStatus("uploading");
     
-    // 🔥 TIMEOUT 20 DETIK
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const timeoutId = setTimeout(() => {
+      if (status === "uploading") {
+        setStatus("idle");
+        alert("Proses penyimpanan sedang lambat. Coba lagi dalam beberapa saat.");
+      }
+    }, 15000);
     
     try {
-      // 🔥 CEK SESSION DENGAN RETRY (3x)
-      let session = null;
-      let sessionError = null;
-      
-      for (let i = 0; i < 3; i++) {
-        const result = await supabase.auth.getSession();
-        if (result.data?.session) {
-          session = result.data.session;
-          sessionError = null;
-          break;
-        }
-        sessionError = result.error;
-        if (i < 2) await new Promise(r => setTimeout(r, 500));
-      }
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session?.user) {
-        console.error("Session error after retry:", sessionError);
+        console.error("Session error:", sessionError);
         showLoginNotification();
         throw new Error("Silakan login kembali");
       }
@@ -302,10 +234,7 @@ export default function LaporPanel({
       const estimatedPeople = condition ? getEstimatedPeople(condition, currentTimeTag) : null;
       const estimatedWaitTime = condition === "Antri" ? waitTime : null;
       const mainType = condition || (trafficCondition ? "Lalu Lintas" : null);
-      
-      // 🔥 PRIORITAS: Caption User > Auto Description
-      const autoDescription = getConditionDescription(condition, waitTime, trafficCondition);
-      const finalDesc = userCaption || autoDescription;
+      const finalDesc = caption.trim() || getConditionDescription(condition, waitTime, trafficCondition);
       
       setUploadProgress(prev => ({ ...prev, supabase: true }));
       
@@ -326,47 +255,48 @@ export default function LaporPanel({
           estimated_wait_time: estimatedWaitTime,
           traffic_condition: trafficCondition,
           deskripsi: finalDesc,
-          content: userCaption,
+          content: caption.trim(),
           status: "approved",
         }])
         .select()
         .single();
       
-      clearTimeout(timeoutId);
+      if (error) throw error;
       
-      if (error) {
-        // 🔥 RETRY ON NETWORK ERROR (max 2 kali)
-        if (retryCount < 2 && (error.message?.includes("network") || error.message?.includes("timeout") || error.message?.includes("fetch"))) {
-          console.log(`Retry attempt ${retryCount + 1}...`);
-          setRetryCount(prev => prev + 1);
-          setStatus("idle");
-          setTimeout(() => finalizeUpload(), 1000);
-          return;
-        }
-        throw error;
-      }
-      
-      // SUCCESS HANDLING
       setStatus("success");
-      setRetryCount(0);
       
-      setTimeout(() => {
-        setStatus("idle");
-        onSuccess?.(data);
-        onClose();
-      }, 2000);
+      if (mediaUrl) {
+        setTimeout(() => {
+          setStatus("idle");
+          onSuccess?.(data);
+          onClose();
+        }, 2000);
+      } else {
+        const toastNotif = document.createElement('div');
+        toastNotif.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-6 py-4 rounded-3xl shadow-2xl flex flex-col items-center gap-1 min-w-[280px] border text-center bg-emerald-950 border-emerald-500/50 text-emerald-100';
+        toastNotif.innerHTML = `
+          <div class="text-2xl mb-1">✅</div>
+          <span class="text-[12px] font-black uppercase tracking-widest">Masuk ke LiveInsight</span>
+          <span class="text-[10px] opacity-70">Laporanmu sudah tayang, Lur!</span>
+        `;
+        document.body.appendChild(toastNotif);
+        
+        setTimeout(() => {
+          setStatus("idle");
+          toastNotif.remove();
+          onClose();
+        }, 1500);
+      }
       
     } catch (err) {
-      clearTimeout(timeoutId);
       console.error("Upload Error:", err);
       
-      if (err.name === 'AbortError') {
-        showToast("Koneksi timeout, coba lagi dengan jaringan yang lebih stabil", "error");
-      } else if (!err.message.includes("Silakan login")) {
-        showToast(err.message || "Gagal mengirim laporan", "error");
+      if (!err.message.includes("Silakan login")) {
+        alert("Gagal mengirim: " + err.message);
       }
       setStatus("idle");
-      setRetryCount(0);
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -445,7 +375,7 @@ export default function LaporPanel({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className={`text-base font-black ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>Pilih Lokasi</h3>
-                  <p className="text-[10px] text-slate-500 font-medium">📍 Wajib pilih tempat sebelum lapor</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Kabari warga sekitar area ini</p>
                 </div>
                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400">✕</button>
               </div>
@@ -463,23 +393,11 @@ export default function LaporPanel({
               </div>
 
               <div className="overflow-y-auto flex flex-col gap-2 pr-1 custom-scrollbar" style={{ maxHeight: "45vh" }}>
-                {isLoadingTempat ? (
-                  <div className="py-20 flex flex-col items-center gap-3">
-                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent animate-spin rounded-full" />
-                    <p className="text-[11px] text-slate-400">Memuat daftar tempat...</p>
-                  </div>
-                ) : filteredTempat.length === 0 ? (
+                {isLoadingTempat && tempatList.length === 0 ? (
+                  <div className="py-20 flex flex-col items-center opacity-50"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent animate-spin rounded-full" /></div>
+                ) : filteredTempat.length === 0 && tempatQuery ? (
                   <div className="py-20 text-center">
-                    <div className="text-4xl mb-2 opacity-30">📍</div>
-                    <p className="text-[12px] font-medium text-slate-500">Tempat tidak ditemukan</p>
-                    <p className="text-[10px] text-slate-400 mt-1">Coba kata kunci lain</p>
-                    <button 
-                      onClick={handleRefreshTempat}
-                      disabled={isRefreshing}
-                      className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-[10px] font-bold text-slate-600 active:scale-95 transition-all"
-                    >
-                      {isRefreshing ? "Memuat..." : "🔄 Refresh Daftar"}
-                    </button>
+                    <p className="text-[12px] text-slate-500">Tempat "{tempatQuery}" tidak ditemukan</p>
                   </div>
                 ) : (
                   filteredTempat.map(t => (
@@ -524,22 +442,16 @@ export default function LaporPanel({
               <CldUploadWidget
                 uploadPreset="setempat_preset"
                 onSuccess={handleUploadDone}
-                onError={(err) => {
-                  console.error("Widget error:", err);
-                  showToast("Gagal membuka kamera/gallery", "error");
-                }}
                 options={{ 
                   maxFiles: 1, 
                   resourceType: "auto",
-                  sources: ["local"],
+                  sources: ["camera", "local"],
                   maxImageFileSize: 5000000,
-                  transformations: [{ quality: "auto", width: 1200, crop: "limit" }],
-                  clientAllowedFormats: ["image", "video"],
+                  transformations: [{ quality: "auto", width: 1200, crop: "limit" }]
                 }}
               >
                 {({ open }) => (
                   <button 
-                    type="button"
                     onClick={() => {
                       const btn = document.activeElement;
                       if (btn) btn.style.transform = 'scale(0.97)';
@@ -557,7 +469,7 @@ export default function LaporPanel({
                     </div>
                     <div className="text-center">
                       <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
-                      <p className="text-[10px] text-slate-400">Buka kamera atau galeri HP</p>
+                      <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
                     </div>
                   </button>
                 )}
@@ -590,7 +502,7 @@ export default function LaporPanel({
                   )}
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <button 
-                      onClick={() => { setMediaUrl(null); setMediaType(null); setStep("upload"); }}
+                      onClick={() => { setMediaUrl(null); setStep("upload"); }}
                       className="px-4 py-2 bg-white/90 rounded-full text-[10px] font-black text-red-500 shadow-xl"
                     >HAPUS MEDIA</button>
                   </div>
@@ -598,18 +510,13 @@ export default function LaporPanel({
               )}
               
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">
-                  Keterangan Tambahan {!mediaUrl && <span className="text-red-500">*</span>}
-                </label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Keterangan Tambahan</label>
                 <textarea
-                  placeholder={!mediaUrl ? "Wajib diisi: Ceritakan situasi di sana..." : "Apa yang sedang terjadi di sana, Lur? (opsional)"}
+                  placeholder="Apa yang sedang terjadi di sana, Lur?"
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-[13px] text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/20 min-h-[80px] resize-none"
                   value={caption} 
                   onChange={(e) => setCaption(e.target.value)}
                 />
-                {!mediaUrl && (
-                  <p className="text-[9px] text-slate-400 ml-1">💡 Tulis keterangan agar laporanmu lebih informatif</p>
-                )}
               </div>
 
               {/* Status Selector */}
@@ -638,7 +545,7 @@ export default function LaporPanel({
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1 mb-2 block">Lama Antrian</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[5, 15, 20].map((v) => (
-                      <button key={v} type="button" onClick={() => setWaitTime(v)} className={`py-2.5 rounded-xl text-[10px] font-black border-2 transition-all ${waitTime === v ? 'bg-cyan-500 border-cyan-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}>
+                      <button key={v} onClick={() => setWaitTime(v)} className={`py-2.5 rounded-xl text-[10px] font-black border-2 transition-all ${waitTime === v ? 'bg-cyan-500 border-cyan-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}>
                         {v === 5 ? "< 5 Menit" : v === 15 ? "5-15 Menit" : "> 15 Menit"}
                       </button>
                     ))}

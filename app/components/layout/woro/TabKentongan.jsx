@@ -189,7 +189,7 @@ export default function TabKentongan({ theme }) {
         .select("*")
         .order("is_pinned", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(20);
 
       if (error) throw error;
       setAnnouncements(data || []);
@@ -643,13 +643,27 @@ export default function TabKentongan({ theme }) {
 
       {/* FEED LIST */}
       <div className="space-y-4">
-        {loading ? (
-          <div className="flex flex-col items-center py-20 opacity-50">
-            <Loader2 className="animate-spin text-orange-500" size={32} />
-            <p className={`text-sm mt-2 ${isMalam ? "text-slate-400" : "text-slate-500"}`}>
-              Memuat berita...
-            </p>
+        {loading && announcements.length === 0 ? (
+  <div className="space-y-4">
+    {[1,2,3,4,5].map((i) => (
+      <div key={i} className={`rounded-2xl p-5 border animate-pulse ${
+        isMalam ? "bg-slate-900/40 border-white/5" : "bg-white border-slate-200"
+      }`}>
+        <div className="flex justify-between items-start">
+          <div className="flex items-center gap-3 flex-1">
+            <div className={`w-10 h-10 rounded-full ${isMalam ? "bg-white/10" : "bg-slate-200"}`} />
+            <div className={`h-4 rounded w-3/4 ${isMalam ? "bg-white/10" : "bg-slate-200"}`} />
           </div>
+          <div className={`h-3 rounded w-12 ${isMalam ? "bg-white/5" : "bg-slate-100"}`} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <div className={`h-3 rounded w-full ${isMalam ? "bg-white/5" : "bg-slate-100"}`} />
+          <div className={`h-3 rounded w-5/6 ${isMalam ? "bg-white/5" : "bg-slate-100"}`} />
+          <div className={`h-3 rounded w-4/6 ${isMalam ? "bg-white/5" : "bg-slate-100"}`} />
+        </div>
+      </div>
+    ))}
+  </div>
         ) : announcements.length === 0 ? (
           <div className={`text-center py-20 ${isMalam ? "text-slate-400" : "text-slate-500"}`}>
             <Megaphone size={48} className="mx-auto opacity-30 mb-3" />

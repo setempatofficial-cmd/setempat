@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+
+import { useState, useEffect, useMemo, useRef } from "react"; // ✅ Tambah useRef
 import { useRouter } from "next/navigation";
 import { 
   ArrowLeft, Bell, Megaphone, Users, LayoutGrid, 
@@ -23,6 +24,31 @@ export default function WoroContent() {
   const [activeTab, setActiveTab] = useState("semua");
   const [unreadCount, setUnreadCount] = useState(0);
   const isMalam = theme.isMalam;
+  
+  // ✅ Ref untuk scroll container tabs
+  const tabsContainerRef = useRef(null);
+  const tabButtonsRef = useRef({});
+
+  // ✅ Auto-scroll ke tab yang aktif
+  useEffect(() => {
+    const activeButton = tabButtonsRef.current[activeTab];
+    const container = tabsContainerRef.current;
+    
+    if (activeButton && container) {
+      // Hitung posisi scroll agar tab aktif terlihat di tengah
+      const containerRect = container.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      
+      const scrollLeft = buttonRect.left - containerRect.left + container.scrollLeft - 100;
+      
+      container.scrollTo({
+        left: scrollLeft,
+        behavior: 'smooth'
+      });
+    }
+  }, [activeTab]);
+
+  // ... useEffect untuk unreadCount tetap sama
 
   useEffect(() => {
     if (!user?.id) return;
@@ -43,7 +69,6 @@ export default function WoroContent() {
 
     fetchInitialUnread();
 
-    // ✅ PERBAIKAN: Realtime subscription untuk notifikasi masuk
     const channel = supabase
       .channel(`woro_count_${user.id}`)
       .on("postgres_changes", { 
@@ -52,7 +77,6 @@ export default function WoroContent() {
         table: "warung_info", 
         filter: `user_id=eq.${user.id}` 
       }, () => {
-        // ✅ Update unread count saat notifikasi masuk
         if (isMounted) {
           setUnreadCount(prev => prev + 1);
         }
@@ -63,7 +87,6 @@ export default function WoroContent() {
         table: "warung_info",
         filter: `user_id=eq.${user.id}`
       }, (payload) => {
-        // ✅ Jika notifikasi dibaca, kurangi count
         if (payload.new.is_read === true && isMounted) {
           setUnreadCount(prev => Math.max(0, prev - 1));
         }
@@ -83,10 +106,17 @@ export default function WoroContent() {
     { id: "kampung", name: "Kampung Kita", icon: <Users size={14} /> },
   ], [unreadCount]);
 
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    if (tabId === "warung") {
+      setUnreadCount(0);
+    }
+  };
+
   return (
     <main className={`relative min-h-screen pb-32 transition-colors duration-500 ${theme.bg}`}>
       
-      {/* --- HEADER (SAMA, TIDAK BERUBAH) --- */}
+      {/* HEADER */}
       <div className={`sticky top-0 z-30 backdrop-blur-xl border-b transition-all ${
         isMalam ? "bg-[#111111]/80 border-white/5" : "bg-white/80 border-slate-100"
       }`}>
@@ -140,14 +170,21 @@ export default function WoroContent() {
             </div>
           </div>
 
-          {/* TABS (SAMA, TIDAK BERUBAH) */}
+          {/* TABS dengan auto-scroll */}
           <div className="relative">
-            <div className="flex gap-3 pb-4 overflow-x-auto scrollbar-none snap-x px-1">
+            <div 
+              ref={tabsContainerRef}  // ✅ Tambahkan ref
+              className="flex gap-3 pb-4 overflow-x-auto scrollbar-none snap-x px-1"
+              style={{ scrollBehavior: 'smooth' }}
+            >
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
+                    ref={(el) => {
+                      if (el) tabButtonsRef.current[tab.id] = el;  // ✅ Simpan ref setiap button
+                    }}
                     onClick={() => {
                       setActiveTab(tab.id);
                       if (tab.id === "warung") setUnreadCount(0);
@@ -182,7 +219,7 @@ export default function WoroContent() {
         </div>
       </div>
 
-      {/* CONTENT AREA (SAMA, TIDAK BERUBAH) */}
+      {/* CONTENT AREA */}
       <div className="mx-auto w-[92%] max-w-[400px] mt-6">
         <AnimatePresence mode="wait">
           <motion.div
@@ -192,7 +229,13 @@ export default function WoroContent() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === "semua" && <TabSemua theme={theme} user={user} />}
+            {activeTab === "semua" && (
+              <TabSemua 
+                theme={theme} 
+                user={user} 
+                onTabChange={handleTabChange}
+              />
+            )}
             {activeTab === "kentongan" && <TabKentongan theme={theme} />}
             {activeTab === "warung" && (
               <TabWarungInfo 
