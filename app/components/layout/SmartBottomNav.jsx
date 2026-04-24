@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Contact2, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Contact2, Store, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -77,7 +77,13 @@ export default function SmartBottomNav({
     if (pathname === "/") setActiveTab("Home");
     else if (pathname === "/search" || pathname === "/explore") setActiveTab("Sekitar");
     else if (pathname.startsWith("/woro")) setActiveTab("Woro");
-    else if (pathname.startsWith("/rewang")) setActiveTab("Rewang");
+    else if (
+      pathname.startsWith("/peken") ||
+      pathname.startsWith("/rewang") ||
+      pathname.startsWith("/panyangan")
+    ) {
+      setActiveTab("Peken");
+    }
   }, [pathname]);
 
   // ✅ FUNGSI REFRESH DENGAN FEEDBACK VISUAL
@@ -122,9 +128,8 @@ export default function SmartBottomNav({
         if (onOpenNotification) onOpenNotification();
         else router.push("/woro");
         break;
-      case "Rewang": 
-        if (onOpenProfile) onOpenProfile();
-        else router.push("/rewang");
+      case "Peken": 
+        router.push("/peken");
         break;
     }
   };
@@ -147,7 +152,7 @@ export default function SmartBottomNav({
     { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
     ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
-    { id: "Rewang", icon: <Contact2 size={22} />, label: "Rewang" },
+    { id: "Peken", icon: <Store size={22} />, label: "Peken" },
   ];
 
   return (

@@ -1,12 +1,12 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { 
   ShieldCheck, CheckCircle, XCircle, Clock, Eye, 
-  User, MapPin, Briefcase, Phone, AtSign, Calendar,
-  Search, Filter, ArrowLeft, ChevronRight,
-  Loader2, AlertCircle, Edit2, Save, X
+  User, MapPin, Briefcase, Phone, Search, 
+  ChevronRight, Loader2, AlertCircle, Edit2, Map, ExternalLink,
+  ZoomIn, Image as ImageIcon, Lock, Key
 } from "lucide-react";
 
 export default function VerifikasiKTPPage() {
@@ -18,26 +18,22 @@ export default function VerifikasiKTPPage() {
   const [search, setSearch] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [signedUrl, setSignedUrl] = useState(null);
+  const [loadingKtp, setLoadingKtp] = useState(false);
   
-  // State untuk modal reject
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectUserId, setRejectUserId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // State untuk modal edit user
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({});
   const [isEditing, setIsEditing] = useState(false);
-  
-  // State lokal untuk form edit (terpisah agar tidak mengganggu focus)
-  const [localForm, setLocalForm] = useState({});
 
-  // Deteksi layar mobile
+  // Deteksi mobile
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
@@ -45,10 +41,15 @@ export default function VerifikasiKTPPage() {
 
   // Cek akses superadmin
   useEffect(() => {
-    checkAccess();
+    checkAdminAccess();
   }, []);
 
-  const checkAccess = async () => {
+  // Fetch submissions ketika filter berubah
+  useEffect(() => { 
+    fetchSubmissions(); 
+  }, [filter]);
+
+  const checkAdminAccess = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push("/");
@@ -66,33 +67,53 @@ export default function VerifikasiKTPPage() {
     }
   };
 
-  useEffect(() => {
-    fetchSubmissions();
-  }, [filter]);
-
   const fetchSubmissions = async () => {
     setLoading(true);
-    
     let query = supabase
       .from("profiles")
       .select("*")
       .order("ktp_submitted_at", { ascending: false });
     
-    if (filter === "menunggu") {
-      query = query.eq("ktp_status", "menunggu");
-    } else if (filter === "ditolak") {
-      query = query.eq("ktp_status", "ditolak");
-    } else if (filter === "aktif") {
-      query = query.eq("ktp_status", "aktif");
+    if (filter !== "semua") {
+      query = query.eq("ktp_status", filter);
     }
     
     const { data, error } = await query;
-    
-    if (!error) {
-      setSubmissions(data || []);
-    }
-    
+    if (!error) setSubmissions(data || []);
     setLoading(false);
+  };
+
+  // 🔐 FUNGSI KEAMANAN: Generate Signed URL (expired 5 menit)
+  const getSignedKtpUrl = async (filePath) => {
+    if (!filePath) return null;
+    
+    setLoadingKtp(true);
+    try {
+      const { data, error } = await supabase.storage
+        .from('ktp-verifikasi')
+        .createSignedUrl(filePath, 300); // 5 menit = 300 detik
+      
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (err) {
+      console.error("Gagal generate signed URL:", err);
+      return null;
+    } finally {
+      setLoadingKtp(false);
+    }
+  };
+
+  // Handle pilih submission & ambil signed URL
+  const handleSelectSubmission = async (submission) => {
+    setSelectedSubmission(submission);
+    setSignedUrl(null);
+    setShowDetail(true);
+    
+    // Generate signed URL untuk KTP
+    if (submission.foto_ktp) {
+      const url = await getSignedKtpUrl(submission.foto_ktp);
+      setSignedUrl(url);
+    }
   };
 
   const handleApprove = async (userId) => {
@@ -106,12 +127,11 @@ export default function VerifikasiKTPPage() {
       .eq("id", userId);
     
     if (!error) {
-      alert("✅ KTP Digital berhasil diverifikasi!");
+      alert("✅ KTP Digital Warga telah AKTIF!");
       fetchSubmissions();
-      if (isMobile) {
-        setShowDetail(false);
-        setSelectedSubmission(null);
-      }
+      setSelectedSubmission(null);
+      setShowDetail(false);
+      setSignedUrl(null);
     } else {
       alert("Gagal: " + error.message);
     }
@@ -125,7 +145,7 @@ export default function VerifikasiKTPPage() {
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert("Alasan penolakan wajib diisi!");
+      alert("⚠️ Alasan penolakan wajib diisi!");
       return;
     }
     
@@ -144,48 +164,35 @@ export default function VerifikasiKTPPage() {
     
     if (!error) {
       setShowRejectModal(false);
-      alert("❌ Pengajuan ditolak!");
+      alert("❌ Pengajuan KTP ditolak!");
       fetchSubmissions();
-      if (isMobile) {
-        setShowDetail(false);
-        setSelectedSubmission(null);
-      }
+      setSelectedSubmission(null);
+      setShowDetail(false);
+      setSignedUrl(null);
     } else {
       alert("Gagal: " + error.message);
     }
   };
 
   const openEditModal = (submission) => {
-    const editFormData = {
-      id: submission.id,
-      full_name: submission.full_name || "",
-      usia: submission.usia || "",
-      profesi: submission.profesi || "",
-      whatsapp: submission.whatsapp || "",
-      alamat: submission.alamat || "",
-      desa: submission.desa || "",
-      kecamatan: submission.kecamatan || "",
-      kabupaten: submission.kabupaten || "",
-    };
-    setEditData(editFormData);
-    setLocalForm(editFormData); // Reset local form
+    setEditData(submission);
     setShowEditModal(true);
   };
 
-  const handleUpdateUser = async () => {
+  const handleUpdateUser = async (updatedData) => {
     setIsEditing(true);
     
     const { error } = await supabase
       .from("profiles")
       .update({
-        full_name: localForm.full_name,
-        usia: parseInt(localForm.usia) || 0,
-        profesi: localForm.profesi,
-        whatsapp: localForm.whatsapp,
-        alamat: localForm.alamat,
-        desa: localForm.desa,
-        kecamatan: localForm.kecamatan,
-        kabupaten: localForm.kabupaten,
+        full_name: updatedData.full_name,
+        usia: parseInt(updatedData.usia) || 0,
+        profesi: updatedData.profesi,
+        whatsapp: updatedData.whatsapp,
+        alamat: updatedData.alamat,
+        desa: updatedData.desa,
+        kecamatan: updatedData.kecamatan,
+        kabupaten: updatedData.kabupaten,
       })
       .eq("id", editData.id);
     
@@ -196,7 +203,7 @@ export default function VerifikasiKTPPage() {
       setShowEditModal(false);
       fetchSubmissions();
       if (selectedSubmission?.id === editData.id) {
-        setSelectedSubmission({ ...selectedSubmission, ...localForm });
+        setSelectedSubmission({ ...selectedSubmission, ...updatedData });
       }
     } else {
       alert("Gagal: " + error.message);
@@ -205,27 +212,21 @@ export default function VerifikasiKTPPage() {
 
   const checkDataCompleteness = (profile) => {
     const required = [
-      { field: "full_name", label: "Nama Lengkap" },
+      { field: "full_name", label: "Nama" },
       { field: "usia", label: "Usia" },
-      { field: "profesi", label: "Profesi" },
       { field: "whatsapp", label: "WhatsApp" },
-      { field: "alamat", label: "Alamat" },
-      { field: "desa", label: "Desa" },
-      { field: "kabupaten", label: "Kabupaten" },
+      { field: "alamat", label: "Alamat" }
     ];
-    
     const missing = required.filter(r => !profile[r.field]);
-    return {
-      isComplete: missing.length === 0,
-      missingCount: missing.length,
-      missingFields: missing.map(m => m.label),
+    return { 
+      isComplete: missing.length === 0, 
+      missingFields: missing.map(m => m.label) 
     };
   };
 
   const filteredSubmissions = submissions.filter(sub => 
     sub.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    sub.username?.toLowerCase().includes(search.toLowerCase()) ||
-    sub.email?.toLowerCase().includes(search.toLowerCase())
+    sub.username?.toLowerCase().includes(search.toLowerCase())
   );
 
   const stats = {
@@ -234,437 +235,273 @@ export default function VerifikasiKTPPage() {
     ditolak: submissions.filter(s => s.ktp_status === "ditolak").length,
   };
 
-  // ==================== EDIT USER MODAL ====================
- // Modal Edit User Component - VERSION PALING STABIL
-const EditUserModal = () => {
-  if (!showEditModal) return null;
-  
-  // Gunakan refs untuk setiap input
-  const fullNameRef = useRef(null);
-  const usiaRef = useRef(null);
-  const profesiRef = useRef(null);
-  const whatsappRef = useRef(null);
-  const alamatRef = useRef(null);
-  const desaRef = useRef(null);
-  const kecamatanRef = useRef(null);
-  const kabupatenRef = useRef(null);
-  
-  const handleSave = async () => {
-    const updatedData = {
-      full_name: fullNameRef.current?.value || "",
-      usia: parseInt(usiaRef.current?.value) || 0,
-      profesi: profesiRef.current?.value || "",
-      whatsapp: whatsappRef.current?.value || "",
-      alamat: alamatRef.current?.value || "",
-      desa: desaRef.current?.value || "",
-      kecamatan: kecamatanRef.current?.value || "",
-      kabupaten: kabupatenRef.current?.value || "",
-    };
-    
-    setIsEditing(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update(updatedData)
-      .eq("id", editData.id);
-    
-    setIsEditing(false);
-    if (!error) {
-      alert("✅ Data berhasil diperbarui!");
-      setShowEditModal(false);
-      fetchSubmissions();
-    }
-  };
-  
   return (
-    <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowEditModal(false)}>
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b p-3 flex items-center justify-between">
-          <h3 className="text-base font-bold">Edit Data User</h3>
-          <button onClick={() => setShowEditModal(false)} className="p-1 rounded-full">✕</button>
-        </div>
-        
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="text-xs font-medium">Nama Lengkap</label>
-            <input
-              ref={fullNameRef}
-              type="text"
-              defaultValue={editData.full_name || ""}
-              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium">Usia</label>
-            <input
-              ref={usiaRef}
-              type="number"
-              defaultValue={editData.usia || ""}
-              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium">Profesi</label>
-            <input
-              ref={profesiRef}
-              type="text"
-              defaultValue={editData.profesi || ""}
-              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium">WhatsApp</label>
-            <input
-              ref={whatsappRef}
-              type="tel"
-              defaultValue={editData.whatsapp || ""}
-              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div>
-            <label className="text-xs font-medium">Alamat</label>
-            <input
-              ref={alamatRef}
-              type="text"
-              defaultValue={editData.alamat || ""}
-              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs font-medium">Desa</label>
-              <input
-                ref={desaRef}
-                type="text"
-                defaultValue={editData.desa || ""}
-                className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-              />
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      {/* HEADER */}
+      <div className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b dark:border-slate-800 px-4 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600 rounded-lg text-white">
+              <ShieldCheck size={24} />
             </div>
             <div>
-              <label className="text-xs font-medium">Kecamatan</label>
-              <input
-                ref={kecamatanRef}
-                type="text"
-                defaultValue={editData.kecamatan || ""}
-                className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-              />
+              <h1 className="text-xl font-bold tracking-tight">Pusat Verifikasi</h1>
+              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Setempat.id Admin Panel</p>
             </div>
           </div>
-          
-          <div>
-            <label className="text-xs font-medium">Kabupaten</label>
-            <input
-              ref={kabupatenRef}
-              type="text"
-              defaultValue={editData.kabupaten || ""}
-                className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
-            />
-          </div>
-          
-          <div className="flex gap-2 pt-2">
-            <button onClick={() => setShowEditModal(false)} className="flex-1 py-2 rounded-lg border">Batal</button>
-            <button onClick={handleSave} disabled={isEditing} className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-50">
-              {isEditing ? "MENYIMPAN..." : "SIMPAN"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-  // ==================== TAMPILAN MOBILE ====================
-  if (isMobile) {
-    return (
-      <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
-        {/* Header Mobile */}
-        <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b dark:border-slate-800 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="text-purple-500" size={20} />
-              <h1 className="text-lg font-bold">Verifikasi KTP</h1>
-            </div>
-            <button onClick={() => router.back()} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800">
-              ✕
-            </button>
-          </div>
-          
-          <div className="flex gap-2 mt-3">
-            <div className="relative flex-1">
-              <Search size="14" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Cari nama..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-xl border dark:bg-slate-800 dark:border-slate-700 text-sm"
-              />
-            </div>
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="px-3 py-2 rounded-xl border dark:bg-slate-800 dark:border-slate-700 text-sm"
-            >
-              <option value="menunggu">Menunggu</option>
-              <option value="semua">Semua</option>
-              <option value="aktif">Aktif</option>
-              <option value="ditolak">Ditolak</option>
-            </select>
-          </div>
-          
-          <div className="flex gap-2 mt-3">
-            <div className="flex-1 text-center p-2 rounded-xl bg-yellow-100 dark:bg-yellow-500/20">
-              <p className="text-xl font-bold text-yellow-600">{stats.menunggu}</p>
-              <p className="text-[10px]">Menunggu</p>
-            </div>
-            <div className="flex-1 text-center p-2 rounded-xl bg-green-100 dark:bg-green-500/20">
-              <p className="text-xl font-bold text-green-600">{stats.aktif}</p>
-              <p className="text-[10px]">Aktif</p>
-            </div>
-            <div className="flex-1 text-center p-2 rounded-xl bg-red-100 dark:bg-red-500/20">
-              <p className="text-xl font-bold text-red-600">{stats.ditolak}</p>
-              <p className="text-[10px]">Ditolak</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
-            </div>
-          ) : filteredSubmissions.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <p>Tidak ada pengajuan</p>
-            </div>
-          ) : (
-            filteredSubmissions.map((sub) => {
-              const completeness = checkDataCompleteness(sub);
-              return (
-                <div
-                  key={sub.id}
-                  onClick={() => {
-                    setSelectedSubmission(sub);
-                    setShowDetail(true);
-                  }}
-                  className={`bg-white dark:bg-slate-900 rounded-xl p-4 border cursor-pointer active:scale-98 transition-all
-                    ${sub.ktp_status === "menunggu" ? "border-l-4 border-l-yellow-500" : ""}
-                    ${sub.ktp_status === "ditolak" ? "border-l-4 border-l-red-500" : ""}
-                    ${sub.ktp_status === "aktif" ? "border-l-4 border-l-green-500" : ""}
-                  `}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
-                      {sub.avatar_url ? (
-                        <img src={sub.avatar_url} className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        <User size="16" className="text-purple-500" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm">{sub.full_name || "—"}</p>
-                      <p className="text-xs text-slate-500">@{sub.username || "belum ada"}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded-full
-                          ${sub.ktp_status === "menunggu" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400" : ""}
-                          ${sub.ktp_status === "aktif" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400" : ""}
-                          ${sub.ktp_status === "ditolak" ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400" : ""}
-                        `}>
-                          {sub.ktp_status === "menunggu" && "MENUNGGU"}
-                          {sub.ktp_status === "aktif" && "AKTIF"}
-                          {sub.ktp_status === "ditolak" && "DITOLAK"}
-                        </span>
-                        {!completeness.isComplete && sub.ktp_status === "menunggu" && (
-                          <span className="text-[8px] text-amber-500">⚠️ data kurang</span>
-                        )}
-                      </div>
-                    </div>
-                    <ChevronRight size="14" className="text-slate-400" />
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Modal Detail Mobile */}
-        {showDetail && selectedSubmission && (
-          <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={() => setShowDetail(false)}>
-            <div className="bg-white dark:bg-slate-900 rounded-t-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="sticky top-0 bg-white dark:bg-slate-900 border-b dark:border-slate-800 p-4 flex items-center justify-between">
-                <button onClick={() => setShowDetail(false)} className="p-1">
-                  <ArrowLeft size="20" />
-                </button>
-                <h2 className="font-semibold">Detail Pengajuan</h2>
-                <div className="w-6" />
-              </div>
-              
-              <div className="p-4 space-y-4">
-                <DetailContent 
-                  submission={selectedSubmission} 
-                  onApprove={handleApprove}
-                  onReject={openRejectModal}
-                  onEdit={openEditModal}
-                  checkCompleteness={checkDataCompleteness}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        <RejectModal 
-          isOpen={showRejectModal}
-          onClose={() => setShowRejectModal(false)}
-          onConfirm={handleReject}
-          reason={rejectReason}
-          setReason={setRejectReason}
-          isSubmitting={isSubmitting}
-        />
-        
-        <EditUserModal />
-      </div>
-    );
-  }
-
-  // ==================== TAMPILAN DESKTOP ====================
-  return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <ShieldCheck className="text-purple-500" />
-              Verifikasi KTP Digital
-            </h1>
-            <p className="text-sm text-slate-500">Kelola pengajuan KTP Digital warga</p>
-          </div>
-          <button onClick={() => router.back()} className="px-4 py-2 rounded-xl border hover:bg-slate-50">
-            Kembali
+          <button onClick={() => router.back()} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+            <XCircle size={24} className="text-slate-400" />
           </button>
         </div>
+      </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border">
-            <p className="text-2xl font-bold text-yellow-600">{stats.menunggu}</p>
-            <p className="text-sm">Menunggu Verifikasi</p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border">
-            <p className="text-2xl font-bold text-green-600">{stats.aktif}</p>
-            <p className="text-sm">Terverifikasi</p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border">
-            <p className="text-2xl font-bold text-red-600">{stats.ditolak}</p>
-            <p className="text-sm">Ditolak</p>
-          </div>
+      <div className="max-w-7xl mx-auto p-4 lg:p-6">
+        {/* STATS CARD */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <StatCard label="Menunggu" count={stats.menunggu} color="text-amber-500" bg="bg-amber-50 dark:bg-amber-500/10" />
+          <StatCard label="Aktif" count={stats.aktif} color="text-emerald-500" bg="bg-emerald-50 dark:bg-emerald-500/10" />
+          <StatCard label="Ditolak" count={stats.ditolak} color="text-rose-500" bg="bg-rose-50 dark:bg-rose-500/10" />
         </div>
 
-        <div className="flex gap-4 mb-6">
+        {/* SEARCH & FILTER */}
+        <div className="flex flex-col md:flex-row gap-3 mb-6">
           <div className="relative flex-1">
-            <Search size="16" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Cari nama, username, atau email..."
-              value={search}
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Cari nama warga..." 
+              value={search} 
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl border dark:bg-slate-900 dark:border-slate-800"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border-none bg-white dark:bg-slate-900 shadow-sm focus:ring-2 focus:ring-purple-500"
             />
           </div>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="px-4 py-2 rounded-xl border dark:bg-slate-900 dark:border-slate-800"
-          >
-            <option value="menunggu">Menunggu Verifikasi</option>
-            <option value="semua">Semua Pengajuan</option>
-            <option value="aktif">Aktif</option>
-            <option value="ditolak">Ditolak</option>
-          </select>
+          <div className="flex gap-2">
+            {["menunggu", "aktif", "ditolak", "semua"].map((f) => (
+              <button 
+                key={f} 
+                onClick={() => setFilter(f)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium capitalize transition-all ${filter === f ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-white dark:bg-slate-900 text-slate-500'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Kolom Kiri: List */}
-          <div className="space-y-3 max-h-[70vh] overflow-y-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* LIST COLUMN */}
+          <div className={`lg:col-span-5 space-y-3 ${isMobile && showDetail ? 'hidden' : 'block'}`}>
             {loading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+              <div className="flex justify-center py-20">
+                <Loader2 className="animate-spin text-purple-500" size={40} />
               </div>
             ) : filteredSubmissions.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 bg-white dark:bg-slate-900 rounded-xl p-8">
-                <p>Tidak ada pengajuan</p>
+              <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl">
+                <p className="text-slate-400">Tidak ada pengajuan</p>
               </div>
             ) : (
-              filteredSubmissions.map((sub) => {
-                const completeness = checkDataCompleteness(sub);
-                return (
-                  <div
-                    key={sub.id}
-                    onClick={() => setSelectedSubmission(sub)}
-                    className={`bg-white dark:bg-slate-900 rounded-xl p-4 border cursor-pointer transition-all
-                      ${selectedSubmission?.id === sub.id ? "ring-2 ring-purple-500" : "hover:shadow-md"}
-                      ${sub.ktp_status === "menunggu" ? "border-l-4 border-l-yellow-500" : ""}
-                      ${sub.ktp_status === "ditolak" ? "border-l-4 border-l-red-500" : ""}
-                      ${sub.ktp_status === "aktif" ? "border-l-4 border-l-green-500" : ""}
-                    `}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
+              filteredSubmissions.map((sub) => (
+                <div 
+                  key={sub.id} 
+                  onClick={() => handleSelectSubmission(sub)}
+                  className={`group p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 transition-all cursor-pointer hover:border-purple-400 ${selectedSubmission?.id === sub.id ? 'border-purple-600 shadow-xl' : 'border-transparent shadow-sm'}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
                         {sub.avatar_url ? (
-                          <img src={sub.avatar_url} className="w-full h-full rounded-full object-cover" />
+                          <img src={sub.avatar_url} className="object-cover w-full h-full" alt="avatar" />
                         ) : (
-                          <User size="16" className="text-purple-500" />
+                          <User className="text-slate-400" size={20} />
                         )}
                       </div>
-                      <div className="flex-1">
-                        <p className="font-semibold">{sub.full_name || "—"}</p>
-                        <p className="text-sm text-slate-500">@{sub.username || "belum ada"}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full
-                            ${sub.ktp_status === "menunggu" ? "bg-yellow-100 text-yellow-700" : ""}
-                            ${sub.ktp_status === "aktif" ? "bg-green-100 text-green-700" : ""}
-                            ${sub.ktp_status === "ditolak" ? "bg-red-100 text-red-700" : ""}
-                          `}>
-                            {sub.ktp_status === "menunggu" && "MENUNGGU"}
-                            {sub.ktp_status === "aktif" && "AKTIF"}
-                            {sub.ktp_status === "ditolak" && "DITOLAK"}
-                          </span>
-                          {!completeness.isComplete && sub.ktp_status === "menunggu" && (
-                            <span className="text-[10px] text-amber-500">⚠️ Data tidak lengkap</span>
-                          )}
+                      {sub.is_rewang && (
+                        <div className="absolute -bottom-1 -right-1 p-1 bg-blue-500 rounded-full text-white ring-2 ring-white dark:ring-slate-900">
+                          <Briefcase size={10} />
                         </div>
-                      </div>
-                      <ChevronRight size="14" className="text-slate-400" />
+                      )}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold truncate">{sub.full_name || "Tanpa Nama"}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                          sub.ktp_status === 'aktif' 
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                            : sub.ktp_status === 'ditolak'
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                        }`}>
+                          {sub.ktp_status}
+                        </span>
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <MapPin size={10} /> {sub.desa || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300 group-hover:translate-x-1 transition-transform" />
                   </div>
-                );
-              })
+                </div>
+              ))
             )}
           </div>
 
-          {/* Kolom Kanan: Detail */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border p-5 max-h-[70vh] overflow-y-auto">
+          {/* DETAIL COLUMN */}
+          <div className={`lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border dark:border-slate-800 ${isMobile && !showDetail ? 'hidden' : 'block'}`}>
             {selectedSubmission ? (
-              <DetailContent 
-                submission={selectedSubmission} 
-                onApprove={handleApprove}
-                onReject={openRejectModal}
-                onEdit={openEditModal}
-                checkCompleteness={checkDataCompleteness}
-              />
+              <div className="space-y-6">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setShowDetail(false)} 
+                      className="lg:hidden p-2 bg-slate-100 dark:bg-slate-800 rounded-lg"
+                    >
+                      <XCircle size={20} />
+                    </button>
+                    <h2 className="text-xl font-bold">Detail Verifikasi</h2>
+                  </div>
+                  <button 
+                    onClick={() => openEditModal(selectedSubmission)} 
+                    className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
+                  >
+                    <Edit2 size={20} />
+                  </button>
+                </div>
+
+                {/* 🔐 FOTO KTP dengan Signed URL + Indikator Keamanan */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lock size={12} className="text-emerald-500" />
+                      <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">
+                        Terenkripsi - Signed URL (5 menit)
+                      </span>
+                    </div>
+                    {loadingKtp && (
+                      <div className="flex items-center gap-1">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span className="text-[10px] text-slate-400">Memuat...</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="relative group">
+                    <div className="aspect-[16/9] w-full bg-slate-100 dark:bg-slate-800 rounded-2xl border-2 border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center overflow-hidden">
+                      {selectedSubmission.foto_ktp ? (
+                        loadingKtp ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <Loader2 size={32} className="animate-spin text-purple-500" />
+                            <p className="text-xs text-slate-400">Mengambil gambar aman...</p>
+                          </div>
+                        ) : signedUrl ? (
+                          <>
+                            <img 
+                              src={signedUrl} 
+                              className="w-full h-full object-contain cursor-pointer hover:scale-105 transition-transform" 
+                              onClick={() => setPreviewImage(signedUrl)}
+                              alt="KTP Warga"
+                            />
+                            <button 
+                              onClick={() => setPreviewImage(signedUrl)}
+                              className="absolute bottom-2 right-2 p-2 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+                            >
+                              <ZoomIn size={16} />
+                            </button>
+                            <div className="absolute top-2 right-2 p-1 bg-black/50 rounded-lg text-white text-[8px] font-mono backdrop-blur-sm">
+                              🔐 Signed
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-center p-6">
+                            <AlertCircle className="mx-auto text-slate-400 mb-2" size={32} />
+                            <p className="text-sm text-slate-500">Gagal memuat gambar KTP</p>
+                            <button 
+                              onClick={() => handleSelectSubmission(selectedSubmission)}
+                              className="mt-2 text-xs text-purple-500 underline"
+                            >
+                              Coba lagi
+                            </button>
+                          </div>
+                        )
+                      ) : (
+                        <div className="text-center p-6">
+                          <ImageIcon className="mx-auto text-slate-400 mb-2" size={32} />
+                          <p className="text-sm text-slate-500">Foto KTP belum diunggah</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 flex items-center gap-1">
+                    <Key size={10} /> Signed URL berlaku 5 menit demi keamanan data warga
+                  </p>
+                </div>
+
+                {/* DATA GRID */}
+                <div className="grid grid-cols-2 gap-4">
+                  <InfoBox icon={<User size={14}/>} label="Nama Lengkap" value={selectedSubmission.full_name} />
+                  <InfoBox icon={<Phone size={14}/>} label="WhatsApp" value={selectedSubmission.whatsapp} />
+                  <InfoBox icon={<Briefcase size={14}/>} label="Profesi" value={selectedSubmission.profesi} />
+                  <InfoBox icon={<Clock size={14}/>} label="Usia" value={`${selectedSubmission.usia || 0} Tahun`} />
+                </div>
+
+                {/* LOCATION INFO */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border dark:border-slate-700">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Lokasi Terdeteksi</span>
+                    {selectedSubmission.latitude && (
+                      <a 
+                        href={`https://www.google.com/maps?q=${selectedSubmission.latitude},${selectedSubmission.longitude}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-blue-500 flex items-center gap-1 font-bold"
+                      >
+                        <Map size={12}/> GOOGLE MAPS <ExternalLink size={10}/>
+                      </a>
+                    )}
+                  </div>
+                  <p className="text-sm font-medium">{selectedSubmission.alamat || "Alamat tidak diisi"}</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedSubmission.desa}, {selectedSubmission.kecamatan}, {selectedSubmission.kabupaten}
+                  </p>
+                </div>
+
+                {/* ACTIONS */}
+                {selectedSubmission.ktp_status === "menunggu" && (
+                  <div className="flex gap-3 pt-4">
+                    <button 
+                      onClick={() => openRejectModal(selectedSubmission.id)} 
+                      className="flex-1 py-3 rounded-2xl font-bold border-2 border-rose-500 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all"
+                    >
+                      Tolak
+                    </button>
+                    <button 
+                      onClick={() => handleApprove(selectedSubmission.id)} 
+                      className="flex-[2] py-3 rounded-2xl font-bold bg-emerald-600 text-white shadow-lg shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      Setujui KTP Digital
+                    </button>
+                  </div>
+                )}
+
+                {/* Rejection Reason */}
+                {selectedSubmission.ktp_status === "ditolak" && selectedSubmission.ktp_rejection_reason && (
+                  <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+                    <p className="text-xs font-bold text-rose-600 uppercase tracking-wider">Alasan Penolakan</p>
+                    <p className="text-sm mt-1">{selectedSubmission.ktp_rejection_reason}</p>
+                  </div>
+                )}
+              </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 py-12">
-                <Eye size="40" className="mb-3 opacity-50" />
-                <p>Pilih pengajuan dari daftar</p>
-                <p className="text-sm">Klik salah satu card untuk melihat detail</p>
+              <div className="h-[400px] flex flex-col items-center justify-center text-slate-400">
+                <Eye size={48} className="mb-4 opacity-20" />
+                <p className="font-medium text-lg">Pilih warga untuk diverifikasi</p>
+                <p className="text-sm">Klik card di sebelah kiri</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
+      {/* MODALS */}
       <RejectModal 
         isOpen={showRejectModal}
         onClose={() => setShowRejectModal(false)}
@@ -673,13 +510,46 @@ const EditUserModal = () => {
         setReason={setRejectReason}
         isSubmitting={isSubmitting}
       />
-      
-      <EditUserModal />
+
+      <EditUserModal 
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        editData={editData}
+        onUpdate={handleUpdateUser}
+        isEditing={isEditing}
+      />
+
+      <PreviewKTPModal 
+        isOpen={!!previewImage}
+        onClose={() => setPreviewImage(null)}
+        imageUrl={previewImage}
+      />
     </div>
   );
 }
 
-// ==================== KOMPONEN MODAL REJECT ====================
+// ==================== SUB-COMPONENTS ====================
+
+function StatCard({ label, count, color, bg }) {
+  return (
+    <div className={`${bg} p-4 rounded-2xl border dark:border-white/5`}>
+      <p className={`text-2xl font-black ${color}`}>{count}</p>
+      <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{label}</p>
+    </div>
+  );
+}
+
+function InfoBox({ icon, label, value }) {
+  return (
+    <div className="p-3 rounded-xl border dark:border-slate-800">
+      <div className="flex items-center gap-2 text-slate-400 mb-1">
+        {icon} <span className="text-[10px] font-bold uppercase">{label}</span>
+      </div>
+      <p className="text-sm font-semibold truncate">{value || "—"}</p>
+    </div>
+  );
+}
+
 function RejectModal({ isOpen, onClose, onConfirm, reason, setReason, isSubmitting }) {
   if (!isOpen) return null;
   
@@ -690,17 +560,17 @@ function RejectModal({ isOpen, onClose, onConfirm, reason, setReason, isSubmitti
           <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
             <AlertCircle size="20" className="text-red-500" />
           </div>
-          <h3 className="text-lg font-bold">Tolak Pengajuan</h3>
+          <h3 className="text-lg font-bold">Tolak Pengajuan KTP</h3>
         </div>
         
         <p className="text-sm text-slate-500 mb-4">
-          Berikan alasan penolakan agar pengguna dapat memperbaiki data:
+          Berikan alasan penolakan agar warga dapat memperbaiki data:
         </p>
         
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Contoh: Data KTP tidak jelas, Foto selfie tidak sesuai, Alamat tidak lengkap, dll."
+          placeholder="Contoh: Foto KTP blur / tidak jelas, Data tidak sesuai, Foto selfie tidak terlihat, dll."
           className="w-full p-3 rounded-xl border dark:bg-slate-800 dark:border-slate-700 text-sm min-h-[120px] resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
           autoFocus
         />
@@ -725,99 +595,158 @@ function RejectModal({ isOpen, onClose, onConfirm, reason, setReason, isSubmitti
   );
 }
 
-// ==================== KOMPONEN DETAIL CONTENT ====================
-function DetailContent({ submission, onApprove, onReject, onEdit, checkCompleteness }) {
-  const completeness = checkCompleteness(submission);
+function EditUserModal({ isOpen, onClose, editData, onUpdate, isEditing }) {
+  const [localForm, setLocalForm] = useState({
+    full_name: "",
+    usia: "",
+    profesi: "",
+    whatsapp: "",
+    alamat: "",
+    desa: "",
+    kecamatan: "",
+    kabupaten: "",
+  });
+  
+  useEffect(() => {
+    if (editData) {
+      setLocalForm({
+        full_name: editData.full_name || "",
+        usia: editData.usia || "",
+        profesi: editData.profesi || "",
+        whatsapp: editData.whatsapp || "",
+        alamat: editData.alamat || "",
+        desa: editData.desa || "",
+        kecamatan: editData.kecamatan || "",
+        kabupaten: editData.kabupaten || "",
+      });
+    }
+  }, [editData]);
+  
+  if (!isOpen) return null;
   
   return (
-    <>
-      <div className="flex items-center gap-3 pb-4 border-b dark:border-slate-800">
-        <div className="w-14 h-14 rounded-full bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
-          {submission.avatar_url ? (
-            <img src={submission.avatar_url} className="w-full h-full rounded-full object-cover" />
-          ) : (
-            <User size="24" className="text-purple-500" />
-          )}
-        </div>
-        <div>
-          <p className="font-bold text-lg">{submission.full_name || "—"}</p>
-          <p className="text-sm text-slate-500">@{submission.username || "belum ada"}</p>
-          <p className="text-xs text-slate-400">{submission.email}</p>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-          <User size="14" /> Data Diri
-        </h3>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><p className="text-slate-500 text-xs">Nama Lengkap</p><p>{submission.full_name || "—"}</p></div>
-          <div><p className="text-slate-500 text-xs">Usia</p><p>{submission.usia || "—"} tahun</p></div>
-          <div><p className="text-slate-500 text-xs">WhatsApp</p><p>{submission.whatsapp || "—"}</p></div>
-          <div><p className="text-slate-500 text-xs">Profesi</p><p>{submission.profesi || "—"}</p></div>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-          <MapPin size="14" /> Lokasi
-        </h3>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><p className="text-slate-500 text-xs">Alamat</p><p>{submission.alamat || "—"}</p></div>
-          <div><p className="text-slate-500 text-xs">Desa</p><p>{submission.desa || "—"}</p></div>
-          <div><p className="text-slate-500 text-xs">Kecamatan</p><p>{submission.kecamatan || "—"}</p></div>
-          <div><p className="text-slate-500 text-xs">Kabupaten</p><p>{submission.kabupaten || "—"}</p></div>
+    <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b p-4 flex items-center justify-between">
+          <h3 className="text-base font-bold">Edit Data Warga</h3>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-100">
+            <XCircle size={20} />
+          </button>
         </div>
         
-        <div className="mt-3 p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
-          <div className="flex items-center gap-2 mb-1">
-            <MapPin size="12" className="text-blue-500" />
-            <p className="text-[10px] font-bold uppercase tracking-wider">Koordinat GPS</p>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium">Nama Lengkap</label>
+            <input
+              type="text"
+              value={localForm.full_name}
+              onChange={(e) => setLocalForm({...localForm, full_name: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div><p className="text-slate-400">Latitude:</p><p className="font-mono">{submission.latitude ? submission.latitude.toFixed(6) : "—"}</p></div>
-            <div><p className="text-slate-400">Longitude:</p><p className="font-mono">{submission.longitude ? submission.longitude.toFixed(6) : "—"}</p></div>
+          
+          <div>
+            <label className="text-xs font-medium">Usia</label>
+            <input
+              type="number"
+              value={localForm.usia}
+              onChange={(e) => setLocalForm({...localForm, usia: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
           </div>
-          {submission.latitude && submission.longitude && (
-            <a href={`https://www.google.com/maps?q=${submission.latitude},${submission.longitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1 mt-2 text-[10px] text-blue-500 hover:text-blue-600">
-              <MapPin size="10" /> Lihat di Google Maps
-            </a>
-          )}
+          
+          <div>
+            <label className="text-xs font-medium">Profesi</label>
+            <input
+              type="text"
+              value={localForm.profesi}
+              onChange={(e) => setLocalForm({...localForm, profesi: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
+          </div>
+          
+          <div>
+            <label className="text-xs font-medium">WhatsApp</label>
+            <input
+              type="tel"
+              value={localForm.whatsapp}
+              onChange={(e) => setLocalForm({...localForm, whatsapp: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
+          </div>
+          
+          <div>
+            <label className="text-xs font-medium">Alamat</label>
+            <input
+              type="text"
+              value={localForm.alamat}
+              onChange={(e) => setLocalForm({...localForm, alamat: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium">Desa</label>
+              <input
+                type="text"
+                value={localForm.desa}
+                onChange={(e) => setLocalForm({...localForm, desa: e.target.value})}
+                className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Kecamatan</label>
+              <input
+                type="text"
+                value={localForm.kecamatan}
+                onChange={(e) => setLocalForm({...localForm, kecamatan: e.target.value})}
+                className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+              />
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-xs font-medium">Kabupaten</label>
+            <input
+              type="text"
+              value={localForm.kabupaten}
+              onChange={(e) => setLocalForm({...localForm, kabupaten: e.target.value})}
+              className="w-full mt-1 p-2 rounded-lg border dark:bg-slate-800"
+            />
+          </div>
+          
+          <div className="flex gap-2 pt-2">
+            <button onClick={onClose} className="flex-1 py-2 rounded-lg border hover:bg-slate-50">
+              Batal
+            </button>
+            <button 
+              onClick={() => onUpdate(localForm)} 
+              disabled={isEditing} 
+              className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-50 hover:bg-blue-700"
+            >
+              {isEditing ? "MENYIMPAN..." : "SIMPAN"}
+            </button>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className={`p-3 rounded-lg ${completeness.isComplete ? "bg-green-100" : "bg-amber-100"}`}>
-        <p className="text-sm font-medium">{completeness.isComplete ? "✅ Semua data lengkap" : `⚠️ Data tidak lengkap (${completeness.missingCount} field kosong)`}</p>
-        {!completeness.isComplete && <p className="text-xs mt-1">{completeness.missingFields.join(", ")}</p>}
-      </div>
-
-      {submission.ktp_status === "menunggu" && (
-        <div className="flex gap-3 pt-2">
-          <button onClick={() => onReject(submission.id)} className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium">
-            <XCircle size="14" className="inline mr-1" /> TOLAK
-          </button>
-          <button onClick={() => onApprove(submission.id)} className="flex-1 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white font-medium">
-            <CheckCircle size="14" className="inline mr-1" /> SETUJUI
-          </button>
-        </div>
-      )}
-
-      {submission.ktp_status === "menunggu" && !completeness.isComplete && (
-        <button onClick={() => { if (confirm("Data tidak lengkap. Verifikasi dengan diskresi superadmin?")) onApprove(submission.id); }} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-medium flex items-center justify-center gap-2">
-          <ShieldCheck size="14" /> ⚡ SETUJUI (Diskresi Superadmin)
+function PreviewKTPModal({ isOpen, onClose, imageUrl }) {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/90 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute -top-12 right-0 p-2 text-white hover:text-slate-300">
+          <XCircle size={32} />
         </button>
-      )}
-
-      <button onClick={() => onEdit(submission)} className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center justify-center gap-2">
-        <Edit2 size="14" /> ✏️ Edit Data User
-      </button>
-
-      {submission.ktp_status === "ditolak" && submission.ktp_rejection_reason && (
-        <div className="p-3 rounded-lg bg-red-100">
-          <p className="text-sm font-medium text-red-600">Alasan Penolakan:</p>
-          <p className="text-sm">{submission.ktp_rejection_reason}</p>
-        </div>
-      )}
-    </>
+        {imageUrl && (
+          <img src={imageUrl} alt="Preview KTP" className="w-full h-auto rounded-2xl shadow-2xl" />
+        )}
+      </div>
+    </div>
   );
 }

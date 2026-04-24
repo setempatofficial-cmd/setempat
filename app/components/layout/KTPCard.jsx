@@ -79,14 +79,6 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
     );
   }
 
-  // Handle daftar Rewang - dispatch event ke parent
-  const handleDaftarRewang = () => {
-    // Tutup modal KTP dulu
-    setShowModal(false);
-    // Kirim event ke RewangPage
-    window.dispatchEvent(new CustomEvent("open-daftar-rewang"));
-  };
-
   // Handle setelah update profile sukses
   const handleProfileUpdated = () => {
     setShowModal(false);
@@ -342,16 +334,6 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
             >
               UPDATE PROFILE
             </button>
-
-            {/* 🔥 TOMBOL DAFTAR REWANG - HANYA UNTUK USER YANG SUDAH KTP AKTIF */}
-            {ktpStatus === "aktif" && (
-              <button
-                onClick={handleDaftarRewang}
-                className="flex-1 px-6 py-4 rounded-2xl bg-green-600 hover:bg-green-500 text-white text-[11px] font-black tracking-widest transition-all active:scale-95 shadow-lg shadow-green-600/30"
-              >
-                DAFTAR REWANG
-              </button>
-            )}
           </div>
         </div>
       </>
