@@ -16,6 +16,7 @@ import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
+import { getCategoryStyle } from "@/lib/feedStyles";
 
 // ==================== ANIMATION CONSTANTS ====================
 const PING_ANIM = {
@@ -78,10 +79,17 @@ function FeedCard({
   preloadNext = false,
   cardIndex = 0, 
 }) {
+
+  const safeItem = item || DEFAULT_ITEM;
+  const tempatId = safeItem.id;
+
+  const catStyle = getCategoryStyle(safeItem.category);
+
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
   const isMedium = windowWidth >= 380 && windowWidth < 640;
+  
   
   // --- State ---
   const [isSesuai, setIsSesuai] = useState(false);
@@ -125,8 +133,6 @@ function FeedCard({
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
 
-  const safeItem = item || DEFAULT_ITEM;
-  const tempatId = safeItem.id;
 
   const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
@@ -277,16 +283,17 @@ function FeedCard({
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         viewport={{ once: true }}
-        className={`relative overflow-visible ${theme.card} ${cardBorderClass} flex flex-col transition-all duration-300`}
+        className={`relative overflow-visible ${theme.card} ${catStyle.bg} ${catStyle.border} ${cardBorderClass} flex flex-col transition-all duration-300`}
       >
         {/* Header - Responsive Padding */}
         <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
           <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
             <div className="flex flex-col gap-0.5 sm:gap-1">
               <div className="flex items-center gap-1 sm:gap-2">
-                <span className={`${textSize} font-black uppercase tracking-widest ${theme.text} opacity-40`}>
-                  {safeItem.category || 'Update Terkini'}
-                </span>
+                <span className={`${textSize} font-black uppercase tracking-widest ${catStyle.text} flex items-center gap-1.5`}>
+  <span>{catStyle.icon}</span>
+  <span>{safeItem.category || 'Update Terkini'}</span>
+</span>
                 {safeItem.isViral && (
                    <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] sm:text-[8px] px-1.5 sm:px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
                 )}
@@ -316,7 +323,7 @@ function FeedCard({
         {/* Headline - Responsive */}
         <div className={`${paddingX} pb-3 sm:pb-4`}>
           <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 rounded-2xl ${theme.isMalam ? 'bg-white/[0.03]' : 'bg-black/[0.03]'} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'}`}>
-            <div className={`w-1 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : theme.accentBg || 'bg-cyan-500'} opacity-60`} />
+            <div className={`w-1 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : catStyle.accent} opacity-60`} />
             <h2 className={`text-[11px] sm:text-[13px] font-bold italic tracking-tight leading-relaxed ${theme.text} flex-1`}>
               "{headline}"
             </h2>

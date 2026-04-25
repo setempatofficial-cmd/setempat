@@ -1,6 +1,5 @@
 // utils/timeUtils.js
 
-
 /**
  * Format waktu relatif (2 jam lalu, 1 hari lalu, dll)
  * @param {string|Date} dateString - Tanggal yang akan diformat
@@ -62,7 +61,6 @@ export function formatTimeAgoWithClock(dateString) {
   return `${timeAgo} • ${clock}`;
 }
 
-
 /**
  * Menentukan waktu berdasarkan jam (sesuai kondisi Indonesia)
  * @param {Date|number} date - Date object atau timestamp
@@ -72,20 +70,29 @@ export function getIndonesianTimeLabel(date = new Date()) {
   const hour = typeof date === 'number' ? new Date(date).getHours() : date.getHours();
   
   // Standar waktu Indonesia (tropis)
-  if (hour >= 4 && hour < 10) return 'Pagi';     // 04:00 - 09:59 (Subuh - menjelang siang)
-  if (hour >= 10 && hour < 14) return 'Siang';  // 10:00 - 13:59 (Puncak panas)
-  if (hour >= 14 && hour < 18) return 'Sore';   // 14:00 - 17:59 (Menjelang maghrib)
-  return 'Malam'; // 18:00 - 03:59 (Malam hingga dini hari)
+  if (hour >= 4 && hour < 10) return 'Pagi';     // 04:00 - 09:59
+  if (hour >= 10 && hour < 15) return 'Siang';  // 10:00 - 14:59
+  if (hour >= 15 && hour < 18) return 'Sore';   // 15:00 - 17:59
+  return 'Malam'; // 18:00 - 03:59
+}
+
+/**
+ * Menentukan waktu berdasarkan jam (LOWERCASE version untuk kompatibilitas)
+ * @param {Date|number} date - Date object atau timestamp
+ * @returns {string} 'pagi' | 'siang' | 'sore' | 'malam'
+ */
+export function getIndonesianTimeLabelLower(date = new Date()) {
+  return getIndonesianTimeLabel(date).toLowerCase();
 }
 
 /**
  * Mendapatkan threshold untuk setiap waktu
  */
 export const TIME_THRESHOLDS = {
-  Pagi: { start: 4, end: 10, icon: '🌅', gradient: 'from-orange-400 to-yellow-300' },
-  Siang: { start: 10, end: 14, icon: '☀️', gradient: 'from-amber-500 to-orange-400' },
-  Sore: { start: 14, end: 18, icon: '🌆', gradient: 'from-orange-500 to-rose-400' },
-  Malam: { start: 18, end: 4, icon: '🌙', gradient: 'from-slate-800 to-slate-900' }
+  Pagi: { start: 4, end: 10, label: 'pagi', icon: '🌅', gradient: 'from-orange-400 to-yellow-300' },
+  Siang: { start: 10, end: 15, label: 'siang', icon: '☀️', gradient: 'from-amber-500 to-orange-400' },
+  Sore: { start: 15, end: 18, label: 'sore', icon: '🌆', gradient: 'from-orange-500 to-rose-400' },
+  Malam: { start: 18, end: 4, label: 'malam', icon: '🌙', gradient: 'from-slate-800 to-slate-900' }
 };
 
 /**
@@ -109,6 +116,7 @@ export function getTimeInfo(date = new Date()) {
   
   return {
     label: timeLabel,
+    labelLower: timeLabel.toLowerCase(),
     hour,
     icon: threshold.icon,
     gradient: threshold.gradient,
@@ -127,7 +135,7 @@ function getNextTimeChange(currentHour) {
   const changes = [
     { hour: 4, label: 'Pagi' },
     { hour: 10, label: 'Siang' },
-    { hour: 14, label: 'Sore' },
+    { hour: 15, label: 'Sore' },  // FIX: 15, bukan 14!
     { hour: 18, label: 'Malam' }
   ];
   
@@ -139,4 +147,119 @@ function getNextTimeChange(currentHour) {
   
   // Besok pagi
   return { label: 'Pagi', hoursLeft: 24 - currentHour + 4, inHours: 24 - currentHour + 4 };
+}
+
+// ========== PERFORMANCE: CACHE SYSTEM ==========
+const timeAgoCache = new Map();
+const CACHE_DURATION = 60000; // 1 menit
+
+/**
+ * Format waktu relatif DENGAN CACHE (untuk performa maksimal)
+ * Gunakan ini di komponen yang merender banyak timestamp
+ */
+export function formatTimeAgoCached(dateString) {
+  if (!dateString) return 'baru saja';
+  
+  const cacheKey = typeof dateString === 'string' ? dateString : dateString.toISOString?.() || String(dateString);
+  const cached = timeAgoCache.get(cacheKey);
+  const now = Date.now();
+  
+  if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+    return cached.value;
+  }
+  
+  const result = formatTimeAgo(dateString);
+  
+  // Limit cache size
+  if (timeAgoCache.size > 300) {
+    const firstKey = timeAgoCache.keys().next().value;
+    timeAgoCache.delete(firstKey);
+  }
+  
+  timeAgoCache.set(cacheKey, { value: result, timestamp: now });
+  return result;
+}
+
+/**
+ * Batch format untuk array of dates (paling efisien)
+ */
+export function batchFormatTimeAgo(dateStrings) {
+  const now = Date.now();
+  const results = {};
+  const uncached = [];
+  
+  for (const date of dateStrings) {
+    if (!date) {
+      results[date] = 'baru saja';
+      continue;
+    }
+    
+    const cacheKey = typeof date === 'string' ? date : String(date);
+    const cached = timeAgoCache.get(cacheKey);
+    
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      results[date] = cached.value;
+    } else {
+      uncached.push(date);
+    }
+  }
+  
+  // Process uncached in batch
+  for (const date of uncached) {
+    const result = formatTimeAgo(date);
+    const cacheKey = typeof date === 'string' ? date : String(date);
+    results[date] = result;
+    timeAgoCache.set(cacheKey, { value: result, timestamp: now });
+  }
+  
+  return results;
+}
+
+// ========== PERFORMANCE: HOOK DENGAN UPDATE MINIMAL ==========
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+/**
+ * Hook untuk mendapatkan waktu saat ini dengan update minimal
+ * Hanya update setiap MENIT, bukan setiap DETIK
+ */
+export function useOptimizedClock() {
+  const [timeInfo, setTimeInfo] = useState(() => getTimeInfo());
+  const intervalRef = useRef(null);
+  
+  useEffect(() => {
+    // Update setiap menit (bukan setiap detik)
+    intervalRef.current = setInterval(() => {
+      setTimeInfo(getTimeInfo());
+    }, 60000); // 1 menit
+    
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+  
+  return timeInfo;
+}
+
+/**
+ * Hook untuk format waktu dengan cache
+ */
+export function useFormattedTimeAgo(dateString, options = { debounceMs: 0 }) {
+  const [formatted, setFormatted] = useState(() => formatTimeAgoCached(dateString));
+  const dateRef = useRef(dateString);
+  
+  useEffect(() => {
+    if (dateRef.current === dateString) return;
+    dateRef.current = dateString;
+    
+    const update = () => setFormatted(formatTimeAgoCached(dateString));
+    
+    if (options.debounceMs > 0) {
+      const timer = setTimeout(update, options.debounceMs);
+      return () => clearTimeout(timer);
+    }
+    
+    update();
+  }, [dateString, options.debounceMs]);
+  
+  return formatted;
 }

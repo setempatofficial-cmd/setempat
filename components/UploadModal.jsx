@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { X, Search, MapPin, Camera, Loader2, ShieldAlert } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import UploaderAdmin from "./UploaderAdmin"; // ← IMPORT UPLOADERADMIN
+import { getIndonesianTimeLabelLower } from "@/utils/timeUtils";
 
 // ========== CONSTANTS ==========
 const ALLOWED_ROLES = ["superadmin", "admin"];
@@ -19,12 +20,21 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [timeLabel, setTimeLabel] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [timeLabel, setTimeLabel] = useState(getIndonesianTimeLabelLower());
   
   const abortControllerRef = useRef(null);
+  
+  // ========== UPDATE TIME LABEL EVERY MINUTE ==========
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLabel(getIndonesianTimeLabelLower());
+    }, 60000); // Update every minute
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // ========== VALIDASI AKSES ==========
   useEffect(() => {
@@ -35,14 +45,6 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
     }
   }, [userId, userRole, isOpen]);
 
-  // ========== SET TIME LABEL ==========
-  useEffect(() => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 11) setTimeLabel("pagi");
-    else if (hour >= 11 && hour < 15) setTimeLabel("siang");
-    else if (hour >= 15 && hour < 18) setTimeLabel("sore");
-    else setTimeLabel("malam");
-  }, []);
 
   // ========== LOAD TEMPAT ==========
   useEffect(() => {
@@ -243,7 +245,7 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
 
               {/* UPLOADERADMIN COMPONENT */}
               <UploaderAdmin 
-                key={refreshKey}
+                key={`${refreshKey}-${selectedTempat.id}`}
                 tempatId={selectedTempat.id}
                 timeLabel={timeLabel}
                 onRefreshNeeded={handleRefreshNeeded}

@@ -52,7 +52,7 @@ export default function DonasiSection({ locationName, onBack }) {
             </button>
             <div>
               <h3 className="font-black text-slate-900 text-sm italic tracking-tighter leading-none uppercase">DONASI WARGA</h3>
-              <p className="text-[8px] text-rose-500 font-bold uppercase tracking-[0.2em] mt-0.5">Saling Jogo Tetonggo</p>
+              <p className="text-[8px] text-rose-500 font-bold uppercase tracking-[0.2em] mt-0.5">Saling Jaga Bolo Tonggo</p>
             </div>
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-full">
@@ -122,7 +122,7 @@ export default function DonasiSection({ locationName, onBack }) {
             <div className="p-5 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3">
               <Info size={18} className="text-blue-500 shrink-0" />
               <p className="text-[10px] text-blue-700 font-medium leading-relaxed italic">
-                Semua donasi uang diverifikasi oleh Admin Setempat.id dan disalurkan langsung melalui pengurus RT setempat.
+                Semua donasi uang diverifikasi oleh Petinggi Setempat dan disalurkan langsung melalui pengurus RT setempat.
               </p>
             </div>
           </div>

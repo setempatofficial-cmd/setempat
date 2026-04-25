@@ -27,7 +27,7 @@ export default function FormDonasi({ isOpen, onClose, user }) {
             </div>
             <div>
               <h3 className="text-lg font-black text-slate-900 uppercase tracking-tighter">Berbagi Bantuan</h3>
-              <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest mt-0.5">Saling Jogo Tetonggo</p>
+              <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest mt-0.5">Saling Jaga Bolo Tonggo</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 bg-slate-100 rounded-full text-slate-400">

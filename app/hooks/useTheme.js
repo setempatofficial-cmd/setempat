@@ -10,7 +10,7 @@ export function useTheme() {
     // ==================== BASE THEME ====================
     const base = isMalam ? {
       bg: "bg-[#0f172a]",
-      card: "bg-[#0f172a]",
+      card: "bg-[#0f172a]/90 backdrop-blur-md",
       border: "border-slate-800",
       text: "text-white",
       textMuted: "text-slate-300",
@@ -55,7 +55,7 @@ export function useTheme() {
         softBorder: isMalam ? "border-rose-500/20" : "border-rose-200",
         timeIcon: "☀️",
         statusText: isMalam ? "text-white" : "text-slate-800",
-        statusBg: isMalam ? "bg-rose-500/20" : "bg-rose-50",
+        statusBg: isMalam ? "bg-orange-500/20" : "bg-orange-50",
       },
       Sore: {
         dot: "bg-rose-500",
@@ -64,7 +64,7 @@ export function useTheme() {
         softBorder: isMalam ? "border-rose-500/20" : "border-rose-200",
         timeIcon: "🌆",
         statusText: isMalam ? "text-white" : "text-slate-800",
-        statusBg: isMalam ? "bg-rose-500/20" : "bg-rose-50",
+        statusBg: isMalam ? "bg-orange-500/20" : "bg-orange-50",
       },
       Malam: {
         dot: "bg-cyan-400",

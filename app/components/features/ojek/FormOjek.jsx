@@ -66,7 +66,7 @@ export default function FormOjek({ isOpen, onClose, user, profile }) {
         <div className="flex gap-3 p-4 bg-blue-50 border border-blue-100 rounded-2xl mb-6">
           <ShieldCheck size={18} className="text-blue-500 shrink-0" />
           <p className="text-[10px] text-blue-700 font-bold leading-relaxed italic">
-            Akun Sampeyan hanya akan tayang setelah diverifikasi oleh Admin/Perangkat Desa. Pastikan data asli.
+            Akun Sampeyan hanya akan tayang setelah diverifikasi oleh Petinggi Setempat. Pastikan data asli.
           </p>
         </div>
 
