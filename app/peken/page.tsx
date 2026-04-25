@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Home, MapPin, Store, Users, LayoutDashboard, MessageSquare, 
-  Plus, AlertCircle, UserPlus, ShoppingBag, Truck, Gift, Bell 
+  Plus, AlertCircle, UserPlus, ShoppingBag, Truck, Gift, Bell, Heart 
 } from 'lucide-react';
 
 // Sections
@@ -15,6 +15,8 @@ import PesenanSection from "@/app/components/peken/PesenanSection";
 import KabarBakulSection from "@/app/components/peken/KabarBakulSection";
 import OjekSection from "@/app/components/peken/OjekSection";
 import DonasiSection from "@/app/components/peken/DonasiSection";
+import FormOjek from "@/app/components/features/ojek/FormOjek";
+import FormDonasi from "@/app/components/features/donasi/FormDonasi";
 
 
 // Modals
@@ -41,7 +43,9 @@ export default function PekenPage() {
     upload: false,
     daftar: false,
     sambat: false,
-    formPanyangan: false
+    formPanyangan: false,
+    formOjek: false,
+    formDonasi: false
   });
 
   const toggleModal = (key, value) => {
@@ -54,7 +58,7 @@ export default function PekenPage() {
       const parts = placeName.split(",").map(p => p.trim());
       return parts[0] || "Pakijangan";
     }
-    return "Pakijangan";
+    return "Pasuruan";
   }, [placeName]);
 
   const finalLocationName = manualLocationName || displayLocationName;
@@ -161,6 +165,8 @@ export default function PekenPage() {
           onSambat={() => toggleModal('sambat', true)}
           onDaftar={() => toggleModal('daftar', true)}
           onPanyangan={handleAddProduct}
+          onDaftarOjek={() => toggleModal('formOjek', true)}
+          onDonasi={() => toggleModal('formDonasi', true)}
         />
       )}
       
@@ -183,6 +189,21 @@ export default function PekenPage() {
         onClose={() => toggleModal('daftar', false)} 
         profile={authProfile} 
       />
+
+      <FormOjek 
+        isOpen={modals.formOjek} 
+        onClose={() => toggleModal('formOjek', false)} 
+        user={user} 
+        profile={authProfile} 
+      />
+
+      <FormDonasi 
+        isOpen={modals.formDonasi} 
+        onClose={() => toggleModal('formDonasi', false)} 
+        user={user}
+        profile={authProfile} 
+     />
+
     </div>
   );
 }
@@ -290,49 +311,92 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan }) {
+function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek, onDonasi }) {
   const options = [
-    { label: 'Gelar Dagangan', sub: 'Panyangan Rojo Koyo', icon: Store, color: 'text-orange-500', bg: 'bg-orange-50', border: 'border-orange-100', onClick: onPanyangan },
-    { label: 'Sambat Bantuan', sub: 'Butuh bantuan segera', icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100', onClick: onSambat },
-    { label: 'Daftar Rewang', sub: 'Menawarkan jasa warga', icon: UserPlus, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', onClick: onDaftar },
+    { 
+      label: 'Gelar Dagangan', 
+      sub: 'Panyangan Rojo Koyo', 
+      icon: Store, 
+      color: 'text-orange-500', 
+      bg: 'bg-orange-50', 
+      border: 'border-orange-100', 
+      onClick: onPanyangan 
+    },
+    { 
+      label: 'Daftar Ojek', 
+      sub: 'Jadi rider antar jemput', 
+      icon: Truck, 
+      color: 'text-emerald-600', 
+      bg: 'bg-emerald-50', 
+      border: 'border-emerald-100', 
+      onClick: onDaftarOjek 
+    },
+    { 
+      label: 'Berbagi / Donasi', 
+      sub: 'Sedekah barang & bantuan', 
+      icon: Heart, 
+      color: 'text-rose-600', 
+      bg: 'bg-rose-50', 
+      border: 'border-rose-100', 
+      onClick: onDonasi 
+    },
+    { 
+      label: 'Sambat Bantuan', 
+      sub: 'Butuh bantuan segera', 
+      icon: AlertCircle, 
+      color: 'text-red-600', 
+      bg: 'bg-red-50', 
+      border: 'border-red-100', 
+      onClick: onSambat 
+    },
+    { 
+      label: 'Daftar Rewang', 
+      sub: 'Menawarkan jasa warga', 
+      icon: UserPlus, 
+      color: 'text-purple-600', 
+      bg: 'bg-purple-50', 
+      border: 'border-purple-100', 
+      onClick: onDaftar 
+    },
   ];
 
-  const handleOptionClick = (onClick) => {
-    // Tutup UploadOptions dulu
-    onClose();
-    // Buka modal berikutnya setelah sedikit delay
+  const handleOptionClick = (onClickAction) => {
+    onClose(); 
+
+   if (typeof onClickAction === 'function') {
     setTimeout(() => {
-      onClick();
-    }, 150);
-  };
+      onClickAction(); 
+    }, 200);
+  }
+};
 
   return (
     <div className="fixed inset-0 z-[250] flex items-end justify-center p-4">
-      {/* Backdrop dengan z-index lebih rendah */}
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
       
-      {/* Modal content */}
-      <div className="relative bg-white rounded-[40px] w-full max-w-sm z-10 p-8 animate-in slide-in-from-bottom-10 shadow-2xl">
+      <div className="relative bg-white rounded-[40px] w-full max-w-sm z-10 p-8 animate-in slide-in-from-bottom-10 shadow-2xl overflow-hidden">
         <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-6" />
-        <h3 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter">Mau posting apa?</h3>
-        <div className="grid gap-4">
+        <h3 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter italic">Mau Posting Apa?</h3>
+        
+        <div className="grid gap-3 max-h-[60vh] overflow-y-auto no-scrollbar pr-1">
           {options.map((opt, i) => (
             <button 
               key={i} 
               onClick={() => handleOptionClick(opt.onClick)} 
-              className={`w-full flex items-center p-5 ${opt.bg} rounded-[32px] border ${opt.border} active:scale-95 transition-all`}
+              className={`w-full flex items-center p-4 ${opt.bg} rounded-[28px] border ${opt.border} active:scale-95 transition-all group`}
             >
-              <div className={`p-3.5 bg-white rounded-2xl mr-4 ${opt.color} shadow-sm border border-white`}>
-                <opt.icon size={22} strokeWidth={2.5} />
+              <div className={`p-3 bg-white rounded-2xl mr-4 ${opt.color} shadow-sm border border-white group-hover:scale-110 transition-transform`}>
+                <opt.icon size={20} strokeWidth={2.5} />
               </div>
               <div className="text-left">
-                <h4 className={`font-black text-sm uppercase tracking-tight leading-none text-slate-800`}>{opt.label}</h4>
-                <p className={`text-[10px] opacity-70 font-bold mt-1.5 ${opt.color}`}>{opt.sub}</p>
+                <h4 className="font-black text-xs uppercase tracking-tight text-slate-800 leading-none">{opt.label}</h4>
+                <p className="text-[9px] opacity-70 font-bold mt-1 uppercase tracking-tighter text-slate-500">{opt.sub}</p>
               </div>
             </button>
           ))}
         </div>
-        <button onClick={onClose} className="w-full mt-8 py-2 text-slate-400 font-black text-xs uppercase tracking-[0.2em]">
+
+        <button onClick={onClose} className="w-full mt-6 py-2 text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">
           Batal
         </button>
       </div>
