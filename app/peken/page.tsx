@@ -17,12 +17,15 @@ import OjekSection from "@/app/components/peken/OjekSection";
 import DonasiSection from "@/app/components/peken/DonasiSection";
 import FormOjek from "@/app/components/features/ojek/FormOjek";
 import FormDonasi from "@/app/components/features/donasi/FormDonasi";
+import FormDaftarBakul from "@/app/components/features/penjual/FormDaftarBakul";
 
 
 // Modals
 import SambatModal from "@/app/components/features/rewang/SambatModal";
 import DaftarRewangModal from "@/app/components/features/rewang/DaftarRewangModal";
 import FormPanyangan from "@/app/components/features/panyangan/FormPanyangan";
+import DetailProdukModal from "@/app/components/peken/DetailProdukModal";
+
 
 // Contexts
 import { useAuth } from "@/app/context/AuthContext";
@@ -30,13 +33,22 @@ import { useLocation } from "@/components/LocationProvider";
 
 export default function PekenPage() {
   const router = useRouter();
-  const { user, profile: authProfile } = useAuth();
+  const { user, profile } = useAuth();
   const { location, placeName } = useLocation();
 
   // --- States ---
   const [activeTab, setActiveTab] = useState('beranda');
   const [manualLocationName, setManualLocationName] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
+
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showDaftarBakul, setShowDaftarBakul] = useState(false);
+
+  const userRole = profile?.role || 'warga';
+  const isSeller = profile?.is_seller || false;  // 🆕
+  const isDriver = profile?.is_driver || false;
+  const isRewang = profile?.is_rewang || false;
   
   // Modal Visibility State
   const [modals, setModals] = useState({
@@ -84,6 +96,16 @@ export default function PekenPage() {
     return () => window.removeEventListener('refresh-lapak', handleRefreshLapak);
   }, [activeTab]);
 
+
+  useEffect(() => {
+  const handleOpenDaftarBakul = () => {
+    setShowDaftarBakul(true);
+  };
+  
+  window.addEventListener('open-daftar-bakul', handleOpenDaftarBakul);
+  return () => window.removeEventListener('open-daftar-bakul', handleOpenDaftarBakul);
+}, []);
+
   const handleAddProduct = useCallback(() => {
     setEditingProduct(null);
     toggleModal('formPanyangan', true);
@@ -126,8 +148,16 @@ export default function PekenPage() {
         )}
         
         {activeTab === 'pesenan' && (
-          <PesenanSection userId={user?.id} locationName={finalLocationName} onBack={() => setActiveTab('beranda')} />
-       )}
+        <PesenanSection 
+          userId={user?.id} 
+          locationName={finalLocationName} 
+          onBack={() => setActiveTab('beranda')}
+          onReviewOrder={(order) => {
+            setSelectedProduct(order.produk);
+            setShowReviewModal(true);
+          }}
+         />
+        )}
 
         {activeTab === 'ojek' && (
   <OjekSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />
@@ -147,6 +177,8 @@ export default function PekenPage() {
               setEditingProduct(product);
               toggleModal('formPanyangan', true);
             }}
+            isSeller={isSeller}
+            onOpenDaftarBakul={() => setShowDaftarBakul(true)}
           />
         )}
       </main>
@@ -160,20 +192,23 @@ export default function PekenPage() {
 
       {/* Modals */}
       {modals.upload && (
-        <UploadOptions 
-          onClose={() => toggleModal('upload', false)}
-          onSambat={() => toggleModal('sambat', true)}
-          onDaftar={() => toggleModal('daftar', true)}
-          onPanyangan={handleAddProduct}
-          onDaftarOjek={() => toggleModal('formOjek', true)}
-          onDonasi={() => toggleModal('formDonasi', true)}
-        />
-      )}
+  <UploadOptions 
+    onClose={() => toggleModal('upload', false)}
+    onSambat={() => toggleModal('sambat', true)}
+    onDaftar={() => toggleModal('daftar', true)}
+    onPanyangan={handleAddProduct}
+    onDaftarOjek={() => toggleModal('formOjek', true)}
+    onDonasi={() => toggleModal('formDonasi', true)}
+    isSeller={isSeller}       
+    isDriver={isDriver}       
+    isRewang={isRewang}        
+  />
+)}
       
       <SambatModal 
         isOpen={modals.sambat} 
         onClose={() => toggleModal('sambat', false)} 
-        user={user} profile={authProfile} 
+        user={user} profile={profile} 
       /> 
       
       <FormPanyangan 
@@ -187,22 +222,45 @@ export default function PekenPage() {
       <DaftarRewangModal 
         isOpen={modals.daftar} 
         onClose={() => toggleModal('daftar', false)} 
-        profile={authProfile} 
+        profile={profile}   
       />
 
       <FormOjek 
         isOpen={modals.formOjek} 
         onClose={() => toggleModal('formOjek', false)} 
         user={user} 
-        profile={authProfile} 
+        profile={profile}   
       />
 
       <FormDonasi 
         isOpen={modals.formDonasi} 
         onClose={() => toggleModal('formDonasi', false)} 
         user={user}
-        profile={authProfile} 
+        profile={profile}   
      />
+
+      <FormDaftarBakul 
+        isOpen={showDaftarBakul}
+        onClose={() => setShowDaftarBakul(false)}
+        user={user}
+        profile={profile}
+        onSuccess={() => {
+          window.location.reload();
+        }}
+      />
+
+      <DetailProdukModal
+        product={selectedProduct}
+        isOpen={showReviewModal}
+        onClose={() => {
+          setShowReviewModal(false);
+          setSelectedProduct(null);
+        }}
+        userId={user ? user.id : null}
+        locationName={finalLocationName}
+        autoOpenUlasan={true}
+        onOrderSuccess={() => {}}
+       />
 
     </div>
   );
@@ -311,9 +369,22 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek, onDonasi }) {
+function UploadOptions({ 
+  onClose, 
+  onSambat, 
+  onDaftar, 
+  onPanyangan, 
+  onDaftarOjek, 
+  onDonasi,
+  isSeller,      // 🆕 Apakah user sudah jadi penjual?
+  isDriver,      // 🆕 Apakah user sudah jadi driver?
+  isRewang       // 🆕 Apakah user sudah jadi rewang?
+}) {
+  
+  // Tentukan opsi berdasarkan role user
   const options = [
-    { 
+    // Gelar Dagangan - HANYA untuk penjual
+    ...(isSeller ? [{
       label: 'Gelar Dagangan', 
       sub: 'Panyangan Rojo Koyo', 
       icon: Store, 
@@ -321,8 +392,10 @@ function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek,
       bg: 'bg-orange-50', 
       border: 'border-orange-100', 
       onClick: onPanyangan 
-    },
-    { 
+    }] : []),
+    
+    // Daftar Ojek - HANYA untuk user yang belum jadi driver
+    ...(!isDriver ? [{
       label: 'Daftar Ojek', 
       sub: 'Jadi rider antar jemput', 
       icon: Truck, 
@@ -330,7 +403,9 @@ function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek,
       bg: 'bg-emerald-50', 
       border: 'border-emerald-100', 
       onClick: onDaftarOjek 
-    },
+    }] : []),
+    
+    // Berbagi / Donasi - SEMUA user bisa
     { 
       label: 'Berbagi / Donasi', 
       sub: 'Sedekah barang & bantuan', 
@@ -340,6 +415,8 @@ function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek,
       border: 'border-rose-100', 
       onClick: onDonasi 
     },
+    
+    // Sambat Bantuan - SEMUA user bisa
     { 
       label: 'Sambat Bantuan', 
       sub: 'Butuh bantuan segera', 
@@ -349,7 +426,9 @@ function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek,
       border: 'border-red-100', 
       onClick: onSambat 
     },
-    { 
+    
+    // Daftar Rewang - HANYA untuk user yang belum jadi rewang
+    ...(!isRewang ? [{
       label: 'Daftar Rewang', 
       sub: 'Menawarkan jasa warga', 
       icon: UserPlus, 
@@ -357,8 +436,21 @@ function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek,
       bg: 'bg-purple-50', 
       border: 'border-purple-100', 
       onClick: onDaftar 
-    },
+    }] : []),
   ];
+  
+  // Jika user belum jadi penjual, tambahkan tombol "Daftar Jadi Bakul"
+  if (!isSeller) {
+    options.unshift({
+      label: 'Daftar Jadi Bakul', 
+      sub: 'Mulai jualan di Panyangan', 
+      icon: Store, 
+      color: 'text-orange-500', 
+      bg: 'bg-orange-100', 
+      border: 'border-orange-200', 
+      onClick: () => window.dispatchEvent(new CustomEvent('open-daftar-bakul'))
+    });
+  }
 
   const handleOptionClick = (onClickAction) => {
     onClose(); 

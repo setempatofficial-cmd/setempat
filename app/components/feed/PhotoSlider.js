@@ -46,8 +46,8 @@ const useTimeKey = () => {
       if (hour < 10) {
         nextChangeHour = 10;
         nextChangeLabel = "Siang";
-      } else if (hour < 14) {
-        nextChangeHour = 14;
+      } else if (hour < 15) {
+        nextChangeHour = 15;
         nextChangeLabel = "Sore";
       } else if (hour < 18) {
         nextChangeHour = 18;
@@ -100,7 +100,7 @@ const preloadImage = (url, priority = false) => {
 
 // ========== CACHE UNTUK OFFICIAL PHOTOS ==========
 const officialPhotosCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 menit
+const CACHE_TTL = 30 * 1000; 
 
 export default function PhotoSlider({
   photos = [],
@@ -111,6 +111,7 @@ export default function PhotoSlider({
   priority = false,
   setSelectedPhotoIndex,
   selectedPhotoIndex,
+  onPhotoClick,
 }) {
   const currentTimeKey = useTimeKey();
   
@@ -327,7 +328,9 @@ export default function PhotoSlider({
   if (currentPhotos.length > 0) {
     return (
       <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
-        <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 z-0"
+        onClick={() => onPhotoClick?.(currentPhotos, currentPhotoIndex)}
+>
           <OptimizedMedia 
             src={currentPhoto.url} 
             className="w-full h-full object-cover" 

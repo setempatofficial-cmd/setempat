@@ -710,7 +710,7 @@ export default function KomentarModal({ isOpen, onClose, tempat, isAdmin = false
   if (!mounted || !isOpen) return null;
 
   const modal = (
-    <div className="fixed inset-0 z-[2000] flex items-end justify-center">
+    <div className="fixed inset-0 z-[100000] flex items-end justify-center">
       <div
         className="absolute inset-0 bg-black/60"
         style={{ opacity: Math.max(0, 0.6 - translateY / 400) }}

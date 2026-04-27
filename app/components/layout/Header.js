@@ -124,7 +124,7 @@ export default function LocationModal({ isOpen, onClose, onSelectLocation, onUse
             <div className={`mt-1 w-2 h-2 rounded-full ${locationReady ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-[#E3655B] shadow-[0_0_8px_#E3655B]'}`} />
             <p className="text-[9px] text-slate-500 leading-relaxed font-bold italic">
               {locationReady 
-                ? "Radar saat ini sedang aktif menyaring konten di radius sekitar Anda." 
+                ? "Radius saat ini sedang aktif menyaring konten di radius sekitar Anda." 
                 : "Aktifkan lokasi untuk memfilter konten real-time di titik terdekat."}
             </p>
           </div>

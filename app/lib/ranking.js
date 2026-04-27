@@ -21,6 +21,11 @@ export function calculateScore(item, userLocation) {
 
     score += Math.max(0, 50 - hoursOld);
   }
+// Tambahkan bobot check-in
+let checkInScore = 0;
+const checkInCount = item.check_in_terbaru?.filter(c => c.status === 'di_sini').length || 0;
+checkInScore = Math.min(30, checkInCount * 5); // Maks 30 poin
+activityScore += checkInScore;
 
   return score;
 }

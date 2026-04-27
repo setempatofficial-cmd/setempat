@@ -33,7 +33,7 @@ export default function AIModalTempat({
   const [startY, setStartY] = useState(0);
   const [translateY, setTranslateY] = useState(0);
 
-  const modalRef = useRef(null);
+  const modalContentRef = useRef(null);
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
   const messageCounter = useRef(0);
@@ -54,7 +54,6 @@ export default function AIModalTempat({
     if (messages.length > 0) setTimeout(scrollToBottom, 100);
   }, [messages]);
 
-  // 🔥 RESET INITIALIZED SAAT ACTIVE REPORT BERUBAH (UNTUK CITIZENHUB)
   useEffect(() => {
     if (isOpen && activeReport) {
       hasInitialized.current = false;
@@ -74,7 +73,6 @@ export default function AIModalTempat({
 
     let sambutan = "";
     
-    // 🔥 CEK APAKAH ADA ACTIVE REPORT
     if (activeReport && activeReport.tipe) {
       const tipeEmoji = {
         'Ramai': '👥',
@@ -87,7 +85,6 @@ export default function AIModalTempat({
       
       sambutan = `${greeting}, Sobat! 👋 Saya lihat Anda penasaran dengan kondisi **${kondisi}** di **${tempat.name}**${jarakText}\n\n${emoji} *"${deskripsi}"*\n\n`;
       
-      // Tambahkan rekomendasi berdasarkan tipe
       if (activeReport.tipe === "Ramai") {
         sambutan += `📌 **Tips:** Kalau mau hindari keramaian, coba datang di pagi atau sore hari ya!\n\n`;
       } else if (activeReport.tipe === "Antri") {
@@ -98,7 +95,6 @@ export default function AIModalTempat({
       
       sambutan += `💬 Ada yang mau ditanyakan lebih lanjut seputar kondisi ini?`;
     } else {
-      // Sambutan default (tanpa laporan spesifik)
       let cuacaText = "";
       if (weather && weather.weather_desc) {
         cuacaText = `\n\n☀️ **Cuaca:** ${weather.weather_desc}, ${weather.t}°C`;
@@ -120,7 +116,6 @@ export default function AIModalTempat({
     ]);
   }, [isOpen, tempat?.id, tempat?.name, jarak, weather, activeReport, getUniqueId]);
 
-  // Reset saat modal ditutup
   useEffect(() => {
     if (!isOpen) {
       setTranslateY(0);
@@ -130,28 +125,39 @@ export default function AIModalTempat({
     }
   }, [isOpen]);
 
-  // Touch handlers
-  const handleTouchStart = (e) => {
-    if (modalRef.current?.scrollTop <= 0) {
+  // 🔥 TOUCH HANDLERS YANG LEBIH RESPONSIF (tanpa scroll detection)
+  const handleTouchStart = useCallback((e) => {
+    // Cek apakah scroll di puncak
+    const scrollTop = modalContentRef.current?.scrollTop || 0;
+    if (scrollTop <= 0) {
       setIsDragging(true);
       setStartY(e.touches[0].clientY);
     }
-  };
-  const handleTouchMove = (e) => {
+  }, []);
+
+  const handleTouchMove = useCallback((e) => {
     if (!isDragging) return;
     const diff = e.touches[0].clientY - startY;
     if (diff > 0) {
       e.preventDefault();
-      setTranslateY(Math.min(diff, 150));
+      e.stopPropagation();
+      // Pakai rubber-band effect (semakin jauh semakin kecil pergerakannya)
+      const eased = diff > 100 ? 100 + (diff - 100) * 0.3 : diff;
+      setTranslateY(Math.min(eased, 250));
     }
-  };
-  const handleTouchEnd = () => {
+  }, [isDragging, startY]);
+
+  const handleTouchEnd = useCallback(() => {
     if (isDragging) {
-      if (translateY > 80) onClose();
-      else setTranslateY(0);
+      // Jika swipe lebih dari 80px ATAU translateY > 80
+      if (translateY > 80) {
+        onClose();
+      } else {
+        setTranslateY(0);
+      }
       setIsDragging(false);
     }
-  };
+  }, [isDragging, translateY, onClose]);
 
   const triggerLapor = () => {
     if (!user) {
@@ -201,7 +207,6 @@ export default function AIModalTempat({
       setInput("");
       setIsTyping(true);
 
-      // Cek intent cuaca sederhana
       const cuacaKeywords = ["cuaca", "panas", "hujan", "dingin", "berawan", "cerah", "suhu"];
       const isCuacaIntent = cuacaKeywords.some((kw) => msg.toLowerCase().includes(kw));
       if (isCuacaIntent && weather) {
@@ -285,81 +290,96 @@ export default function AIModalTempat({
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      {/* Overlay dengan opacity yang ikut berubah saat swipe */}
+      <div 
+        className="absolute inset-0 bg-black/60 transition-opacity duration-200"
+        style={{ opacity: 0.6 - (translateY / 500) }}
+        onClick={onClose} 
+      />
+      
+      {/* Modal Container dengan swipe gesture */}
       <div
-        ref={modalRef}
-        className={`relative w-full max-w-md h-full sm:h-[90vh] ${theme.card} rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col`}
-        style={{ transform: `translateY(${translateY}px)`, transition: isDragging ? "none" : "transform 0.3s ease-out" }}
+        className="relative w-full max-w-md h-full sm:h-[90vh] flex flex-col"
+        style={{ 
+          transform: `translateY(${translateY}px)`,
+          transition: isDragging ? "none" : "transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1)",
+          touchAction: isDragging ? "none" : "auto"
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <div className="flex justify-center pt-2 pb-1 flex-shrink-0">
-          <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
-        </div>
+        <div 
+          ref={modalContentRef}
+          className={`w-full h-full ${theme.card} rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col overflow-y-auto`}
+        >
+          <div className="flex justify-center pt-2 pb-1 flex-shrink-0 sticky top-0 bg-inherit z-10">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+          </div>
 
-        <AIHeader locationName={tempat?.name || "Lokasi"} isMalam={isMalam} onClose={onClose} theme={theme} />
+          <AIHeader locationName={tempat?.name || "Lokasi"} isMalam={isMalam} onClose={onClose} theme={theme} />
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {messages.map((msg) => (
-            <AIMessageBubble
-              key={msg.id}
-              message={msg}
-              isUser={msg.type === "user"}
-              isMalam={isMalam}
-              onLaporClick={triggerLapor}
-              showLaporButton={msg.showLaporButton}
-            />
-          ))}
-          {isTyping && (
-            <div className="flex items-start gap-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
-                <span className="text-sm">🤖</span>
-              </div>
-              <div className="px-4 py-2.5 rounded-2xl bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white rounded-tl-sm">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 rounded-full bg-current animate-bounce" />
-                  <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-75" />
-                  <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-150" />
+          <div className="flex-1 px-4 py-4 space-y-4">
+            {messages.map((msg) => (
+              <AIMessageBubble
+                key={msg.id}
+                message={msg}
+                isUser={msg.type === "user"}
+                isMalam={isMalam}
+                onLaporClick={triggerLapor}
+                showLaporButton={msg.showLaporButton}
+              />
+            ))}
+            {isTyping && (
+              <div className="flex items-start gap-2">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
+                  <span className="text-sm">🤖</span>
+                </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white rounded-tl-sm">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full bg-current animate-bounce" />
+                    <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-75" />
+                    <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-150" />
+                  </div>
                 </div>
               </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <AnimatePresence>
+            {showLaporPanel && (
+              <LaporPanel
+                mode="media"
+                tempat={tempat}
+                user={user}
+                onClose={() => setShowLaporPanel(false)}
+                onSuccess={handleLaporSuccess}
+                onOpenAuthModal={onOpenAuthModal}
+                theme={theme}
+              />
+            )}
+          </AnimatePresence>
+
+          {!showLaporPanel && (
+            <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/10 px-3 py-3 bg-inherit">
+              <AIQuickActions
+                actions={quickActions}
+                onActionClick={handleSend}
+                onLaporClick={triggerLapor}
+                isMalam={isMalam}
+              />
+              <AIInput
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onSend={() => handleSend()}
+                isTyping={isTyping}
+                placeholder="Tanya kondisi, cuaca, atau langsung cerita..."
+              />
+              <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya jam buka, cuaca, atau lapor kondisi</p>
             </div>
           )}
-          <div ref={messagesEndRef} />
         </div>
-
-        <AnimatePresence>
-          {showLaporPanel && (
-            <LaporPanel
-              mode="media"
-              tempat={tempat}
-              user={user}
-              onClose={() => setShowLaporPanel(false)}
-              onSuccess={handleLaporSuccess}
-              onOpenAuthModal={onOpenAuthModal}
-              theme={theme}
-            />
-          )}
-        </AnimatePresence>
-
-        {!showLaporPanel && (
-          <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/10 px-3 py-3">
-            <AIQuickActions
-              actions={quickActions}
-              onActionClick={handleSend}
-              onLaporClick={triggerLapor}
-              isMalam={isMalam}
-            />
-            <AIInput
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onSend={() => handleSend()}
-              isTyping={isTyping}
-              placeholder="Tanya kondisi, cuaca, atau langsung cerita..."
-            />
-            <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya jam buka, cuaca, atau lapor kondisi</p>
-          </div>
-        )}
       </div>
     </div>
   );

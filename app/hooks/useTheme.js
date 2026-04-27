@@ -10,8 +10,8 @@ export function useTheme() {
     // ==================== BASE THEME ====================
     const base = isMalam ? {
       bg: "bg-[#0f172a]",
-      card: "bg-[#0f172a]/90 backdrop-blur-md",
-      border: "border-slate-800",
+      card: "bg-slate-900/40 backdrop-blur-md",
+      border: "border-slate-800/50",
       text: "text-white",
       textMuted: "text-slate-300",
       accent: "text-cyan-400",

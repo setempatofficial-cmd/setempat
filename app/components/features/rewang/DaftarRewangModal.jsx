@@ -1,9 +1,9 @@
-"use client";
+'use client';
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  X, Sparkles, ChevronDown, Loader2, AlertCircle, 
-  ShieldCheck, UserPlus, Banknote, Clock, Briefcase 
+  X, ChevronDown, Loader2, AlertCircle, 
+  ShieldCheck, UserPlus, Banknote, Clock, Briefcase, Send, User
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -13,8 +13,6 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
   const [selectedProfesi, setSelectedProfesi] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [form, setForm] = useState({ deskripsi: "", biaya: "", jam: "" });
-  const [fileKtp, setFileKtp] = useState(null);
-  const [previewKTP, setPreviewKTP] = useState(null);
 
   const profesiOptions = [
     { value: "Tenaga Bangunan", kategori: "Teknis" },
@@ -29,9 +27,11 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
     { value: "Lainnya / Serabutan", kategori: "Umum" },
   ];
 
+  const ADMIN_PHONE = "6281234567890";
+
   const handleDaftar = async () => {
-    if (!fileKtp) {
-      alert("Calon Rewang, KTP-nya harus diupload dulu buat verifikasi keamanan warga.");
+    if (!selectedProfesi) {
+      alert("Pilih keahlian dulu, Cak!");
       return;
     }
     
@@ -39,16 +39,6 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
     const kat = profesiOptions.find(o => o.value === selectedProfesi)?.kategori || "Lainnya";
 
     try {
-      // 1. Upload ke Supabase Storage (Bucket: ktp-verifikasi)
-      const fileExt = fileKtp.name.split('.').pop();
-      const fileName = `${profile.id}-${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from('ktp-verifikasi')
-        .upload(fileName, fileKtp);
-
-      if (uploadError) throw uploadError;
-
-      // 2. Update profile
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -58,7 +48,6 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
           deskripsi_jasa: form.deskripsi,
           estimasi_biaya: form.biaya,
           jam_operasional: form.jam,
-          foto_ktp: fileName,
           ktp_status: 'menunggu_verifikasi',
           ktp_submitted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -66,19 +55,50 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
         .eq("id", profile.id);
 
       if (error) throw error;
+
+      const { error: insertError } = await supabase
+        .from("pendaftar_rewang")
+        .insert({
+          user_id: profile.id,
+          profesi: selectedProfesi,
+          deskripsi: form.deskripsi,
+          biaya: form.biaya,
+          jam: form.jam,
+          status: "menunggu_verifikasi"
+        });
+
+      if (insertError) throw insertError;
+
+      const message = `*🛠️ PENDAFTARAN REWANG BARU* 🛠️\n\n` +
+        `*Nama:* ${profile.full_name}\n` +
+        `*Username:* @${profile.username || profile.email?.split('@')[0]}\n` +
+        `*Email:* ${profile.email}\n` +
+        `*WhatsApp:* ${profile.phone || profile.whatsapp || '-'}\n\n` +
+        `*📋 Detail Rewang:*\n` +
+        `▸ Profesi: ${selectedProfesi}\n` +
+        `▸ Kategori: ${kat}\n` +
+        `▸ Deskripsi: ${form.deskripsi || '-'}\n` +
+        `▸ Estimasi Biaya: Rp ${form.biaya || '-'}\n` +
+        `▸ Jam Kerja: ${form.jam || '-'}\n\n` +
+        `*🔐 Verifikasi:*\n` +
+        `Silakan minta foto KTP via chat untuk verifikasi.\n\n` +
+        `_Dikirim dari aplikasi Setempat.id_`;
+
+      const encodedMessage = encodeURIComponent(message);
+      window.open(`https://wa.me/${ADMIN_PHONE}?text=${encodedMessage}`, '_blank');
       
       setStep(2);
       if (onSuccess) onSuccess();
+      
       setTimeout(() => { 
         onClose(); 
         setStep(1);
-        setFileKtp(null);
-        setPreviewKTP(null);
         setSelectedProfesi("");
         setForm({ deskripsi: "", biaya: "", jam: "" });
-      }, 2000);
+      }, 2500);
+      
     } catch (err) {
-      alert("Gagal: " + err.message);
+      alert("❌ Gagal: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -87,18 +107,21 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <motion.div
-        initial={{ y: "100%" }} 
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full max-w-[480px] rounded-t-[32px] sm:rounded-[32px] overflow-hidden shadow-2xl ${
+        className={`relative w-full max-w-[420px] rounded-[28px] overflow-hidden shadow-2xl ${
           isMalam ? "bg-[#0F0F0F] border border-white/10" : "bg-white"
         }`}
       >
+        {/* Handle Bar */}
+        <div className={`w-12 h-1 bg-slate-200 rounded-full mx-auto mt-3 ${isMalam ? "bg-white/10" : ""}`} />
+
         {/* Header Section */}
-        <div className={`p-6 border-b ${isMalam ? "border-white/5" : "border-slate-100"}`}>
+        <div className={`px-6 pt-4 pb-3 ${isMalam ? "border-white/5" : "border-slate-100"}`}>
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
@@ -115,14 +138,16 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
             </div>
             <button 
               onClick={onClose} 
-              className={`p-2 rounded-xl transition-colors ${isMalam ? "bg-white/5 text-white hover:bg-white/10" : "bg-slate-100 text-slate-900 hover:bg-slate-200"}`}
+              className={`p-2 rounded-xl transition-all active:scale-95 ${
+                isMalam ? "bg-white/5 text-white hover:bg-white/10" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              }`}
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
         </div>
 
-        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto no-scrollbar">
+        <div className="px-6 pb-6 space-y-5 max-h-[80vh] overflow-y-auto">
           <AnimatePresence mode="wait">
             {step === 1 ? (
               <motion.div 
@@ -130,26 +155,41 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                 initial={{ opacity: 0 }} 
                 animate={{ opacity: 1 }} 
                 exit={{ opacity: 0 }}
-                className="space-y-6"
+                className="space-y-5"
               >
-                {/* Alert Status Verifikasi */}
-                <div className={`p-4 rounded-2xl border-2 flex items-start gap-3 ${
-                  profile?.is_verified 
-                    ? "bg-blue-500/5 border-blue-500/20 text-blue-500" 
-                    : "bg-orange-500/5 border-orange-500/20 text-orange-600"
-                }`}>
-                  {profile?.is_verified ? <ShieldCheck size={18} className="mt-0.5" /> : <AlertCircle size={18} className="mt-0.5" />}
-                  <div className="flex-1">
-                    <p className="text-[11px] font-black uppercase tracking-wide">Status Identitas</p>
-                    <p className={`text-[10px] font-bold leading-relaxed opacity-80 mt-0.5`}>
-                      {profile?.is_verified 
-                        ? "KTP Terverifikasi. Profil sampeyan bakal muncul tanda centang biru." 
-                        : "Belum Verifikasi. Profil tetap tayang, tapi tanpa tanda centang."}
+                {/* Info Verifikasi via WA */}
+                <div className={`p-3 rounded-xl flex items-start gap-2 bg-emerald-500/5 border border-emerald-500/20`}>
+                  <ShieldCheck size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[9px] font-bold text-emerald-600">Verifikasi via WhatsApp</p>
+                    <p className="text-[8px] text-emerald-600/80 mt-0.5">
+                      Foto KTP akan dikirim via WhatsApp ke Admin.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-4">
+                  {/* 🆕 FIELD NAMA LENGKAP */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1">
+                      Nama Lengkap
+                    </label>
+                    <div className="relative">
+                      <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-400" />
+                      <input 
+                        type="text" 
+                        value={profile?.full_name || profile?.user_metadata?.full_name || 'Warga'}
+                        disabled
+                        className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-sm font-medium outline-none border cursor-not-allowed ${
+                          isMalam 
+                            ? "bg-white/5 border-white/10 text-white/60" 
+                            : "bg-slate-100 border-slate-200 text-slate-500"
+                        }`}
+                      />
+                    </div>
+                    <p className="text-[7px] text-slate-400 ml-1">*Terisi otomatis dari profil</p>
+                  </div>
+
                   {/* Field Keahlian */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1">
@@ -158,23 +198,23 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                     <div className="relative">
                       <button 
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)} 
-                        className={`w-full h-14 px-5 rounded-2xl border-2 flex items-center justify-between text-sm font-bold transition-all ${
+                        className={`w-full h-11 px-4 rounded-xl text-sm font-medium transition-all flex items-center justify-between border ${
                           isMalam 
-                            ? "bg-white/5 border-white/5 text-white focus:border-orange-500/50" 
-                            : "bg-slate-50 border-slate-100 text-slate-900 focus:border-orange-500/50"
+                            ? "bg-white/5 border-white/10 text-white" 
+                            : "bg-slate-50 border-slate-100 text-slate-900"
                         }`}
                       >
                         <span className={selectedProfesi ? "opacity-100" : "opacity-40"}>
                           {selectedProfesi || "Pilih bidang keahlian..."}
                         </span>
-                        <ChevronDown size={18} className={`transition-transform duration-300 ${isDropdownOpen ? "rotate-180" : ""}`} />
+                        <ChevronDown size={16} className={`transition-transform duration-300 ${isDropdownOpen ? "rotate-180" : ""}`} />
                       </button>
                       
                       {isDropdownOpen && (
-                        <div className={`absolute z-50 left-0 right-0 mt-2 rounded-2xl border-2 shadow-2xl overflow-hidden ${
+                        <div className={`absolute z-50 left-0 right-0 mt-2 rounded-xl border shadow-lg overflow-hidden ${
                           isMalam ? "bg-[#1A1A1A] border-white/10" : "bg-white border-slate-100"
                         }`}>
-                          <div className="max-h-56 overflow-y-auto p-2 space-y-1">
+                          <div className="max-h-56 overflow-y-auto p-1">
                             {profesiOptions.map(o => (
                               <button 
                                 key={o.value} 
@@ -182,7 +222,7 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                                   setSelectedProfesi(o.value); 
                                   setIsDropdownOpen(false); 
                                 }} 
-                                className={`w-full text-left px-4 py-3 rounded-xl text-[11px] font-black uppercase transition-all ${
+                                className={`w-full text-left px-4 py-2.5 rounded-lg text-[11px] font-medium transition-all ${
                                   isMalam ? "hover:bg-white/5 text-slate-300" : "hover:bg-orange-50 text-slate-600"
                                 }`}
                               >
@@ -201,11 +241,11 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                       Deskripsi Layanan
                     </label>
                     <textarea 
-                      placeholder="Contoh: Terima borongan cat, servis pompa air, atau pijat capek..." 
-                      className={`w-full p-4 rounded-2xl border-2 text-xs font-bold outline-none h-28 transition-all ${
+                      placeholder="Contoh: Terima borongan cat, servis pompa air..." 
+                      className={`w-full p-3 rounded-xl text-xs font-medium outline-none h-24 transition-all border ${
                         isMalam 
-                          ? "bg-white/5 border-white/5 text-white focus:border-orange-500/50" 
-                          : "bg-slate-50 border-slate-100 text-slate-900 focus:border-orange-500/50"
+                          ? "bg-white/5 border-white/10 text-white placeholder:text-white/30" 
+                          : "bg-slate-50 border-slate-100 text-slate-900 placeholder:text-slate-400"
                       }`} 
                       value={form.deskripsi} 
                       onChange={(e) => setForm({...form, deskripsi: e.target.value})} 
@@ -213,22 +253,21 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                   </div>
 
                   {/* Ongkos & Jam */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1">
                         Estimasi Ongkos
                       </label>
                       <div className="relative">
-                        <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                          <Banknote size={14} className="text-orange-500" />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2">
                           <span className="text-[10px] font-black text-orange-500">Rp</span>
                         </div>
                         <input 
                           placeholder="50.000" 
-                          className={`w-full h-12 pl-14 pr-4 rounded-2xl border-2 text-[13px] font-bold outline-none transition-all ${
+                          className={`w-full pl-8 pr-3 py-2.5 rounded-xl text-[13px] font-bold outline-none transition-all border ${
                             isMalam 
-                              ? "bg-[#1A1A1A] border-white/5 text-white focus:border-orange-500 focus:bg-black" 
-                              : "bg-slate-50 border-slate-100 text-slate-900 focus:border-orange-500 focus:bg-white"
+                              ? "bg-white/5 border-white/10 text-white placeholder:text-white/30" 
+                              : "bg-slate-50 border-slate-100 text-slate-900 placeholder:text-slate-400"
                           }`} 
                           value={form.biaya} 
                           onChange={(e) => setForm({...form, biaya: e.target.value})} 
@@ -241,66 +280,17 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                         Jam Kerja
                       </label>
                       <div className="relative">
-                        <Clock size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500" />
+                        <Clock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-400" />
                         <input 
                           placeholder="08.00 - 17.00" 
-                          className={`w-full h-12 pl-14 pr-4 rounded-2xl border-2 text-[13px] font-bold outline-none transition-all ${
+                          className={`w-full pl-8 pr-3 py-2.5 rounded-xl text-[13px] font-bold outline-none transition-all border ${
                             isMalam 
-                              ? "bg-[#1A1A1A] border-white/5 text-white focus:border-orange-500 focus:bg-black" 
-                              : "bg-slate-50 border-slate-100 text-slate-900 focus:border-orange-500 focus:bg-white"
+                              ? "bg-white/5 border-white/10 text-white placeholder:text-white/30" 
+                              : "bg-slate-50 border-slate-100 text-slate-900 placeholder:text-slate-400"
                           }`}
                           value={form.jam} 
                           onChange={(e) => setForm({...form, jam: e.target.value})} 
                         />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Upload KTP */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1 flex items-center gap-2">
-                      <ShieldCheck size={12} /> Verifikasi KTP Asli
-                    </label>
-                    
-                    <div className="relative group">
-                      <input 
-                        type="file" 
-                        accept="image/*"
-                        className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                        onChange={(e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            setFileKtp(file);
-                            setPreviewKTP(URL.createObjectURL(file));
-                          }
-                        }}
-                      />
-                      
-                      <div className={`w-full min-h-[140px] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-all ${
-                        previewKTP 
-                          ? "border-emerald-500/50 bg-emerald-500/5" 
-                          : (isMalam ? "border-white/10 bg-white/5 hover:border-orange-500/30" : "border-slate-200 bg-slate-50 hover:border-orange-500/30")
-                      }`}>
-                        {previewKTP ? (
-                          <div className="relative w-full h-32">
-                            <img src={previewKTP} alt="Preview KTP" className="w-full h-full object-contain rounded-lg" />
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
-                              <p className="text-[10px] text-white font-black uppercase">Ganti Foto</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${isMalam ? "bg-white/5 text-white/40" : "bg-white text-slate-400 shadow-sm"}`}>
-                              <Briefcase size={20} />
-                            </div>
-                            <p className={`text-[10px] font-black uppercase ${isMalam ? "text-slate-400" : "text-slate-500"}`}>
-                              Klik untuk Upload Foto KTP
-                            </p>
-                            <p className="text-[8px] opacity-50 mt-1 uppercase font-bold text-center">
-                              Pastikan data terlihat jelas & tidak blur
-                            </p>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -309,9 +299,9 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                 <button 
                   onClick={handleDaftar} 
                   disabled={loading || !selectedProfesi} 
-                  className="w-full h-14 bg-orange-500 text-white rounded-[20px] font-black text-xs uppercase tracking-tighter border-b-4 border-orange-700 active:border-b-0 active:translate-y-1 shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-3"
+                  className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-[10px] uppercase tracking-wider transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-50"
                 >
-                  {loading ? <Loader2 className="animate-spin" /> : <><UserPlus size={20} /> Aktifkan Profil Rewang</>}
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <><Send size={14} /> Kirim & Daftar</>}
                 </button>
               </motion.div>
             ) : (
@@ -320,17 +310,20 @@ export default function DaftarRewangModal({ isOpen, onClose, profile, onSuccess,
                 initial={{ scale: 0.9, opacity: 0 }} 
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="py-12 text-center space-y-6"
+                className="py-12 text-center space-y-4"
               >
-                <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-emerald-500/40">
-                  <ShieldCheck size={48} className="text-white" />
+                <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-lg">
+                  <ShieldCheck size={40} className="text-white" />
                 </div>
-                <div className="space-y-2">
-                  <h3 className={`text-xl font-black uppercase tracking-tight ${isMalam ? "text-white" : "text-slate-900"}`}>
-                    Berhasil Aktif!
+                <div>
+                  <h3 className={`text-lg font-black uppercase tracking-tight ${isMalam ? "text-white" : "text-slate-900"}`}>
+                    Pendaftaran Terkirim!
                   </h3>
-                  <p className="text-[11px] font-bold opacity-60 uppercase tracking-widest">
-                    Warga Setempat Siap Rewang!
+                  <p className="text-[10px] font-medium mt-1 opacity-60">
+                    Silakan kirim foto KTP via WhatsApp
+                  </p>
+                  <p className={`text-[8px] mt-3 ${isMalam ? "text-slate-400" : "text-slate-500"}`}>
+                    Petinggi Setempat akan memverifikasi dan mengaktifkan akun Rewang Anda
                   </p>
                 </div>
               </motion.div>

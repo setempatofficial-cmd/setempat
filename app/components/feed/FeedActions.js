@@ -13,8 +13,8 @@ export default function FeedActions({
   onShare,
   variant = "floating-sidebar",
   theme,
-  handleSesuai, // Fungsi utama dari parent
-  isSesuai,     // State dari parent
+  handleSesuai,
+  isSesuai,
 }) {
   const { user, role, isAdmin, isSuperAdmin } = useAuth();
 
@@ -25,16 +25,26 @@ export default function FeedActions({
 
   useEffect(() => {
     if (!item?.id) return;
-    // Load likes count & user status
+    
+    let isMounted = true;
+    
     const loadLikes = async () => {
-      const { count } = await supabase.from("likes").select("id", { count: "exact", head: true }).eq("tempat_id", item.id);
-      setLikeCount(count || 0);
-      if (user?.id) {
-        const { data } = await supabase.from("likes").select("id").eq("tempat_id", item.id).eq("user_id", user.id).maybeSingle();
-        setIsLiked(!!data);
+      try {
+        const { count } = await supabase.from("likes").select("id", { count: "exact", head: true }).eq("tempat_id", item.id);
+        if (isMounted) setLikeCount(count || 0);
+        
+        if (user?.id) {
+          const { data } = await supabase.from("likes").select("id").eq("tempat_id", item.id).eq("user_id", user.id).maybeSingle();
+          if (isMounted) setIsLiked(!!data);
+        }
+      } catch (err) {
+        console.error("Load likes error:", err);
       }
     };
+    
     loadLikes();
+    
+    return () => { isMounted = false; };
   }, [item?.id, user?.id]);
 
   const handleLikeClick = async () => {
@@ -44,118 +54,143 @@ export default function FeedActions({
     setLikeCount(v => wasLiked ? Math.max(0, v - 1) : v + 1);
     if (!wasLiked) setShowHeart(true);
 
-    const { error } = wasLiked 
-      ? await supabase.from("likes").delete().eq("tempat_id", item.id).eq("user_id", user.id)
-      : await supabase.from("likes").insert([{ tempat_id: item.id, user_id: user.id }]);
+    try {
+      const { error } = wasLiked 
+        ? await supabase.from("likes").delete().eq("tempat_id", item.id).eq("user_id", user.id)
+        : await supabase.from("likes").insert([{ tempat_id: item.id, user_id: user.id }]);
+      
+      if (error) throw error;
+    } catch (error) {
+      setIsLiked(wasLiked);
+      setLikeCount(v => wasLiked ? v + 1 : v - 1);
+      console.error("Like error:", error);
+    }
     
-    if (error) { setIsLiked(wasLiked); setLikeCount(v => wasLiked ? v + 1 : v - 1); }
     if (!wasLiked) setTimeout(() => setShowHeart(false), 800);
   };
 
-  // --- KOMENTAR LOGIC ---
-  const [jumlahKomentar, setJumlahKomentar] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const seenCountRef = useRef(0);
+  // --- KOMENTAR LOGIC (TANPA POLLING) ---
+const [jumlahKomentar, setJumlahKomentar] = useState(0);
+const [unreadCount, setUnreadCount] = useState(0);
+const seenCountRef = useRef(0);
 
-  useEffect(() => {
-    if (!item?.id) return;
-    supabase.from("komentar").select("id", { count: "exact", head: true }).eq("tempat_id", item.id)
-      .then(({ count }) => { setJumlahKomentar(count || 0); seenCountRef.current = count || 0; });
+useEffect(() => {
+  if (!item?.id) return;
+  
+  let isMounted = true;
+  
+  const fetchCommentCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from("komentar")
+        .select("id", { count: "exact", head: true })
+        .eq("tempat_id", item.id);
+      
+      if (!error && isMounted) {
+        setJumlahKomentar(count || 0);
+        seenCountRef.current = count || 0;
+      }
+    } catch (err) {
+      // Silent fail - tidak perlu log error
+      // set default 0
+      if (isMounted) {
+        setJumlahKomentar(0);
+        seenCountRef.current = 0;
+      }
+    }
+  };
+  
+  fetchCommentCount();
+  
+  return () => {
+    isMounted = false;
+  };
+}, [item?.id]); 
 
-    const channel = supabase.channel(`komentar_${item.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "komentar", filter: `tempat_id=eq.${item.id}` }, 
-      () => setJumlahKomentar(prev => { setUnreadCount((prev + 1) - seenCountRef.current); return prev + 1; }))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [item?.id]);
-
+  // Floating Sidebar Variant
   if (variant === "floating-sidebar") {
-  return (
-    <div className="flex flex-col gap-4 items-center select-none py-2 px-1">
-      {/* LIKE */}
-      <div className="flex flex-col items-center relative group">
-        <button 
-          onClick={handleLikeClick} 
-          className="flex items-center justify-center transition-all active:scale-125 duration-200"
-        >
-          {/* Ukuran diubah dari 3xl ke 2xl (24px) agar lebih rapi */}
-          <span className="text-2xl drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">
-            {isLiked ? "❤️" : "🤍"}
-          </span>
-        </button>
-        
-        {/* Heart Pop Animation - Ukuran dibuat kecil tapi meledak besar */}
-        <AnimatePresence>
-          {showHeart && (
-            <motion.span 
-              initial={{ opacity: 1, y: 0, scale: 0.5 }} 
-              animate={{ opacity: 0, y: -40, scale: 2 }} 
-              className="absolute text-xl pointer-events-none z-50"
-            >
-              ❤️
-            </motion.span>
-          )}
-        </AnimatePresence>
-        
-        {/* Font angka dibuat lebih kecil dan bold (9px) agar fokus ke icon */}
-        <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
-          {likeCount}
-        </span>
-      </div>
-
-      {/* KOMENTAR */}
-      <div className="flex flex-col items-center">
-        <button 
-          onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
-          className="flex items-center justify-center text-2xl active:scale-110 transition-transform relative"
-        >
-          <span className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">💬</span>
-          {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1.5 bg-red-500 text-white text-[7px] font-black px-1 py-0.5 rounded-full border border-black animate-bounce">
-              {unreadCount}
-            </span>
-          )}
-        </button>
-        <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
-          {jumlahKomentar}
-        </span>
-      </div>
-
-      {/* SHARE */}
-      <div className="flex flex-col items-center">
-        <button 
-          onClick={() => onShare?.(item)} 
-          className="flex items-center justify-center text-white active:scale-110 transition-transform p-1"
-        >
-          <svg 
-            width="22" // Dikecilkan dari 26 ke 22
-            height="22" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="3" // Stroke dibuat lebih tebal agar tetap jelas meskipun kecil
-            className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]"
+    return (
+      <div className="flex flex-col gap-4 items-center select-none py-2 px-1">
+        {/* LIKE */}
+        <div className="flex flex-col items-center relative group">
+          <button 
+            onClick={handleLikeClick} 
+            className="flex items-center justify-center transition-all active:scale-125 duration-200"
           >
-            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-          </svg>
-        </button>
-        <span className="text-[7px] font-black mt-0.5 text-white/60 uppercase tracking-widest">
-          Share
-        </span>
-      </div>
-    </div>
-  );
-}
+            <span className="text-2xl drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">
+              {isLiked ? "❤️" : "🤍"}
+            </span>
+          </button>
+          
+          <AnimatePresence>
+            {showHeart && (
+              <motion.span 
+                initial={{ opacity: 1, y: 0, scale: 0.5 }} 
+                animate={{ opacity: 0, y: -40, scale: 2 }} 
+                exit={{ opacity: 0 }}
+                className="absolute text-xl pointer-events-none z-50"
+              >
+                ❤️
+              </motion.span>
+            )}
+          </AnimatePresence>
+          
+          <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
+            {likeCount}
+          </span>
+        </div>
 
-  // --- VARIANT: PHOTO OVERLAY (The "Vibe" & "AI" Section) ---
+        {/* KOMENTAR */}
+        <div className="flex flex-col items-center">
+          <button 
+            onClick={() => { setUnreadCount(0); openKomentarModal?.(item); }}
+            className="flex items-center justify-center text-2xl active:scale-110 transition-transform relative"
+          >
+            <span className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] leading-none">💬</span>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1.5 bg-red-500 text-white text-[7px] font-black px-1 py-0.5 rounded-full border border-black animate-bounce">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+          <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
+            {jumlahKomentar}
+          </span>
+        </div>
+
+        {/* SHARE */}
+        <div className="flex flex-col items-center">
+          <button 
+            onClick={() => onShare?.(item)} 
+            className="flex items-center justify-center text-white active:scale-110 transition-transform p-1"
+          >
+            <svg 
+              width="22"
+              height="22" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="3"
+              className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]"
+            >
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
+          <span className="text-[7px] font-black mt-0.5 text-white/60 uppercase tracking-widest">
+            Share
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // --- VARIANT: PHOTO OVERLAY ---
   if (variant === "photo-overlay") {
-    // Penentuan warna tombol sesuai kasta
     const kastaColor = isSuperAdmin ? "bg-indigo-600 border-indigo-400" : isAdmin ? "bg-amber-500 border-amber-300" : "bg-emerald-500 border-emerald-300";
     const kastaLabel = isSuperAdmin ? "PETINGGI" : isAdmin ? "RT SETEMPAT" : "WARGA";
 
     return (
       <div className="flex items-center gap-2.5 w-full px-2 select-none">
-        {/* TOMBOL SESUAI (VIBE VALIDATOR) */}
         <button
           onClick={handleSesuai}
           disabled={isSesuai}
@@ -178,7 +213,6 @@ export default function FeedActions({
             </div>
           </div>
           
-          {/* Animasi Sinyal (Denyut) hanya jika sudah divalidasi */}
           {isSesuai && (
             <motion.div 
               animate={{ opacity: [0, 1, 0], scale: [1, 1.5, 1] }}
@@ -188,7 +222,6 @@ export default function FeedActions({
           )}
         </button>
 
-        {/* TOMBOL AI (KEPOIN AI) */}
         <button
           onClick={() => openAIModal?.(item)}
           className="flex-1 flex items-center justify-center gap-2 py-3 rounded-[24px] bg-gradient-to-tr from-violet-600 to-fuchsia-600 border border-white/30 shadow-lg active:scale-95 transition-all group"

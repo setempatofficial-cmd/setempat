@@ -100,13 +100,7 @@ export default function KabarBakulSection({ locationName, onNavigateToProduct })
     fetchKabar();
   }, [fetchKabar]);
 
-const handleKabarClick = (item) => {
-  if (item.tag === "PRODUK BARU" && item.product_id) {
-    router.push(`/produk/${item.product_id}`);
-  } else {
-    router.push(`/kabar/${item.id}`);
-  }
-};
+
 
   return (
     <div className="relative min-h-screen">

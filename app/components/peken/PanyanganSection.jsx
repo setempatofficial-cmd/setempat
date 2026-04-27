@@ -2,17 +2,18 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft, Search, Plus,
-  Package, ShoppingBag, ChevronRight,
+  ArrowLeft, Search,
+  Package, ShoppingBag,
   User, MapPin, MessageCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import DetailProdukModal from './DetailProdukModal'; // ← IMPORT MODAL
 
 // Daftar kategori dengan sentuhan lokal
 const CATEGORIES = [
   { id: 'all', label: 'Kabeh', icon: '🌈' },
   { id: 'makanan', label: 'Panganan', icon: '🍿' },
-  { id: 'minuman', label: 'Ombenan', icon: '🥤' },
+  { id: 'minuman', label: 'Minuman', icon: '🥤' },
   { id: 'pertanian', label: 'Hasil Bumi', icon: '🌽' },
   { id: 'kerajinan', label: 'Kriya', icon: '🎨' },
   { id: 'jasa', label: 'Jasa', icon: '🛠️' },
@@ -22,7 +23,6 @@ export default function PanyanganSection({
   locationName = 'Pasuruan',
   userId,
   onBack,
-  onAddProduct
 }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +30,10 @@ export default function PanyanganSection({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  
+  // 🆕 State untuk modal detail
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   // --- LOGIKA SMART HEADER ---
   useEffect(() => {
@@ -49,29 +53,72 @@ export default function PanyanganSection({
     return () => window.removeEventListener('scroll', controlHeader);
   }, [lastScrollY]);
 
-  // --- FETCH DATA ---
+  // 🆕 Fungsi buka modal detail
+  const openProductDetail = (product) => {
+    setSelectedProduct(product);
+    setShowDetailModal(true);
+  };
+
+  // --- FETCH DATA (DENGAN KATEGORI) ---
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
+      // STEP 1: Ambil semua produk aktif
       let query = supabase
         .from('produk')
         .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-
-      if (searchQuery) {
-        query = query.ilike('nama_barang', `%${searchQuery}%`);
-      }
-
+        .eq('is_active', true);
+      
+      // Filter kategori (jika bukan 'all')
       if (selectedCategory !== 'all') {
         query = query.eq('kategori', selectedCategory);
       }
-
-      const { data, error: fetchError } = await query;
-      if (fetchError) throw fetchError;
-      setProducts(data || []);
+      
+      const { data: productsData, error: productsError } = await query
+        .order('created_at', { ascending: false });
+      
+      if (productsError) throw productsError;
+      
+      if (!productsData || productsData.length === 0) {
+        setProducts([]);
+        return;
+      }
+      
+      // STEP 2: Ambil data penjual (profiles)
+      const userIds = [...new Set(productsData.map(p => p.user_id).filter(Boolean))];
+      
+      let profilesData = [];
+      if (userIds.length > 0) {
+        const { data, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, phone')
+          .in('id', userIds);
+        
+        if (profilesError) throw profilesError;
+        profilesData = data || [];
+      }
+      
+      // STEP 3: Gabungkan data
+      let productsWithSeller = productsData.map(product => {
+        const penjual = profilesData.find(p => p.id === product.user_id);
+        return {
+          ...product,
+          nama_penjual: penjual?.full_name || 'Warga',
+          penjual_phone: penjual?.phone || null
+        };
+      });
+      
+      // STEP 4: Filter search (client-side)
+      if (searchQuery) {
+        productsWithSeller = productsWithSeller.filter(product =>
+          product.nama_barang.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      }
+      
+      setProducts(productsWithSeller);
+      
     } catch (err) {
-      console.error('Error:', err);
+      console.error('Error fetching products:', err);
       setProducts([]);
     } finally {
       setLoading(false);
@@ -90,15 +137,34 @@ export default function PanyanganSection({
     }).format(harga || 0);
   };
 
+  const handleChat = (product) => {
+    const phoneNumber = product.penjual_phone;
+    
+    if (!phoneNumber) {
+      alert('Maaf, nomor WhatsApp penjual belum tersedia');
+      return;
+    }
+    
+    let cleanPhone = phoneNumber.toString().replace(/[^0-9]/g, '');
+    
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.substring(1);
+    } else if (!cleanPhone.startsWith('62') && cleanPhone.length > 0) {
+      cleanPhone = '62' + cleanPhone;
+    }
+    
+    window.open(`https://wa.me/${cleanPhone}`, '_blank');
+  };
+
   return (
     <div className="relative min-h-screen bg-[#FBFBFE]">
 
-      {/* HEADER & SEARCH (OPTIMIZED - FINAL) */}
+      {/* HEADER & SEARCH */}
       <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ${
         showHeader ? 'translate-y-0' : '-translate-y-[62px]'
       }`}>
         <div className="max-w-[420px] mx-auto bg-white/80 backdrop-blur-md border-b border-slate-100">
-
+          
           {/* Baris 1: Navigasi & Lokasi Aktif */}
           <div className="flex items-center justify-between px-6 py-3">
             <div className="flex items-center gap-2">
@@ -111,7 +177,7 @@ export default function PanyanganSection({
               </div>
             </div>
 
-            {/* LOKASI AKTIF (Pojok Kanan Atas - Pengganti Tombol Plus) */}
+            {/* LOKASI AKTIF */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 border border-orange-100 rounded-full shadow-sm">
               <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
               <span className="text-[9px] font-black text-orange-700 uppercase tracking-tight">
@@ -156,8 +222,8 @@ export default function PanyanganSection({
         </div>
       </div>
 
-      {/* CONTENT AREA: Grid Mepet & Estetik */}
-      <div className="pt-48 px-2 pb-24 max-w-[420px] mx-auto">
+      {/* CONTENT AREA */}
+      <div className="pt-44 px-2 pb-24 max-w-[420px] mx-auto">
 
         {/* SKELETON LOADING */}
         {loading && products.length === 0 ? (
@@ -178,12 +244,13 @@ export default function PanyanganSection({
             </p>
           </div>
         ) : (
-          /* MAIN GRID: Mepet Pinggir & Pinterest Style */
+          /* MAIN GRID */
           <div className="columns-2 gap-2 space-y-2">
             {products.map((product) => (
               <div
                 key={product.id}
-                className="break-inside-avoid bg-white rounded-[24px] border border-slate-100 overflow-hidden shadow-sm active:scale-[0.98] transition-all flex flex-col group"
+                onClick={() => openProductDetail(product)} // 🆕 Klik card buka detail
+                className="break-inside-avoid bg-white rounded-[24px] border border-slate-100 overflow-hidden shadow-sm active:scale-[0.98] transition-all flex flex-col group cursor-pointer"
               >
                 {/* FOTO PRODUK */}
                 <div className="relative bg-slate-50 overflow-hidden">
@@ -199,19 +266,13 @@ export default function PanyanganSection({
                     </div>
                   )}
 
-                  {/* BADGE STATUS (Floating) */}
-                  <div className="absolute top-2 left-2 flex flex-col gap-1">
+                  {/* BADGE STATUS */}
+                  <div className="absolute top-2 left-2">
                     <span className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase tracking-tighter backdrop-blur-md shadow-sm ${
                       product.stok_ready ? 'bg-emerald-500/80 text-white' : 'bg-red-500/80 text-white'
                     }`}>
                       {product.stok_ready ? 'Ready' : 'Entek'}
                     </span>
-
-                    {product.kondisi_lokal && (
-                      <div className="px-2 py-0.5 bg-black/40 backdrop-blur-md text-white text-[6px] font-black uppercase tracking-widest rounded-md w-fit">
-                        ✨ {product.kondisi_lokal}
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -221,7 +282,7 @@ export default function PanyanganSection({
                     {product.nama_barang}
                   </h4>
 
-                  {/* Info Penjual (Kearifan Lokal) */}
+                  {/* Info Penjual */}
                   <div className="flex items-center gap-1.5 mt-1.5 mb-2">
                     <div className="w-4 h-4 bg-orange-100 rounded-full flex items-center justify-center">
                       <User size={8} className="text-orange-600" />
@@ -240,20 +301,27 @@ export default function PanyanganSection({
                   </div>
 
                   {/* Lokasi & Tombol Sapa */}
-                  <div className="mt-3 pt-3 border-t border-dashed border-slate-100 flex justify-between items-center group/btn">
+                  <div className="mt-3 pt-3 border-t border-dashed border-slate-100 flex justify-between items-center">
                     <div className="flex flex-col">
                       <span className="text-[7px] font-black text-slate-400 uppercase leading-none">Lokasi</span>
                       <div className="flex items-center gap-0.5 mt-0.5">
                         <MapPin size={7} className="text-slate-400" />
                         <span className="text-[9px] font-bold text-slate-700 truncate max-w-[50px]">
-                          {product.ancer_ancer || locationName}
+                          {locationName}
                         </span>
                       </div>
                     </div>
 
-                    {/* TOMBOL SAPA (WA Style) */}
-                    <button className="w-8 h-8 bg-emerald-500 text-white rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-100 active:scale-90 transition-all hover:bg-emerald-600">
-                      <MessageCircle size={14} fill="currentColor" className="text-emerald-200" />
+                    {/* TOMBOL SAPA - dengan stopPropagation */}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleChat(product);
+                      }} 
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-full shadow-lg shadow-emerald-100 active:scale-95 transition-all hover:bg-emerald-600"
+                    >
+                      <MessageCircle size={12} fill="currentColor" />
+                      <span className="text-[10px] font-black uppercase tracking-tight">Sapa</span>
                     </button>
                   </div>
                 </div>
@@ -262,6 +330,18 @@ export default function PanyanganSection({
           </div>
         )}
       </div>
+
+      {/* 🆕 MODAL DETAIL PRODUK */}
+      <DetailProdukModal
+        product={selectedProduct}
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        userId={userId}
+        locationName={locationName}
+        onOrderSuccess={() => {
+          fetchProducts(); // Refresh data setelah order
+        }}
+      />
     </div>
   );
 }

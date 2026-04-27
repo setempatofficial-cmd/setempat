@@ -1,4 +1,4 @@
-// app/components/ai/AIKentonganModal.jsx (REVISED VERSION)
+// app/components/ai/AIKentonganModal.jsx (FINAL FIXED VERSION)
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -33,13 +33,7 @@ export default function AIKentonganModal({
     return `${Date.now()}-${messageCounter.current}`;
   }, []);
   
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
   
-  useEffect(() => {
-    if (messages.length > 0) setTimeout(scrollToBottom, 100);
-  }, [messages]);
   
   // Opening message yang adaptif (Berita vs Pengumuman)
   useEffect(() => {
@@ -58,7 +52,7 @@ export default function AIKentonganModal({
     const thumbnail = isNewsMode ? `![thumbnail](${image_url})\n\n` : "";
     
     const locationInfo = is_global 
-      ? "Semua Wilayah" 
+      ? "SetempatID" 
       : `${target_desa || '-'}, ${target_kecamatan || '-'}`;
 
     // 3. Rakit Pesan berdasarkan Mode
@@ -105,32 +99,35 @@ ${content}
     
   }, [isOpen, kentongan, getUniqueId]);
   
-  // Touch handlers
-  const handleTouchStart = (e) => {
-    if (modalRef.current?.scrollTop <= 0) { 
-      setIsDragging(true); 
-      setStartY(e.touches[0].clientY); 
+  // 🔥 TOUCH HANDLERS (HANYA SATU VERSI, TIDAK DUPILIKASI)
+  const handleTouchStart = useCallback((e) => {
+    if (modalRef.current?.scrollTop <= 0) {
+      setIsDragging(true);
+      setStartY(e.touches[0].clientY);
     }
-  };
-  
-  const handleTouchMove = (e) => {
+  }, []);
+
+  const handleTouchMove = useCallback((e) => {
     if (!isDragging) return;
     const diff = e.touches[0].clientY - startY;
-    if (diff > 0) { 
-      e.preventDefault(); 
-      setTranslateY(Math.min(diff, 150)); 
+    if (diff > 0) {
+      e.preventDefault();
+      setTranslateY(Math.min(diff, 200)); // batas maksimal 200px
     }
-  };
-  
-  const handleTouchEnd = () => {
-    if (isDragging) { 
-      if (translateY > 80) onClose(); 
-      else setTranslateY(0); 
-      setIsDragging(false); 
+  }, [isDragging, startY]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (isDragging) {
+      if (translateY > 50) { // threshold 100px
+        onClose();
+      } else {
+        setTranslateY(0);
+      }
+      setIsDragging(false);
     }
-  };
+  }, [isDragging, translateY, onClose]);
   
-  // 🔥 REVISI UTAMA: handleSend dengan pengiriman kentonganId
+  // handleSend
   const handleSend = useCallback(async (customMessage) => {
     const msg = (customMessage || input).trim();
     if (!msg) return;
@@ -145,13 +142,11 @@ ${content}
     setIsTyping(true);
     
     try {
-      // Kirim data yang sesuai dengan API chat yang sudah dibuat
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: msg,
-          // 🔥 KIRIM KENTONGAN ID AGAR API BISA AMBIL DATA LENGKAP
           kentonganId: kentongan?.id,
           modalType: 'kentongan',
           tempat: {
@@ -189,7 +184,11 @@ ${content}
       <div
         ref={modalRef}
         className={`relative w-full max-w-md h-full sm:h-[90vh] ${theme?.card || 'bg-white'} rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col`}
-        style={{ transform: `translateY(${translateY}px)`, transition: isDragging ? "none" : "transform 0.3s ease-out" }}
+        style={{ 
+          transform: `translateY(${translateY}px)`, 
+          transition: isDragging ? "none" : "transform 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.1)",  
+          touchAction: isDragging ? "none" : "auto" 
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}

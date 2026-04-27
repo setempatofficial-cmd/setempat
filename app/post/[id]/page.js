@@ -369,7 +369,7 @@ function PostDetailContent({ id }) {
             onOpenUpload={() => setShowUploadModal(true)}
             onOpenLaporanForm={() => setShowFormLaporan(true)}
             onOpenNotification={() => router.push("/woro")}
-            onOpenProfile={() => router.push("/rewang")}            
+            onOpenProfile={() => router.push("/peken")}            
           />
 
           <UploadModal

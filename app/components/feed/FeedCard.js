@@ -11,12 +11,14 @@ import StatusIsland from "./StatusIsland";
 import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
 import AIButton from "@/components/AIButton";
+import ImmersiveLightbox from "@/components/ImmersiveLightbox";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
 import { getCategoryStyle } from "@/lib/feedStyles";
+
 
 // ==================== ANIMATION CONSTANTS ====================
 const PING_ANIM = {
@@ -83,7 +85,12 @@ function FeedCard({
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
 
+    // --- Hooks ---
+  const { user } = useAuth();
+  const theme = useTheme();
+
   const catStyle = getCategoryStyle(safeItem.category);
+  const cardBgClass = catStyle.bg || (theme.isMalam ? 'bg-[#0f172a]' : 'bg-white');
 
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
@@ -92,6 +99,11 @@ function FeedCard({
   
   
   // --- State ---
+
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxItems, setLightboxItems] = useState([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
   const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -104,9 +116,9 @@ function FeedCard({
   const laporanTerbaru = localLaporanWarga[0];
   const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
-  // --- Hooks ---
-  const { user } = useAuth();
-  const theme = useTheme();
+
+
+
 
   // OPTIMIZED: Update jam setiap menit (bukan setiap detik)
   const [currentTime, setCurrentTime] = useState(() => {
@@ -217,6 +229,19 @@ function FeedCard({
   }, [localLaporanWarga, externalSignals]);
 
   // --- Callbacks ---
+
+  const handlePhotoClick = useCallback((photos, currentIndex) => {
+  const items = photos.map(p => ({
+    url: p.url,
+    caption: p.caption,
+    created_at: p.created_at,
+  }));
+  setLightboxItems(items);
+  setLightboxIndex(currentIndex);
+  setIsLightboxOpen(true);
+}, []);
+
+
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
     setIsSesuai(true);
@@ -277,14 +302,20 @@ function FeedCard({
       className="relative mb-3 sm:mb-4 w-full will-change-transform feed-card"
       style={{ isolation: "isolate" }}
     >
-      <motion.div
-        layout
-        layoutId={`card-container-${safeItem.id}`}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        className={`relative overflow-visible ${theme.card} ${catStyle.bg} ${catStyle.border} ${cardBorderClass} flex flex-col transition-all duration-300`}
-      >
+     <motion.div
+  layout
+  layoutId={`card-container-${safeItem.id}`}
+  initial={{ opacity: 0 }}
+  whileInView={{ opacity: 1 }}
+  viewport={{ once: true }}
+  className={`
+    relative overflow-hidden
+    ${catStyle.border}      /* Border kategori agar tetap terlihat */
+    ${cardBgClass}
+    flex flex-col 
+    transition-all duration-300
+    ${cardBorderClass}   
+  `}>
         {/* Header - Responsive Padding */}
         <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
           <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
@@ -320,18 +351,7 @@ function FeedCard({
           />
         </div> 
 
-        {/* Headline - Responsive */}
-        <div className={`${paddingX} pb-3 sm:pb-4`}>
-          <div className={`flex items-start gap-2 sm:gap-3 p-3 sm:p-4 rounded-2xl ${theme.isMalam ? 'bg-white/[0.03]' : 'bg-black/[0.03]'} border ${theme.isMalam ? 'border-white/5' : 'border-black/5'}`}>
-            <div className={`w-1 self-stretch rounded-full ${safeItem.isViral ? 'bg-red-500' : catStyle.accent} opacity-60`} />
-            <h2 className={`text-[11px] sm:text-[13px] font-bold italic tracking-tight leading-relaxed ${theme.text} flex-1`}>
-              "{headline}"
-            </h2>
-            <span className={`font-mono ${textSize} font-bold ${theme.text} opacity-30 pt-0.5 sm:pt-1`}>
-              {currentHour}:{currentMinute}
-            </span>
-          </div>
-        </div>
+        
 
         {/* Media Section - IMPROVED ASPECT RATIO */}
         <div className="px-2 sm:px-3 mb-2 sm:mb-3">
@@ -357,52 +377,10 @@ function FeedCard({
                 }
               }}
               onUploadSuccess={handleUploadSuccess}
+              onPhotoClick={handlePhotoClick} 
             />
 
-            {/* Validation Stamp */}
-            <div className={`absolute ${isNarrow ? 'bottom-3 left-3' : 'bottom-4 left-4'} z-50`}>
-              <AnimatePresence mode="wait">
-                {!isSesuai ? (
-                  <motion.button
-                    key="stamp-btn"
-                    onClick={handleSesuai}
-                    whileHover={{ scale: 1.05, backgroundColor: "rgba(0,0,0,0.8)" }}
-                    whileTap={{ scale: 0.9 }}
-                    className="group flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/20 text-white shadow-2xl transition-all"
-                  >
-                    <div className="relative flex items-center justify-center">
-                      <div className="absolute inset-0 bg-white/20 rounded-full animate-ping opacity-30" />
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center bg-white text-black text-[9px]">
-                        <motion.span animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-                          ✔️
-                        </motion.span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col text-left leading-none">
-                      <span className="text-[9px] font-black uppercase tracking-[0.1em]">Sesuai?</span>
-                      <span className="text-[7px] font-bold opacity-50 mt-0.5">{totalSaksi} Saksi</span>
-                    </div>
-                  </motion.button>
-                ) : (
-                  <motion.div
-                    key="sah-stamp"
-                    initial={{ scale: 0.8, opacity: 0, x: -10 }}
-                    animate={{ scale: 1, opacity: 1, x: 0 }}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-emerald-500/30 backdrop-blur-xl border border-emerald-400/40 text-emerald-50 shadow-lg"
-                  >
-                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </div>
-                    <div className="flex flex-col text-left leading-none">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em]">TERVERIFIKASI</span>
-                      <span className="text-[7px] font-bold text-emerald-200/80 mt-0.5">Oleh {totalSaksi} Warga</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            
 
             {/* Story Circle */}
             <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
@@ -413,18 +391,6 @@ function FeedCard({
                 theme={theme}
                 openStoryModal={handleOpenStoryModal}
                 onRefreshNeeded={handleLocalRefresh}
-              />
-            </div>
-
-            {/* Feed Actions */}
-            <div className={`absolute ${isNarrow ? 'right-1.5 top-2' : 'right-2 sm:right-3 top-3 sm:top-4'} z-50`}>
-              <FeedActions
-                item={{ ...safeItem, activePhoto: photoUrls[currentPhotoIndex] }}
-                comments={comments}
-                openKomentarModal={openKomentarModal}
-                onShare={onShare}
-                variant="floating-sidebar"
-                theme={theme}
               />
             </div>
           </div>
@@ -497,6 +463,28 @@ function FeedCard({
           namaTempat={safeItem.name}
         />
       </motion.div>
+
+       {/* ✅ LIGHTBOX */}
+      <ImmersiveLightbox
+  items={lightboxItems}
+  initialIndex={lightboxIndex}
+  isOpen={isLightboxOpen}
+  onClose={() => setIsLightboxOpen(false)}
+  tempatId={safeItem.id}
+  namaTempat={safeItem.name}
+  comments={comments}
+  openKomentarModal={openKomentarModal}
+  onShare={onShare}
+  theme={theme}
+  isSesuai={isSesuai}
+  totalSaksi={totalSaksi}
+  onSesuaiClick={handleSesuai}
+  headline={headline}
+  currentHour={currentHour}
+  currentMinute={currentMinute}
+  isViral={safeItem.isViral}
+  catStyle={catStyle}
+/>
     </div>
   );
 }

@@ -1347,8 +1347,8 @@ useEffect(() => {
                             openKomentarModal={openKomentarModal}
                             onShare={handleShare}
                             priority={isPriority}
-							preloadNext={isNearby}
-						    shouldRender={isNearViewport}
+			    preloadNext={isNearby}
+			    shouldRender={isNearViewport}
                           />
                         </FeedCardWrapper>
                       </motion.div>

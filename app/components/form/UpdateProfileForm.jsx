@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { 
   Save, User, MapPin, Briefcase, Phone, AtSign, 
-  Clock, ShieldCheck, Info, Camera, CheckCircle, XCircle, Clock as ClockIcon, Calendar,
+  Clock, ShieldCheck, Info, Camera, CheckCircle, XCircle, Calendar,
   Navigation, Loader2, Edit2
 } from "lucide-react";
 
@@ -19,7 +19,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   const [originalUsername, setOriginalUsername] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
-  const [ktpStatus, setKtpStatus] = useState("belum_mengajukan");
   const [avatarPreview, setAvatarPreview] = useState("");
   const [avatarFile, setAvatarFile] = useState(null);
   const [usiaError, setUsiaError] = useState("");
@@ -32,7 +31,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     username: "",
     full_name: "",
     usia: "",
-    whatsapp: "",
+    phone: "",
     alamat: "",
     desa: "",
     kecamatan: "",
@@ -51,17 +50,14 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     return { canChange, daysLeft };
   };
 
-  // 🔥 FUNGSI GEOCODING (Alamat → Koordinat)
+  // Geocoding
   const geocodeAddress = async (alamat, desa, kecamatan, kabupaten) => {
     try {
       const fullAddress = `${alamat}, ${desa}, ${kecamatan}, ${kabupaten}, Indonesia`;
-      console.log("📍 Geocoding address:", fullAddress);
-      
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`
       );
       const data = await response.json();
-      
       if (data && data[0]) {
         return {
           latitude: parseFloat(data[0].lat),
@@ -81,14 +77,12 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`
       );
       const data = await response.json();
-      
       if (data && data.address) {
-        const address = data.address;
         return {
           alamat: data.display_name?.split(",")[0] || "",
-          desa: address.village || address.hamlet || address.suburb || "",
-          kecamatan: address.county || address.district || "",
-          kabupaten: address.city || address.town || address.municipality || "",
+          desa: data.address.village || data.address.hamlet || data.address.suburb || "",
+          kecamatan: data.address.county || data.address.district || "",
+          kabupaten: data.address.city || data.address.town || data.address.municipality || "",
         };
       }
       return null;
@@ -111,7 +105,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        
         const address = await reverseGeocode(latitude, longitude);
         
         if (address) {
@@ -129,27 +122,14 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         } else {
           setLocationError("Gagal mendapatkan alamat, coba lagi");
         }
-        
         setIsGettingLocation(false);
       },
       (error) => {
         console.error("GPS Error:", error);
-        switch(error.code) {
-          case error.PERMISSION_DENIED:
-            setLocationError("Izin lokasi ditolak. Aktifkan GPS di browser.");
-            break;
-          case error.POSITION_UNAVAILABLE:
-            setLocationError("Lokasi tidak tersedia. Coba lagi.");
-            break;
-          case error.TIMEOUT:
-            setLocationError("Waktu habis. Coba lagi.");
-            break;
-          default:
-            setLocationError("Gagal mendapatkan lokasi.");
-        }
+        setLocationError("Gagal mendapatkan lokasi. Aktifkan GPS.");
         setIsGettingLocation(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
@@ -165,14 +145,11 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     
     if (!error && data) {
       const currentUsername = data.username || "";
-      const status = data.ktp_status || "belum_mengajukan";
-      
-      setKtpStatus(status);
       setFormData({
         username: currentUsername,
         full_name: data.full_name || profile?.user_metadata?.full_name || "",
         usia: data.usia || "",
-        whatsapp: data.whatsapp || "",
+        phone: data.phone || data.whatsapp || "",
         alamat: data.alamat || "",
         desa: data.desa || "",
         kecamatan: data.kecamatan || "",
@@ -180,30 +157,12 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         latitude: data.latitude || null,
         longitude: data.longitude || null,
       });
-      
       setAvatarPreview(data.avatar_url || profile?.user_metadata?.avatar_url || "");
       setOriginalUsername(currentUsername);
       
       const { canChange, daysLeft } = checkUsernameChangePermission(data.last_username_change);
       setUsernameLocked(!canChange);
       setDaysRemaining(daysLeft);
-      
-      if (currentUsername) {
-        setUsernameAvailable(true);
-        const isDefaultUsername = currentUsername === "user" || 
-                                   currentUsername?.startsWith("user") ||
-                                   (data.email && currentUsername === data.email.split("@")[0]);
-        setShowInfo(isDefaultUsername);
-      }
-    } else {
-      const currentUsername = profile.username || "";
-      setFormData(prev => ({ 
-        ...prev, 
-        username: currentUsername,
-        full_name: profile?.full_name || profile?.user_metadata?.full_name || "",
-      }));
-      setAvatarPreview(profile?.user_metadata?.avatar_url || "");
-      setOriginalUsername(currentUsername);
     }
     
     setIsLoadingProfile(false);
@@ -223,7 +182,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     if (username === originalUsername) {
       setUsernameError("");
       setUsernameAvailable(true);
-      setShowInfo(false);
       return true;
     }
 
@@ -262,7 +220,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
 
     setUsernameError("");
     setUsernameAvailable(true);
-    setShowInfo(false);
     return true;
   };
 
@@ -306,20 +263,15 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
 
   const uploadAvatar = async (userId) => {
     if (!avatarFile) return null;
-    
     const fileExt = avatarFile.name.split('.').pop();
     const fileName = `${userId}/avatar.${fileExt}`;
-    
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(fileName, avatarFile, { upsert: true });
-    
     if (uploadError) throw uploadError;
-    
     const { data: { publicUrl } } = supabase.storage
       .from('avatars')
       .getPublicUrl(fileName);
-    
     return publicUrl;
   };
 
@@ -340,13 +292,12 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       alert("Minimal usia 17 tahun");
       return;
     }
-    if (!formData.whatsapp) {
+    if (!formData.phone) {
       alert("Nomor WhatsApp wajib diisi");
       return;
     }
     
-    
-    // 🔥 WAJIB PAKAI GPS ATAU GEOCODING
+    // Lokasi wajib untuk estimasi ongkir
     if (!formData.latitude || !formData.longitude) {
       if (!formData.alamat || !formData.desa || !formData.kabupaten) {
         alert("Silakan klik 'Gunakan Lokasi Saya' untuk mengisi lokasi");
@@ -378,7 +329,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       let latitude = formData.latitude;
       let longitude = formData.longitude;
 
-      // 🔥 Jika tidak punya koordinat tapi ada alamat, lakukan geocoding
       if ((!latitude || !longitude) && formData.alamat && formData.desa && formData.kabupaten) {
         const coords = await geocodeAddress(
           formData.alamat,
@@ -389,15 +339,13 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         if (coords) {
           latitude = coords.latitude;
           longitude = coords.longitude;
-          console.log("📍 Geocoding success:", coords);
         } else {
-          alert("Gagal mendapatkan koordinat dari alamat. Silakan klik 'Gunakan Lokasi Saya'");
+          alert("Gagal mendapatkan koordinat. Silakan klik 'Gunakan Lokasi Saya'");
           setLoading(false);
           return;
         }
       }
 
-      // Validasi final koordinat
       if (!latitude || !longitude) {
         alert("Lokasi tidak valid. Silakan klik 'Gunakan Lokasi Saya'");
         setLoading(false);
@@ -407,7 +355,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       const updateData = {
         full_name: formData.full_name,
         usia: parseInt(formData.usia),
-        whatsapp: formData.whatsapp,
+        phone: formData.phone,
         alamat: formData.alamat,
         desa: formData.desa,
         kecamatan: formData.kecamatan,
@@ -424,26 +372,13 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         updateData.username_change_count = (profile.username_change_count || 0) + 1;
       }
 
-      if (ktpStatus === "belum_mengajukan" || ktpStatus === "ditolak") {
-        updateData.ktp_status = "menunggu";
-        updateData.ktp_submitted_at = new Date().toISOString();
-      }
-
       const { error } = await supabase
         .from("profiles")
         .update(updateData)
         .eq("id", profile.id);
 
       if (!error) {
-        if (ktpStatus === "belum_mengajukan") {
-          alert("✅ Pengajuan KTP Digital berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
-        } else if (ktpStatus === "ditolak") {
-          alert("✅ Pengajuan ulang berhasil dikirim! Menunggu verifikasi Petinggi Setempat.");
-        } else if (isUsernameChanged) {
-          alert("✅ Username berhasil diubah!");
-        } else {
-          alert("✅ Data profil berhasil disimpan!");
-        }
+        alert("✅ Profil berhasil disimpan!");
         onSaveSuccess?.();
         fetchProfile();
       } else {
@@ -456,32 +391,8 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     }
   };
 
-  const StatusBadge = () => {
-    const statusConfig = {
-      belum_mengajukan: { text: "BELUM MENGAJUKAN", color: "bg-gray-500/20 text-gray-400", icon: <Info size={10} /> },
-      menunggu: { text: "MENUNGGU VERIFIKASI", color: "bg-yellow-500/20 text-yellow-400", icon: <ClockIcon size={10} /> },
-      aktif: { text: "KTP AKTIF", color: "bg-green-500/20 text-green-400", icon: <CheckCircle size={10} /> },
-      ditolak: { text: "DITOLAK", color: "bg-red-500/20 text-red-400", icon: <XCircle size={10} /> },
-    };
-    const config = statusConfig[ktpStatus] || statusConfig.belum_mengajukan;
-    
-    return (
-      <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-bold ${config.color}`}>
-        {config.icon}
-        <span>{config.text}</span>
-      </div>
-    );
-  };
-
-  const isFormDisabled = ktpStatus === "menunggu";
-  const isNewSubmission = ktpStatus === "belum_mengajukan";
-
-  const getButtonText = () => {
-    if (loading) return "PROSES...";
-    if (isNewSubmission) return "AJUKAN KTP DIGITAL";
-    if (ktpStatus === "ditolak") return "AJUKAN ULANG";
-    return "SIMPAN PERUBAHAN";
-  };
+  // Cek apakah sudah ada lokasi
+  const hasLocation = formData.alamat || formData.desa || formData.kabupaten;
 
   const baseInputClass = `w-full pl-10 pr-4 py-2.5 rounded-xl border transition-all outline-none text-sm`;
   const inputClass = `${baseInputClass} ${isMalam
@@ -492,19 +403,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     ? "bg-black/30 border-white/5 text-white/40"
     : "bg-slate-100 border-slate-200 text-slate-400"
   }`;
-  const inputErrorClass = `${baseInputClass} border-red-500 ${isMalam ? "bg-red-500/10 text-red-200" : "bg-red-50 text-red-900"}`;
-
-  const getUsernameClass = () => {
-    if (isFormDisabled) return inputDisabledClass;
-    if (usernameLocked && formData.username === originalUsername) return inputDisabledClass;
-    return usernameError ? inputErrorClass : inputClass;
-  };
-
-  const getPlaceholder = () => {
-    if (isLoadingProfile) return "Memuat...";
-    if (originalUsername) return `@${originalUsername}`;
-    return "Username Unik";
-  };
 
   if (isLoadingProfile) {
     return (
@@ -518,8 +416,6 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     );
   }
 
-  const hasLocation = formData.alamat || formData.desa || formData.kabupaten;
-
   return (
     <div className={`w-full max-w-[400px] p-5 rounded-2xl border backdrop-blur-xl
       ${isMalam ? "bg-slate-950/90 border-white/10" : "bg-white border-slate-200 shadow-xl"}`}>
@@ -527,14 +423,17 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className={`text-base font-bold ${isMalam ? "text-white" : "text-slate-900"}`}>
-            {isNewSubmission ? "AJUKAN KTP DIGITAL" : "PROFIL WARGA"}
+            Profil Warga
           </h3>
           <p className={`text-[8px] font-semibold uppercase tracking-wider mt-0.5
             ${isMalam ? "text-orange-500/60" : "text-orange-600"}`}>
             SETEMPAT.ID
           </p>
         </div>
-        <StatusBadge />
+        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-bold bg-green-500/10 text-green-500`}>
+          <CheckCircle size={10} />
+          <span>Aktif</span>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-3">
@@ -549,19 +448,17 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
                 <User size={24} className="text-orange-500" />
               </div>
             )}
-            {!isFormDisabled && (
-              <label className="absolute -bottom-1 -right-1 p-1 rounded-full bg-orange-500 cursor-pointer shadow-lg">
-                <Camera size={10} className="text-white" />
-                <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
-              </label>
-            )}
+            <label className="absolute -bottom-1 -right-1 p-1 rounded-full bg-orange-500 cursor-pointer shadow-lg">
+              <Camera size={10} className="text-white" />
+              <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+            </label>
           </div>
           <div className="flex-1">
             <p className={`text-[9px] font-medium ${isMalam ? "text-white/60" : "text-slate-500"}`}>
               Foto Profil
             </p>
             <p className={`text-[7px] ${isMalam ? "text-white/25" : "text-slate-400"}`}>
-              {avatarPreview ? "Klik kamera untuk ganti" : "Kosongkan jika pakai foto Google"}
+              Kosongkan jika pakai foto Google
             </p>
           </div>
         </div>
@@ -571,23 +468,13 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
           <AtSign size="14" className="absolute left-3 top-2.5 text-orange-500" />
           <input
             type="text"
-            placeholder={getPlaceholder()}
+            placeholder="Username unik"
             value={formData.username}
             onChange={handleUsernameChange}
-            className={getUsernameClass()}
-            disabled={isFormDisabled || (usernameLocked && formData.username === originalUsername)}
+            className={usernameLocked && formData.username === originalUsername ? inputDisabledClass : inputClass}
+            disabled={usernameLocked && formData.username === originalUsername}
             required
           />
-          {originalUsername && !usernameError && !isCheckingUsername && !isFormDisabled && (
-            <div className="absolute right-2 top-1.5">
-              <div className={`text-[7px] font-mono px-1 py-0.5 rounded ${isMalam ? "bg-orange-500/20 text-orange-400" : "bg-orange-100 text-orange-700"}`}>
-                aktif
-              </div>
-            </div>
-          )}
-          {usernameLocked && (
-            <p className="text-[8px] mt-0.5 ml-3 text-orange-500">Ganti: {daysRemaining} hari lagi</p>
-          )}
           {usernameError && <p className="text-[8px] mt-0.5 ml-3 text-red-500">{usernameError}</p>}
         </div>
 
@@ -599,8 +486,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             placeholder="Nama Lengkap"
             value={formData.full_name}
             onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-            className={isFormDisabled ? inputDisabledClass : inputClass}
-            disabled={isFormDisabled}
+            className={inputClass}
             required
           />
         </div>
@@ -613,8 +499,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             placeholder="Usia (tahun)"
             value={formData.usia}
             onChange={handleUsiaChange}
-            className={usiaError ? inputErrorClass : (isFormDisabled ? inputDisabledClass : inputClass)}
-            disabled={isFormDisabled}
+            className={usiaError ? inputErrorClass : inputClass}
             min="17"
             max="100"
             required
@@ -628,23 +513,21 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
           <input
             type="tel"
             placeholder="Nomor WhatsApp"
-            value={formData.whatsapp}
-            onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
-            className={isFormDisabled ? inputDisabledClass : inputClass}
-            disabled={isFormDisabled}
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            className={inputClass}
             required
           />
         </div>
 
         {/* LOKASI SECTION */}
         <div className="space-y-2">
-          {/* Tombol GPS */}
           <button
             type="button"
             onClick={getCurrentLocation}
-            disabled={isGettingLocation || isFormDisabled}
+            disabled={isGettingLocation}
             className={`w-full py-2.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all
-              ${isGettingLocation || isFormDisabled
+              ${isGettingLocation
                 ? "bg-slate-700 text-white/40 cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-500 text-white shadow-md"
               }`}
@@ -657,11 +540,8 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             {isGettingLocation ? "Mendapatkan lokasi..." : "📍 Gunakan Lokasi Saya"}
           </button>
           
-          {locationError && (
-            <p className="text-[8px] text-center text-red-500">{locationError}</p>
-          )}
+          {locationError && <p className="text-[8px] text-center text-red-500">{locationError}</p>}
 
-          {/* Hasil Lokasi */}
           {hasLocation && !isEditingLocation && (
             <div className={`p-2 rounded-lg ${isMalam ? "bg-green-500/10 border border-green-500/20" : "bg-green-50 border border-green-200"}`}>
               <div className="flex items-center gap-1 mb-1">
@@ -676,150 +556,50 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
                 {formData.kecamatan && `${formData.kecamatan}, `}
                 {formData.kabupaten}
               </p>
-              {!isFormDisabled && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingLocation(true)}
-                  className="text-[8px] text-blue-500 hover:text-blue-400 flex items-center justify-center gap-1 w-full mt-1"
-                >
-                  <Edit2 size={10} />
-                  Edit manual jika tidak sesuai
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setIsEditingLocation(true)}
+                className="text-[8px] text-blue-500 hover:text-blue-400 flex items-center justify-center gap-1 w-full mt-1"
+              >
+                <Edit2 size={10} />
+                Edit manual jika tidak sesuai
+              </button>
             </div>
           )}
 
-          {/* Form Edit Manual */}
-          {isEditingLocation && !isFormDisabled && (
+          {isEditingLocation && (
             <div className="space-y-2 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
               <div className="flex items-center justify-between">
                 <p className="text-[8px] text-blue-500 font-medium">Edit lokasi manual:</p>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingLocation(false)}
-                  className="text-[8px] text-slate-400 hover:text-slate-500"
-                >
-                  ✕
-                </button>
+                <button type="button" onClick={() => setIsEditingLocation(false)} className="text-[8px] text-slate-400">✕</button>
               </div>
-              
-              <div className="relative">
-                <MapPin size="12" className="absolute left-2 top-2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Alamat (Jalan / Dusun)"
-                  value={formData.alamat}
-                  onChange={(e) => {
-                    setFormData({ ...formData, alamat: e.target.value });
-                    setIsUsingGps(false);
-                  }}
-                  className={`w-full pl-7 pr-2 py-1.5 rounded-lg border text-xs
-                    ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-900"}`}
-                />
-              </div>
-              
+              <input type="text" placeholder="Alamat" value={formData.alamat} onChange={(e) => { setFormData({ ...formData, alamat: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
               <div className="grid grid-cols-2 gap-2">
-                <div className="relative">
-                  <MapPin size="12" className="absolute left-2 top-2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Desa"
-                    value={formData.desa}
-                    onChange={(e) => {
-                      setFormData({ ...formData, desa: e.target.value });
-                      setIsUsingGps(false);
-                    }}
-                    className={`w-full pl-7 pr-2 py-1.5 rounded-lg border text-xs
-                      ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-900"}`}
-                  />
-                </div>
-                <div className="relative">
-                  <MapPin size="12" className="absolute left-2 top-2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Kecamatan"
-                    value={formData.kecamatan}
-                    onChange={(e) => {
-                      setFormData({ ...formData, kecamatan: e.target.value });
-                      setIsUsingGps(false);
-                    }}
-                    className={`w-full pl-7 pr-2 py-1.5 rounded-lg border text-xs
-                      ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-900"}`}
-                  />
-                </div>
+                <input type="text" placeholder="Desa" value={formData.desa} onChange={(e) => { setFormData({ ...formData, desa: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
+                <input type="text" placeholder="Kecamatan" value={formData.kecamatan} onChange={(e) => { setFormData({ ...formData, kecamatan: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
               </div>
-              
-              <div className="relative">
-                <MapPin size="12" className="absolute left-2 top-2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Kabupaten"
-                  value={formData.kabupaten}
-                  onChange={(e) => {
-                    setFormData({ ...formData, kabupaten: e.target.value });
-                    setIsUsingGps(false);
-                  }}
-                  className={`w-full pl-7 pr-2 py-1.5 rounded-lg border text-xs
-                    ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-900"}`}
-                />
-              </div>
-              
-              <button
-                type="button"
-                onClick={() => setIsEditingLocation(false)}
-                className="w-full py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium"
-              >
-                Selesai Edit
-              </button>
+              <input type="text" placeholder="Kabupaten" value={formData.kabupaten} onChange={(e) => { setFormData({ ...formData, kabupaten: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
+              <button type="button" onClick={() => setIsEditingLocation(false)} className="w-full py-1 rounded-lg bg-blue-600 text-white text-[10px] font-medium">Selesai</button>
             </div>
           )}
         </div>
 
-        {/* Status Message */}
-        {ktpStatus === "menunggu" && (
-          <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-            <p className={`text-[9px] text-center ${isMalam ? "text-yellow-400" : "text-yellow-600"}`}>
-              ⏳ Pengajuan sedang diverifikasi. Mohon tunggu maksimal 1x24 jam.
-            </p>
-          </div>
-        )}
-
-        {ktpStatus === "ditolak" && (
-          <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-            <p className={`text-[9px] text-center ${isMalam ? "text-red-400" : "text-red-600"}`}>
-              ❌ Pengajuan ditolak. Silakan perbaiki data dan ajukan ulang.
-            </p>
-          </div>
-        )}
-
-        {ktpStatus === "aktif" && (
-          <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20">
-            <p className={`text-[9px] text-center ${isMalam ? "text-green-400" : "text-green-600"}`}>
-              ✅ KTP Digital aktif! Anda bisa mengedit data profil.
-            </p>
-          </div>
-        )}
-
         <button
           type="submit"
-          disabled={loading || !!usernameError || !!usiaError || isFormDisabled}
+          disabled={loading || !!usernameError || !!usiaError}
           className={`w-full py-2.5 rounded-xl font-bold text-[10px] tracking-wide transition-all active:scale-95 flex items-center justify-center gap-2 mt-2
-            ${(loading || !!usernameError || !!usiaError || isFormDisabled) 
+            ${(loading || !!usernameError || !!usiaError) 
               ? "bg-slate-700 text-white/30 cursor-not-allowed" 
               : "bg-orange-600 hover:bg-orange-500 text-white shadow-md"}`}
         >
-          {loading ? (
-            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <Save size={12} />
-          )}
-          {getButtonText()}
+          {loading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={12} />}
+          {loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
         </button>
       </form>
 
       <p className={`text-[7px] text-center mt-3 ${isMalam ? "text-white/20" : "text-slate-400"}`}>
-  🔒 Data Anda aman dan hanya untuk keperluan layanan Setempat.id
-</p>
+        🔒 Data Anda aman dan hanya untuk keperluan layanan Setempat.id
+      </p>
     </div>
   );
 }
