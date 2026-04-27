@@ -3,37 +3,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowLeft, User, MapPin, MessageCircle,
-  ShoppingBag, Package, Store, Info, Star, Share2
+  ShoppingBag, Package, Store, Info, Star, Share2, 
+  ChevronRight, Heart, ShieldCheck, Sparkles
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import OrderModal from './OrderModal';
 import UlasanModal from './UlasanModal';
 
-// --- Sub-Components untuk Kebersihan Kode ---
-
-const BadgeStok = ({ ready }) => (
-  <div className={`absolute top-4 right-4 px-4 py-1.5 rounded-full text-xs font-bold shadow-md backdrop-blur-md ${
-    ready ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'
-  }`}>
-    {ready ? '● Tersedia' : '● Habis'}
-  </div>
-);
-
-const SectionTitle = ({ icon: Icon, title, color = "text-orange-500" }) => (
-  <div className="flex items-center gap-2 text-stone-800 font-bold border-b border-stone-100 pb-2 mb-3">
-    <Icon size={18} className={color} />
-    <span>{title}</span>
-  </div>
-);
-
 export default function DetailProdukModal({
-  product,
-  isOpen,
-  onClose,
-  userId,
-  onOrderSuccess,
-  locationName = 'Pasuruan',
-  autoOpenUlasan = false
+  product, isOpen, onClose, userId, onOrderSuccess,
+  locationName = 'Pasuruan', autoOpenUlasan = false
 }) {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showUlasanModal, setShowUlasanModal] = useState(false);
@@ -41,16 +20,21 @@ export default function DetailProdukModal({
   const [loadingUlasan, setLoadingUlasan] = useState(false);
   const [hasPurchased, setHasPurchased] = useState(false);
 
-  // --- Logic & Helpers ---
-
   const formatRupiah = (harga) => 
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(harga || 0);
 
   const averageRating = useMemo(() => {
     if (ulasanList.length === 0) return 0;
-    const sum = ulasanList.reduce((acc, curr) => acc + curr.rating, 0);
-    return (sum / ulasanList.length).toFixed(1);
+    return (ulasanList.reduce((acc, curr) => acc + curr.rating, 0) / ulasanList.length).toFixed(1);
   }, [ulasanList]);
+
+  const handleChat = () => {
+    const phoneNumber = product.penjual_phone;
+    if (!phoneNumber) return alert('Nomor WhatsApp tidak tersedia');
+    let cleanPhone = phoneNumber.toString().replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.substring(1);
+    window.open(`https://wa.me/${cleanPhone}?text=Halo Cak, saya tertarik dengan ${product.nama_barang}`, '_blank');
+  };
 
   const handleShareToWA = () => {
     if (!product) return;
@@ -61,38 +45,17 @@ export default function DetailProdukModal({
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  const handleChat = () => {
-    const phoneNumber = product.penjual_phone;
-    if (!phoneNumber) return alert('Nomor WhatsApp tidak tersedia');
-    let cleanPhone = phoneNumber.toString().replace(/[^0-9]/g, '');
-    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.substring(1);
-    window.open(`https://wa.me/${cleanPhone}?text=Halo, saya tertarik dengan ${product.nama_barang}`, '_blank');
-  };
-
   const fetchUlasan = useCallback(async () => {
     if (!product?.id) return;
     setLoadingUlasan(true);
-    try {
-      const { data, error } = await supabase
-        .from('ulasan')
-        .select('*')
-        .eq('produk_id', product.id)
-        .order('created_at', { ascending: false });
-      if (!error) setUlasanList(data || []);
-    } finally {
-      setLoadingUlasan(false);
-    }
+    const { data } = await supabase.from('ulasan').select('*').eq('produk_id', product.id).order('created_at', { ascending: false });
+    if (data) setUlasanList(data);
+    setLoadingUlasan(false);
   }, [product?.id]);
 
   const checkUserPurchase = useCallback(async () => {
     if (!userId || !product?.id) return;
-    const { data } = await supabase
-      .from('pesanan')
-      .select('id')
-      .eq('pembeli_id', userId)
-      .eq('produk_id', product.id)
-      .eq('status', 'selesai')
-      .maybeSingle();
+    const { data } = await supabase.from('pesanan').select('id').eq('pembeli_id', userId).eq('produk_id', product.id).eq('status', 'selesai').maybeSingle();
     setHasPurchased(!!data);
   }, [userId, product?.id]);
 
@@ -108,182 +71,172 @@ export default function DetailProdukModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[200] bg-stone-50 overflow-y-auto max-w-[450px] mx-auto shadow-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
+      <div className="fixed inset-0 z-[200] bg-stone-50 overflow-y-auto max-w-[420px] mx-auto shadow-2xl font-sans animate-in fade-in duration-300">
         
-        {/* Sticky Header */}
-        <header className="sticky top-0 bg-white/90 backdrop-blur-lg border-b border-stone-100 z-50 p-4 flex items-center justify-between">
-          <button onClick={onClose} className="p-2.5 bg-stone-100 rounded-full active:scale-90 transition-transform">
-            <ArrowLeft size={20} className="text-stone-700" />
+        {/* Nav Atas - Lebih Tipis */}
+        <nav className="fixed top-0 left-0 right-0 max-w-[450px] mx-auto z-50 flex items-center justify-between p-4 pointer-events-none">
+          <button 
+            onClick={onClose} 
+            className="p-2.5 bg-white/90 backdrop-blur-xl rounded-xl shadow-sm text-stone-800 pointer-events-auto active:scale-90 transition-all border border-stone-100"
+          >
+            <ArrowLeft size={18} />
           </button>
-          <h2 className="font-bold text-stone-800">Detail Produk</h2>
-          <button onClick={handleShareToWA} className="p-2.5 bg-emerald-50 rounded-full active:scale-90 transition-transform">
-            <Share2 size={20} className="text-emerald-600" />
+          
+          <button 
+            onClick={handleShareToWA} 
+            className="p-2.5 bg-emerald-500 rounded-xl shadow-lg shadow-emerald-200 text-white pointer-events-auto active:scale-90 transition-all border border-emerald-400"
+          >
+            <Share2 size={18} />
           </button>
-        </header>
+        </nav>
 
         <main className="pb-32">
-          {/* Hero Image */}
-          <div className="relative h-[400px] bg-stone-200">
-            {product.foto_url?.[0] ? (
-              <img src={product.foto_url[0]} alt={product.nama_barang} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-stone-400">
-                <Package size={64} strokeWidth={1} />
-                <p className="mt-2 text-sm italic">Foto belum tersedia</p>
+          {/* Hero Image - Ukuran disesuaikan agar tidak terlalu dominan */}
+          <div className="p-3 pt-16">
+            <div className="relative h-[320px] rounded-[32px] overflow-hidden shadow-xl ring-4 ring-white">
+              {product.foto_url?.[0] ? (
+                <img src={product.foto_url[0]} alt={product.nama_barang} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-stone-200 flex items-center justify-center text-stone-400">
+                  <Package size={40} />
+                </div>
+              )}
+              
+              <div className="absolute bottom-4 left-4 right-4">
+                <div className="bg-white/80 backdrop-blur-md p-3 rounded-[20px] border border-white/50 flex justify-between items-center shadow-md">
+                  <div>
+                    <p className="text-[9px] uppercase font-black tracking-widest text-stone-500 mb-0.5">Lokal {locationName}</p>
+                    <p className="text-xs font-bold text-stone-900">Produk Warga ✨</p>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
+                    product.stok_ready ? 'bg-emerald-500 text-white' : 'bg-stone-400 text-white'
+                  }`}>
+                    {product.stok_ready ? 'Ready' : 'Habis'}
+                  </div>
+                </div>
               </div>
-            )}
-            <BadgeStok ready={product.stok_ready} />
+            </div>
           </div>
 
-          {/* Product Info Card */}
-          <section className="bg-white -mt-10 relative rounded-t-[40px] p-6 shadow-sm border-t border-stone-100">
-            <div className="mb-6">
-              <h1 className="text-2xl font-extrabold text-stone-900 leading-tight mb-2">{product.nama_barang}</h1>
-              <div className="flex items-center gap-2 text-stone-500 bg-stone-50 w-fit px-3 py-1 rounded-lg">
-                <Store size={14} />
-                <span className="text-xs font-semibold uppercase tracking-wider">{locationName} Local Pride</span>
+          {/* Info Utama - Font Diturunkan */}
+          <section className="px-5 py-2">
+            <div className="flex justify-between items-start mb-3">
+              <h1 className="text-xl font-bold text-stone-900 leading-tight flex-1">
+                {product.nama_barang}
+              </h1>
+              <div className="bg-orange-50 p-1.5 rounded-lg text-orange-500">
+                <Sparkles size={16} />
               </div>
             </div>
 
-            <div className="flex items-baseline gap-2 mb-8 p-5 bg-gradient-to-r from-orange-50 to-orange-100/50 rounded-3xl border border-orange-100">
-              <span className="text-3xl font-black text-orange-600">{formatRupiah(product.harga)}</span>
-              <span className="text-orange-400 font-medium font-mono">/ {product.satuan || 'Pcs'}</span>
+            <div className="flex items-center gap-2 mb-6">
+               <div className="flex bg-yellow-400/10 px-1.5 py-0.5 rounded-md items-center gap-1">
+                  <Star size={12} fill="#facc15" className="text-yellow-400" />
+                  <span className="text-[11px] font-black text-yellow-700">{averageRating}</span>
+               </div>
+               <span className="text-stone-400 text-[11px] font-medium">{ulasanList.length} Ulasan Tetangga</span>
             </div>
 
-            {/* Seller & Location Row */}
-            <div className="grid grid-cols-1 gap-4 mb-8">
-              <div className="flex items-center gap-4 p-4 bg-white border border-stone-100 rounded-2xl hover:border-emerald-200 transition-colors">
-                <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600">
-                  <User size={24} />
-                </div>
-                <div className="flex-1">
-                  <p className="text-[10px] uppercase font-bold text-stone-400 tracking-tighter">Pemilik Usaha</p>
-                  <p className="font-bold text-stone-800 line-clamp-1">{product.nama_penjual || 'Warga Desa'}</p>
-                </div>
-                <button onClick={handleChat} className="p-3 bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-100 active:scale-90 transition-transform">
-                  <MessageCircle size={20} />
-                </button>
-              </div>
-
-              <div className="flex items-start gap-4 p-4 bg-stone-50 rounded-2xl">
-                <div className="p-2 bg-white rounded-lg text-orange-500 shadow-sm">
-                  <MapPin size={18} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-stone-800">Lokasi Pengambilan</p>
-                  <p className="text-xs text-stone-500 leading-relaxed mt-0.5">{product.ancer_ancer || `Area ${locationName}`}</p>
+            {/* Price Card - Lebih Slim */}
+            <div className="bg-stone-900 rounded-[24px] p-4 text-white flex justify-between items-center shadow-lg">
+              <div>
+                <p className="text-stone-500 text-[9px] uppercase font-bold tracking-widest mb-0.5">Harga Terbaik</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black">{formatRupiah(product.harga)}</span>
+                  <span className="text-stone-500 font-medium text-[10px]">/ {product.satuan || 'Pcs'}</span>
                 </div>
               </div>
+              <button 
+                onClick={() => setShowOrderModal(true)} 
+                className="bg-white text-stone-900 h-10 px-5 rounded-xl font-black text-[11px] active:scale-95 transition-transform"
+              >
+                BELI
+              </button>
             </div>
+          </section>
 
-            {/* Description Section */}
-            <div className="mb-10">
-              <SectionTitle icon={Info} title="Cerita Produk" />
-              <p className="text-stone-600 text-sm leading-relaxed bg-stone-50/50 p-4 rounded-2xl italic border border-dashed border-stone-200">
-                "{product.deskripsi || 'Produk unggulan hasil karya tangan warga lokal yang dijamin kualitas dan keasliannya.'}"
+          {/* Bento Grid - Ukuran Font & Icon Diperkecil */}
+          <section className="px-5 mt-6 grid grid-cols-2 gap-3">
+            <div className="col-span-2 bg-white p-4 rounded-[24px] border border-stone-100 shadow-sm">
+              <div className="flex items-center gap-2 mb-2 text-stone-800">
+                <Info size={16} className="text-orange-500" />
+                <span className="font-bold text-xs">Cerita Produk</span>
+              </div>
+              <p className="text-stone-500 text-xs leading-relaxed italic">
+                "{product.deskripsi || 'Kualitas asli warga lokal.'}"
               </p>
             </div>
 
-            {/* Reviews Section */}
-            <div id="kata-tetangga" className="pt-4">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="font-black text-stone-800 text-lg">Kata Tetangga</h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex text-yellow-400">
-                      <Star size={14} fill="currentColor" />
-                    </div>
-                    <span className="text-xs font-bold text-stone-500">
-                      {averageRating > 0 ? `${averageRating}/5.0` : 'Belum ada rating'} • {ulasanList.length} Ulasan
-                    </span>
-                  </div>
-                </div>
-                {hasPurchased && (
-                  <button onClick={() => setShowUlasanModal(true)} className="text-xs font-bold text-orange-600 bg-orange-50 px-4 py-2.5 rounded-full border border-orange-100 active:bg-orange-100 transition-colors">
-                    Beri Ulasan
-                  </button>
-                )}
-              </div>
+            <div className="bg-emerald-50 p-4 rounded-[24px] border border-emerald-100">
+              <User size={16} className="text-emerald-600 mb-2" />
+              <p className="text-[9px] font-bold text-emerald-800/50 uppercase">Pelapak</p>
+              <p className="text-xs font-bold text-emerald-900 truncate">{product.nama_penjual || 'Warga'}</p>
+            </div>
 
-              {/* Ulasan List Render */}
-              <div className="space-y-4">
-                {loadingUlasan ? (
-                  <div className="animate-pulse flex flex-col gap-2">
-                    <div className="h-20 bg-stone-100 rounded-2xl w-full" />
-                  </div>
-                ) : ulasanList.length === 0 ? (
-                  <div className="text-center py-10 px-6 border-2 border-dashed border-stone-100 rounded-[32px]">
-                    <p className="text-stone-400 text-sm italic">Belum ada ulasan dari warga.</p>
-                  </div>
-                ) : (
-                  ulasanList.slice(0, 3).map((ulasan) => (
-                    <div key={ulasan.id} className="p-4 rounded-3xl border border-stone-100 bg-white shadow-sm">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-stone-100 rounded-full flex items-center justify-center text-[10px] font-bold">
-                            {ulasan.nama_pembeli?.charAt(0) || 'W'}
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-stone-800">{ulasan.nama_pembeli}</p>
-                            <div className="flex text-yellow-400">
-                              {[...Array(5)].map((_, i) => (
-                                <Star key={i} size={8} fill={i < ulasan.rating ? "currentColor" : "none"} />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[9px] font-medium text-stone-400">{new Date(ulasan.created_at).toLocaleDateString('id-ID')}</span>
-                      </div>
-                      <p className="text-sm text-stone-600 leading-snug italic">"{ulasan.komentar}"</p>
+            <div className="bg-orange-50 p-4 rounded-[24px] border border-orange-100">
+              <MapPin size={16} className="text-orange-600 mb-2" />
+              <p className="text-[9px] font-bold text-orange-800/50 uppercase">Lokasi</p>
+              <p className="text-xs font-bold text-orange-900 truncate">{locationName}</p>
+            </div>
+          </section>
+
+          {/* Ulasan - Ringkas */}
+          <section id="kata-tetangga" className="px-5 mt-8">
+            <div className="flex items-center justify-between mb-4">
+               <h3 className="text-sm font-black text-stone-900 italic">Kata Tetangga</h3>
+               {hasPurchased && (
+                 <button onClick={() => setShowUlasanModal(true)} className="text-[10px] font-bold text-orange-600 bg-white px-3 py-1.5 rounded-lg border border-stone-200">
+                   Tulis Kesan
+                 </button>
+               )}
+            </div>
+            
+            <div className="space-y-3">
+              {ulasanList.length === 0 ? (
+                <p className="text-stone-400 text-[11px] italic text-center py-4 bg-stone-100 rounded-2xl">Belum ada ulasan.</p>
+              ) : (
+                ulasanList.slice(0, 2).map((u) => (
+                  <div key={u.id} className="bg-white p-3 rounded-[20px] border border-stone-100">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-bold text-[11px]">{u.nama_pembeli}</span>
+                      <span className="text-yellow-500 font-black text-[10px]">★ {u.rating}</span>
                     </div>
-                  ))
-                )}
-              </div>
+                    <p className="text-stone-500 text-[11px] italic">"{u.komentar}"</p>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         </main>
 
-        {/* Action Bottom Bar */}
-        <footer className="fixed bottom-0 left-0 right-0 max-w-[450px] mx-auto p-4 bg-white/80 backdrop-blur-xl border-t border-stone-100 flex gap-3 z-[60]">
-          <button
-            onClick={() => document.getElementById('kata-tetangga')?.scrollIntoView({ behavior: 'smooth' })}
-            className="flex flex-col items-center justify-center w-20 aspect-square bg-stone-50 text-stone-600 rounded-2xl border border-stone-200 active:scale-95 transition-all"
-          >
-            <Star size={20} className={averageRating > 0 ? "text-yellow-500" : "text-stone-300"} fill={averageRating > 0 ? "currentColor" : "none"} />
-            <span className="text-[9px] font-black mt-1 uppercase">Rating</span>
-          </button>
-
-          <button
-            onClick={() => product.stok_ready && setShowOrderModal(true)}
-            disabled={!product.stok_ready}
-            className={`flex-1 rounded-2xl font-black flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95 ${
-              product.stok_ready 
-                ? 'bg-orange-600 text-white shadow-orange-200 hover:bg-orange-700' 
-                : 'bg-stone-300 text-stone-500 cursor-not-allowed shadow-none'
-            }`}
-          >
-            <ShoppingBag size={20} />
-            <span className="tracking-wide">{product.stok_ready ? 'PESAN SEKARANG' : 'STOK HABIS'}</span>
-          </button>
+        {/* Footer - Lebih Slim & Ergonomis */}
+        <footer className="fixed bottom-4 left-4 right-4 max-w-[418px] mx-auto z-[70]">
+          <div className="bg-white/80 backdrop-blur-2xl p-2.5 rounded-[24px] shadow-2xl border border-white flex gap-2 ring-1 ring-black/5">
+            <button 
+              onClick={handleChat}
+              className="w-12 h-12 bg-emerald-500 text-white rounded-xl flex items-center justify-center shadow-lg active:scale-90 transition-all"
+            >
+              <MessageCircle size={20} />
+            </button>
+            
+            <button 
+              disabled={!product.stok_ready}
+              onClick={() => setShowOrderModal(true)}
+              className={`flex-1 rounded-xl font-bold text-[11px] tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                product.stok_ready 
+                ? 'bg-stone-900 text-white shadow-xl' 
+                : 'bg-stone-200 text-stone-400'
+              }`}
+            >
+              <ShoppingBag size={16} />
+              {product.stok_ready ? 'AMBIL SEKARANG' : 'STOK HABIS'}
+            </button>
+          </div>
         </footer>
       </div>
 
-      {/* Modals */}
-      <OrderModal 
-        isOpen={showOrderModal} 
-        onClose={() => setShowOrderModal(false)} 
-        product={product} 
-        userId={userId} 
-        onOrderSuccess={onOrderSuccess} 
-        onCloseParent={onClose} 
-      />
-      <UlasanModal 
-        isOpen={showUlasanModal} 
-        onClose={() => setShowUlasanModal(false)} 
-        product={product} 
-        userId={userId} 
-        onSuccess={fetchUlasan} 
-      />
+      <OrderModal isOpen={showOrderModal} onClose={() => setShowOrderModal(false)} product={product} userId={userId} onOrderSuccess={onOrderSuccess} onCloseParent={onClose} />
+      <UlasanModal isOpen={showUlasanModal} onClose={() => setShowUlasanModal(false)} product={product} userId={userId} onSuccess={fetchUlasan} />
     </>
   );
 }

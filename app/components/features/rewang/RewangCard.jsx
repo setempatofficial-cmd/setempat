@@ -1,161 +1,133 @@
 "use client";
-import { useState } from "react";
 import { motion } from "framer-motion";
-import { supabase } from "@/lib/supabaseClient";
-import { useAuth } from "@/app/context/AuthContext";
 import { 
-  Star, MessageCircle, ShieldCheck, Phone, 
-  Clock, AlertTriangle, Loader2, HandHelping,
-  Package, Coffee, Info, MapPin, Heart
+  Star, ShieldCheck, MapPin, Heart, ChevronRight, 
+  HandHelping, Briefcase, MessageCircle, Navigation,
+  Award, Clock
 } from "lucide-react";
 
-export default function RewangCard({ profile, isMalam }) {
-  const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
-  const [localVibe, setLocalVibe] = useState(profile.vibe_count || 0);
-
-  // LOGIKA IDENTIFIKASI: Sangat simpel, gak perlu fetch lagi
-  const isSambatan = profile.type === 'kebutuhan'; 
+export default function RewangCard({ profile, isMalam, onClick, onChat }) {
+  const isSambatan = profile.type === 'kebutuhan';
   
-  const handleAction = async () => {
-    if (!user) return alert("Login dulu ya, Lur!");
-    
-    // Proteksi: Jasa (Rewang) wajib KTP, kalau Saling Bantu (Sambatan) bebas
-    if (!isSambatan && !profile.is_verified) {
-      return alert("⚠️ Demi keamanan, hubungi Rewang yang sudah Terverifikasi KTP (Centang Biru) dulu ya.");
-    }
-
-    setIsLoading(true);
-    try {
-      // 1. Log Transaksi (Supaya terekam di DB)
-      const tableName = isSambatan ? 'transaksi_sambatan' : 'transaksi_rewang';
-      await supabase.from(tableName).insert([{ 
-        pencari_id: user.id,
-        penyedia_id: profile.user_id || profile.id, 
-        status: 'kontak_dimulai'
-      }]);
-
-      // 2. WhatsApp Logic
-      const nomorWA = profile.whatsapp || profile.phone;
-      const cleanPhone = nomorWA.replace(/\D/g, '');
-      const formattedPhone = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone;
-      
-      const pesan = isSambatan 
-        ? `Halo ${profile.nama_pengirim}, saya lihat postingan Saling Bantu: "${profile.judul}". Saya siap bantu, Lur!`
-        : `Halo ${profile.full_name}, saya butuh jasa ${profile.profesi} dari Setempat.id.`;
-      
-      window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(pesan)}`, '_blank');
-    } catch (err) {
-      alert("Gagal memproses.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleVibe = async (e) => {
-    e.stopPropagation();
-    // Update vibe count di tabel profiles
-    const { error } = await supabase.rpc('increment_vibe', { row_id: profile.id });
-    if (!error) setLocalVibe(prev => prev + 1);
-  };
+  // Data ringkas
+  const distance = profile.distance;
+  const proyekSelesai = profile.proyek_selesai || 0;
+  const deskripsi = profile.deskripsi_jasa || profile.deskripsi;
+  
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.95 }}
-      whileInView={{ opacity: 1, scale: 1 }}
-      className={`relative w-full p-4 rounded-[30px] border-2 transition-all ${
-        isMalam ? "bg-[#0F0F0F] border-white/5 shadow-2xl" : "bg-white border-slate-50 shadow-xl shadow-slate-200/50"
+    <motion.div
+      onClick={onClick}
+      whileTap={{ scale: 0.98 }}
+      className={`group relative w-full rounded-[24px] transition-all duration-300 cursor-pointer overflow-hidden border ${
+        isMalam 
+          ? "bg-[#161616] border-white/5 shadow-2xl" 
+          : "bg-white border-stone-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
       }`}
     >
-      {/* BADGE STATUS ATAS */}
-      <div className="flex justify-between items-start mb-4">
-        <div className={`px-3 py-1 rounded-full flex items-center gap-1.5 ${
-          isSambatan ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
-        }`}>
-          {isSambatan ? <HandHelping size={12} /> : <ShieldCheck size={12} />}
-          <span className="text-[10px] font-black uppercase tracking-tighter">
-            {isSambatan ? "Bantu Warga" : "Rewang Ahli"}
-          </span>
+      {/* 1. Subtle Static Gradient (Ganti Glow Mouse agar Enteng) */}
+      <div className={`absolute top-0 right-0 w-32 h-32 blur-[40px] opacity-10 pointer-events-none transition-opacity group-hover:opacity-20 ${
+        isSambatan ? "bg-rose-500" : "bg-emerald-500"
+      }`} />
+
+      <div className="relative p-4 z-10">
+        {/* TOP SECTION */}
+        <div className="flex justify-between items-start mb-3">
+          <div className="flex gap-3 items-center">
+            <div className="relative">
+              <img
+                src={profile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.id}`}
+                className={`w-12 h-12 rounded-2xl object-cover ring-2 ${
+                  isMalam ? "ring-white/5 bg-stone-800" : "ring-stone-50 bg-stone-100"
+                }`}
+                alt="avatar"
+                loading="lazy" // Penting untuk performa
+              />
+              {profile.is_verified && (
+                <div className="absolute -right-1 -bottom-1 bg-blue-500 p-0.5 rounded-full ring-2 ring-[#161616]">
+                  <ShieldCheck size={8} className="text-white" strokeWidth={3} />
+                </div>
+              )}
+            </div>
+            
+            <div>
+              <h3 className={`text-[14px] font-black leading-tight tracking-tight ${isMalam ? "text-stone-100" : "text-stone-900"}`}>
+                {isSambatan ? profile.judul : (profile.full_name || profile.display_name)}
+              </h3>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`text-[9px] font-bold uppercase tracking-wider ${isSambatan ? "text-rose-400" : "text-emerald-500"}`}>
+                  {isSambatan ? "Sambatan" : profile.profesi || "Rewang"}
+                </span>
+                {!isSambatan && (
+                  <div className="flex items-center gap-0.5 text-amber-500 font-bold text-[10px]">
+                    <Star size={10} fill="currentColor" />
+                    <span>{profile.rating_rewang || "5.0"}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-end gap-1.5">
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${isMalam ? "bg-white/5" : "bg-stone-50"}`}>
+              <Heart size={10} className="fill-rose-500 text-rose-500" />
+              <span className={`text-[10px] font-black ${isMalam ? "text-white" : "text-stone-800"}`}>
+                {profile.vibe_count || 0}
+              </span>
+            </div>
+          </div>
         </div>
 
-        <button onClick={handleVibe} className="flex items-center gap-1 group">
-          <div className="p-1.5 rounded-full bg-orange-500/10 group-active:scale-150 transition-all">
-            <Heart size={12} className="text-orange-500 fill-orange-500" />
-          </div>
-          <span className="text-[11px] font-black text-orange-500">{localVibe}</span>
-        </button>
-      </div>
+        {/* MIDDLE SECTION: Description */}
+        {deskripsi && (
+          <p className={`text-[11px] leading-[1.4] line-clamp-2 mb-3 opacity-80 ${isMalam ? "text-stone-400" : "text-stone-500"}`}>
+            {deskripsi}
+          </p>
+        )}
 
-      <div className="flex gap-4">
-        {/* AVATAR SECTION */}
-        <div className="relative shrink-0">
-          <div className={`w-16 h-16 rounded-[22px] overflow-hidden border-2 ${
-            isSambatan ? "border-red-500/20" : "border-blue-500/20"
-          }`}>
-            <img 
-              src={profile.avatar_url || profile.avatar_pengirim || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.id}`} 
-              className="w-full h-full object-cover" 
-            />
+        {/* META INFO GRID */}
+        <div className="flex flex-wrap gap-3 mb-4 border-y border-white/5 py-2.5">
+          <div className="flex items-center gap-1">
+            <Navigation size={10} className="text-stone-400" />
+            <span className={`text-[10px] font-bold ${isMalam ? "text-stone-300" : "text-stone-600"}`}>{distance} km</span>
           </div>
-          {profile.is_verified && (
-            <div className="absolute -top-1 -right-1 bg-blue-500 p-1 rounded-full text-white shadow-lg">
-              <ShieldCheck size={10} strokeWidth={3} />
+          <div className="flex items-center gap-1">
+            <MapPin size={10} className="text-stone-400" />
+            <span className={`text-[10px] font-medium ${isMalam ? "text-stone-400" : "text-stone-500"}`}>{profile.desa || "Pasuruan"}</span>
+          </div>
+          {!isSambatan && proyekSelesai > 0 && (
+            <div className="flex items-center gap-1">
+              <Award size={10} className="text-emerald-500" />
+              <span className="text-[10px] font-bold text-emerald-500">{proyekSelesai} Job</span>
             </div>
           )}
         </div>
 
-        {/* INFO SECTION */}
-        <div className="flex-1 min-w-0">
-          <h3 className={`text-[15px] font-black leading-none mb-1 truncate ${isMalam ? "text-white" : "text-slate-900"}`}>
-            {isSambatan ? profile.judul : (profile.full_name || profile.display_name)}
-          </h3>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-            {isSambatan ? `oleh ${profile.nama_pengirim}` : profile.profesi}
-          </p>
-          
-          <div className="mt-2 flex flex-wrap gap-2">
-             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold ${isMalam ? "bg-white/5 text-slate-400" : "bg-slate-100 text-slate-600"}`}>
-                <MapPin size={10} className="text-red-500" /> {profile.desa || profile.lokasi_detail}
-             </div>
-             {!isSambatan && (
-               <div className="flex items-center gap-1 text-[9px] font-bold text-orange-600 bg-orange-500/10 px-2 py-0.5 rounded-md">
-                 <Star size={10} fill="currentColor" /> {profile.rating_rewang || "5.0"}
-               </div>
-             )}
+        {/* FOOTER SECTION */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[8px] font-bold text-stone-500 uppercase tracking-widest mb-0.5">Estimasi Biaya</p>
+            <p className={`text-[13px] font-black ${isMalam ? "text-white" : "text-stone-900"}`}>
+              {isSambatan ? "🤝 Sukarela" : (profile.estimasi_biaya ? `Rp ${parseInt(profile.estimasi_biaya).toLocaleString()}` : "💬 Nego")}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); onChat?.(profile); }}
+              className={`p-2.5 rounded-xl transition-colors active:scale-90 ${
+                isMalam 
+                  ? "bg-stone-800 text-emerald-400 hover:bg-emerald-500/20" 
+                  : "bg-stone-100 text-emerald-600 hover:bg-emerald-50"
+              }`}
+            >
+              <MessageCircle size={18} strokeWidth={2.5} />
+            </button>
+            <div className={`p-2.5 rounded-xl ${isMalam ? "bg-white text-black" : "bg-black text-white shadow-lg shadow-black/10"}`}>
+              <ChevronRight size={18} strokeWidth={3} />
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* CONTENT AREA */}
-      <div className={`mt-4 p-3 rounded-2xl ${isMalam ? "bg-white/5" : "bg-slate-50"}`}>
-        <p className={`text-[11px] leading-relaxed line-clamp-3 ${isMalam ? "text-slate-400" : "text-slate-600"}`}>
-          {isSambatan ? profile.deskripsi : profile.deskripsi_jasa}
-        </p>
-      </div>
-
-      {/* ACTION BUTTONS */}
-      <div className="mt-4 flex gap-2">
-        <button 
-          onClick={handleAction}
-          disabled={isLoading}
-          className={`flex-1 h-12 rounded-[20px] flex items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg ${
-            isSambatan 
-              ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/20" 
-              : (profile.is_verified 
-                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20" 
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed")
-          }`}
-        >
-          {isLoading ? <Loader2 size={16} className="animate-spin" /> : (
-            <><Phone size={14} fill="currentColor" /> {isSambatan ? "Bantu Sekarang" : "Hubungi Jasa"}</>
-          )}
-        </button>
-        
-        <button className={`w-12 h-12 rounded-[20px] flex items-center justify-center border-2 ${
-          isMalam ? "border-white/5 bg-white/5 text-white" : "border-slate-100 bg-white text-slate-600"
-        }`}>
-          <MessageCircle size={20} />
-        </button>
       </div>
     </motion.div>
   );

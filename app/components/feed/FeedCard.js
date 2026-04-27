@@ -19,7 +19,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
 import { getCategoryStyle } from "@/lib/feedStyles";
 
-
 // ==================== ANIMATION CONSTANTS ====================
 const PING_ANIM = {
   animate: { opacity: [0.5, 1, 0.5] },
@@ -85,21 +84,22 @@ function FeedCard({
   const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
 
-    // --- Hooks ---
+  // --- Hooks ---
   const { user } = useAuth();
   const theme = useTheme();
 
+  // ✅ FIX 1: Gunakan catStyle langsung, jangan buat cardBgClass
   const catStyle = getCategoryStyle(safeItem.category);
-  const cardBgClass = catStyle.bg || (theme.isMalam ? 'bg-[#0f172a]' : 'bg-white');
+  
+  // ✅ FIX 2: Gabungkan semua class background dengan benar
+  const cardBackgroundClass = `${catStyle.bg} ${theme.isMalam ? 'dark' : ''}`;
 
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
   const isMedium = windowWidth >= 380 && windowWidth < 640;
   
-  
   // --- State ---
-
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxItems, setLightboxItems] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -116,11 +116,7 @@ function FeedCard({
   const laporanTerbaru = localLaporanWarga[0];
   const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
-
-
-
-
-  // OPTIMIZED: Update jam setiap menit (bukan setiap detik)
+  // OPTIMIZED: Update jam setiap menit
   const [currentTime, setCurrentTime] = useState(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -130,7 +126,7 @@ function FeedCard({
     const interval = setInterval(() => {
       const now = new Date();
       setCurrentTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
-    }, 60000); // Update setiap menit
+    }, 60000);
     
     return () => clearInterval(interval);
   }, []);
@@ -144,7 +140,6 @@ function FeedCard({
   const prevLaporanRef = useRef(item?.laporan_terbaru);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
-
 
   const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
@@ -229,18 +224,16 @@ function FeedCard({
   }, [localLaporanWarga, externalSignals]);
 
   // --- Callbacks ---
-
   const handlePhotoClick = useCallback((photos, currentIndex) => {
-  const items = photos.map(p => ({
-    url: p.url,
-    caption: p.caption,
-    created_at: p.created_at,
-  }));
-  setLightboxItems(items);
-  setLightboxIndex(currentIndex);
-  setIsLightboxOpen(true);
-}, []);
-
+    const items = photos.map(p => ({
+      url: p.url,
+      caption: p.caption,
+      created_at: p.created_at,
+    }));
+    setLightboxItems(items);
+    setLightboxIndex(currentIndex);
+    setIsLightboxOpen(true);
+  }, []);
 
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
@@ -283,10 +276,11 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
+  // ✅ FIX 3: Perbaiki border class untuk konsistensi
   const cardBorderClass = useMemo(() => {
     if (safeItem.isViral) return "border-b-4 border-red-500/50";
     if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
-    return theme.isMalam ? 'border-b border-white/5' : 'border-b border-black/5';
+    return theme.isMalam ? 'border-b border-white/10' : 'border-b border-black/10';
   }, [safeItem.isViral, safeItem.isRamai, theme.isMalam]);
 
   // Responsive spacing classes
@@ -302,31 +296,34 @@ function FeedCard({
       className="relative mb-3 sm:mb-4 w-full will-change-transform feed-card"
       style={{ isolation: "isolate" }}
     >
-     <motion.div
-  layout
-  layoutId={`card-container-${safeItem.id}`}
-  initial={{ opacity: 0 }}
-  whileInView={{ opacity: 1 }}
-  viewport={{ once: true }}
-  className={`
-    relative overflow-hidden
-    ${catStyle.border}      /* Border kategori agar tetap terlihat */
-    ${cardBgClass}
-    flex flex-col 
-    transition-all duration-300
-    ${cardBorderClass}   
-  `}>
+      <motion.div
+        layout
+        layoutId={`card-container-${safeItem.id}`}
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+        className={`
+          relative overflow-hidden
+          rounded-xl sm:rounded-2xl
+          ${catStyle.border}
+          ${catStyle.bg}
+          flex flex-col 
+          transition-all duration-300
+          ${cardBorderClass}
+          shadow-sm
+        `}
+      >
         {/* Header - Responsive Padding */}
         <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
           <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
             <div className="flex flex-col gap-0.5 sm:gap-1">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className={`${textSize} font-black uppercase tracking-widest ${catStyle.text} flex items-center gap-1.5`}>
-  <span>{catStyle.icon}</span>
-  <span>{safeItem.category || 'Update Terkini'}</span>
-</span>
+                  <span>{catStyle.icon}</span>
+                  <span>{safeItem.category || 'Update Terkini'}</span>
+                </span>
                 {safeItem.isViral && (
-                   <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] sm:text-[8px] px-1.5 sm:px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
+                  <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] sm:text-[8px] px-1.5 sm:px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
                 )}
               </div>
               <h3 className={`text-[13px] sm:text-[15px] font-[1000] uppercase tracking-tight leading-tight ${theme.text}`}>
@@ -334,7 +331,7 @@ function FeedCard({
               </h3>
             </div>
 
-            <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl ${theme.isMalam ? "bg-white/5" : "bg-black/5"}`}>
+            <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl ${theme.isMalam ? "bg-white/10" : "bg-black/5"}`}>
               <p className={`${textSize} font-black ${theme.text} opacity-60 whitespace-nowrap`}>
                 📍 {distanceText}
               </p>
@@ -349,11 +346,9 @@ function FeedCard({
             setIsExpanded={setIsExpanded}
             jumlahWarga={totalSaksi}
           />
-        </div> 
+        </div>
 
-        
-
-        {/* Media Section - IMPROVED ASPECT RATIO */}
+        {/* Media Section */}
         <div className="px-2 sm:px-3 mb-2 sm:mb-3">
           <div 
             className="relative w-full rounded-[20px] sm:rounded-[24px] overflow-hidden border shadow-lg"
@@ -379,8 +374,6 @@ function FeedCard({
               onUploadSuccess={handleUploadSuccess}
               onPhotoClick={handlePhotoClick} 
             />
-
-            
 
             {/* Story Circle */}
             <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
@@ -424,7 +417,7 @@ function FeedCard({
             <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
             <span className={`
               ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
-              font-mono font-black tracking-tighter
+              font-mono font-black tracking-tighter ${catStyle.text}
             `}>
               #{String(safeItem.id).padStart(4, '0')}
             </span>
@@ -464,27 +457,27 @@ function FeedCard({
         />
       </motion.div>
 
-       {/* ✅ LIGHTBOX */}
+      {/* LIGHTBOX */}
       <ImmersiveLightbox
-  items={lightboxItems}
-  initialIndex={lightboxIndex}
-  isOpen={isLightboxOpen}
-  onClose={() => setIsLightboxOpen(false)}
-  tempatId={safeItem.id}
-  namaTempat={safeItem.name}
-  comments={comments}
-  openKomentarModal={openKomentarModal}
-  onShare={onShare}
-  theme={theme}
-  isSesuai={isSesuai}
-  totalSaksi={totalSaksi}
-  onSesuaiClick={handleSesuai}
-  headline={headline}
-  currentHour={currentHour}
-  currentMinute={currentMinute}
-  isViral={safeItem.isViral}
-  catStyle={catStyle}
-/>
+        items={lightboxItems}
+        initialIndex={lightboxIndex}
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        tempatId={safeItem.id}
+        namaTempat={safeItem.name}
+        comments={comments}
+        openKomentarModal={openKomentarModal}
+        onShare={onShare}
+        theme={theme}
+        isSesuai={isSesuai}
+        totalSaksi={totalSaksi}
+        onSesuaiClick={handleSesuai}
+        headline={headline}
+        currentHour={currentHour}
+        currentMinute={currentMinute}
+        isViral={safeItem.isViral}
+        catStyle={catStyle}
+      />
     </div>
   );
 }

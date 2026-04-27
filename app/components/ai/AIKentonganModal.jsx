@@ -1,4 +1,5 @@
-// app/components/ai/AIKentonganModal.jsx (FINAL FIXED VERSION)
+// app/components/ai/AIKentonganModal.jsx (AUTO-SCROLL SETELAH INTERAKSI SAJA)
+
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -25,6 +26,7 @@ export default function AIKentonganModal({
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
   const messageCounter = useRef(0);
+  const hasUserInteracted = useRef(false); // 🔥 FLAG untuk cek apakah user sudah interaksi
   
   const isMalam = theme?.isMalam;
   
@@ -33,7 +35,25 @@ export default function AIKentonganModal({
     return `${Date.now()}-${messageCounter.current}`;
   }, []);
   
-  
+  // 🔥 FUNGSI AUTO-SCROLL KE PESAN TERBARU (hanya jika user sudah interaksi)
+  const scrollToBottom = useCallback(() => {
+    // Hanya scroll jika user sudah pernah interaksi (mengirim pesan)
+    if (!hasUserInteracted.current) return;
+    
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ 
+          behavior: "smooth", 
+          block: "end" 
+        });
+      }
+    }, 100);
+  }, []);
+
+  // Auto-scroll setiap kali ada perubahan messages atau isTyping (tapi cek flag)
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping, scrollToBottom]);
   
   // Opening message yang adaptif (Berita vs Pengumuman)
   useEffect(() => {
@@ -41,6 +61,7 @@ export default function AIKentonganModal({
     if (hasInitialized.current) return;
     
     hasInitialized.current = true;
+    hasUserInteracted.current = false; // 🔥 RESET flag saat modal baru dibuka
 
     const { title, content, image_url, is_urgent, created_at, is_global, target_desa, target_kecamatan } = kentongan;
 
@@ -99,7 +120,7 @@ ${content}
     
   }, [isOpen, kentongan, getUniqueId]);
   
-  // 🔥 TOUCH HANDLERS (HANYA SATU VERSI, TIDAK DUPILIKASI)
+  // 🔥 TOUCH HANDLERS
   const handleTouchStart = useCallback((e) => {
     if (modalRef.current?.scrollTop <= 0) {
       setIsDragging(true);
@@ -112,13 +133,13 @@ ${content}
     const diff = e.touches[0].clientY - startY;
     if (diff > 0) {
       e.preventDefault();
-      setTranslateY(Math.min(diff, 200)); // batas maksimal 200px
+      setTranslateY(Math.min(diff, 200));
     }
   }, [isDragging, startY]);
 
   const handleTouchEnd = useCallback(() => {
     if (isDragging) {
-      if (translateY > 50) { // threshold 100px
+      if (translateY > 50) {
         onClose();
       } else {
         setTranslateY(0);
@@ -131,6 +152,9 @@ ${content}
   const handleSend = useCallback(async (customMessage) => {
     const msg = (customMessage || input).trim();
     if (!msg) return;
+    
+    // 🔥 SET FLAG bahwa user sudah mulai berinteraksi
+    hasUserInteracted.current = true;
     
     setMessages(prev => [...prev, {
       id: getUniqueId(),
