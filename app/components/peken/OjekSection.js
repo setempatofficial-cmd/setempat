@@ -101,7 +101,7 @@ export default function OjekSection({ locationName, onBack }) {
       
       {/* HEADER dengan efek scroll */}
 <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ${
-        showHeader ? 'translate-y-0' : '-translate-y-[62px]'
+        showHeader ? 'translate-y-0' : '-translate-y-[50px]'
       }`}>
         <div className="max-w-[420px] mx-auto bg-white/80 backdrop-blur-md border-b border-slate-100">
     
@@ -132,7 +132,7 @@ export default function OjekSection({ locationName, onBack }) {
 
       {/* Search Input (DI ATAS) */}
       <div className="relative group">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+        <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
         <input
           type="text"
           placeholder={serviceMode === 'passenger' ? "Cari driver ojek..." : "Cari driver untuk kirim barang..."}

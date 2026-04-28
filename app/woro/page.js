@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Loader2 } from "lucide-react";
 import WoroContent from "@/app/components/layout/woro/WoroContent";
 
 export default function WoroPage() {
@@ -41,9 +40,12 @@ export default function WoroPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col justify-center items-center min-h-screen gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
-        <p className="text-white/40 text-sm">Memuat Woro...</p>
+      <div className="flex justify-center items-center h-64">
+        <div className="relative flex items-center justify-center">
+          <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+          <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+          <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }

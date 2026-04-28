@@ -82,7 +82,7 @@ export default function DonasiSection({ locationName, onBack }) {
         </div>
       </div>
 
-      <div className="pt-36 px-6 space-y-6">
+      <div className="pt-20 px-6 space-y-6">
         
         {/* VIEW 1: DARURAT (CROWDFUNDING) */}
         {activeSubTab === 'darurat' && (

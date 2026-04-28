@@ -38,10 +38,13 @@ export default function DetailProdukModal({
 
   const handleShareToWA = () => {
     if (!product) return;
+
+    const shareUrl = `${window.location.origin}/panyangan?product=${product.id}`;
+
     const message = `*${product.nama_barang}*\n\n` +
       `💰 Harga: ${formatRupiah(product.harga)}\n` +
-      `📍 Lokasi: ${locationName}\n` +
-      `✨ Detail: ${window.location.origin}/peken?product=${product.id}`;
+      `📍 Lokasi: ${product.penjual_desa || locationName}\n` +
+      `✨ Cek Barang: ${shareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -105,7 +108,7 @@ export default function DetailProdukModal({
               <div className="absolute bottom-4 left-4 right-4">
                 <div className="bg-white/80 backdrop-blur-md p-3 rounded-[20px] border border-white/50 flex justify-between items-center shadow-md">
                   <div>
-                    <p className="text-[9px] uppercase font-black tracking-widest text-stone-500 mb-0.5">Lokal {locationName}</p>
+                    <p className="text-[9px] uppercase font-black tracking-widest text-stone-500 mb-0.5">Lokal {product.penjual_desa || locationName}</p>
                     <p className="text-xs font-bold text-stone-900">Produk Warga ✨</p>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
@@ -169,14 +172,14 @@ export default function DetailProdukModal({
 
             <div className="bg-emerald-50 p-4 rounded-[24px] border border-emerald-100">
               <User size={16} className="text-emerald-600 mb-2" />
-              <p className="text-[9px] font-bold text-emerald-800/50 uppercase">Pelapak</p>
+              <p className="text-[9px] font-bold text-emerald-800/50 uppercase">Bakul</p>
               <p className="text-xs font-bold text-emerald-900 truncate">{product.nama_penjual || 'Warga'}</p>
             </div>
 
             <div className="bg-orange-50 p-4 rounded-[24px] border border-orange-100">
               <MapPin size={16} className="text-orange-600 mb-2" />
               <p className="text-[9px] font-bold text-orange-800/50 uppercase">Lokasi</p>
-              <p className="text-xs font-bold text-orange-900 truncate">{locationName}</p>
+              <p className="text-xs font-bold text-orange-900 truncate">{product.penjual_desa || 'Desa tidak diketahui'}</p>
             </div>
           </section>
 

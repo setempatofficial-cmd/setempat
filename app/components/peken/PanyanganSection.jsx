@@ -91,7 +91,7 @@ export default function PanyanganSection({
       if (userIds.length > 0) {
         const { data, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, full_name, phone')
+          .select('id, full_name, phone, alamat, desa, kecamatan')
           .in('id', userIds);
         
         if (profilesError) throw profilesError;
@@ -104,7 +104,7 @@ export default function PanyanganSection({
         return {
           ...product,
           nama_penjual: penjual?.full_name || 'Warga',
-          penjual_phone: penjual?.phone || null
+          penjual_desa: penjual?.desa || penjual?.alamat || 'Desa tidak diketahui', 
         };
       });
       
@@ -161,7 +161,7 @@ export default function PanyanganSection({
 
       {/* HEADER & SEARCH */}
       <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ${
-        showHeader ? 'translate-y-0' : '-translate-y-[62px]'
+        showHeader ? 'translate-y-0' : '-translate-y-[50px]'
       }`}>
         <div className="max-w-[420px] mx-auto bg-white/80 backdrop-blur-md border-b border-slate-100">
           
@@ -191,10 +191,10 @@ export default function PanyanganSection({
           <div className="px-6 pb-3 space-y-3">
             {/* Search Input */}
             <div className="relative group">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
+              <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
               <input
                 type="text"
-                placeholder="Golek panganan opo kriya..."
+                placeholder="Ketik Untuk Golek Barang..."
                 className="w-full pl-9 pr-4 py-2 bg-slate-100/80 border border-transparent rounded-xl text-[11px] focus:bg-white focus:border-orange-200 focus:outline-none transition-all"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -223,7 +223,7 @@ export default function PanyanganSection({
       </div>
 
       {/* CONTENT AREA */}
-      <div className="pt-44 px-2 pb-24 max-w-[420px] mx-auto">
+      <div className="pt-30 px-2 pb-24 max-w-[420px] mx-auto">
 
         {/* SKELETON LOADING */}
         {loading && products.length === 0 ? (
@@ -250,7 +250,7 @@ export default function PanyanganSection({
               <div
                 key={product.id}
                 onClick={() => openProductDetail(product)} // 🆕 Klik card buka detail
-                className="break-inside-avoid bg-white rounded-[24px] border border-slate-100 overflow-hidden shadow-sm active:scale-[0.98] transition-all flex flex-col group cursor-pointer"
+                className="break-inside-avoid mb-2 bg-white rounded-[24px] border border-slate-100 overflow-hidden shadow-sm active:scale-[0.98] transition-all flex flex-col group cursor-pointer"
               >
                 {/* FOTO PRODUK */}
                 <div className="relative bg-slate-50 overflow-hidden">
@@ -307,7 +307,7 @@ export default function PanyanganSection({
                       <div className="flex items-center gap-0.5 mt-0.5">
                         <MapPin size={7} className="text-slate-400" />
                         <span className="text-[9px] font-bold text-slate-700 truncate max-w-[50px]">
-                          {locationName}
+                          {product.penjual_desa || 'Pasuruan'}
                         </span>
                       </div>
                     </div>
