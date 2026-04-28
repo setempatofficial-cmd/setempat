@@ -183,7 +183,14 @@ function PostDetailContent({ id }) {
     return (
       <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300`}>
         <div className="relative z-10 flex flex-col items-center justify-center min-h-screen">
-          <div className="w-10 h-10 border-3 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+          <div className="flex justify-center items-center h-64">
+  <div className="relative flex items-center justify-center">
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+    
+    <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+  </div>
+</div>
           <p className={`text-sm mt-4 ${isMalam ? 'text-white/40' : 'text-slate-400'}`}>
             Memuat konten...
           </p>

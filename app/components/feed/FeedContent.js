@@ -12,6 +12,7 @@ import { getGreeting } from "../../../lib/greeting";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useLocation } from "@/components/LocationProvider";
 
+
 import FeedCard from "./FeedCard";
 import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
@@ -98,7 +99,7 @@ const calculateHybridScore = (item, userLocation) => {
 // Global cache untuk processFeedItem
 if (typeof window !== 'undefined' && !window.__feedItemCache) {
   window.__feedItemCache = new Map();
-  window.__feedItemCacheMaxSize = 150;
+  window.__feedItemCacheMaxSize = 75;
 }
 
 const cachedProcessFeedItem = (item, locationReady, location) => {
@@ -150,8 +151,13 @@ const EmptyState = memo(({ radius, locationName, onExpandRadius }) => (
 
 const LoadingMore = memo(() => (
   <div className="flex justify-center py-8">
-    <div className="flex flex-col items-center gap-2">
-      <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+    <div className="flex flex-col items-center gap-3">
+      {/* SPINNER BARU */}
+      <div className="relative flex items-center justify-center">
+        <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+        <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+        <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+      </div>
       <p className="text-white/40 text-xs">Memuat lebih banyak...</p>
     </div>
   </div>
@@ -172,9 +178,14 @@ const PullToRefreshIndicator = memo(({ refreshing }) => (
         exit={{ y: -60, opacity: 0 }} 
         className="fixed top-0 left-0 right-0 bg-black/80 backdrop-blur-md py-3 text-center text-white/70 text-sm z-50 shadow-lg"
       >
-        <div className="flex items-center justify-center gap-2">
-          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          <span>Refresh Kondisi Setempat ...</span>
+        <div className="flex items-center justify-center gap-3">
+          {/* SPINNER BARU */}
+          <div className="relative flex items-center justify-center">
+            <div className="absolute animate-ping h-8 w-8 rounded-full bg-[#E3655B] opacity-20"></div>
+            <div className="absolute animate-ping h-8 w-8 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+            <div className="relative h-6 w-6 border-[3px] border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+          </div>
+          <span>Perbarui Setempat ...</span>
         </div>
       </motion.div>
     )}
@@ -276,26 +287,34 @@ export default function FeedContent() {
   // ========== STATE UNTUK KENTONGAN DI AI MODAL ==========
   const [selectedKentongan, setSelectedKentongan] = useState(null);
 
-    // ========== SESSION STORAGE BACKUP (AGAR TIDAK LOAD ULANG SAAT BACK) ==========
-  // SAVE ke sessionStorage setiap kali data feed berubah
-  useEffect(() => {
-    if (orderedIds.length > 0 && itemsMap.size > 0 && !initialLoad) {
-      try {
-        const itemsArray = Array.from(itemsMap.entries());
-        const backupData = {
-          itemsMap: itemsArray,
-          orderedIds: orderedIds,
-          searchRadius: searchRadius,
-          timestamp: Date.now(),
-          version: '1.0'
-        };
-        sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
-        console.log(`💾 Feed backup saved: ${orderedIds.length} items`);
-      } catch (e) {
-        console.warn('Failed to save feed backup:', e);
-      }
+    // ========== SESSION STORAGE BACKUP (OPTIMIZED) ==========
+useEffect(() => {
+  if (orderedIds.length === 0 || itemsMap.size === 0 || initialLoad) return;
+  
+  // Debounce: Tunggu 1 detik setelah perubahan terakhir
+  const timeoutId = setTimeout(() => {
+    try {
+      // ✅ Hanya backup 20 item pertama
+      const itemsToBackup = orderedIds.slice(0, 20);
+      const itemsArray = itemsToBackup.map(id => [id, itemsMap.get(id)]).filter(([, item]) => item);
+      
+      const backupData = {
+        itemsMap: itemsArray,
+        orderedIds: itemsToBackup,
+        searchRadius: searchRadius,
+        timestamp: Date.now(),
+        version: '2.0' // Update version
+      };
+      
+      sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
+      console.log(`💾 Feed backup saved: ${itemsToBackup.length} items (debounced)`);
+    } catch (e) {
+      console.warn('Failed to save feed backup:', e);
     }
-  }, [itemsMap, orderedIds, searchRadius, initialLoad]);
+  }, 1000); // ✅ Tunggu 1 detik
+  
+  return () => clearTimeout(timeoutId);
+}, [itemsMap, orderedIds, searchRadius, initialLoad]); // Dependensi tetap, tapi ada debounce
 
   // ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
   const openAIModalWithKentongan = useCallback((kentongan) => {
@@ -434,13 +453,13 @@ export default function FeedContent() {
   }, [kentonganForFeed, openAIModalWithKentongan]); 
 
   // ========== GABUNGKAN FEED CARD DAN BREAK CARD (OPTIMIZED) ==========
-const feedItemsWithBreaks = useMemo(() => {
-  if (!tempat.length) return [];
+  const LIMIT_VISIBLE = 20; 
+  const feedItemsWithBreaks = useMemo(() => {
+    if (!tempat.length) return [];
   
   // 1. Batasi hanya 50 item pertama yang disisipi Break Card
-  const limit = 50;
-  const itemsToProcess = tempat.slice(0, limit);
-  const remainingItems = tempat.slice(limit);
+  const itemsToProcess = tempat.slice(0, LIMIT_VISIBLE);
+  const remainingItems = tempat.slice(LIMIT_VISIBLE); 
   
   const result = [];
   let cardsSinceLastBreak = 0;
@@ -702,27 +721,29 @@ const resetFeed = useCallback((soft = false) => {
       setHasMore(processedItems.length === dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
       if (reset && processedItems.length > 0) {
-        const finalMap = new Map();
-        const finalIds = [];
-        for (const item of processedItems) {
-          finalMap.set(item.id, item);
-          finalIds.push(item.id);
-        }
-        cacheManager.set(cacheKey, finalMap, finalIds);
-		
-		try {
-          const itemsArray = Array.from(finalMap.entries());
-          sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
-            itemsMap: itemsArray,
-            orderedIds: finalIds,
-            searchRadius: searchRadius,
-            timestamp: Date.now(),
-            version: '1.0'
-          }));
-          console.log(`💾 Fresh feed saved to sessionStorage: ${finalIds.length} items`);
-        } catch (e) {
-          console.warn('Failed to save to sessionStorage:', e);
-        }
+  const finalMap = new Map();
+  const finalIds = [];
+  for (const item of processedItems) {
+    finalMap.set(item.id, item);
+    finalIds.push(item.id);
+  }
+  cacheManager.set(cacheKey, finalMap, finalIds);
+  
+  // ✅ SAVE KE SESSION STORAGE - HANYA 20 ITEM PERTAMA
+  try {
+    const itemsToBackup = finalIds.slice(0, 20);
+    const itemsArray = itemsToBackup.map(id => [id, finalMap.get(id)]);
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
+      itemsMap: itemsArray,
+      orderedIds: itemsToBackup,
+      searchRadius: searchRadius,
+      timestamp: Date.now(),
+      version: '2.0'
+    }));
+    console.log(`💾 Fresh feed saved to sessionStorage: ${itemsToBackup.length} items`);
+  } catch (e) {
+    console.warn('Failed to save to sessionStorage:', e);
+  }
 
         if (isLocationChange) {
           setFeedOpacity(1);
@@ -799,28 +820,36 @@ useEffect(() => {
 
 
  useEffect(() => {
-    let lastScrollY = window.scrollY;
-    
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      if (currentScrollY > lastScrollY) {
-        setScrollDirection('down');
-      } else if (currentScrollY < lastScrollY) {
-        setScrollDirection('up');
-      }
-      lastScrollY = currentScrollY;
-    };
-    
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  let lastScrollY = window.scrollY;
+  let ticking = false;
+  
+  const handleScroll = () => {
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        const currentScrollY = window.scrollY;
+        
+        // Update scroll direction
+        if (currentScrollY > lastScrollY) {
+          setScrollDirection('down');
+        } else if (currentScrollY < lastScrollY) {
+          setScrollDirection('up');
+        }
+        lastScrollY = currentScrollY;
+        
+        // Update scrolled state
+        setIsScrolled(currentScrollY > 50);
+        
+        ticking = false;
+      });
+      ticking = true;
+    }
+  };
+  
+  window.addEventListener('scroll', handleScroll, { passive: true });
+  handleScroll(); // Initial call
+  
+  return () => window.removeEventListener('scroll', handleScroll);
+}, []);
 
   // ========== DETEKSI LOKASI MATI/DINONAKTIFKAN ==========
 useEffect(() => {
@@ -991,7 +1020,7 @@ useEffect(() => {
           loadPlaces(false);
         }
       },
-      { threshold: 0.1, rootMargin: "200px" }
+      { threshold: 0.1, rootMargin: "50px" }
     );
 
     observer.observe(lastCardRef.current);
@@ -1038,7 +1067,7 @@ useEffect(() => {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-    // ========== RESTORE FROM SESSION STORAGE (INITIAL LOAD) ==========
+    // ========== RESTORE FROM SESSION STORAGE ==========
 useEffect(() => {
   const backup = sessionStorage.getItem(SESSION_CACHE_KEY);
   
@@ -1047,16 +1076,26 @@ useEffect(() => {
       const data = JSON.parse(backup);
       const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
       
-      if (data.orderedIds?.length > 0 && isFresh) {
-        setItemsMap(new Map(data.itemsMap));
-        setOrderedIds(data.orderedIds);
+      // ✅ Validasi data dan batasi jumlah
+      if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
+        // ✅ Hanya restore maksimal 20 item
+        const maxRestore = Math.min(data.orderedIds.length, 20);
+        const limitedIds = data.orderedIds.slice(0, maxRestore);
+        const limitedMap = new Map(data.itemsMap.slice(0, maxRestore));
+        
+        setItemsMap(limitedMap);
+        setOrderedIds(limitedIds);
         setInitialLoad(false);
         initialLoadDoneRef.current = true;
-        console.log(`✅ Restored ${data.orderedIds.length} items from cache`);
+        console.log(`✅ Restored ${limitedIds.length} items from cache`);
         return;
+      } else if (data.version !== '2.0') {
+        console.log('⚠️ Old cache version, clearing...');
+        sessionStorage.removeItem(SESSION_CACHE_KEY);
       }
     } catch(e) {
       console.warn('Failed to restore cache:', e);
+      sessionStorage.removeItem(SESSION_CACHE_KEY);
     }
   }
   
@@ -1304,9 +1343,9 @@ useEffect(() => {
           <EmptyState radius={searchRadius} locationName={villageLocation} onExpandRadius={handleExpandRadius} />
         ) : (
           <Suspense fallback={<SkeletonLoader />}>
-            <LayoutGroup>
+            
               <motion.div layout className="space-y-2">
-                <AnimatePresence mode="popLayout" initial={false}>
+                <AnimatePresence initial={false}>
                   {feedItemsWithBreaks.map((item, index) => {
                     if (item._isBreak) {
                       return (
@@ -1356,7 +1395,7 @@ useEffect(() => {
                   })}
                 </AnimatePresence>
               </motion.div>
-            </LayoutGroup>
+            
           </Suspense>
         )}
 
@@ -1371,14 +1410,20 @@ useEffect(() => {
             className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40"
           >
             <div className="flex flex-col items-center gap-3">
-              <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <p className="text-white/60 text-xs font-medium">Setempat Memperbarui lokasi baru...</p>
+              <div className="relative flex items-center justify-center">
+                <div className="absolute animate-ping h-14 w-14 rounded-full bg-[#E3655B] opacity-20"></div>
+                <div className="absolute animate-ping h-14 w-14 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+                <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+              </div>
+              <p className="text-white/60 text-xs font-medium">
+                Setempat memperbarui lokasi baru...
+              </p>
             </div>
           </motion.div>
         )}
       </motion.div>
 
-
+      {/* ==================== MODALS ==================== */}
       <Suspense fallback={null}>
         <SearchModal
           isOpen={showSearchModal}
@@ -1414,7 +1459,7 @@ useEffect(() => {
           isAdmin={isAdmin} 
         />
       </Suspense>
-      
+
       <SmartBottomNav 
         onOpenUpload={() => setShowUploadModal(true)}
         onOpenLaporanForm={() => setShowFormLaporan(true)}
@@ -1428,7 +1473,7 @@ useEffect(() => {
         userId={userId}
         userRole={userRole}
       />
-      
+
       <ToastMessage show={toast.show} message={toast.message} />
     </main>
   );

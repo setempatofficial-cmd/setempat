@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -18,6 +18,28 @@ import FeedActions from "@/app/components/feed/FeedActions";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import MediaRenderer from "@/components/media/MediaRenderer";
 
+// Batch get view counts
+const getBatchStoryViews = async (laporanIds) => {
+  if (!laporanIds.length) return {};
+  try {
+    const { data, error } = await supabase
+      .from("story_views")
+      .select("laporan_id")
+      .in("laporan_id", laporanIds);
+    
+    if (error) throw error;
+    
+    const counts = {};
+    data?.forEach(view => {
+      counts[view.laporan_id] = (counts[view.laporan_id] || 0) + 1;
+    });
+    return counts;
+  } catch (err) {
+    console.error("Error batch getting views:", err);
+    return {};
+  }
+};
+
 const getAvatarUrl = (report) => {
   if (report?.user_avatar) return report.user_avatar;
   const name = report?.user_name || "Warga";
@@ -29,7 +51,7 @@ export default function CitizenHub({ userId, userRole }) {
   const router = useRouter();
   const { user, isAdmin } = useAuth();
   
-  const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 500 });
+  const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 50 });
   
   const [currentIndex, setCurrentIndex] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,20 +74,42 @@ export default function CitizenHub({ userId, userRole }) {
   const scrollTimeoutRef = useRef(null);
   const isAutoScrollingRef = useRef(false);
   const recordedViewsRef = useRef(new Set());
+  const viewsLoadedRef = useRef(false);
+
+  // 🔥 FIX: Deklarasikan activeUserId di sini (paling atas setelah state)
+  const activeUserId = userId || sessionUserId;
 
   // Load dari cache
   useEffect(() => {
     const cached = sessionStorage.getItem('citizenhub_reports');
     if (cached) {
       try {
-        const { data } = JSON.parse(cached);
-        if (data?.length) setCachedReports(data);
+        const { data, timestamp } = JSON.parse(cached);
+        if (data?.length && (Date.now() - timestamp) < 5 * 60 * 1000) {
+          setCachedReports(data);
+        }
       } catch(e) {}
     }
   }, []);
 
   const displayReports = cachedReports || reports || [];
   const isActuallyLoading = loading && !cachedReports;
+
+  // Batch load view counts
+  useEffect(() => {
+    if (!displayReports.length || viewsLoadedRef.current) return;
+    
+    const loadViewCountsBatch = async () => {
+      const reportIds = displayReports.map(r => r.id).filter(Boolean);
+      if (!reportIds.length) return;
+      
+      const counts = await getBatchStoryViews(reportIds);
+      setViewCounts(counts);
+      viewsLoadedRef.current = true;
+    };
+    
+    loadViewCountsBatch();
+  }, [displayReports]);
 
   const theme = {
     isMalam: isMalam,
@@ -74,9 +118,9 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   };
 
-  // Search filter - DEFINISIKAN DI SINI (sebelum useEffect yang menggunakannya)
+  // Search filter
   const filteredReports = useMemo(() => {
-    const reportsList = reports || [];
+    const reportsList = displayReports;
     const searchLower = searchQuery.toLowerCase().trim();
     if (!searchLower) return reportsList;
     return reportsList.filter(report => {
@@ -84,89 +128,50 @@ export default function CitizenHub({ userId, userRole }) {
       const deskripsi = (report.deskripsi || "").toLowerCase();
       return tempatName.includes(searchLower) || deskripsi.includes(searchLower);
     });
-  }, [reports, searchQuery]);
+  }, [displayReports, searchQuery]);
 
-  // Fungsi untuk mendapatkan total views suatu laporan
-  const getStoryViews = async (laporanId) => {
-    try {
-      const { count, error } = await supabase
-        .from("story_views")
-        .select("id", { count: "exact", head: true })
-        .eq("laporan_id", laporanId);
-      
-      if (error) throw error;
-      return count || 0;
-    } catch (err) {
-      console.error("Error getting views:", err);
-      return 0;
-    }
-  };
-
-  // Fungsi untuk mencatat view story
-  const recordStoryView = async (laporanId) => {
+  // 🔥 FIX: Record view dengan debounce - pindahkan setelah activeUserId didefinisikan
+  const recordStoryView = useCallback(async (laporanId) => {
     if (!activeUserId) return;
     if (recordedViewsRef.current.has(laporanId)) return;
     
-    try {
-      const { data: existingView, error: checkError } = await supabase
-        .from("story_views")
-        .select("id")
-        .eq("laporan_id", laporanId)
-        .eq("user_id", activeUserId)
-        .maybeSingle();
-      
-      if (existingView) {
-        recordedViewsRef.current.add(laporanId);
-        return;
-      }
-      
-      const { error: insertError } = await supabase
-        .from("story_views")
-        .insert({
-          laporan_id: laporanId,
-          user_id: activeUserId,
-          viewed_at: new Date().toISOString()
-        });
-      
-      if (insertError) throw insertError;
-      
-      recordedViewsRef.current.add(laporanId);
-      const newCount = await getStoryViews(laporanId);
-      setViewCounts(prev => ({ ...prev, [laporanId]: newCount }));
-      
-    } catch (err) {
-      console.error("Error recording view:", err);
-    }
-  };
-
-  // Load view counts for displayed reports
-  useEffect(() => {
-    const loadViewCounts = async () => {
-      const reportsList = reports || [];
-      const counts = {};
-      for (const report of reportsList) {
-        if (report?.id) {
-          counts[report.id] = await getStoryViews(report.id);
-        }
-      }
-      setViewCounts(counts);
-    };
+    recordedViewsRef.current.add(laporanId);
     
-    if (reports?.length) {
-      loadViewCounts();
-    }
-  }, [reports]);
-
-  // Record view when modal opens or currentIndex changes
-  // INI HARUS SETELAH filteredReports DAN filteredReports.length
-  useEffect(() => {
-    if (currentIndex !== null && filteredReports[currentIndex]) {
-      const currentReport = filteredReports[currentIndex];
-      if (currentReport?.id) {
-        recordStoryView(currentReport.id);
+    setTimeout(async () => {
+      try {
+        const { data: existingView } = await supabase
+          .from("story_views")
+          .select("id")
+          .eq("laporan_id", laporanId)
+          .eq("user_id", activeUserId)
+          .maybeSingle();
+        
+        if (!existingView) {
+          await supabase
+            .from("story_views")
+            .insert({
+              laporan_id: laporanId,
+              user_id: activeUserId,
+              viewed_at: new Date().toISOString()
+            });
+          
+          setViewCounts(prev => ({
+            ...prev,
+            [laporanId]: (prev[laporanId] || 0) + 1
+          }));
+        }
+      } catch (err) {
+        console.error("Error recording view:", err);
       }
+    }, 100);
+  }, [activeUserId]);
+
+  // Record view hanya saat modal terbuka
+  useEffect(() => {
+    if (currentIndex !== null && filteredReports[currentIndex]?.id) {
+      recordStoryView(filteredReports[currentIndex].id);
     }
-  }, [currentIndex, filteredReports]); // filteredReports sudah didefinisikan di atas
+  }, [currentIndex, filteredReports, recordStoryView]);
 
   // Header visibility
   useEffect(() => {
@@ -191,17 +196,15 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, [currentIndex]);
 
-  // Handle back button for modal navigation
+  // Back button handler
   useEffect(() => {
     if (currentIndex === null) return;
     
     const handlePopState = (event) => {
       event.preventDefault();
-      
       if (currentIndex > 0) {
         const prevIndex = currentIndex - 1;
         setCurrentIndex(prevIndex);
-        
         if (modalScrollRef.current?.children[prevIndex]) {
           modalScrollRef.current.children[prevIndex].scrollIntoView({ 
             behavior: 'smooth', 
@@ -211,16 +214,12 @@ export default function CitizenHub({ userId, userRole }) {
       } else {
         closeModal();
       }
-      
       window.history.pushState(null, '', window.location.href);
     };
     
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', handlePopState);
-    
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
+    return () => window.removeEventListener('popstate', handlePopState);
   }, [currentIndex]);
 
   // Get session
@@ -240,26 +239,34 @@ export default function CitizenHub({ userId, userRole }) {
     return () => { isMounted = false; subscription?.unsubscribe(); };
   }, []);
 
-  const activeUserId = userId || sessionUserId;
-
-  // Get user data
+  // Get user data (with caching)
   useEffect(() => {
     const getCurrentUser = async () => {
       if (!activeUserId) return;
+      
+      const cached = sessionStorage.getItem(`user_${activeUserId}`);
+      if (cached) {
+        try {
+          setCurrentUser(JSON.parse(cached));
+          return;
+        } catch(e) {}
+      }
+      
       try {
         const { data, error } = await supabase
           .from("profiles")
           .select("username, full_name, avatar_url")
           .eq("id", activeUserId)
           .maybeSingle();
-        if (!error && data) setCurrentUser(data);
-        else {
-          setCurrentUser({
-            username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
-            full_name: "Warga",
-            avatar_url: null
-          });
-        }
+        
+        const userData = (!error && data) ? data : {
+          username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
+          full_name: "Warga",
+          avatar_url: null
+        };
+        
+        sessionStorage.setItem(`user_${activeUserId}`, JSON.stringify(userData));
+        setCurrentUser(userData);
       } catch (err) {
         console.error("User fetch error:", err);
         setCurrentUser({
@@ -289,10 +296,6 @@ export default function CitizenHub({ userId, userRole }) {
     document.body.style.overflow = 'hidden';
     isAutoScrollingRef.current = true;
     
-    if (report?.id) {
-      await recordStoryView(report.id);
-    }
-    
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (modalScrollRef.current?.children[index]) {
@@ -319,13 +322,13 @@ export default function CitizenHub({ userId, userRole }) {
   };
 
   const handleLaporanSuccess = (newReport) => {
-    const updated = [newReport, ...(reports || [])];
+    const updated = [newReport, ...(displayReports || [])];
     updateCache(updated);
     setShowLaporPanel(false);
+    sessionStorage.removeItem('citizenhub_reports');
   };
 
   const handleKomentarModal = (item) => {
-    console.log("Buka modal komentar untuk:", item);
     setSelectedItemForComment(item);
     setIsKomentarModalOpen(true);
   };
@@ -335,13 +338,15 @@ export default function CitizenHub({ userId, userRole }) {
     setSelectedItemForComment(null);
   };
 
-  const handleShare = async (item) => {
+  const handleShare = async (report) => {
+    const shareUrl = `${window.location.origin}/post/${report.id}`;
+  
     if (navigator.share) {
       try {
         await navigator.share({
-          title: item.name || "Ronda",
-          text: "Lihat update kondisi terkini!",
-          url: window.location.href,
+           title: report.tempat?.name || "Ronda",
+           text: report.deskripsi || "Lihat update kondisi terkini!",
+          url: shareUrl,
         });
       } catch (err) { console.log("Share cancelled:", err); }
     } else {
@@ -367,6 +372,7 @@ export default function CitizenHub({ userId, userRole }) {
     }
   };
 
+  // ReportCard component
   const ReportCard = ({ report, index }) => (
     <motion.div
       key={report.id}
@@ -375,26 +381,26 @@ export default function CitizenHub({ userId, userRole }) {
       className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"    
     >
       {report.photo_url || report.video_url ? (
-  <>
-    <MediaRenderer
-      url={report.video_url || report.photo_url}
-      className="w-full h-full object-cover"
-      thumbnail={true}
-      muted={true}
-      loop={false}
-    />
-    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
-      <p className="text-white text-sm font-bold line-clamp-2 mb-1">
-        {report.deskripsi || "Lihat detail..."}
-      </p>
-      <div className="flex items-center gap-1 text-white/60 text-[10px]">
-        <MapPin size={10} />
-        <span className="truncate">{report.tempat?.name}</span>
-      </div>
-    </div>
-  </>
-) : (
+        <>
+          <MediaRenderer
+            url={report.video_url || report.photo_url}
+            className="w-full h-full object-cover"
+            thumbnail={true}
+            muted={true}
+            loop={false}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+            <p className="text-white text-sm font-bold line-clamp-2 mb-1">
+              {report.deskripsi || "Lihat detail..."}
+            </p>
+            <div className="flex items-center gap-1 text-white/60 text-[10px]">
+              <MapPin size={10} />
+              <span className="truncate">{report.tempat?.name}</span>
+            </div>
+          </div>
+        </>
+      ) : (
         <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4 text-center">
           <div className="bg-white/5 p-4 rounded-2xl w-full">
             <p className="text-white text-base font-black leading-tight line-clamp-3 mb-2">
@@ -429,6 +435,7 @@ export default function CitizenHub({ userId, userRole }) {
     </motion.div>
   );
 
+  // Render tetap sama seperti sebelumnya
   return (
     <div className={`min-h-screen ${isMalam ? 'bg-black' : 'bg-gray-50'} flex justify-center font-sans`}>
       <div className={`w-full max-w-[400px] min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
@@ -478,7 +485,14 @@ export default function CitizenHub({ userId, userRole }) {
           
           {isActuallyLoading ? (
             <div className="flex justify-center items-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E3655B]"></div>
+              <div className="flex justify-center items-center h-64">
+  <div className="relative flex items-center justify-center">
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+    
+    <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+  </div>
+</div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -520,7 +534,7 @@ export default function CitizenHub({ userId, userRole }) {
           </div>
         )}
 
-        {/* Fullscreen Modal dengan FeedActions */}
+        {/* Fullscreen Modal */}
         <AnimatePresence mode="wait">
           {currentIndex !== null && (
             <motion.div key="modal-container" initial={{ opacity: 0, scale: 1.1 }} animate={{ opacity: 1, scale: 1 }}
@@ -536,170 +550,169 @@ export default function CitizenHub({ userId, userRole }) {
                   className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar scroll-smooth touch-pan-y"
                   style={{ WebkitOverflowScrolling: 'touch', scrollSnapStop: 'always' }}>
                   
-                  {filteredReports.map((report, idx) => (
-                    <div key={report.id} className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden">
-                      
-                      {/* Media Background */}
-                      <div className="absolute inset-0 w-full h-full overflow-hidden">
-  {report.photo_url || report.video_url ? (
-    <>
-      <MediaRenderer
-        url={report.video_url || report.photo_url}
-        className="w-full h-full object-cover"
-        autoPlay={true}
-        muted={true}
-        loop={true}
-        playsInline={true}
-      />
-      {!report.video_url && (
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
-      )}
-    </>
-  ) : (
-    <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900" />
-  )}
-</div>
-
-                      {/* FeedActions */}
-                      <div className="absolute right-3 bottom-28 z-50">
-                        <FeedActions
-                          item={{ id: report.tempat_id, name: report.tempat?.name, activePhoto: report.photo_url }}
-                          comments={{}}
-                          openAIModal={() => openAIChat(report)}
-                          openKomentarModal={handleKomentarModal}
-                          onShare={handleShare}
-                          variant="floating-sidebar"
-                          theme={theme}
-                          handleSesuai={handleSesuai}
-                          isSesuai={false}
-                        />
-                      </div>
-
-                      {/* KONTEN - PISAHKAN VIEWS */}
-{report.photo_url || report.video_url ? (
-  <div className="absolute inset-0 flex flex-col justify-end">
-    {/* Gradient Overlay */}
-    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
-
-    {/* Wrapper Konten: User Info, Badge, Deskripsi */}
-    <div className="relative p-4 pb-4 pr-16 sm:pb-6 sm:pr-20 w-full">
+                  {filteredReports.map((report, idx) => {
+  const hasMedia = report.photo_url || report.video_url;
+  const postId = report.id; 
+  
+  return (
+    <div key={report.id} className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden">
       
-      {/* User Info & Badge */}
-      <div className="flex flex-col gap-2 mb-3">
-        {/* User info */}
-        <div className="flex items-center gap-2.5">
-          <div className="relative shrink-0">
-            <img 
-              src={getAvatarUrl(report)} 
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white/30"
-              alt="avatar" 
-              referrerPolicy="no-referrer"
-              onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }} 
+      {/* OVERLAY UTAMA - Klik area mana saja (kecuali tombol) akan ke detail tempat */}
+      <div 
+        onClick={() => {
+          if (postId) {
+            closeModal();
+            router.push(`/post/${report.id}`);
+          }
+        }}
+        className="absolute inset-0 z-10 cursor-pointer"
+      />
+      {/* Media Background */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden">
+        {hasMedia ? (
+          <>
+            <MediaRenderer
+              url={report.video_url || report.photo_url}
+              className="w-full h-full object-cover"
+              autoPlay={idx === currentIndex}
+              muted={true}
+              loop={true}
+              playsInline={true}
             />
-            <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
-              <ShieldCheck size={8} className="text-white" />
+            {!report.video_url && (
+              <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+            )}
+          </>
+        ) : (
+          <div className="relative h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
+            <div className="text-center px-6 py-8 max-w-sm mx-auto">
+              <div className="text-7xl mb-6 opacity-60">
+                {report.tipe === "Ramai" ? "🏃‍♂️" : report.tipe === "Antri" ? "⏰" : "📢"}
+              </div>
+              {report.tipe && (
+                <div className="mb-4 flex justify-center">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${
+                    report.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" : 
+                    report.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" : 
+                    "bg-emerald-500/20 text-emerald-300"
+                  }`}>
+                    {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
+                    <span>{report.tipe}</span>
+                  </span>
+                </div>
+              )}
+              <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed tracking-tight italic mb-6">
+                "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
+              </p>
+              <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
+                <MapPin size={14} className="text-[#E3655B]" />
+                <span>{report.tempat?.name || "Lokasi"}</span>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10">
+                <img src={getAvatarUrl(report)} className="w-8 h-8 rounded-full border border-white/30" alt="avatar" />
+                <span className="text-white/80 text-sm font-medium">
+                  @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                </span>
+                <span className="text-white/40 text-xs">•</span>
+                <span className="text-white/40 text-xs">{formatTimeAgo(report.created_at)}</span>
+              </div>
+              <div className="mt-6 flex items-center justify-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span className="text-[11px] font-bold text-white/35">
+                  {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-[8px] text-white/50 uppercase font-black tracking-widest">Warga Setempat</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold text-white">
-                @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
-              </span>
-              <span className="text-[10px] text-white/40">• {formatTimeAgo(report.created_at)}</span>
+        )}
+      </div>
+
+      {/* FeedActions - SELALU ADA */}
+      <div className="absolute right-3 bottom-28 z-50">
+        <FeedActions
+          item={{ id: report.tempat_id, name: report.tempat?.name, activePhoto: report.photo_url }}
+          comments={{}}
+          openAIModal={() => openAIChat(report)}
+          openKomentarModal={handleKomentarModal}
+          onShare={() => handleShare(report)}
+          variant="floating-sidebar"
+          theme={theme}
+          handleSesuai={handleSesuai}
+          isSesuai={false}
+        />
+      </div>
+
+      {/* ✅ Content hanya untuk yang ADA FOTO */}
+      {hasMedia && (
+        <div className="absolute inset-0 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
+          <div className="relative p-4 pb-4 pr-16 sm:pb-6 sm:pr-20 w-full">
+            <div className="flex flex-col gap-2 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="relative shrink-0">
+                  <img 
+                    src={getAvatarUrl(report)} 
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white/30"
+                    alt="avatar" 
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }} 
+                  />
+                  <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
+                    <ShieldCheck size={8} className="text-white" />
+                  </div>
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[8px] text-white/50 uppercase font-black tracking-widest">Warga Setempat</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-white">
+                      @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                    </span>
+                    <span className="text-[10px] text-white/40">• {formatTimeAgo(report.created_at)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {report.tipe && (
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
+                    report.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" : 
+                    report.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : 
+                    "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                  }`}>
+                    <span>{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
+                    <span>{report.tipe}</span>
+                  </span>
+                )}
+                <div className="flex items-center gap-1 bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md text-white/60 text-[10px]">
+                  <MapPin size={10} className="text-[#E3655B]" />
+                  <span className="truncate max-w-[120px] font-medium">{report.tempat?.name || "Pasuruan"}</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
+              {report.deskripsi || "Tidak ada deskripsi kondisi terkini."}
+            </p>
+          </div>
+          <div className="relative pb-6 w-full">
+            <div className="text-center">
+              <div className="inline-flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span className="text-[11px] font-bold text-white/35">
+                  {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Badge Kondisi & Lokasi */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {report.tipe && (
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
-              report.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" : 
-              report.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : 
-              "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-            }`}>
-              <span>{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
-              <span>{report.tipe}</span>
-            </span>
-          )}
-          <div className="flex items-center gap-1 bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md text-white/60 text-[10px]">
-            <MapPin size={10} className="text-[#E3655B]" />
-            <span className="truncate max-w-[120px] font-medium">{report.tempat?.name || "Pasuruan"}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Deskripsi */}
-      <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
-        {report.deskripsi || "Tidak ada deskripsi kondisi terkini."}
-      </p>
+      )}
     </div>
-
-    {/* VIEWS - DIPISAHKAN DI BAWAH SENDIRI */}
-    <div className="relative pb-6 w-full">
-      <div className="text-center">
-        <div className="inline-flex items-center gap-1.5">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <span className="text-[11px] font-bold text-white/35">
-            {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-) : (
-                        <div className="relative h-full flex flex-col">
-                          <div className="flex-1" />
-                          <div className="px-6 py-4">
-                            <div className="bg-white/5 p-8 rounded-3xl backdrop-blur-sm border border-white/10 max-w-sm w-full mx-auto text-center">
-                              <div className="mb-3 flex justify-center">
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 border border-white/20">
-                                  <MapPin size={12} className="text-[#E3655B]" />
-                                  <span className="text-white/80 text-xs font-medium uppercase tracking-wider">{report.tempat?.name || "Lokasi"}</span>
-                                </span>
-                              </div>
-                              {report.tipe && (
-                                <div className="mb-4 flex justify-center">
-                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border ${report.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" : report.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"}`}>
-                                    <span className="text-base">{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
-                                    <span>{report.tipe}</span>
-                                  </span>
-                                </div>
-                              )}
-                              <p className="text-white font-black text-xl sm:text-2xl md:text-3xl leading-relaxed tracking-tight italic">
-                                "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
-                              </p>
-
-                              <div className="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-white/10">
-                                <div className="flex items-center gap-1.5">
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                    <circle cx="12" cy="12" r="3" />
-                                  </svg>
-                                  <span className="text-[11px] font-bold text-white/35">
-                                    {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center justify-center gap-2 mt-6 pt-4 border-t border-white/10">
-                                <img src={getAvatarUrl(report)} className="w-6 h-6 rounded-full border border-white/30" alt="avatar"
-                                  onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }} />
-                                <span className="text-white/80 text-sm font-medium">@{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}</span>
-                                <span className="text-white/40 text-xs">•</span>
-                                <span className="text-white/40 text-xs">{formatTimeAgo(report.created_at)}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex-1" />
-                        </div>
-                      )}
-                    </div>
-                  ))}
+  );
+})}
                 </div>
               </div>
             </motion.div>
