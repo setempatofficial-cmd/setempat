@@ -190,60 +190,38 @@ export default function AIModalTempat({
     [getUniqueId, onUploadSuccess]
   );
 
-  const handleSend = useCallback(
-    async (customMessage) => {
-      const msg = (customMessage || input).trim();
-      if (!msg) return;
+  const handleSend = useCallback(async (textOverride = null) => {
+    const msg = textOverride || input;
+    if (!msg.trim() || isTyping) return;
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: getUniqueId(),
-          type: "user",
-          text: msg,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
-      setInput("");
-      setIsTyping(true);
+    // 1. Tampilkan pesan user di UI
+    const userMessage = {
+      id: getUniqueId(),
+      type: "user",
+      text: msg,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
 
-      const cuacaKeywords = ["cuaca", "panas", "hujan", "dingin", "berawan", "cerah", "suhu"];
-      const isCuacaIntent = cuacaKeywords.some((kw) => msg.toLowerCase().includes(kw));
-      if (isCuacaIntent && weather) {
-        setTimeout(() => {
-          setIsTyping(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: getUniqueId(),
-              type: "ai",
-              text: `☀️ **Cuaca di ${tempat?.name}:** ${weather.weather_desc}, ${weather.t}°C. ${weather.humidity ? `Kelembapan ${weather.humidity}%.` : ""}`,
-              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            },
-          ]);
-        }, 300);
-        return;
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setIsTyping(true);
+
+    try {
+      let aiResponseText = "";
+
+      // 2. STRATEGI 1: Coba pakai Chrome AI (Local & Gratis)
+      if (typeof window !== "undefined" && window.ai) {
+        try {
+          const session = await window.ai.createTextSession();
+          aiResponseText = await session.prompt(msg);
+          console.log("Response from Chrome AI");
+        } catch (e) {
+          console.warn("Chrome AI failed or refused, falling back to server...", e);
+        }
       }
 
-      if (isLaporIntent(msg)) {
-        setTimeout(() => {
-          setIsTyping(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: getUniqueId(),
-              type: "ai",
-              showLaporButton: true,
-              text: `Siap! Silakan ceritakan kondisi di sini. 👇`,
-              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            },
-          ]);
-          if (user) triggerLapor();
-        }, 500);
-        return;
-      }
-
-      try {
+      // 3. STRATEGI 2: Fallback ke Server AI jika Chrome AI tidak tersedia/gagal
+      if (!aiResponseText) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -258,33 +236,38 @@ export default function AIModalTempat({
             },
           }),
         });
+        
         const data = await res.json();
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: getUniqueId(),
-            type: "ai",
-            text: data?.text || "Maaf, saya belum bisa menjawab itu. Coba tanya tentang kondisi atau cuaca ya!",
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
-      } catch (error) {
-        console.error("Chat API error:", error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: getUniqueId(),
-            type: "ai",
-            text: "Maaf, sedang ada gangguan. Coba lagi nanti ya!",
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
-      } finally {
-        setIsTyping(false);
+        aiResponseText = data?.text || "Maaf, saya sedang bingung. Coba tanya hal lain ya!";
       }
-    },
-    [input, user, tempat, reports, weather, getUniqueId]
-  );
+
+      // 4. Tampilkan jawaban AI (baik dari Local maupun Server)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: getUniqueId(),
+          type: "ai",
+          text: aiResponseText,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+
+    } catch (error) {
+      console.error("AI Error:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: getUniqueId(),
+          type: "ai",
+          text: "Maaf, koneksi saya terganggu. Coba lagi nanti ya!",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [input, isTyping, getUniqueId, reports, tempat]);
+
 
   if (!isOpen) return null;
 
@@ -348,37 +331,66 @@ export default function AIModalTempat({
           </div>
 
           <AnimatePresence>
-            {showLaporPanel && (
-              <LaporPanel
-                mode="media"
-                tempat={tempat}
-                user={user}
-                onClose={() => setShowLaporPanel(false)}
-                onSuccess={handleLaporSuccess}
-                onOpenAuthModal={onOpenAuthModal}
-                theme={theme}
-              />
-            )}
-          </AnimatePresence>
+  {showLaporPanel && (
+    <div className="fixed inset-0 z-[2100] bg-white dark:bg-zinc-900 flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden">
+      {/* Header LaporPanel dengan drag indicator */}
+      <div className="flex justify-center pt-2 pb-1">
+        <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+      </div>
+      
+      {/* Tombol Close di header */}
+      <div className="flex justify-between items-center px-4 py-2 border-b border-gray-100 dark:border-zinc-800">
+        <h3 className="font-semibold text-gray-900 dark:text-white">Laporkan Kondisi</h3>
+        <button 
+          onClick={() => setShowLaporPanel(false)}
+          className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800"
+        >
+          ✕
+        </button>
+      </div>
+      
+      {/* Konten LaporPanel - scrollable */}
+      <div className="flex-1 overflow-y-auto">
+        <LaporPanel
+          mode="media"
+          tempat={tempat}
+          user={user}
+          onClose={() => setShowLaporPanel(false)}
+          onSuccess={handleLaporSuccess}
+          onOpenAuthModal={onOpenAuthModal}
+          theme={theme}
+        />
+      </div>
+    </div>
+  )}
+</AnimatePresence>
 
-          {!showLaporPanel && (
-            <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/10 px-3 py-3 bg-inherit">
-              <AIQuickActions
-                actions={quickActions}
-                onActionClick={handleSend}
-                onLaporClick={triggerLapor}
-                isMalam={isMalam}
-              />
-              <AIInput
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onSend={() => handleSend()}
-                isTyping={isTyping}
-                placeholder="Tanya kondisi, cuaca, atau langsung cerita..."
-              />
-              <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya jam buka, cuaca, atau lapor kondisi</p>
-            </div>
-          )}
+{!showLaporPanel && (
+  <div className="flex-shrink-0 border-t border-gray-100 dark:border-zinc-800/50 bg-inherit pb-safe z-[50]">
+    {/* 1. Quick Actions */}
+    <div className="pt-3">
+      <AIQuickActions
+        actions={quickActions}
+        onActionClick={(text) => handleSend(text)} 
+        onLaporClick={triggerLapor}
+        isMalam={isMalam}
+      />
+    </div>
+
+    {/* 2. Input Utama */}
+    <div className="px-1">
+      <AIInput
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onSend={() => handleSend()}
+        onLaporClick={triggerLapor} 
+        isTyping={isTyping}
+        placeholder="Tanya kondisi atau lapor..."
+      />
+    </div>
+    <p className="text-[8px] text-center text-slate-400 mt-2">✨ Tanya jam buka, cuaca, atau lapor kondisi</p>
+  </div>
+)}
         </div>
       </div>
     </div>

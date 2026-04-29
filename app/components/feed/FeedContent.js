@@ -453,7 +453,7 @@ useEffect(() => {
   }, [kentonganForFeed, openAIModalWithKentongan]); 
 
   // ========== GABUNGKAN FEED CARD DAN BREAK CARD (OPTIMIZED) ==========
-  const LIMIT_VISIBLE = 20; 
+  const LIMIT_VISIBLE = 10; 
   const feedItemsWithBreaks = useMemo(() => {
     if (!tempat.length) return [];
   
@@ -1020,7 +1020,7 @@ useEffect(() => {
           loadPlaces(false);
         }
       },
-      { threshold: 0.1, rootMargin: "50px" }
+      { threshold: 0.1, rootMargin: "200px" }
     );
 
     observer.observe(lastCardRef.current);

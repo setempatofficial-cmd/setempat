@@ -15,7 +15,7 @@ export default function AdminLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname(); // Untuk deteksi menu aktif otomatis
   const { user, profile, loading, isSuperAdmin, isAdmin, logout } = useAuth();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState(['verifikasi']); // Default grup yang terbuka
 
   // Proteksi rute
@@ -87,7 +87,7 @@ export default function AdminLayout({ children }) {
     <div className="min-h-screen bg-slate-50 flex text-slate-900">
       {/* Overlay Mobile */}
       {!isSidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(true)} />
+        <div className="md:hidden fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
@@ -200,7 +200,7 @@ export default function AdminLayout({ children }) {
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         className="fixed bottom-6 right-6 z-[60] md:hidden p-4 bg-purple-600 text-white rounded-full shadow-2xl active:scale-90 transition-transform"
-      >
+>
         {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 

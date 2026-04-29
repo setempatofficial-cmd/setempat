@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Search,
   Package, ShoppingBag,
-  User, MapPin, MessageCircle
+  User, MapPin, MessageCircle, Store
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import DetailProdukModal from './DetailProdukModal'; // ← IMPORT MODAL
@@ -53,7 +53,7 @@ export default function PanyanganSection({
     return () => window.removeEventListener('scroll', controlHeader);
   }, [lastScrollY]);
 
-  // 🆕 Fungsi buka modal detail
+  // Fungsi buka modal detail
   const openProductDetail = (product) => {
     setSelectedProduct(product);
     setShowDetailModal(true);
@@ -91,7 +91,7 @@ export default function PanyanganSection({
       if (userIds.length > 0) {
         const { data, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, full_name, phone, alamat, desa, kecamatan')
+          .select('id, full_name, avatar_url, toko_name, phone, alamat, desa, kecamatan')
           .in('id', userIds);
         
         if (profilesError) throw profilesError;
@@ -100,13 +100,21 @@ export default function PanyanganSection({
       
       // STEP 3: Gabungkan data
       let productsWithSeller = productsData.map(product => {
-        const penjual = profilesData.find(p => p.id === product.user_id);
-        return {
-          ...product,
-          nama_penjual: penjual?.full_name || 'Warga',
-          penjual_desa: penjual?.desa || penjual?.alamat || 'Desa tidak diketahui', 
-        };
-      });
+  const penjual = profilesData.find(p => p.id === product.user_id);
+  
+  // Jika ada toko_name, pakai itu. Jika tidak, pakai full_name.
+  const displayName = penjual?.toko_name || penjual?.full_name || 'Warga';
+  const isBusiness = !!penjual?.toko_name; // Cek apakah dia toko atau personal
+
+  return {
+    ...product,
+    display_name: displayName,
+    is_business: isBusiness,
+    penjual_foto: penjual?.avatar_url,
+    penjual_desa: penjual?.desa || 'Pasuruan',
+    penjual_phone: penjual?.phone
+  };
+});
       
       // STEP 4: Filter search (client-side)
       if (searchQuery) {
@@ -276,55 +284,76 @@ export default function PanyanganSection({
                   </div>
                 </div>
 
-                {/* DETAIL DAGANGAN */}
-                <div className="p-3">
+                
+{/* DETAIL DAGANGAN */}
+                <div className="p-3 flex flex-col h-full">
+                  {/* 1. NAMA BARANG */}
                   <h4 className="text-[11px] font-black text-slate-800 leading-tight uppercase line-clamp-2 italic tracking-tight mb-1">
                     {product.nama_barang}
                   </h4>
 
-                  {/* Info Penjual */}
-                  <div className="flex items-center gap-1.5 mt-1.5 mb-2">
-                    <div className="w-4 h-4 bg-orange-100 rounded-full flex items-center justify-center">
-                      <User size={8} className="text-orange-600" />
-                    </div>
-                    <span className="text-[9px] font-bold text-slate-500 italic truncate">
-                      Duwe {product.nama_penjual || 'Warga'}
-                    </span>
-                  </div>
-
-                  {/* Harga & Satuan */}
-                  <div className="mt-auto flex items-baseline gap-1">
-                    <span className="text-sm font-black text-slate-900 tracking-tighter">
+                  {/* 2. HARGA */}
+                  <div className="flex items-baseline gap-1 mb-3">
+                    <span className="text-[13px] font-black text-slate-900 tracking-tighter">
                       {formatRupiah(product.harga).replace('Rp', '').trim()}
                     </span>
                     <span className="text-[8px] font-bold text-slate-400 uppercase">/ {product.satuan || 'Pcs'}</span>
                   </div>
 
-                  {/* Lokasi & Tombol Sapa */}
-                  <div className="mt-3 pt-3 border-t border-dashed border-slate-100 flex justify-between items-center">
-                    <div className="flex flex-col">
-                      <span className="text-[7px] font-black text-slate-400 uppercase leading-none">Lokasi</span>
-                      <div className="flex items-center gap-0.5 mt-0.5">
-                        <MapPin size={7} className="text-slate-400" />
-                        <span className="text-[9px] font-bold text-slate-700 truncate max-w-[50px]">
-                          {product.penjual_desa || 'Pasuruan'}
-                        </span>
+                  {/* 3. FOOTER (PENJUAL & SAPA) */}
+                  <div className="mt-auto pt-2 border-t border-dashed border-slate-100">
+                    <div className="flex items-center justify-between gap-2">
+                      
+                      {/* KIRI: INFO PENJUAL */}
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <div className={`w-4 h-4 rounded-full overflow-hidden border shadow-sm flex-shrink-0 ${
+                            product.is_business ? 'border-orange-100' : 'border-blue-50'
+                          }`}>
+                            {(product.penjual_foto || product.avatar_url || product.profiles?.avatar_url) ? (
+                              <img 
+                                src={product.penjual_foto || product.avatar_url || product.profiles?.avatar_url} 
+                                alt={product.display_name}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className={`w-full h-full flex items-center justify-center ${
+                                product.is_business ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'
+                              }`}>
+                                {product.is_business ? <Store size={8} /> : <User size={8} />}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[9px] font-black text-slate-600 italic truncate tracking-tight">
+                            {product.display_name}
+                          </span>
+                        </div>
+                        
+                        {/* LOKASI */}
+                        <div className="flex items-center gap-0.5 ml-0.5">
+                          <MapPin size={7} className="text-slate-400" />
+                          <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
+                            {product.penjual_desa || 'Pasuruan'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* TOMBOL SAPA - dengan stopPropagation */}
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleChat(product);
-                      }} 
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-full shadow-lg shadow-emerald-100 active:scale-95 transition-all hover:bg-emerald-600"
-                    >
-                      <MessageCircle size={12} fill="currentColor" />
-                      <span className="text-[10px] font-black uppercase tracking-tight">Sapa</span>
-                    </button>
+                      {/* KANAN: TOMBOL SAPA */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleChat(product);
+                        }} 
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 text-white rounded-xl shadow-md shadow-emerald-100 active:scale-90 transition-all hover:bg-emerald-600 flex-shrink-0"
+                      >
+                        <MessageCircle size={10} fill="currentColor" />
+                        <span className="text-[9px] font-black uppercase tracking-tighter">Sapa</span>
+                      </button>
+
+                    </div>
                   </div>
-                </div>
+                </div> {/* <--- Penutup DETAIL DAGANGAN */}
               </div>
             ))}
           </div>
