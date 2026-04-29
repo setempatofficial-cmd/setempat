@@ -179,7 +179,7 @@ export default function AdminLayout({ children }) {
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-white hover:text-purple-600 transition-all border border-transparent hover:border-slate-200"
             >
               <Home size={18} />
-              {isSidebarOpen && <span>Balai Warga</span>}
+              {isSidebarOpen && <span>Rumah Setempat</span>}
             </button>
             
             <button
