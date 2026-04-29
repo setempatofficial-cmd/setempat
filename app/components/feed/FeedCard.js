@@ -89,7 +89,7 @@ function FeedCard({
   const theme = useTheme();
 
   // ✅ FIX 1: Gunakan catStyle langsung, jangan buat cardBgClass
-  const catStyle = getCategoryStyle(safeItem.category);
+  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam); 
   
   // ✅ FIX 2: Gabungkan semua class background dengan benar
   const cardBackgroundClass = `${catStyle.bg} ${theme.isMalam ? 'dark' : ''}`;

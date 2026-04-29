@@ -30,12 +30,11 @@ body {
     display: none;
   }
   .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
 
-/* Sembunyikan scrollbar tapi tetap bisa scroll */
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -54,13 +53,11 @@ body {
     min-width: 44px;
   }
   
-  /* Scaling untuk elemen absolute di HP sempit */
   .feed-card .absolute {
     transform: scale(0.95);
     transform-origin: top left;
   }
   
-  /* Mencegah overflow horizontal */
   .feed-card {
     overflow-x: hidden;
   }
@@ -77,35 +74,9 @@ body {
   }
 }
 
-/* Smooth transition untuk resize */
+/* Smooth transition untuk resize - HATI-HATI bisa bikin lag */
 * {
   transition-property: padding, margin, gap;
   transition-duration: 0.2s;
   transition-timing-function: ease-out;
-}
-
-/* Fix blur/glitch pada HP Android */
-@media (max-width: 768px) {
-  /* Matikan semua backdrop-filter di mobile */
-  .backdrop-blur-sm,
-  .backdrop-blur-md,
-  .backdrop-blur-lg,
-  .backdrop-blur-xl,
-  .backdrop-blur-2xl,
-  .backdrop-blur-3xl {
-    backdrop-filter: none !important;
-    background: rgba(255, 255, 255, 0.9) !important;
-  }
-  
-  /* Header di mobile jadi solid */
-  header.bg-white\/80.backdrop-blur-md {
-    background: white !important;
-    backdrop-filter: none !important;
-  }
-  
-  /* Overlay sidebar jadi solid hitam transparan */
-  .bg-slate-900\/20.backdrop-blur-sm {
-    background: rgba(15, 23, 42, 0.4) !important;
-    backdrop-filter: none !important;
-  }
 }
