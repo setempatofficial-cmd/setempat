@@ -1,17 +1,54 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Minus, Plus, Truck, MapPin, ShoppingBag, ArrowLeft, Package, RefreshCw, Info } from 'lucide-react';
+import { X, Minus, Plus, Truck, MapPin, ShoppingBag, ArrowLeft, Package, RefreshCw, Info, Navigation } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function OrderModal({ isOpen, onClose, product, userId, onOrderSuccess, onCloseParent }) {
   const [loading, setLoading] = useState(false);
   const [shippingMethod, setShippingMethod] = useState('pickup');
   
-  // State Jarak & Form
-  const [distance, setDistance] = useState(1);
+  // State Jarak & Lokasi
+  const [realDistance, setRealDistance] = useState(null); // Jarak asli GPS
+  const [distance, setDistance] = useState(1); // Jarak pilihan slider
   const [ongkirOjek, setOngkirOjek] = useState(5000);
   const [orderForm, setOrderForm] = useState({ jumlah: 1, catatan: '', alamat_pengiriman: '' });
+
+  // Fungsi Hitung Jarak Garis Lurus (Haversine Formula)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Radius bumi dalam KM
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return parseFloat((R * c).toFixed(1));
+  };
+
+  // Ambil Lokasi Pembeli & Penjual Saat Ini
+  useEffect(() => {
+    if (isOpen && shippingMethod === 'ojek' && !realDistance) {
+      // Ambil posisi user
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const userLat = pos.coords.latitude;
+        const userLon = pos.coords.longitude;
+
+        // Ambil Lat/Lon Penjual dari data produk
+        const sellerLat = product.penjual_lat || product.profiles?.latitude;
+        const sellerLon = product.penjual_lon || product.profiles?.longitude;
+
+        if (sellerLat && sellerLon) {
+          const d = calculateDistance(userLat, userLon, sellerLat, sellerLon);
+          setRealDistance(d);
+          setDistance(Math.max(d, 0.5)); // Set slider minimal sesuai jarak GPS
+        }
+      }, (error) => {
+        console.error('Error getting location:', error);
+        setRealDistance(1); // fallback jika gagal
+      });
+    }
+  }, [isOpen, shippingMethod, product, realDistance]);
 
   // Hitung Ongkir Otomatis (Rp 2.500/km, Min Rp 5.000)
   useEffect(() => {
@@ -28,39 +65,51 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
   const formatRupiah = (harga) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(harga || 0);
 
   const handleSubmitOrder = async () => {
-  if (!userId) return alert('Login dulu, Cak!');
-  if (shippingMethod === 'ojek' && !orderForm.alamat_pengiriman) return alert('Alamat kirim diisi dulu.');
+    if (!userId) return alert('Login dulu, Cak!');
+    if (shippingMethod === 'ojek' && !orderForm.alamat_pengiriman) return alert('Alamat kirim diisi dulu.');
+    
+    // Validasi jarak pilihan tidak lebih kecil dari jarak GPS
+    if (shippingMethod === 'ojek' && realDistance && distance < realDistance) {
+      return alert(`⚠️ Jarak pilihan (${distance} KM) lebih kecil dari jarak sebenarnya (${realDistance} KM). Silakan sesuaikan.`);
+    }
 
-  setLoading(true);
-  try {
-    const totalBayar = (product.harga * orderForm.jumlah) + ongkirOjek;
-    
-    const { error } = await supabase.from('pesanan').insert({
-      produk_id: product.id,
-      pembeli_id: userId,
-      penjual_id: product.user_id,
-      jumlah: orderForm.jumlah,
-      total_harga: totalBayar,
-      ongkir: shippingMethod === 'ojek' ? ongkirOjek : 0,
-      estimated_jarak: shippingMethod === 'ojek' ? distance : null,
-      catatan: orderForm.catatan,
-      status: 'menunggu',
-      shipping_method: shippingMethod,  // ✅ Tambah ini
-      alamat_pengiriman: shippingMethod === 'ojek' ? orderForm.alamat_pengiriman : 'Ambil di tempat',
-    });
-    
-    if (error) throw error;
-    
-    alert('✅ Pesanan Berhasil!');
-    onOrderSuccess?.();
-    onClose();
-    onCloseParent?.();
-  } catch (err) {
-    alert('❌ Gagal: ' + err.message);
-  } finally { 
-    setLoading(false); 
-  }
-};
+    setLoading(true);
+    try {
+      const totalBayar = (product.harga * orderForm.jumlah) + ongkirOjek;
+      
+      const { error } = await supabase.from('pesanan').insert({
+        produk_id: product.id,
+        pembeli_id: userId,
+        penjual_id: product.user_id,
+        jumlah: orderForm.jumlah,
+        total_harga: totalBayar,
+        ongkir: shippingMethod === 'ojek' ? ongkirOjek : 0,
+        estimated_jarak: shippingMethod === 'ojek' ? distance : null,
+        estimated_jarak_real: shippingMethod === 'ojek' ? realDistance : null, // simpan jarak asli GPS
+        catatan: orderForm.catatan,
+        status: 'menunggu',
+        shipping_method: shippingMethod,
+        alamat_pengiriman: shippingMethod === 'ojek' ? orderForm.alamat_pengiriman : 'Ambil di tempat',
+      });
+      
+      if (error) throw error;
+      
+      // Kirim notifikasi ke penjual (opsional)
+      if (shippingMethod === 'ojek' && product.penjual_phone) {
+        const waMsg = `*PESANAN BARU*%0AProduk: ${product.nama_barang}%0AJumlah: ${orderForm.jumlah}%0AJarak: ${distance} KM (GPS: ${realDistance} KM)%0AOngkir: ${formatRupiah(ongkirOjek)}%0AAlamat: ${orderForm.alamat_pengiriman}`;
+        window.open(`https://wa.me/${product.penjual_phone}?text=${waMsg}`, '_blank');
+      }
+      
+      alert('✅ Pesanan Berhasil!');
+      onOrderSuccess?.();
+      onClose();
+      onCloseParent?.();
+    } catch (err) {
+      alert('❌ Gagal: ' + err.message);
+    } finally { 
+      setLoading(false); 
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/60 backdrop-blur-sm">
@@ -116,7 +165,7 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
             </button>
           </div>
 
-          {/* Input Ojek (Slider & Alamat) */}
+          {/* Input Ojek dengan GPS Detection */}
           {shippingMethod === 'ojek' && (
             <div className="p-4 bg-emerald-600 rounded-[24px] text-white space-y-4 animate-in fade-in slide-in-from-top-2">
               {/* Tombol kembali ke Ambil Sendiri */}
@@ -135,13 +184,33 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
                 onChange={(e) => setOrderForm(p => ({...p, alamat_pengiriman: e.target.value}))}
               />
               
+              {/* GPS Detection Card */}
+              <div className="bg-black/20 p-3 rounded-xl border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Navigation size={14} className="text-emerald-300" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Deteksi Jarak GPS</span>
+                  </div>
+                  <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-black">
+                    {realDistance ? `${realDistance} KM` : 'Mencari...'}
+                  </span>
+                </div>
+                <p className="text-[8px] text-white/70 leading-tight">
+                  Jarak garis lurus dari lokasi Anda ke penjual.
+                </p>
+              </div>
+              
               <div className="bg-black/10 p-3 rounded-xl">
                 <div className="flex justify-between text-[10px] font-bold mb-2 uppercase">
-                  <span>📏 Perkiraan Jarak</span>
+                  <span>📏 Pilih Jarak Tempuh</span>
                   <span>{distance} KM</span>
                 </div>
                 <input 
-                  type="range" min="0.5" max="15" step="0.5" value={distance}
+                  type="range" 
+                  min={realDistance ? Math.max(realDistance, 0.5) : 0.5} 
+                  max="15" 
+                  step="0.5" 
+                  value={distance}
                   onChange={(e) => setDistance(parseFloat(e.target.value))}
                   className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
                 />
@@ -155,6 +224,16 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
                 </div>
                 <p className="text-[8px] text-white/50 text-center mt-2">*Rp 2.500/km • Minimal Rp 5.000</p>
               </div>
+
+              {/* Peringatan jika jarak pilihan kurang dari jarak real */}
+              {realDistance && distance < realDistance && (
+                <div className="flex gap-2 p-2 bg-red-500/30 rounded-xl border border-red-500/50">
+                  <Info size={14} className="text-red-200 shrink-0" />
+                  <p className="text-[8px] text-red-100">
+                    ⚠️ Jarak pilihan ({distance} KM) lebih kecil dari jarak GPS ({realDistance} KM). Silakan sesuaikan!
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -180,7 +259,7 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
               </div>
               <button 
                 onClick={handleSubmitOrder}
-                disabled={loading}
+                disabled={loading || (shippingMethod === 'ojek' && realDistance && distance < realDistance)}
                 className="bg-orange-600 h-12 px-6 rounded-xl font-black text-sm active:scale-95 disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-orange-900/20"
               >
                 {loading ? <RefreshCw size={16} className="animate-spin" /> : <ShoppingBag size={16} />}

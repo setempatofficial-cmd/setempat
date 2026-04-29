@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef, memo, useDeferredValue, startTransition } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import LocationProvider, { useLocation } from "@/components/LocationProvider";
@@ -419,9 +420,14 @@ useEffect(() => {
   if (loading && allData.length === 0) {
     return (
       <div className={`relative min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
-        <div className="relative z-10 flex items-center justify-center min-h-screen">
-          <div className="w-8 h-8 border-2 border-[#E3655B] border-t-transparent rounded-full animate-spin" />
-        </div>
+        <div className="flex justify-center items-center h-64">
+  <div className="relative flex items-center justify-center">
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+    
+    <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+  </div>
+</div>
       </div>
     );
   }
@@ -436,15 +442,19 @@ useEffect(() => {
       <div className="relative z-10">
         <div className={`max-w-md mx-auto min-h-screen flex flex-col relative border-x ${getBorderColor()}`}>
           {/* HEADER */}
-<div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-xl ${isMalam ? "bg-black/80 border-b border-white/10" : "bg-white/80 border-b border-slate-100"}`}>
-  <div className="flex items-center gap-2">
-   {/* Tombol Back */}
-<button 
-  onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
-  className={`p-2 rounded-xl transition-colors ${isMalam ? "hover:bg-white/5 text-white" : "hover:bg-black/5 text-slate-900"}`}
->
-  <ChevronLeft size={18} />
-</button>
+<div className={`sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-2xl transition-all duration-500 
+  ${isMalam 
+    ? "bg-black/60 border-b border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.3)]" 
+    : "bg-white/70 border-b border-slate-200/50 shadow-[0_8px_32px_rgba(0,0,0,0.02)]"
+  }`}>
+  <div className="flex items-center gap-3">
+    <motion.button 
+      whileTap={{ scale: 0.9 }}
+      onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
+      className={`p-2.5 rounded-2xl transition-colors ${isMalam ? "bg-white/5 hover:bg-white/10 text-white" : "bg-black/5 hover:bg-black/10 text-slate-900"}`}
+    >
+      <ChevronLeft size={20} />
+    </motion.button>
     
     {/* Input Teks */}
     <input
@@ -453,7 +463,11 @@ useEffect(() => {
       onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
       onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
       placeholder="Cari tempat, lihat suasana..."
-      className={`flex-1 py-3 px-4 rounded-2xl text-sm font-bold outline-none border ${isMalam ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"}`}
+      className={`flex-1 py-3 px-4 rounded-2xl text-sm font-bold outline-none border transition-colors ${
+    isMalam 
+      ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" 
+      : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"
+  }`}
       autoComplete="off"
       autoCorrect="off"
       autoCapitalize="off"
@@ -463,8 +477,13 @@ useEffect(() => {
       data-form-type="other"
     />
     
+    
     {/* ========== VOICE SEARCH ========== */}
-    <div className={`rounded-full p-1 ${isMalam ? "bg-white/10" : "bg-transparent"}`}>
+<div className={`flex items-center justify-center rounded-2xl transition-all duration-300 shadow-sm ${
+  isMalam 
+    ? "bg-white border border-white/20" // Background putih solid di mode malam agar mic hitam kontras
+    : "bg-black/[0.04] border border-black/5" // Mengikuti gaya input teks di mode terang
+}`}>
   <VoiceSearch
     handleSearch={(transcript) => {
       console.log('🎤 Voice search result:', transcript);
@@ -474,11 +493,13 @@ useEffect(() => {
     placeholder="Klik dan bicara..."
     width="48"
     height="48"
-    buttonColor={isMalam ? "#FFFFFF" : "#E3655B"}  // ← putih saat gelap
-    buttonIconColor={isMalam ? "#1a1a1a" : "#FFFFFF"}  // ← icon hitam saat gelap
+    buttonColor={isMalam ? "#333" : "#F1F5F9"}  // putih saat gelap, oranye saat terang
+    buttonIconColor="#E3655B"  // icon hitam saat gelap, putih saat terang
     language="id-ID"
   />
 </div>
+  
+
     {/* Tombol Refresh */}
     <button 
       onClick={handleGlobalRefresh} 

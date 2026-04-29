@@ -84,4 +84,28 @@ body {
   transition-timing-function: ease-out;
 }
 
-
+/* Fix blur/glitch pada HP Android */
+@media (max-width: 768px) {
+  /* Matikan semua backdrop-filter di mobile */
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl,
+  .backdrop-blur-3xl {
+    backdrop-filter: none !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+  }
+  
+  /* Header di mobile jadi solid */
+  header.bg-white\/80.backdrop-blur-md {
+    background: white !important;
+    backdrop-filter: none !important;
+  }
+  
+  /* Overlay sidebar jadi solid hitam transparan */
+  .bg-slate-900\/20.backdrop-blur-sm {
+    background: rgba(15, 23, 42, 0.4) !important;
+    backdrop-filter: none !important;
+  }
+}
