@@ -2,27 +2,23 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLocation } from "@/components/LocationProvider";
 
 export default function LocationModal({ 
   isOpen, onClose, onSelectManual, onActivateGPS, 
   isUsingCustomLocation, customLocationName 
 }) {
-  const { sapaan } = useLocation();
   const [search, setSearch] = useState({ query: "", results: [], loading: false });
   const [status, setStatus] = useState({ loading: false, success: false, msg: "" });
+  const [currentMode, setCurrentMode] = useState("");
 
-  const isMalam = sapaan === "Malam";
-
-  // Reset state saat modal dibuka
   useEffect(() => {
     if (isOpen) {
       setSearch({ query: "", results: [], loading: false });
       setStatus({ loading: false, success: false, msg: "" });
+      setCurrentMode("");
     }
   }, [isOpen]);
 
-  // Debounce Search Logic
   useEffect(() => {
     if (search.query.length < 3) return;
     const timer = setTimeout(async () => {
@@ -36,22 +32,24 @@ export default function LocationModal({
     return () => clearTimeout(timer);
   }, [search.query]);
 
-  const handleAction = async (type, data = null) => {
-    setStatus({ loading: true, success: false, msg: "Memproses..." });
+  const handleSelection = async (mode, data = null) => {
+    setCurrentMode(mode);
+    setStatus({ loading: true, success: false, msg: "Menyimpan..." });
+    
     try {
-      if (type === 'gps') {
-        await onActivateGPS();
-        setStatus({ loading: false, success: true, msg: "GPS Terhubung!" });
-      } else if (type === 'manual') {
+      if (mode === 'gps' || mode === 'general') {
+        await onActivateGPS(mode); // ✅ PERBAIKAN: pakai onActivateGPS
+        setStatus({ loading: false, success: true, msg: mode === 'gps' ? "Radius 10Km Aktif" : "Area Umum Aktif" });
+      } else if (mode === 'manual') {
         await onSelectManual(data);
-        setStatus({ loading: false, success: true, msg: `Lokasi: ${data.name}` });
+        setStatus({ loading: false, success: true, msg: data.name });
       } else {
         await onSelectManual(null);
         setStatus({ loading: false, success: true, msg: "Radius Dimatikan" });
       }
-      setTimeout(onClose, 1200);
+      setTimeout(onClose, 1000);
     } catch {
-      setStatus({ loading: false, success: false, msg: "Gagal, coba lagi." });
+      setStatus({ loading: false, success: false, msg: "Gagal memproses" });
     }
   };
 
@@ -60,90 +58,79 @@ export default function LocationModal({
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4">
-        {/* Overlay */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-950/40 backdrop-blur-md" />
+        <motion.div 
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+          onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+        />
 
         <motion.div 
           initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
-          className={`relative w-full max-w-sm rounded-t-[40px] sm:rounded-[40px] p-8 overflow-hidden shadow-2xl ${isMalam ? "bg-slate-900 text-white" : "bg-white text-slate-900"}`}
+          className="relative w-full max-w-sm bg-white rounded-t-[40px] sm:rounded-[40px] p-8 shadow-2xl overflow-hidden text-slate-800"
         >
-          {/* Green Success Shield */}
           <AnimatePresence>
             {status.success && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-emerald-500 text-white">
-                <span className="text-5xl mb-3">✨</span>
-                <p className="font-black uppercase tracking-tighter text-xl">{status.msg}</p>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-emerald-500 text-white text-center p-6">
+                <div className="text-6xl mb-4">✅</div>
+                <p className="font-black text-2xl tracking-tighter leading-none">{status.msg}</p>
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="w-12 h-1.5 bg-slate-500/20 rounded-full mx-auto mb-8" />
+          <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8" />
+          
+          <h2 className="text-2xl font-black tracking-tighter mb-8 text-slate-900">Pilih <span className="text-orange-500">Radius Sekitar</span></h2>
 
-          {/* Header & Status Aktif */}
-          <div className="mb-8">
-            <h2 className="text-[28px] font-black tracking-tighter leading-none mb-3">Radius <span className="text-orange-500">Aktif</span></h2>
-            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${isMalam ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-100"}`}>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
-                {isUsingCustomLocation ? customLocationName : "Sesuai GPS Anda"}
-              </p>
-            </div>
+          <div className="space-y-4 mb-10">
+            <OptionItem title="Sembunyikan Radius" active={currentMode === 'off'} onClick={() => handleSelection('off')} />
+            <OptionItem title="Tampilkan Area Umum" active={currentMode === 'general'} onClick={() => handleSelection('general')} />
+            <OptionItem title="Aktifkan Radius Jarak" desc="Menampilkan Tempat di radius 10Km dari anda" active={currentMode === 'gps'} onClick={() => handleSelection('gps')} />
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-4">
-            <button onClick={() => handleAction('gps')} className="w-full py-5 bg-slate-950 text-white dark:bg-white dark:text-slate-950 rounded-[24px] font-black text-sm uppercase tracking-widest shadow-xl active:scale-95 transition-all">
-              📍 Update via GPS
-            </button>
-
-            <div className="relative group">
+          <div className="pt-6 border-t border-slate-100">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 block">Cari Manual</label>
+            <div className="relative">
               <input 
-                type="text" placeholder="Ganti Lokasi Manual..."
-                className={`w-full p-5 rounded-[24px] text-sm font-bold border-2 transition-all outline-none ${isMalam ? "bg-slate-800 border-slate-700 focus:border-orange-500" : "bg-slate-50 border-slate-100 focus:border-orange-500"}`}
-                value={search.query} onChange={(e) => setSearch({ ...search, query: e.target.value })}
+                type="text" 
+                placeholder="Ketik nama desa/kecamatan..."
+                className={`w-full p-4 rounded-2xl bg-slate-50 border-2 transition-all text-sm font-bold outline-none ${currentMode === 'manual' ? 'border-orange-500 bg-white' : 'border-transparent focus:border-orange-500'}`}
+                value={search.query} 
+                onChange={(e) => setSearch({ ...search, query: e.target.value })}
               />
-              {search.loading && <div className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />}
-              
-              {/* Search Results Dropdown */}
-              <AnimatePresence>
-                {search.results.length > 0 && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`absolute left-0 right-0 mt-2 p-2 rounded-3xl border shadow-2xl z-10 ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"}`}>
-                    {search.results.map((res, i) => (
-                      <button key={i} onClick={() => handleAction('manual', { latitude: parseFloat(res.lat), longitude: parseFloat(res.lon), name: res.display_name.split(",")[0] })} className="w-full text-left p-4 hover:bg-orange-500/10 rounded-2xl transition-colors">
-                        <p className="text-sm font-bold truncate">{res.display_name.split(",")[0]}</p>
-                        <p className="text-[10px] opacity-40 truncate">{res.display_name}</p>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {search.loading && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />}
             </div>
-          </div>
 
-          {/* Privacy Tooltip */}
-          <div className={`mt-8 p-4 rounded-3xl flex items-start gap-3 ${isMalam ? "bg-slate-800/50" : "bg-orange-50/50"}`}>
-            <span className="text-lg">🛡️</span>
-            <p className="text-[10px] font-bold leading-relaxed opacity-60">
-              <span className="block text-slate-900 dark:text-white mb-0.5 uppercase tracking-tighter">Privasi Aman</span>
-              Lokasi hanya digunakan untuk menyaring suasana di sekitar Anda. Data tidak disimpan permanen di server kami.
-            </p>
+            {search.results.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-y-auto space-y-1 bg-white rounded-2xl border border-slate-100 p-2 shadow-lg">
+                {search.results.map((res, i) => (
+                  <button 
+                    key={i} 
+                    onClick={() => handleSelection('manual', { latitude: parseFloat(res.lat), longitude: parseFloat(res.lon), name: res.display_name.split(",")[0] })} 
+                    className="w-full text-left p-3 hover:bg-orange-50 rounded-xl transition-colors"
+                  >
+                    <p className="text-xs font-bold text-slate-700 truncate">{res.display_name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-
-          {/* Footer Actions */}
-          <div className="mt-8 flex items-center justify-between px-2">
-            <button onClick={onClose} className="text-[11px] font-black uppercase tracking-widest opacity-30 hover:opacity-100 transition-opacity">Nanti Saja</button>
-            <button 
-              onClick={() => handleAction('reset')}
-              className="px-5 py-2.5 bg-red-500/10 text-red-500 rounded-full text-[11px] font-black uppercase tracking-tight hover:bg-red-500/20 transition-all"
-            >
-              Nonaktifkan Lokasi
-            </button>
-          </div>
+          
+          <button onClick={onClose} className="w-full mt-8 text-slate-400 text-[10px] font-bold uppercase tracking-widest">Tutup</button>
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+}
+
+function OptionItem({ title, desc, active, onClick }) {
+  return (
+    <div onClick={onClick} className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all border-2 ${active ? "border-orange-500 bg-orange-50" : "border-slate-50 bg-slate-50 hover:border-slate-200"}`}>
+      <div className="flex-1">
+        <p className={`text-sm font-black tracking-tight ${active ? "text-orange-600" : "text-slate-700"}`}>{title}</p>
+        {desc && <p className="text-[10px] font-bold opacity-60 leading-tight mt-1">{desc}</p>}
+      </div>
+      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${active ? "border-orange-500 bg-white" : "border-slate-300"}`}>
+        {active && <div className="w-3 h-3 rounded-full bg-orange-500 shadow-sm" />}
+      </div>
+    </div>
   );
 }

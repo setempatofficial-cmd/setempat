@@ -205,7 +205,7 @@ const ToastMessage = memo(({ show, message }) => (
 // Main Component
 export default function FeedContent() {
   const router = useRouter();
-  const { location, status, placeName, requestLocation, setManualLocation } = useLocation();
+  const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
   const { user, isAdmin } = useAuth();
   const theme = useTheme();
 
@@ -227,7 +227,7 @@ export default function FeedContent() {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState(null);
-  const [searchRadius, setSearchRadius] = useState(DEFAULT_RADIUS);
+  const searchRadius = activeMode === 'general' ? 40 : 10;
   
   // ========== UI STATE ==========
   const [isScrolled, setIsScrolled] = useState(false);
@@ -236,6 +236,7 @@ export default function FeedContent() {
   const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
   const [feedOpacity, setFeedOpacity] = useState(1);
   const [isActivatingLocation, setIsActivatingLocation] = useState(false);
+  
 
   // ========== DETEKSI ARAH SCROLL ==========
  const [scrollDirection, setScrollDirection] = useState('down');  
@@ -867,7 +868,7 @@ useEffect(() => {
     
     setOrderedIds([]);
     setItemsMap(new Map());
-    setSearchRadius(DEFAULT_RADIUS);
+    
     setInitialLoad(true);
     setHasMore(true);
     setError(null);
@@ -1172,6 +1173,8 @@ useEffect(() => {
   // ========== HANDLERS ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
+   
+
     setManualLocation(selectedLocation);
     cacheManager.invalidate();
 	sessionStorage.removeItem(SESSION_CACHE_KEY);
@@ -1185,12 +1188,14 @@ useEffect(() => {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   }, [cacheManager, loadPlaces, setManualLocation, resetFeed]);
 
-  const handleGPSActivation = useCallback(async () => {
-    console.log("📍 Aktifkan GPS location...");
-    await requestLocation();
+  const handleGPSActivation = useCallback(async (mode = 'gps') => {
+    console.log(`📍 Aktifkan GPS location mode: ${mode}...`);
+    
+     
+    await requestLocation(mode);
     await new Promise(resolve => setTimeout(resolve, 800));
     cacheManager.invalidate();
-	sessionStorage.removeItem(SESSION_CACHE_KEY);
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
     await resetFeed();
     setIsTransitioningLocation(true);
     setFeedOpacity(0.5);
@@ -1200,7 +1205,7 @@ useEffect(() => {
   }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
 
   const handleRadiusChange = useCallback((newRadius) => {
-    setSearchRadius(newRadius);
+    
     cacheManager.invalidate();
     loadPlaces(true);
     setToast({ show: true, message: `🔍 Radius ${newRadius}km` });
@@ -1328,6 +1333,8 @@ useEffect(() => {
         isMalam={isMalam}
         onActivateGPS={handleGPSActivation}
         onSelectManual={handleManualLocationSelect}
+        currentActiveMode={activeMode}
+        customLocationName={placeName}
       />
 
             <motion.div 
