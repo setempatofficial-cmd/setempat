@@ -40,25 +40,32 @@ export default function VerifikasiRewangPage() {
 
   useEffect(() => {
     fetchRewangSubmissions();
-  }, [filter, profile?.desa, profile?.wilayah_rt]);
+  }, [filter]);
 
   const fetchRewangSubmissions = async () => {
+  setLoading(true);
   try {
-    setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from('pendaftar_rewang')
       .select(`
         *,
-        profiles:user_id (full_name, avatar_url, phone) 
+        profil:user_id (id, full_name, email, phone, desa, avatar_url)
       `)
-      .eq('desa', profile.assigned_desa) // RT hanya melihat warga di desanya
-      .eq('status', 'menunggu')          // Ambil yang belum di-ACC
       .order('created_at', { ascending: false });
 
+    // Filter status berdasarkan state
+    if (filter !== 'semua') query = query.eq('status', filter);
+    
+    // Filter wilayah (pakai 'desa' atau 'wilayah_rt')
+    if (isRt && profile?.wilayah_rt) {
+      query = query.eq('desa', profile.wilayah_rt);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     setSubmissions(data || []);
   } catch (err) {
-    console.error('Fetch Error:', err.message);
+    console.error('Fetch Error:', err);
   } finally {
     setLoading(false);
   }
@@ -91,51 +98,47 @@ export default function VerifikasiRewangPage() {
   };
 
   const handleKeputusan = async () => {
-    if (!keputusan) return alert('Pilih keputusan final!');
-    setIsSubmitting(true);
-    try {
-      const newStatus = keputusan === 'setuju' ? 'aktif' : 'ditolak';
-      
-      // 1. Update status pendaftaran
-      const { error } = await supabase
+  if (!keputusan) return;
+  setIsSubmitting(true);
+  
+  try {
+    const newStatus = keputusan === 'setuju' ? 'aktif' : 'ditolak';
+    
+    // 1. Update pendaftar_rewang
+    const { error: updateError } = await supabase
       .from('pendaftar_rewang')
       .update({
-        status: 'diterima',
-        rekomendasi_rt: profile.full_name,
-        rekomendasi_rt_id: profile.id,
-        rekomendasi_rt_at: new Date().toISOString(),
-        rekomendasi_rt_note: 'Sudah diverifikasi layak kerja.'
+        status: newStatus,
+        verified_at: new Date().toISOString(),
+        verified_by: profile?.id,
+        verified_note: keputusanNote
       })
-      .eq('id', submissionId);
-
-      // 2. Jika ACC, update profil publik user
-      if (keputusan === 'setuju') {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            is_rewang: true,
-            profesi: selectedSubmission.profesi,
-            deskripsi_jasa: selectedSubmission.deskripsi,
-            estimasi_biaya: selectedSubmission.estimasi_biaya,
-            jam_operasional: selectedSubmission.jam_operasional,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', selectedSubmission.user_id);
-
-        if (profileError) throw profileError;
-      }
-
-      alert(`Pendaftar rewang berhasil ${newStatus}!`);
-      setShowKeputusanModal(false);
-      fetchSubmissions();
-      setSelectedSubmission(null);
-      setShowDetail(false);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setIsSubmitting(false);
+      .eq('id', selectedSubmission.id);
+    if (updateError) throw updateError;
+    
+    // 2. Jika disetujui, update profiles
+    if (newStatus === 'aktif') {
+      await supabase
+        .from('profiles')
+        .update({ 
+          is_rewang: true,
+          profesi: selectedSubmission.profesi,
+          deskripsi_jasa: selectedSubmission.deskripsi,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedSubmission.user_id);
     }
-  };
+    
+    alert(`Berhasil ${newStatus === 'aktif' ? 'mengaktifkan' : 'menolak'} rewang!`);
+    setShowKeputusanModal(false);
+    fetchRewangSubmissions(); // panggil ulang
+    setSelectedSubmission(null);
+  } catch (err) {
+    alert('Gagal: ' + err.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const filteredSubmissions = useMemo(() => {
     return submissions.filter(sub => 

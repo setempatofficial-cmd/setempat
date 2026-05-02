@@ -1,72 +1,105 @@
 "use client";
-import { memo } from "react";
-import { Camera, Zap, Info, Clock, MapPin } from "lucide-react";
+import { memo, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  Camera, 
+  CloudRain, 
+  Navigation,
+  Sparkles 
+} from "lucide-react";
 
-const AIQuickActions = memo(({ actions = [], onActionClick, onLaporClick, isMalam }) => {
-  
+const AIQuickActions = memo(({ 
+  actions = [], 
+  onActionClick, 
+  onLaporClick, 
+  isMalam,
+  contextData = { cuaca: "cerah", lalin: "lancar" } 
+}) => {
+
+  const BRAND_COLOR = "#E3655B";
+
+  const smartActions = useMemo(() => {
+    let dynamicOptions = [...actions];
+    if (contextData.cuaca.toLowerCase().includes('hujan')) {
+      dynamicOptions.unshift({ 
+        label: "Cek Genangan", 
+        query: "Update titik banjir sekarang",
+        type: 'danger',
+        icon: CloudRain
+      });
+    }
+    if (contextData.lalin.toLowerCase().includes('macet')) {
+      dynamicOptions.unshift({ 
+        label: "Jalur Alternatif", 
+        query: "Cari rute anti macet",
+        type: 'warning',
+        icon: Navigation
+      });
+    }
+    return dynamicOptions;
+  }, [actions, contextData]);
+
   return (
-    <div className="relative group">
-      {/* Container Scroll dengan Fade Effect di ujung */}
-      <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-3 px-4 scroll-smooth">
-        
-        {/* 1. TOMBOL KIRIM FOTO - High Emphasis */}
-        <button
-          onClick={onLaporClick}
-          className={`
-            flex items-center gap-2 px-5 py-2.5 rounded-2xl 
-            bg-indigo-600 hover:bg-indigo-500 
-            text-white text-[11px] font-black whitespace-nowrap 
-            shadow-lg shadow-indigo-500/25 active:scale-90 transition-all
-            ring-2 ring-indigo-400/20
-          `}
-        >
-          <Camera size={14} strokeWidth={3} className="animate-pulse" />
-          <span className="tracking-wider">KIRIM FOTO</span>
-        </button>
-
-        {/* 2. DYNAMIC ACTIONS */}
-        {actions.map((tag, idx) => {
-          const label = tag.label.toLowerCase();
-          
-          // Logic Icon & Color mapping
-          let Icon = Info;
-          let iconColor = "text-rose-500";
-          
-          if (label.includes('kondisi') || label.includes('rame')) {
-            Icon = Zap;
-            iconColor = "text-amber-500";
-          } else if (label.includes('jam') || label.includes('buka')) {
-            Icon = Clock;
-            iconColor = "text-blue-500";
-          } else if (label.includes('lokasi') || label.includes('rute') || label.includes('alamat')) {
-            Icon = MapPin;
-            iconColor = "text-emerald-500";
-          }
-
-          return (
-            <button
-              key={`${tag.label}-${idx}`}
-              onClick={() => onActionClick(tag.query)}
-              className={`
-                flex items-center gap-2 px-4 py-2.5 rounded-2xl border 
-                whitespace-nowrap transition-all active:scale-95
-                text-[11px] font-bold tracking-tight uppercase
-                ${isMalam 
-                  ? 'bg-zinc-900/50 border-zinc-800 text-zinc-300 hover:bg-zinc-800' 
-                  : 'bg-white/80 border-zinc-100 text-zinc-600 hover:border-zinc-300 shadow-sm'
-                }
-                backdrop-blur-md
-              `}
-            >
-              <Icon size={14} className={`${iconColor}`} strokeWidth={2.5} />
-              <span>{tag.label}</span>
-            </button>
-          );
-        })}
+    <div className="w-full mb-2 space-y-2">
+      {/* Label - Warna icon AI disamakan dengan brand tapi tipis */}
+      <div className="flex items-center gap-1.5 px-4">
+        <Sparkles size={10} style={{ color: BRAND_COLOR }} className="opacity-70" />
+        <span className={`text-[9px] font-bold uppercase tracking-[0.15em] ${isMalam ? 'text-zinc-500' : 'text-zinc-400'}`}>
+          Saran Setempat AI
+        </span>
       </div>
 
-      {/* Shadow Overlay untuk indikasi scroll (Opsional) */}
-      <div className={`absolute right-0 top-0 bottom-3 w-12 pointer-events-none bg-gradient-to-l ${isMalam ? 'from-zinc-950' : 'from-white'} to-transparent opacity-70`} />
+      <div className="flex items-center w-full overflow-x-auto no-scrollbar pb-2">
+        <div className="flex gap-2 px-4 flex-nowrap">
+          
+          {/* Tombol LAPOR - Soft Version */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={onLaporClick}
+            style={{ 
+              backgroundColor: `${BRAND_COLOR}15`, // Alpha 15% (Sangat lembut)
+              border: `1px solid ${BRAND_COLOR}40`, // Border 40% opacity
+              color: BRAND_COLOR 
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl transition-colors shrink-0"
+          >
+            <Camera size={14} strokeWidth={2.5} />
+            <span className="text-[11px] font-extrabold uppercase">LAPOR</span>
+          </motion.button>
+
+          {/* Dynamic Actions */}
+          <AnimatePresence mode="popLayout">
+            {smartActions.map((tag, idx) => (
+              <motion.button
+                key={tag.label}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => onActionClick(tag.query)}
+                className={`
+                  flex items-center gap-2 px-3 py-2 rounded-xl border shrink-0 transition-all
+                  ${isMalam 
+                    ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300' 
+                    : 'bg-white border-zinc-100 shadow-sm text-zinc-600'
+                  }
+                  ${tag.type === 'danger' ? 'ring-1 ring-rose-500/30 !bg-rose-500/5 !text-rose-500 !border-rose-500/20' : ''}
+                `}
+              >
+                {tag.icon ? (
+                  <tag.icon 
+                    size={13} 
+                    className={tag.type === 'danger' ? 'text-rose-500' : 'text-zinc-400'} 
+                  />
+                ) : (
+                  <Sparkles size={13} className="text-zinc-400" />
+                )}
+                <span className="text-[11px] font-medium whitespace-nowrap">{tag.label}</span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 });

@@ -26,11 +26,14 @@ import DetailProdukModal from "@/app/components/peken/DetailProdukModal";
 // --- CONTEXTS ---
 import { useAuth } from "@/app/context/AuthContext";
 import { useLocation } from "@/components/LocationProvider";
+import { supabase } from '@/lib/supabaseClient';
+import UploadOptions from "@/app/components/upload/UploadOptions";
 
 export default function PekenPage() {
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const { location, placeName } = useLocation();
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // --- STATES ---
   const [activeTab, setActiveTab] = useState('beranda');
@@ -39,28 +42,66 @@ export default function PekenPage() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showDaftarBakul, setShowDaftarBakul] = useState(false);
+  const [localProfile, setLocalProfile] = useState(null);
   
   // Header Scroll Logic
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  const isSeller = profile?.is_seller || false;
-  const isDriver = profile?.is_driver || false;
-  const isRewang = profile?.is_rewang || false;
-  
-  const [modals, setModals] = useState({
-    upload: false, daftar: false, sambat: false, 
-    formPanyangan: false, formOjek: false, formDonasi: false
-  });
+  // Status dari profile
 
-  // --- LOGIC SCROLL ---
+const isSeller = localProfile?.is_seller === true;  
+const isDriver = localProfile?.is_driver === true;  
+const isRewang = localProfile?.is_rewang === true;  
+  
+  const finalIsSeller = localProfile?.is_seller === true;
+  const finalKtpStatus = localProfile?.ktp_status || 'belum_mengajukan';
+  const finalKtpRejectionReason = localProfile?.ktp_rejection_reason;
+  
+  // State untuk modal-modal
+  const [modals, setModals] = useState({
+    daftarOjek: false,
+    daftarRewang: false,
+    donasi: false,
+    sambat: false,
+    formPanyangan: false
+  });
+  
+  const toggleModal = useCallback((key, value) => {
+    setModals(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const fetchProfileDirect = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) throw error;
+      
+      console.log("📋 Profile langsung dari DB:", data);
+      setLocalProfile(data);
+    } catch (error) {
+      console.error("Error fetch profile:", error);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchProfileDirect();
+  }, [fetchProfileDirect]);
+
+  // Scroll logic
   useEffect(() => {
     const controlHeader = () => {
       if (typeof window !== 'undefined') {
         if (window.scrollY > lastScrollY && window.scrollY > 80) {
-          setShowHeader(false); // Scroll kebawah
+          setShowHeader(false);
         } else {
-          setShowHeader(true); // Scroll keatas
+          setShowHeader(true);
         }
         setLastScrollY(window.scrollY);
       }
@@ -69,10 +110,6 @@ export default function PekenPage() {
     window.addEventListener('scroll', controlHeader);
     return () => window.removeEventListener('scroll', controlHeader);
   }, [lastScrollY]);
-
-  const toggleModal = (key, value) => {
-    setModals(prev => ({ ...prev, [key]: value }));
-  };
 
   const finalLocationName = useMemo(() => {
     if (manualLocationName) return manualLocationName;
@@ -86,19 +123,34 @@ export default function PekenPage() {
       if (name) setManualLocationName(name);
     };
     window.addEventListener('location-updated', handleLocationUpdate);
-    return () => window.removeEventListener('location-updated', handleLocationUpdate);
-  }, []);
+    
+    const handleRefreshProfile = () => {
+      if (refreshProfile) refreshProfile();
+    };
+    window.addEventListener('refresh-user-profile', handleRefreshProfile);
+    
+    return () => {
+      window.removeEventListener('location-updated', handleLocationUpdate);
+      window.removeEventListener('refresh-user-profile', handleRefreshProfile);
+    };
+  }, [refreshProfile]);
 
   const handleAddProduct = useCallback(() => {
     setEditingProduct(null);
     toggleModal('formPanyangan', true);
-    toggleModal('upload', false);
-  }, []);
+  }, [toggleModal]);
+
+  const handleRefreshStatus = useCallback(async () => {
+    if (refreshProfile) {
+      await refreshProfile();
+    }
+    window.dispatchEvent(new CustomEvent('refresh-lapak-status'));
+  }, [refreshProfile]);
 
   return (
     <div className="min-h-screen bg-[#FBFBFE] pb-32 max-w-[420px] mx-auto relative shadow-2xl overflow-x-hidden">
       
-      {/* HEADER FIXED DENGAN ANIMASI TRANSLATE */}
+      {/* HEADER FIXED */}
       <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ease-in-out ${
         showHeader ? 'translate-y-0' : '-translate-y-full'
       }`}>
@@ -125,7 +177,7 @@ export default function PekenPage() {
         </div>
       </div>
 
-      {/* Spacer agar konten awal tidak tertutup header fixed */}
+      {/* Spacer */}
       <div className="h-[84px]" />
 
       <main className="px-6">
@@ -153,38 +205,111 @@ export default function PekenPage() {
         {activeTab === 'donasi' && <DonasiSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />}
         
         {activeTab === 'lapakku' && (
-          <LapakkuSection userId={user?.id} locationName={finalLocationName} onBack={() => setActiveTab('beranda')} onAddProduct={handleAddProduct} onEditProduct={(product) => { setEditingProduct(product); toggleModal('formPanyangan', true); }} isSeller={isSeller} onOpenDaftarBakul={() => setShowDaftarBakul(true)} />
+          <LapakkuSection 
+            userId={user?.id} 
+            locationName={finalLocationName} 
+            onBack={() => setActiveTab('beranda')} 
+            onAddProduct={handleAddProduct} 
+            onEditProduct={(product) => { 
+              setEditingProduct(product); 
+              toggleModal('formPanyangan', true); 
+            }} 
+            isSeller={finalIsSeller}
+            ktpStatus={finalKtpStatus}                
+            ktpRejectionReason={localProfile?.ktp_rejection_reason} 
+            onOpenDaftarBakul={() => setShowDaftarBakul(true)} 
+            onRefreshStatus={handleRefreshStatus}
+          />
         )}
       </main>
 
-      {/* NAVIGATION & MODALS */}
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} onPlusClick={() => toggleModal('upload', true)} />
+      {/* BOTTOM NAVIGATION */}
+      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} onPlusClick={() => setShowUploadModal(true)} />
 
-      {modals.upload && (
-        <UploadOptions 
-          onClose={() => toggleModal('upload', false)}
+      {/* UPLOAD OPTIONS MODAL */}
+      {showUploadModal && (
+        <UploadOptions
+          onClose={() => setShowUploadModal(false)}
+          isSeller={isSeller}
+          isDriver={isDriver}
+          isRewang={isRewang}
+          onDaftarBakul={() => setShowDaftarBakul(true)}
+          onDaftarOjek={() => toggleModal('daftarOjek', true)}
+          onDaftarRewang={() => toggleModal('daftarRewang', true)}
+          onDonasi={() => toggleModal('donasi', true)}
           onSambat={() => toggleModal('sambat', true)}
-          onDaftar={() => toggleModal('daftar', true)}
           onPanyangan={handleAddProduct}
-          onDaftarOjek={() => toggleModal('formOjek', true)}
-          onDonasi={() => toggleModal('formDonasi', true)}
-          isSeller={isSeller} isDriver={isDriver} isRewang={isRewang}
         />
       )}
       
-      <SambatModal isOpen={modals.sambat} onClose={() => toggleModal('sambat', false)} user={user} profile={profile} /> 
-      <FormPanyangan isOpen={modals.formPanyangan} onClose={() => { toggleModal('formPanyangan', false); setEditingProduct(null); }} editingProduct={editingProduct} onSuccess={() => window.dispatchEvent(new CustomEvent('refresh-lapak'))} theme={{ isMalam: false }} />
-      <DaftarRewangModal isOpen={modals.daftar} onClose={() => toggleModal('daftar', false)} profile={profile} />
-      <FormOjek isOpen={modals.formOjek} onClose={() => toggleModal('formOjek', false)} user={user} profile={profile} />
-      <FormDonasi isOpen={modals.formDonasi} onClose={() => toggleModal('formDonasi', false)} user={user} profile={profile} />
-      <FormDaftarBakul isOpen={showDaftarBakul} onClose={() => setShowDaftarBakul(false)} user={user} profile={profile} onSuccess={() => window.location.reload()} />
-      <DetailProdukModal product={selectedProduct} isOpen={showReviewModal} onClose={() => { setShowReviewModal(false); setSelectedProduct(null); }} userId={user?.id} locationName={finalLocationName} autoOpenUlasan={true} onOrderSuccess={() => {}} />
+      {/* SEMUA MODAL */}
+      <FormDaftarBakul 
+        isOpen={showDaftarBakul} 
+        onClose={() => setShowDaftarBakul(false)} 
+        user={user} 
+        profile={profile} 
+        onSuccess={() => {
+          setShowDaftarBakul(false);
+          handleRefreshStatus();
+        }} 
+      />
+      
+      <FormPanyangan 
+        isOpen={modals.formPanyangan} 
+        onClose={() => { 
+          toggleModal('formPanyangan', false); 
+          setEditingProduct(null); 
+        }} 
+        editingProduct={editingProduct} 
+        onSuccess={() => window.dispatchEvent(new CustomEvent('refresh-lapak'))} 
+        theme={{ isMalam: false }} 
+      />
+      
+      <SambatModal 
+        isOpen={modals.sambat} 
+        onClose={() => toggleModal('sambat', false)} 
+        user={user} 
+        profile={profile} 
+      />
+      
+      <DaftarRewangModal 
+        isOpen={modals.daftarRewang} 
+        onClose={() => toggleModal('daftarRewang', false)} 
+        profile={profile} 
+      />
+      
+      <FormOjek 
+        isOpen={modals.daftarOjek} 
+        onClose={() => toggleModal('daftarOjek', false)} 
+        user={user} 
+        profile={profile} 
+      />
+      
+      <FormDonasi 
+        isOpen={modals.donasi} 
+        onClose={() => toggleModal('donasi', false)} 
+        user={user} 
+        profile={profile} 
+      />
+      
+      <DetailProdukModal 
+        product={selectedProduct} 
+        isOpen={showReviewModal} 
+        onClose={() => { 
+          setShowReviewModal(false); 
+          setSelectedProduct(null); 
+        }} 
+        userId={user?.id} 
+        locationName={finalLocationName} 
+        autoOpenUlasan={true} 
+        onOrderSuccess={() => {}} 
+      />
+      
     </div>
   );
 }
 
 // --- SUB-COMPONENTS ---
-
 function PekenHome({ location, setActiveTab }) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-10">
@@ -248,43 +373,5 @@ function TabButton({ active, onClick, icon: Icon, label }) {
       </div>
       <span className="text-[7px] font-black mt-1.5 uppercase">{label}</span>
     </button>
-  );
-}
-
-function UploadOptions({ onClose, onSambat, onDaftar, onPanyangan, onDaftarOjek, onDonasi, isSeller, isDriver, isRewang }) {
-  const options = [
-    ...(isSeller ? [{ label: 'Gelar Dagangan', sub: 'Panyangan Rojo Koyo', icon: Store, color: 'text-orange-500', bg: 'bg-orange-50', border: 'border-orange-100', onClick: onPanyangan }] : []),
-    ...(!isDriver ? [{ label: 'Daftar Ojek', sub: 'Jadi rider antar jemput', icon: Truck, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', onClick: onDaftarOjek }] : []),
-    { label: 'Berbagi / Donasi', sub: 'Sedekah barang & bantuan', icon: Heart, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100', onClick: onDonasi },
-    { label: 'Sambat Bantuan', sub: 'Butuh bantuan segera', icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100', onClick: onSambat },
-    ...(!isRewang ? [{ label: 'Daftar Rewang', sub: 'Menawarkan jasa warga', icon: UserPlus, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100', onClick: onDaftar }] : []),
-  ];
-  
-  if (!isSeller) {
-    options.unshift({ label: 'Daftar Jadi Bakul', sub: 'Mulai jualan di Panyangan', icon: Store, color: 'text-orange-500', bg: 'bg-orange-100', border: 'border-orange-200', onClick: () => window.dispatchEvent(new CustomEvent('open-daftar-bakul')) });
-  }
-
-  return (
-    <div className="fixed inset-0 z-[250] flex items-end justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-[40px] w-full max-w-sm z-10 p-8 animate-in slide-in-from-bottom-10 shadow-2xl overflow-hidden">
-        <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-6" />
-        <h3 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter italic">Mau Posting Apa?</h3>
-        <div className="grid gap-3 max-h-[60vh] overflow-y-auto no-scrollbar pr-1">
-          {options.map((opt, i) => (
-            <button key={i} onClick={() => { onClose(); setTimeout(() => opt.onClick(), 200); }} className={`w-full flex items-center p-4 ${opt.bg} rounded-[28px] border ${opt.border} active:scale-95 transition-all group`}>
-              <div className={`p-3 bg-white rounded-2xl mr-4 ${opt.color} shadow-sm border border-white group-hover:scale-110 transition-transform`}>
-                <opt.icon size={20} strokeWidth={2.5} />
-              </div>
-              <div className="text-left">
-                <h4 className="font-black text-xs uppercase tracking-tight text-slate-800 leading-none">{opt.label}</h4>
-                <p className="text-[9px] opacity-70 font-bold mt-1 uppercase tracking-tighter text-slate-500">{opt.sub}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-        <button onClick={onClose} className="w-full mt-6 py-2 text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">Batal</button>
-      </div>
-    </div>
   );
 }

@@ -36,20 +36,20 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       // Query Builder dasar
-      let userQuery = supabase.from('profiles').select('*', { count: 'exact', head: true });
+      let userQuery = supabase.from('profiles').select('id', { count: 'exact', head: true });
       let penjualQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_seller', true);
       let driverQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_driver', true);
       let rewangQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_rewang', true);
       let ktpQuery = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('ktp_status', 'menunggu');
-      let penjualDaftarQuery = supabase.from('pendaftar_bakul').select('*', { count: 'exact', head: true }).eq('status', 'menunggu_verifikasi');
-      let driverDaftarQuery = supabase.from('pendaftar_ojek').select('*', { count: 'exact', head: true }).eq('status', 'menunggu_verifikasi');
-      let rewangDaftarQuery = supabase.from('pendaftar_rewang').select('*', { count: 'exact', head: true }).eq('status', 'menunggu_verifikasi');
+      let penjualDaftarQuery = supabase.from('pendaftar_bakul').select('*', { count: 'exact', head: true }).eq('status', 'menunggu');
+      let driverDaftarQuery = supabase.from('pendaftar_ojek').select('*', { count: 'exact', head: true }).eq('status', 'menunggu');
+      let rewangDaftarQuery = supabase.from('pendaftar_rewang').select('*', { count: 'exact', head: true }).eq('status', 'menunggu');
       let transaksiQuery = supabase.from('pesanan').select('*', { count: 'exact', head: true }).gte('created_at', new Date().toISOString().split('T')[0]);
       let produkQuery = supabase.from('produk').select('*', { count: 'exact', head: true }).eq('is_active', true);
       let sambatanQuery = supabase.from('sambatan').select('*', { count: 'exact', head: true }).eq('status', 'aktif');
 
       // Filter Wilayah untuk Admin/RT
-      if (isAdmin && profile?.wilayah_rt) {
+     if (!isSuperAdmin && isAdmin && profile?.wilayah_rt) {
         const wilayah = profile.wilayah_rt;
         userQuery = userQuery.eq('desa', wilayah);
         penjualQuery = penjualQuery.eq('desa', wilayah);

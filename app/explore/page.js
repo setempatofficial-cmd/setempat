@@ -485,7 +485,7 @@ export default function CitizenHub({ userId, userRole }) {
           
           {isActuallyLoading ? (
             <div className="flex justify-center items-center h-64">
-              <div className="flex justify-center items-center h-64">
+              <div className="relative flex items-center justify-center">
   <div className="relative flex items-center justify-center">
     <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
     <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>

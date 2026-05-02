@@ -1,4 +1,3 @@
-// app/admin/layout.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -13,12 +12,16 @@ import {
 
 export default function AdminLayout({ children }) {
   const router = useRouter();
-  const pathname = usePathname(); // Untuk deteksi menu aktif otomatis
+  const pathname = usePathname();
   const { user, profile, loading, isSuperAdmin, isAdmin, logout } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [openGroups, setOpenGroups] = useState(['verifikasi']); // Default grup yang terbuka
+  const [openGroups, setOpenGroups] = useState(['verifikasi']);
 
-  // Proteksi rute
+  // Tutup sidebar otomatis saat pindah rute (Penting untuk Mobile)
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     if (!loading && !isSuperAdmin && !isAdmin) {
       router.push('/');
@@ -39,15 +42,8 @@ export default function AdminLayout({ children }) {
 
   if (!isSuperAdmin && !isAdmin) return null;
 
-  // Struktur Menu
   const menuItems = [
-    { 
-      id: 'dashboard', 
-      label: 'Dashboard', 
-      icon: LayoutDashboard, 
-      href: '/admin/dashboard', 
-      role: 'all' 
-    },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard', role: 'all' },
     { 
       id: 'verifikasi', 
       label: 'Verifikasi', 
@@ -61,20 +57,8 @@ export default function AdminLayout({ children }) {
         { id: 'verifikasi-rewang', label: 'Jasa Rewang', icon: Briefcase, href: '/admin/verifikasi/rewang', role: 'all' },
       ] 
     },
-    { 
-      id: 'angkat-rt', 
-      label: 'Angkat RT', 
-      icon: UserCheck, 
-      href: '/admin/angkat-rt', 
-      role: 'superadmin' 
-    },
-    { 
-      id: 'users', 
-      label: 'Manajemen User', 
-      icon: Users, 
-      href: '/admin/users', 
-      role: 'all' 
-    },
+    { id: 'angkat-rt', label: 'Angkat RT', icon: UserCheck, href: '/admin/angkat-rt', role: 'superadmin' },
+    { id: 'users', label: 'Manajemen User', icon: Users, href: '/admin/users', role: 'all' },
   ];
 
   const toggleGroup = (id) => {
@@ -84,24 +68,33 @@ export default function AdminLayout({ children }) {
   const isActive = (href) => pathname === href;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex text-slate-900">
-      {/* Overlay Mobile */}
-      {!isSidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)} />
-      )}
+    <div className="min-h-screen bg-slate-50 flex text-slate-900 overflow-x-hidden">
+      
+      {/* 1. OVERLAY MOBILE - Diperbaiki logic-nya */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="md:hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[45]" 
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 z-50 h-screen transition-all duration-500 ease-in-out border-r border-slate-200 bg-white
-        ${isSidebarOpen ? 'w-64' : 'w-0 md:w-20 overflow-hidden md:overflow-visible'}`}>
+      {/* 2. SIDEBAR - Penyesuaian Lebar & Z-Index */}
+      <aside className={`fixed top-0 left-0 z-50 h-screen transition-all duration-300 ease-in-out border-r border-slate-200 bg-white
+        ${isSidebarOpen ? 'w-[280px] translate-x-0' : '-translate-x-full md:translate-x-0 md:w-20'}`}>
         
         <div className="flex flex-col h-full">
           {/* Header Sidebar */}
-          <div className="h-20 flex items-center px-4 border-b border-slate-100 shrink-0">
+          <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className={`shrink-0 p-2 rounded-xl shadow-lg ${isSuperAdmin ? 'bg-purple-600' : 'bg-orange-500'} text-white`}>
                 {isSuperAdmin ? <Crown size={20} /> : <ShieldCheck size={20} />}
               </div>
-              {isSidebarOpen && (
+              {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 768)) && (
                 <div className="truncate">
                   <h1 className="font-black text-xs uppercase tracking-tight truncate leading-none">
                     {isSuperAdmin ? 'Petinggi Setempat' : 'RT Setempat'}
@@ -113,9 +106,8 @@ export default function AdminLayout({ children }) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 custom-scrollbar">
+          <nav className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
             {menuItems.map((item) => {
-              // Filter akses level 1
               if (item.role === 'superadmin' && !isSuperAdmin) return null;
 
               if (item.isGroup) {
@@ -124,35 +116,33 @@ export default function AdminLayout({ children }) {
                     {isSidebarOpen && (
                       <button 
                         onClick={() => toggleGroup(item.id)}
-                        className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] hover:text-slate-600 transition-colors"
+                        className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
                       >
                         {item.label}
                         <ChevronDown size={12} className={`transition-transform ${openGroups.includes(item.id) ? 'rotate-180' : ''}`} />
                       </button>
                     )}
                     
-                    <AnimatePresence>
-                      {(openGroups.includes(item.id) || !isSidebarOpen) && (
-                        <div className="space-y-1">
-                          {item.children.map((child) => {
-                            if (child.role === 'superadmin' && !isSuperAdmin) return null;
-                            const active = isActive(child.href);
-                            return (
-                              <button
-                                key={child.id}
-                                onClick={() => router.push(child.href)}
-                                className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
-                                  ${active ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
-                              >
-                                <child.icon size={18} className={active ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'} />
-                                {isSidebarOpen && <span className="text-sm font-bold truncate">{child.label}</span>}
-                                {!isSidebarOpen && active && <div className="absolute left-0 w-1 h-6 bg-purple-600 rounded-r-full" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </AnimatePresence>
+                    <div className="space-y-1">
+                      {item.children.map((child) => {
+                        if (child.role === 'superadmin' && !isSuperAdmin) return null;
+                        const active = isActive(child.href);
+                        // Tampilkan anak menu hanya jika grup terbuka ATAU sidebar sedang menciut (md:w-20)
+                        if (!openGroups.includes(item.id) && isSidebarOpen) return null;
+
+                        return (
+                          <button
+                            key={child.id}
+                            onClick={() => router.push(child.href)}
+                            className={`w-full group flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200
+                              ${active ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+                          >
+                            <child.icon size={18} className={active ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'} />
+                            {isSidebarOpen && <span className="text-sm font-bold truncate">{child.label}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               }
@@ -162,7 +152,7 @@ export default function AdminLayout({ children }) {
                 <button
                   key={item.id}
                   onClick={() => router.push(item.href)}
-                  className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
+                  className={`w-full group flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200
                     ${active ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
                   <item.icon size={18} className={active ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'} />
@@ -174,21 +164,11 @@ export default function AdminLayout({ children }) {
 
           {/* Footer Sidebar */}
           <div className="p-4 border-t border-slate-100 space-y-1 bg-slate-50/50">
-            <button
-              onClick={() => router.push('/')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-white hover:text-purple-600 transition-all border border-transparent hover:border-slate-200"
-            >
+            <button onClick={() => router.push('/')} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-slate-500 hover:bg-white hover:text-purple-600 transition-all border border-transparent hover:border-slate-200">
               <Home size={18} />
               {isSidebarOpen && <span>Rumah Setempat</span>}
             </button>
-            
-            <button
-              onClick={async () => {
-                await logout();
-                router.push('/');
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-rose-500 hover:bg-rose-50 transition-all"
-            >
+            <button onClick={async () => { await logout(); router.push('/'); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-rose-500 hover:bg-rose-50 transition-all">
               <LogOut size={18} />
               {isSidebarOpen && <span>Keluar Panel</span>}
             </button>
@@ -196,47 +176,38 @@ export default function AdminLayout({ children }) {
         </div>
       </aside>
 
-      {/* Toggle Button Floating (Mobile) */}
+      {/* 3. TOMBOL FLOATING MOBILE - Diperbaiki Z-Index & Posisi */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed bottom-6 right-6 z-[60] md:hidden p-4 bg-purple-600 text-white rounded-full shadow-2xl active:scale-90 transition-transform"
->
+        className="fixed bottom-8 right-6 z-[60] md:hidden p-5 bg-slate-900 text-white rounded-full shadow-2xl active:scale-90 transition-all border-4 border-white"
+      >
         {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* Toggle Sidebar Desktop */}
-      <button 
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className={`hidden md:flex fixed z-[60] top-7 transition-all duration-500 bg-white border border-slate-200 p-1.5 rounded-lg text-slate-400 hover:text-purple-600 hover:shadow-md
-          ${isSidebarOpen ? 'left-[245px]' : 'left-[65px]'}`}
-      >
-        <ChevronRight size={14} className={`transition-transform duration-500 ${isSidebarOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {/* Main Content Area */}
-      <main className={`flex-1 transition-all duration-500 ease-in-out min-h-screen
+      {/* 4. MAIN CONTENT - Tambahan Overflow-X Hidden */}
+      <main className={`flex-1 transition-all duration-300 ease-in-out min-h-screen w-full
         ${isSidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
         
-        {/* Top Header Content (Optional) */}
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-30">
+          <div className="flex items-center gap-4">
+            {/* Ruang kosong untuk tombol desktop toggle */}
+            <h2 className="text-xs font-black text-slate-800 uppercase tracking-tight ml-2 md:ml-10">
               {menuItems.find(m => isActive(m.href))?.label || 
                menuItems.flatMap(m => m.children || []).find(c => isActive(c.href))?.label || 
                'Panel Admin'}
             </h2>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="hidden sm:flex flex-col items-end">
-              <span className="text-[11px] font-black text-slate-800 leading-none">{profile?.full_name}</span>
-              <span className="text-[9px] font-bold text-emerald-500 uppercase mt-1">Online</span>
+              <span className="text-[10px] font-black text-slate-800 leading-none">{profile?.full_name}</span>
+              <span className="text-[8px] font-bold text-emerald-500 uppercase mt-0.5">Online</span>
             </div>
-            <div className="w-9 h-9 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden">
                {profile?.avatar_url ? (
                  <img src={profile.avatar_url} className="w-full h-full object-cover" alt="" />
                ) : (
-                 <div className="w-full h-full flex items-center justify-center bg-purple-100 text-purple-600 font-bold text-xs">
+                 <div className="w-full h-full flex items-center justify-center bg-purple-100 text-purple-600 font-bold text-[10px]">
                    {profile?.full_name?.charAt(0)}
                  </div>
                )}
@@ -244,11 +215,21 @@ export default function AdminLayout({ children }) {
           </div>
         </header>
 
-        {/* Content Page */}
-        <div className="p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        {/* Content Area - Padding disesuaikan agar tidak tertutup tombol floating */}
+        <div className="p-4 md:p-8 pb-24 md:pb-8">
           {children}
         </div>
       </main>
+
+      {/* 5. DESKTOP TOGGLE BUTTON - Diperbaiki posisinya */}
+      <button 
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className={`hidden md:flex fixed z-[60] top-7 transition-all duration-300 bg-white border border-slate-200 p-1.5 rounded-lg text-slate-400 hover:text-purple-600 hover:shadow-md
+          ${isSidebarOpen ? 'left-[265px]' : 'left-[65px]'}`}
+      >
+        <ChevronRight size={14} className={`transition-transform duration-300 ${isSidebarOpen ? 'rotate-180' : ''}`} />
+      </button>
+
     </div>
   );
 }

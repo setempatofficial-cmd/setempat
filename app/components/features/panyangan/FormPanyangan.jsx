@@ -92,7 +92,14 @@ const uploadToCloudinary = async (file) => {
   }
 };
 
-export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, theme }) {
+export default function FormPanyangan({ 
+  isOpen, 
+  onClose, 
+  onSuccess, 
+  tempatId, 
+  theme,
+  editingProduct = null  // ✅ TAMBAHKAN PROPS INI
+}) {
   // ============================================
   // ✅ 1. SEMUA HOOK DI SINI (PALING ATAS)
   // ============================================
@@ -109,6 +116,7 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
   });
   
   const isMalam = theme?.isMalam ?? false;
+  const isEditMode = !!editingProduct;  // ✅ CEK APAKAH EDIT MODE
 
   // ✅ useEffect untuk fetch profile
   useEffect(() => {
@@ -120,6 +128,43 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
       fetchProfile();
     }
   }, [isOpen]);
+
+  // ✅ LOAD DATA EDIT MODE
+  useEffect(() => {
+    if (isOpen && editingProduct) {
+      console.log("📝 Loading edit data:", editingProduct);
+      
+      setFormData({
+        nama_barang: editingProduct.nama_barang || '',
+        harga: editingProduct.harga?.toString() || '',
+        satuan: editingProduct.satuan || 'Per Kg',
+        deskripsi: editingProduct.deskripsi || ''
+      });
+      
+      // Load existing images
+      if (editingProduct.foto_url && Array.isArray(editingProduct.foto_url)) {
+        setUploadedImageUrls(editingProduct.foto_url);
+      } else if (editingProduct.foto_url && typeof editingProduct.foto_url === 'string') {
+        try {
+          const parsed = JSON.parse(editingProduct.foto_url);
+          setUploadedImageUrls(Array.isArray(parsed) ? parsed : []);
+        } catch {
+          setUploadedImageUrls([]);
+        }
+      } else {
+        setUploadedImageUrls([]);
+      }
+    } else if (isOpen && !editingProduct) {
+      // Reset form untuk mode tambah baru
+      setFormData({
+        nama_barang: '',
+        harga: '',
+        satuan: 'Per Kg',
+        deskripsi: ''
+      });
+      setUploadedImageUrls([]);
+    }
+  }, [isOpen, editingProduct]);
 
   // ✅ useCallback untuk proses upload
   const processUploadQueue = useCallback(async () => {
@@ -209,24 +254,47 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
     setLoading(true);
     
     try {
-      const response = await fetch('/api/produk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nama_barang: formData.nama_barang,
-          harga: parseFloat(formData.harga),
-          satuan: formData.satuan,
-          deskripsi: formData.deskripsi,
-          foto_url: uploadedImageUrls,
-          tempat_id: tempatId,
-          user_id: profile.id,
-        }),
-      });
+      let response;
       
-      if (!response.ok) throw new Error('Gagal menyimpan');
+      if (isEditMode && editingProduct?.id) {
+        // 🔥 UPDATE PRODUK (EDIT MODE)
+        response = await fetch('/api/produk', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingProduct.id,
+            nama_barang: formData.nama_barang,
+            harga: parseFloat(formData.harga),
+            satuan: formData.satuan,
+            deskripsi: formData.deskripsi,
+            foto_url: uploadedImageUrls,
+          }),
+        });
+        
+        if (!response.ok) throw new Error('Gagal mengupdate produk');
+        alert('✅ Produk berhasil diupdate!');
+        
+      } else {
+        // 🔥 CREATE PRODUK BARU
+        response = await fetch('/api/produk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nama_barang: formData.nama_barang,
+            harga: parseFloat(formData.harga),
+            satuan: formData.satuan,
+            deskripsi: formData.deskripsi,
+            foto_url: uploadedImageUrls,
+            tempat_id: tempatId,
+            user_id: profile.id,
+          }),
+        });
+        
+        if (!response.ok) throw new Error('Gagal menyimpan');
+        alert('✅ Produk berhasil diunggah!');
+      }
       
-      alert('✅ Produk berhasil diunggah!');
-      
+      // Reset form
       setFormData({
         nama_barang: '',
         harga: '',
@@ -240,7 +308,7 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
       
     } catch (error) {
       console.error('Error:', error);
-      alert('❌ Gagal menyimpan: ' + error.message);
+      alert(`❌ Gagal ${isEditMode ? 'mengupdate' : 'menyimpan'}: ` + error.message);
     } finally {
       setLoading(false);
     }
@@ -269,7 +337,7 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
             <X size={20} />
           </button>
           <h3 className={`font-black uppercase tracking-tighter text-sm ${isMalam ? "text-white" : "text-slate-800"}`}>
-            Gelar Dagangan
+            {isEditMode ? 'Edit Dagangan' : 'Gelar Dagangan Baru'}
           </h3>
           <div className="w-10"></div>
         </div>
@@ -408,7 +476,7 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
           {profile && (
             <div className={`p-3 rounded-xl border flex items-center gap-2 ${
               isMalam ? "bg-orange-500/5 border-orange-500/20" : "bg-orange-50 border-orange-100"
-            }`}>
+                }`}>
               <MapPin size={14} className="text-orange-500" />
               <span className={`text-[11px] font-bold ${isMalam ? "text-orange-300" : "text-orange-700"}`}>
                 Berlaku untuk semua pembeli
@@ -429,7 +497,7 @@ export default function FormPanyangan({ isOpen, onClose, onSuccess, tempatId, th
                   <span>Menyimpan...</span>
                 </div>
               ) : (
-                'Unggah Dagangan'
+                isEditMode ? 'Update Dagangan' : 'Unggah Dagangan'
               )}
             </button>
             <button 

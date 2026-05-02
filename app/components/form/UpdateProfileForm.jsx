@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { 
   Save, User, MapPin, Briefcase, Phone, AtSign, 
   Clock, ShieldCheck, Info, Camera, CheckCircle, XCircle, Calendar,
-  Navigation, Loader2, Edit2
+  Navigation, Loader2, Edit2, RefreshCw, WifiOff, AlertCircle 
 } from "lucide-react";
 
 export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
@@ -26,6 +26,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   const [locationError, setLocationError] = useState("");
   const [isEditingLocation, setIsEditingLocation] = useState(false);
   const [isUsingGps, setIsUsingGps] = useState(false);
+  const [locationSuccess, setLocationSuccess] = useState(false);
   
   const [formData, setFormData] = useState({
     username: "",
@@ -50,12 +51,17 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     return { canChange, daysLeft };
   };
 
-  // Geocoding
-  const geocodeAddress = async (alamat, desa, kecamatan, kabupaten) => {
+  // Geocoding dengan retry
+  const geocodeAddress = async (alamat, desa, kecamatan, kabupaten, retryCount = 0) => {
     try {
       const fullAddress = `${alamat}, ${desa}, ${kecamatan}, ${kabupaten}, Indonesia`;
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'Setempat.id App/1.0'
+          }
+        }
       );
       const data = await response.json();
       if (data && data[0]) {
@@ -64,6 +70,10 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
           longitude: parseFloat(data[0].lon)
         };
       }
+      if (retryCount < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return geocodeAddress(alamat, desa, kecamatan, kabupaten, retryCount + 1);
+      }
       return null;
     } catch (error) {
       console.error("Geocoding error:", error);
@@ -71,19 +81,28 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     }
   };
 
-  const reverseGeocode = async (lat, lng) => {
+  const reverseGeocode = async (lat, lng, retryCount = 0) => {
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'Setempat.id App/1.0'
+          }
+        }
       );
       const data = await response.json();
       if (data && data.address) {
         return {
-          alamat: data.display_name?.split(",")[0] || "",
+          alamat: data.address.road || data.address.hamlet || data.address.village || "",
           desa: data.address.village || data.address.hamlet || data.address.suburb || "",
           kecamatan: data.address.county || data.address.district || "",
-          kabupaten: data.address.city || data.address.town || data.address.municipality || "",
+          kabupaten: data.address.city || data.address.town || data.address.municipality || data.address.region || "",
         };
+      }
+      if (retryCount < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return reverseGeocode(lat, lng, retryCount + 1);
       }
       return null;
     } catch (error) {
@@ -95,6 +114,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   const getCurrentLocation = () => {
     setIsGettingLocation(true);
     setLocationError("");
+    setLocationSuccess(false);
     
     if (!navigator.geolocation) {
       setLocationError("Browser tidak mendukung GPS");
@@ -105,6 +125,10 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
+        
+        // Tampilkan loading saat reverse geocode
+        setLocationError("Mendapatkan alamat...");
+        
         const address = await reverseGeocode(latitude, longitude);
         
         if (address) {
@@ -119,17 +143,43 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
           }));
           setIsUsingGps(true);
           setIsEditingLocation(false);
+          setLocationSuccess(true);
+          setLocationError("");
+          
+          // Hilangkan notifikasi sukses setelah 3 detik
+          setTimeout(() => setLocationSuccess(false), 3000);
         } else {
-          setLocationError("Gagal mendapatkan alamat, coba lagi");
+          // Jika reverse geocode gagal, tetap simpan koordinatnya
+          setFormData(prev => ({
+            ...prev,
+            latitude: latitude,
+            longitude: longitude,
+          }));
+          setIsUsingGps(true);
+          setLocationError("Alamat tidak ditemukan, silakan isi manual");
         }
         setIsGettingLocation(false);
       },
       (error) => {
         console.error("GPS Error:", error);
-        setLocationError("Gagal mendapatkan lokasi. Aktifkan GPS.");
+        let errorMsg = "Gagal mendapatkan lokasi. ";
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMsg += "Izinkan akses lokasi di pengaturan browser.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMsg += "Lokasi tidak tersedia. Coba lagi.";
+            break;
+          case error.TIMEOUT:
+            errorMsg += "Waktu habis. Coba lagi.";
+            break;
+          default:
+            errorMsg += "Aktifkan GPS dan coba lagi.";
+        }
+        setLocationError(errorMsg);
         setIsGettingLocation(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -256,6 +306,10 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("Ukuran file maksimal 2MB");
+        return;
+      }
       setAvatarFile(file);
       setAvatarPreview(URL.createObjectURL(file));
     }
@@ -297,10 +351,10 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       return;
     }
     
-    // Lokasi wajib untuk estimasi ongkir
+    // Lokasi wajib untuk Kampung Kita & estimasi ongkir
     if (!formData.latitude || !formData.longitude) {
       if (!formData.alamat || !formData.desa || !formData.kabupaten) {
-        alert("Silakan klik 'Gunakan Lokasi Saya' untuk mengisi lokasi");
+        alert("⚠️ Lokasi wajib diisi!\n\nKlik '📍 Gunakan Lokasi Saya' untuk mengisi lokasi otomatis.");
         return;
       }
     }
@@ -329,6 +383,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
       let latitude = formData.latitude;
       let longitude = formData.longitude;
 
+      // Jika tidak ada koordinat tapi ada alamat, coba geocode
       if ((!latitude || !longitude) && formData.alamat && formData.desa && formData.kabupaten) {
         const coords = await geocodeAddress(
           formData.alamat,
@@ -339,15 +394,11 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         if (coords) {
           latitude = coords.latitude;
           longitude = coords.longitude;
-        } else {
-          alert("Gagal mendapatkan koordinat. Silakan klik 'Gunakan Lokasi Saya'");
-          setLoading(false);
-          return;
         }
       }
 
       if (!latitude || !longitude) {
-        alert("Lokasi tidak valid. Silakan klik 'Gunakan Lokasi Saya'");
+        alert("❌ Lokasi tidak valid.\n\nKlik '📍 Gunakan Lokasi Saya' untuk mendapatkan lokasi otomatis.");
         setLoading(false);
         return;
       }
@@ -378,7 +429,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
         .eq("id", profile.id);
 
       if (!error) {
-        alert("✅ Profil berhasil disimpan!");
+        alert("✅ Profil berhasil disimpan!\n\nLokasi Anda akan digunakan untuk menampilkan kegiatan dalam radius 10km.");
         onSaveSuccess?.();
         fetchProfile();
       } else {
@@ -392,7 +443,8 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
   };
 
   // Cek apakah sudah ada lokasi
-  const hasLocation = formData.alamat || formData.desa || formData.kabupaten;
+  const hasLocation = (formData.latitude && formData.longitude) || formData.alamat || formData.desa || formData.kabupaten;
+  const hasCompleteLocation = formData.latitude && formData.longitude && formData.kabupaten;
 
   const baseInputClass = `w-full pl-10 pr-4 py-2.5 rounded-xl border transition-all outline-none text-sm`;
   const inputClass = `${baseInputClass} ${isMalam
@@ -458,7 +510,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
               Foto Profil
             </p>
             <p className={`text-[7px] ${isMalam ? "text-white/25" : "text-slate-400"}`}>
-              Kosongkan jika pakai foto Google
+              Maksimal 2MB
             </p>
           </div>
         </div>
@@ -499,7 +551,7 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
             placeholder="Usia (tahun)"
             value={formData.usia}
             onChange={handleUsiaChange}
-            className={usiaError ? inputErrorClass : inputClass}
+            className={inputClass}
             min="17"
             max="100"
             required
@@ -520,85 +572,198 @@ export default function UpdateProfileForm({ profile, theme, onSaveSuccess }) {
           />
         </div>
 
-        {/* LOKASI SECTION */}
-        <div className="space-y-2">
+        {/* LOKASI SECTION - YANG DISEMPURNAKAN */}
+        <div className="space-y-3">
+          {/* Header Lokasi */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <MapPin size={12} className="text-orange-500" />
+              <p className={`text-[10px] font-medium ${isMalam ? "text-white/60" : "text-slate-500"}`}>
+                Lokasi Saya
+              </p>
+            </div>
+            {hasCompleteLocation && (
+              <div className="flex items-center gap-1">
+                <CheckCircle size={10} className="text-green-500" />
+                <span className="text-[7px] text-green-500">Tersimpan</span>
+              </div>
+            )}
+          </div>
+
+          {/* Tombol GPS */}
           <button
             type="button"
             onClick={getCurrentLocation}
             disabled={isGettingLocation}
-            className={`w-full py-2.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all
-              ${isGettingLocation
-                ? "bg-slate-700 text-white/40 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-500 text-white shadow-md"
+            className={`w-full py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all
+              ${isGettingLocation 
+                ? "bg-slate-700 text-white/40 cursor-not-allowed" 
+                : "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-md"
               }`}
           >
             {isGettingLocation ? (
-              <Loader2 size={16} className="animate-spin" />
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>Mendapatkan lokasi...</span>
+              </>
             ) : (
-              <Navigation size={16} />
+              <>
+                <Navigation size={16} />
+                <span>📍 Gunakan Lokasi Saya Saat Ini</span>
+              </>
             )}
-            {isGettingLocation ? "Mendapatkan lokasi..." : "📍 Gunakan Lokasi Saya"}
           </button>
-          
-          {locationError && <p className="text-[8px] text-center text-red-500">{locationError}</p>}
 
-          {hasLocation && !isEditingLocation && (
-            <div className={`p-2 rounded-lg ${isMalam ? "bg-green-500/10 border border-green-500/20" : "bg-green-50 border border-green-200"}`}>
-              <div className="flex items-center gap-1 mb-1">
-                <MapPin size={10} className="text-green-500" />
-                <p className={`text-[8px] font-medium ${isMalam ? "text-green-400" : "text-green-700"}`}>
-                  {isUsingGps ? "📍 Lokasi dari GPS:" : "📍 Lokasi:"}
-                </p>
-              </div>
-              <p className={`text-[9px] ${isMalam ? "text-white/70" : "text-slate-700"}`}>
-                {formData.alamat && `${formData.alamat}, `}
-                {formData.desa && `${formData.desa}, `}
-                {formData.kecamatan && `${formData.kecamatan}, `}
-                {formData.kabupaten}
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsEditingLocation(true)}
-                className="text-[8px] text-blue-500 hover:text-blue-400 flex items-center justify-center gap-1 w-full mt-1"
-              >
-                <Edit2 size={10} />
-                Edit manual jika tidak sesuai
-              </button>
+          {/* Notifikasi Sukses */}
+          {locationSuccess && (
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20 border border-green-500/40 animate-pulse">
+              <CheckCircle size={12} className="text-green-500" />
+              <p className="text-[8px] text-green-500">Lokasi berhasil didapatkan! Silakan simpan perubahan.</p>
             </div>
           )}
 
+          {/* Error Lokasi */}
+          {locationError && (
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30">
+              <WifiOff size={10} className="text-red-500" />
+              <p className="text-[7px] text-red-500 flex-1">{locationError}</p>
+              <button type="button" onClick={() => setLocationError("")} className="text-red-500 text-[8px]">✕</button>
+            </div>
+          )}
+
+          {/* Info Radius */}
+          {!hasCompleteLocation && (
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-orange-500/10 border border-orange-500/30">
+              <Info size={10} className="text-orange-500" />
+              <p className="text-[7px] text-orange-500 flex-1">
+                Lokasi digunakan untuk akurasi layanan setempat.id
+              </p>
+            </div>
+          )}
+
+          {/* Tampilan Lokasi Tersimpan */}
+          {hasLocation && !isEditingLocation && (
+            <div className={`p-3 rounded-xl ${isMalam ? "bg-slate-800/50 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <MapPin size={12} className={hasCompleteLocation ? "text-green-500" : "text-orange-500"} />
+                  <p className={`text-[8px] font-medium ${hasCompleteLocation ? "text-green-500" : "text-orange-500"}`}>
+                    {isUsingGps ? "📍 Lokasi dari GPS" : "📍 Lokasi Manual"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingLocation(true)}
+                  className="text-[8px] text-blue-500 hover:text-blue-400 flex items-center gap-1"
+                >
+                  <Edit2 size={10} />
+                  Edit
+                </button>
+              </div>
+              
+              <p className={`text-[10px] leading-relaxed ${isMalam ? "text-white/80" : "text-slate-700"}`}>
+                {formData.alamat && `${formData.alamat}, `}
+                {formData.desa && `${formData.desa}, `}
+                {formData.kecamatan && `${formData.kecamatan}, `}
+                {formData.kabupaten && `${formData.kabupaten}`}
+                {!formData.alamat && !formData.desa && !formData.kabupaten && (
+                  <span className="text-white/40">Lokasi koordinat: {formData.latitude?.toFixed(4)}, {formData.longitude?.toFixed(4)}</span>
+                )}
+              </p>
+
+              {!hasCompleteLocation && (
+                <p className="text-[7px] text-orange-500 mt-2 flex items-center gap-1">
+                  <AlertCircle size={8} />
+                  Lengkapi alamat untuk memudahkan layanan 
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Edit Manual */}
           {isEditingLocation && (
-            <div className="space-y-2 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
+            <div className="space-y-2 p-3 rounded-xl border border-blue-500/30 bg-blue-500/5">
               <div className="flex items-center justify-between">
-                <p className="text-[8px] text-blue-500 font-medium">Edit lokasi manual:</p>
-                <button type="button" onClick={() => setIsEditingLocation(false)} className="text-[8px] text-slate-400">✕</button>
+                <p className="text-[8px] text-blue-500 font-medium flex items-center gap-1">
+                  <Edit2 size={10} />
+                  Edit lokasi manual:
+                </p>
+                <div className="flex gap-1">
+                  <button 
+                    type="button" 
+                    onClick={getCurrentLocation}
+                    className="text-[8px] text-blue-500 hover:text-blue-400 flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/10"
+                  >
+                    <RefreshCw size={8} />
+                    GPS
+                  </button>
+                  <button type="button" onClick={() => setIsEditingLocation(false)} className="text-[8px] text-slate-400 px-2 py-0.5">✕</button>
+                </div>
               </div>
-              <input type="text" placeholder="Alamat" value={formData.alamat} onChange={(e) => { setFormData({ ...formData, alamat: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
+              
+              <input 
+                type="text" 
+                placeholder="Nama jalan / Alamat" 
+                value={formData.alamat} 
+                onChange={(e) => { setFormData({ ...formData, alamat: e.target.value }); setIsUsingGps(false); }} 
+                className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`} 
+              />
+              
               <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Desa" value={formData.desa} onChange={(e) => { setFormData({ ...formData, desa: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
-                <input type="text" placeholder="Kecamatan" value={formData.kecamatan} onChange={(e) => { setFormData({ ...formData, kecamatan: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
+                <input 
+                  type="text" 
+                  placeholder="Desa / Kelurahan" 
+                  value={formData.desa} 
+                  onChange={(e) => { setFormData({ ...formData, desa: e.target.value }); setIsUsingGps(false); }} 
+                  className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`} 
+                />
+                <input 
+                  type="text" 
+                  placeholder="Kecamatan" 
+                  value={formData.kecamatan} 
+                  onChange={(e) => { setFormData({ ...formData, kecamatan: e.target.value }); setIsUsingGps(false); }} 
+                  className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`} 
+                />
               </div>
-              <input type="text" placeholder="Kabupaten" value={formData.kabupaten} onChange={(e) => { setFormData({ ...formData, kabupaten: e.target.value }); setIsUsingGps(false); }} className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`} />
-              <button type="button" onClick={() => setIsEditingLocation(false)} className="w-full py-1 rounded-lg bg-blue-600 text-white text-[10px] font-medium">Selesai</button>
+              
+              <input 
+                type="text" 
+                placeholder="Kabupaten / Kota" 
+                value={formData.kabupaten} 
+                onChange={(e) => { setFormData({ ...formData, kabupaten: e.target.value }); setIsUsingGps(false); }} 
+                className={`w-full p-2 rounded-lg border text-xs ${isMalam ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`} 
+              />
+              
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => setIsEditingLocation(false)} 
+                  className="flex-1 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium transition-all"
+                >
+                  Selesai
+                </button>
+              </div>
             </div>
           )}
         </div>
 
+        {/* Tombol Submit */}
         <button
           type="submit"
           disabled={loading || !!usernameError || !!usiaError}
-          className={`w-full py-2.5 rounded-xl font-bold text-[10px] tracking-wide transition-all active:scale-95 flex items-center justify-center gap-2 mt-2
+          className={`w-full py-3 rounded-xl font-bold text-[10px] tracking-wide transition-all active:scale-95 flex items-center justify-center gap-2 mt-4
             ${(loading || !!usernameError || !!usiaError) 
               ? "bg-slate-700 text-white/30 cursor-not-allowed" 
-              : "bg-orange-600 hover:bg-orange-500 text-white shadow-md"}`}
+              : "bg-orange-600 hover:bg-orange-500 text-white shadow-md"
+            }`}
         >
           {loading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={12} />}
-          {loading ? "MENYIMPAN..." : "SIMPAN PERUBAHAN"}
+          {loading ? "MENYIMPAN..." : "💾 SIMPAN PERUBAHAN"}
         </button>
       </form>
 
-      <p className={`text-[7px] text-center mt-3 ${isMalam ? "text-white/20" : "text-slate-400"}`}>
-        🔒 Data Anda aman dan hanya untuk keperluan layanan Setempat.id
+      <p className={`text-[7px] text-center mt-4 ${isMalam ? "text-white/20" : "text-slate-400"}`}>
+        🔒 Data Anda aman. Lokasi digunakan untuk layanan dan fitur di setempat.id
       </p>
     </div>
   );

@@ -1,83 +1,98 @@
 "use client";
 import { memo } from "react";
-import { Camera, Check, Bot } from "lucide-react";
-import ReactMarkdown from "react-markdown"; // Import ini
+import { Camera, Check, BrainCircuit, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 const AIMessageBubble = memo(({ message, isUser, isMalam, onLaporClick, showLaporButton }) => {
   return (
-    <div className={`flex items-start gap-2 mb-4 ${isUser ? "flex-row-reverse" : ""}`}>
-      {/* Avatar AI */}
+    <div className={`flex items-start gap-3 mb-8 ${isUser ? "flex-row-reverse" : ""}`}>
+      
+      {/* Avatar AI - Konsisten dengan Header Akamsi Intel */}
       {!isUser && (
         <div className="relative flex-shrink-0 mt-1">
-          <div className="absolute inset-0 bg-emerald-500 blur-sm opacity-20 rounded-full"></div>
-          <div className="relative w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-emerald-500/30">
-            <Bot size={16} className="text-emerald-400" />
+          <div className="absolute inset-0 bg-indigo-500 blur-lg opacity-20 rounded-full animate-pulse"></div>
+          <div className="relative w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center border border-white/10 shadow-lg">
+            <BrainCircuit size={18} className="text-indigo-400" />
           </div>
         </div>
       )}
 
-      {/* Bubble Container */}
+      {/* Hybrid Bubble Container */}
       <div className={`
-        relative max-w-[85%] px-3.5 py-2.5
+        relative max-w-[85%] transition-all duration-300
         ${isUser 
-          ? "bg-emerald-600 text-white rounded-2xl rounded-tr-none shadow-sm" 
+          ? "bg-slate-800 text-slate-50 rounded-[22px] rounded-tr-md px-5 py-3.5 shadow-lg shadow-slate-200/50" 
           : isMalam 
-            ? "bg-zinc-800/80 backdrop-blur-md text-zinc-100 rounded-2xl rounded-tl-none border border-white/5" 
-            : "bg-[#F0F2F5] text-zinc-800 rounded-2xl rounded-tl-none border border-transparent shadow-sm"
+            ? "bg-indigo-950/90 backdrop-blur-xl text-indigo-50 rounded-[22px] rounded-tl-md border border-white/5 px-5 py-4" 
+            : "bg-white text-slate-800 rounded-[22px] rounded-tl-md border border-indigo-50/50 shadow-sm shadow-indigo-100/30 px-5 py-4"
         }
       `}>
-        {/* Teks Pesan - Sekarang menggunakan ReactMarkdown */}
-        <div className={`markdown-content text-[14.5px] leading-snug font-medium ${isUser ? 'prose-invert' : ''}`}>
+        
+        {/* Konten Cerdas (Markdown) */}
+        <div className={`
+          markdown-content text-[15px] leading-relaxed tracking-normal
+          ${isUser ? 'text-slate-100' : 'text-slate-800'}
+        `}>
           <ReactMarkdown
             components={{
-              // Menangani Gambar Thumbnail Berita
+              // PERBAIKAN: Ganti div dengan span
               img: ({ node, ...props }) => (
-                <img 
-                  {...props} 
-                  className="rounded-xl my-2 w-full object-cover max-h-52 border border-black/10 shadow-sm" 
-                  loading="lazy"
-                />
+                <span className="relative mt-0 mb-1 group inline-block">
+                  <span className="absolute inset-0 bg-indigo-500/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <img 
+                    {...props} 
+                    className="relative rounded-2xl w-full object-cover max-h-64 border border-slate-200/50 shadow-sm" 
+                    loading="lazy"
+                  />
+                </span>
               ),
-              // Menangani Judul (###)
+              // Judul: Gradient yang identik dengan 'Intelligence'
               h3: ({ node, ...props }) => (
-                <h3 {...props} className="text-lg font-black mt-1 mb-2 leading-tight tracking-tight" />
+                <h3 {...props} className="text-[17px] font-extrabold mb-1 bg-gradient-to-r from-indigo-600 to-violet-500 bg-clip-text text-transparent inline-block tracking-tight" />
               ),
-              // Menangani Garis Pemisah (---)
+              // Garis pemisah ultra-tipis
               hr: ({ node, ...props }) => (
-                <hr {...props} className="my-3 border-zinc-300/50 dark:border-white/10" />
+                <hr {...props} className="my-4 border-slate-100 dark:border-white/5" />
               ),
-              // Menangani Paragraf agar tidak ada margin bawah berlebih
-              p: ({ node, ...props }) => <p {...props} className="mb-2 last:mb-0 whitespace-pre-line" />
+              // List styling
+              li: ({node, ...props}) => (
+                <li {...props} className="ml-4 list-disc marker:text-indigo-500 mb-1.5" />
+              ),
+              p: ({ node, ...props }) => <p {...props} className="mb-3 last:mb-0 leading-7 font-medium" />
             }}
           >
             {message.text}
           </ReactMarkdown>
         </div>
 
-        {/* Tombol Lapor */}
+        {/* Action Button: Lapor Visual */}
         {showLaporButton && (
           <button 
             onClick={onLaporClick}
             className={`
-              mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl
-              transition-all active:scale-95 font-black text-[11px] uppercase tracking-wider
+              mt-5 flex items-center justify-center gap-2.5 w-full py-3.5 rounded-[18px]
+              transition-all active:scale-[0.96] font-bold text-[12px] tracking-wide uppercase
               ${isUser 
-                ? "bg-white/20 text-white border border-white/30 backdrop-blur-sm" 
-                : "bg-emerald-500 text-white shadow-md shadow-emerald-500/20"
+                ? "bg-white/10 hover:bg-white/20 text-white border border-white/10 backdrop-blur-md" 
+                : "bg-slate-900 hover:bg-indigo-700 text-white shadow-xl shadow-slate-200 transition-colors duration-300"
               }
             `}
           >
-            <Camera size={14} strokeWidth={3} />
-            Lapor Kondisi Terkini
+            <Camera size={16} strokeWidth={2.5} />
+            <span>Pantau Kondisi Terkini</span>
+            <Sparkles size={14} className="text-indigo-400" />
           </button>
         )}
 
-        {/* Info Waktu & Centang */}
-        <div className={`flex items-center gap-1 mt-1 justify-end ${isUser ? "text-white/60" : "text-zinc-400"}`}>
-          <span className="text-[9px] font-bold">
+        {/* Meta Info & Time */}
+        <div className={`
+          flex items-center gap-1.5 mt-3 pt-2 border-t border-slate-50/50 justify-end
+          ${isUser ? "text-slate-400" : "text-slate-400"}
+        `}>
+          <span className="text-[10px] font-bold tracking-tight opacity-70">
             {message.time}
           </span>
-          {isUser && <Check size={10} strokeWidth={4} />}
+          {isUser && <Check size={12} strokeWidth={3} className="text-indigo-500" />}
         </div>
       </div>
     </div>
