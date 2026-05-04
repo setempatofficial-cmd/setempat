@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MapPin, Search, ShieldCheck, Plus } from "lucide-react";
-import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
+import SmartBottomNavWarga from "@/app/components/layout/SmartBottomNavWarga";
 import LaporPanel from "@/app/components/ai/LaporPanel";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import { useTheme } from "@/app/hooks/useTheme";
@@ -503,23 +503,16 @@ export default function CitizenHub({ userId, userRole }) {
           )}
         </main>
 
-        <SmartBottomNav
-          onOpenUpload={() => { if (userRole === 'admin') { setSelectedTempat(null); setShowLaporPanel(true); } }}
-          onOpenLaporanForm={() => { if (userRole === 'admin') { setSelectedTempat(null); setShowLaporPanel(true); } }}
+        <SmartBottomNavWarga
+          onOpenLaporanForm={() => {
+          setSelectedTempat(null);
+          setShowLaporPanel(true);
+          }}
           onOpenNotification={() => router.push("/woro")}
-          onOpenProfile={() => router.push("/rewang")}
+          onOpenProfile={() => router.push("/peken")}
         />
 
-        {/* Floating Upload Button */}
-        {!showLaporPanel && currentIndex === null && userRole !== 'admin' && (
-          <div className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none z-[70]">
-            <div className="w-full max-w-[400px] relative h-[150px]">
-              <button onClick={handleOpenUpload} className="uploader-floating-btn pointer-events-auto">
-                <Plus size={28} strokeWidth={3} />
-              </button>
-            </div>
-          </div>
-        )}
+
 
         {/* Lapor Panel */}
         {showLaporPanel && (
@@ -745,23 +738,7 @@ export default function CitizenHub({ userId, userRole }) {
       </div>
 
       <style jsx global>{`
-        .uploader-floating-btn {
-          position: absolute !important;
-          bottom: 90px !important; 
-          right: 16px !important;
-          width: 56px !important;
-          height: 56px !important;
-          background: linear-gradient(to bottom right, #1e293b, #e3655b) !important;
-          color: #ffffff !important;
-          border-radius: 18px !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          border: 4px solid ${isMalam ? "#0C0C0C" : "#ffffff"} !important;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
-          transition: all 0.2s ease !important;
-        }
-        .uploader-floating-btn:active { transform: scale(0.9) !important; opacity: 0.9 !important; }
+       
         body.modal-open { overflow: hidden; overscroll-behavior-y: none; -ms-overflow-style: none; }
         .snap-y { scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
         .snap-start { scroll-snap-align: start; scroll-snap-stop: always; height: 100dvh; }

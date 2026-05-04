@@ -1,64 +1,42 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Store, Upload, Loader2, Trash2, MapPin } from 'lucide-react';
 
-// 🔥 FUNGSI KOMPRESI (di luar component)
-const compressImageInWorker = (file) => {
-  return new Promise((resolve, reject) => {
-    if (file.size < 500 * 1024) {
-      resolve(file);
-      return;
-    }
+// ✅ FUNGSI KOMPRESI SEDERHANA & STABIL
+const compressImage = (file) => {
+  return new Promise((resolve) => {
+    if (file.size < 500 * 1024) return resolve(file);
 
-    const worker = new Worker(URL.createObjectURL(
-      new Blob([`
-        self.onmessage = async (e) => {
-          const { file } = e.data;
-          const reader = new FileReader();
-          reader.readAsDataURL(file);
-          reader.onload = (ev) => {
-            const img = new Image();
-            img.src = ev.target.result;
-            img.onload = () => {
-              const canvas = new OffscreenCanvas(img.width, img.height);
-              const ctx = canvas.getContext('2d');
-              let width = img.width;
-              let height = img.height;
-              const maxWidth = 1024;
-              
-              if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-                canvas.width = width;
-                canvas.height = height;
-              }
-              
-              ctx.drawImage(img, 0, 0, width, height);
-              canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 }).then((blob) => {
-                self.postMessage({ blob });
-              });
-            };
-          };
-        };
-      `], { type: 'application/javascript' }))
-    );
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxWidth = 1024;
 
-    worker.onmessage = (e) => {
-      const compressedFile = new File([e.data.blob], file.name, { type: 'image/jpeg' });
-      worker.terminate();
-      resolve(compressedFile);
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.7);
+      };
     };
-
-    worker.onerror = (err) => {
-      worker.terminate();
-      reject(err);
-    };
-
-    worker.postMessage({ file });
   });
 };
 
-// 🔥 UPLOAD KE CLOUDINARY
+// ✅ UPLOAD KE CLOUDINARY
 const uploadToCloudinary = async (file) => {
   const CLOUD_NAME = "dlluhhe83";
   const UPLOAD_PRESET = "setempat_preset";
@@ -68,72 +46,37 @@ const uploadToCloudinary = async (file) => {
   formData.append("file", file);
   formData.append("upload_preset", UPLOAD_PRESET);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      body: formData,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error("Gagal upload ke Cloudinary");
-    }
-
-    const data = await response.json();
-    return data.secure_url;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
-  }
+  const response = await fetch(API_URL, { method: "POST", body: formData });
+  if (!response.ok) throw new Error("Gagal upload");
+  const data = await response.json();
+  return data.secure_url;
 };
 
 export default function FormPanyangan({ 
-  isOpen, 
-  onClose, 
-  onSuccess, 
-  tempatId, 
-  theme,
-  editingProduct = null  // ✅ TAMBAHKAN PROPS INI
+  isOpen, onClose, onSuccess, tempatId, theme, editingProduct = null 
 }) {
-  // ============================================
-  // ✅ 1. SEMUA HOOK DI SINI (PALING ATAS)
-  // ============================================
   const [loading, setLoading] = useState(false);
-  const [uploadQueue, setUploadQueue] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedImageUrls, setUploadedImageUrls] = useState([]);
   const [profile, setProfile] = useState(null);
   const [formData, setFormData] = useState({
-    nama_barang: '',
-    harga: '',
-    satuan: 'Per Kg',
-    deskripsi: ''
+    nama_barang: '', harga: '', satuan: 'Per Kg', deskripsi: ''
   });
   
   const isMalam = theme?.isMalam ?? false;
-  const isEditMode = !!editingProduct;  // ✅ CEK APAKAH EDIT MODE
+  const isEditMode = !!editingProduct;
 
-  // ✅ useEffect untuk fetch profile
+  // Fetch Profile
   useEffect(() => {
     if (isOpen) {
-      const fetchProfile = async () => {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
-        if (user?.id) setProfile(user);
-      };
-      fetchProfile();
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      if (user?.id) setProfile(user);
     }
   }, [isOpen]);
 
-  // ✅ LOAD DATA EDIT MODE
+  // Load Edit Data
   useEffect(() => {
     if (isOpen && editingProduct) {
-      console.log("📝 Loading edit data:", editingProduct);
-      
       setFormData({
         nama_barang: editingProduct.nama_barang || '',
         harga: editingProduct.harga?.toString() || '',
@@ -141,259 +84,216 @@ export default function FormPanyangan({
         deskripsi: editingProduct.deskripsi || ''
       });
       
-      // Load existing images
-      if (editingProduct.foto_url && Array.isArray(editingProduct.foto_url)) {
-        setUploadedImageUrls(editingProduct.foto_url);
-      } else if (editingProduct.foto_url && typeof editingProduct.foto_url === 'string') {
+      // ✅ Perbaikan: handle foto_url yang mungkin string JSON
+      let fotoUrls = [];
+      if (Array.isArray(editingProduct.foto_url)) {
+        fotoUrls = editingProduct.foto_url;
+      } else if (typeof editingProduct.foto_url === 'string') {
         try {
-          const parsed = JSON.parse(editingProduct.foto_url);
-          setUploadedImageUrls(Array.isArray(parsed) ? parsed : []);
+          fotoUrls = JSON.parse(editingProduct.foto_url);
         } catch {
-          setUploadedImageUrls([]);
+          fotoUrls = [];
         }
-      } else {
-        setUploadedImageUrls([]);
       }
+      setUploadedImageUrls(fotoUrls);
     } else if (isOpen && !editingProduct) {
-      // Reset form untuk mode tambah baru
+      // Reset form saat tambah baru
       setFormData({
-        nama_barang: '',
-        harga: '',
-        satuan: 'Per Kg',
-        deskripsi: ''
+        nama_barang: '', harga: '', satuan: 'Per Kg', deskripsi: ''
       });
       setUploadedImageUrls([]);
     }
   }, [isOpen, editingProduct]);
 
-  // ✅ useCallback untuk proses upload
-  const processUploadQueue = useCallback(async () => {
-    if (uploadQueue.length === 0) {
-      setIsUploading(false);
+  // ✅ HANDLE UPLOAD
+  const handleImageUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    const availableSlots = 3 - uploadedImageUrls.length;
+    const filesToUpload = files.slice(0, availableSlots);
+
+    if (filesToUpload.length === 0) {
+      alert("Maksimal 3 foto!");
+      event.target.value = '';
       return;
     }
 
     setIsUploading(true);
-    const file = uploadQueue[0];
-    
     try {
-      const compressed = await compressImageInWorker(file);
-      const imageUrl = await uploadToCloudinary(compressed);
-      setUploadedImageUrls(prev => [...prev, imageUrl]);
-      setUploadQueue(prev => prev.slice(1));
-      setTimeout(() => processUploadQueue(), 500);
+      for (const file of filesToUpload) {
+        const compressed = await compressImage(file);
+        const url = await uploadToCloudinary(compressed);
+        setUploadedImageUrls(prev => [...prev, url]);
+      }
     } catch (error) {
       console.error('Upload error:', error);
-      alert(`Gagal upload ${file.name}: ${error.message}`);
-      setUploadQueue(prev => prev.slice(1));
-      setTimeout(() => processUploadQueue(), 500);
+      alert("Gagal upload foto");
+    } finally {
+      setIsUploading(false);
+      event.target.value = '';
     }
-  }, [uploadQueue]);
-
-  // ✅ useEffect untuk menjalankan queue
-  useEffect(() => {
-    if (uploadQueue.length > 0 && !isUploading) {
-      processUploadQueue();
-    }
-  }, [uploadQueue, isUploading, processUploadQueue]);
-
-  // ============================================
-  // ✅ 2. CONDITIONAL RETURN (SETELAH SEMUA HOOK)
-  // ============================================
-  if (!isOpen) return null;
-
-  // ============================================
-  // ✅ 3. EVENT HANDLER & HELPER FUNCTIONS
-  // ============================================
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleImageUpload = async (event) => {
-    const files = Array.from(event.target.files);
-    const maxFiles = 3 - uploadedImageUrls.length;
-    const newFiles = files.slice(0, maxFiles);
-    
-    if (newFiles.length === 0) {
-      alert(`Maksimal 3 foto! Saat ini sudah ${uploadedImageUrls.length} foto`);
-      return;
-    }
-
-    setUploadQueue(prev => [...prev, ...newFiles]);
-    event.target.value = '';
-  };
-
-  const removeImage = (indexToRemove) => {
-    setUploadedImageUrls(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  const removeImage = (idx) => {
+    setUploadedImageUrls(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
+  
+  // Validasi
+  if (isUploading) {
+    alert("Tunggu upload foto selesai!");
+    return;
+  }
+  
+  if (uploadedImageUrls.length === 0) {
+    alert("Minimal 1 foto!");
+    return;
+  }
+  
+  if (!formData.nama_barang.trim()) {
+    alert("Nama barang wajib diisi!");
+    return;
+  }
+  
+  if (!formData.harga || parseFloat(formData.harga) <= 0) {
+    alert("Harga wajib diisi dengan angka positif!");
+    return;
+  }
+  
+  // Validasi khusus untuk create mode
+  if (!isEditMode) {
+    if (!tempatId) {
+      console.error('❌ tempatId is missing!');
+      alert('Data tempat tidak ditemukan');
+      return;
+    }
     
     if (!profile?.id) {
+      console.error('❌ profile.id is missing!');
       alert('Silakan login terlebih dahulu');
       return;
     }
-    
-    if (uploadQueue.length > 0) {
-      alert('Tunggu hingga semua foto selesai diupload');
-      return;
-    }
-    
-    if (!formData.nama_barang) {
-      alert('Nama barang wajib diisi');
-      return;
-    }
-    
-    if (!formData.harga) {
-      alert('Harga wajib diisi');
-      return;
-    }
-    
-    setLoading(true);
-    
-    try {
-      let response;
-      
-      if (isEditMode && editingProduct?.id) {
-        // 🔥 UPDATE PRODUK (EDIT MODE)
-        response = await fetch('/api/produk', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: editingProduct.id,
-            nama_barang: formData.nama_barang,
-            harga: parseFloat(formData.harga),
-            satuan: formData.satuan,
-            deskripsi: formData.deskripsi,
-            foto_url: uploadedImageUrls,
-          }),
-        });
-        
-        if (!response.ok) throw new Error('Gagal mengupdate produk');
-        alert('✅ Produk berhasil diupdate!');
-        
-      } else {
-        // 🔥 CREATE PRODUK BARU
-        response = await fetch('/api/produk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            nama_barang: formData.nama_barang,
-            harga: parseFloat(formData.harga),
-            satuan: formData.satuan,
-            deskripsi: formData.deskripsi,
-            foto_url: uploadedImageUrls,
-            tempat_id: tempatId,
-            user_id: profile.id,
-          }),
-        });
-        
-        if (!response.ok) throw new Error('Gagal menyimpan');
-        alert('✅ Produk berhasil diunggah!');
-      }
-      
-      // Reset form
-      setFormData({
-        nama_barang: '',
-        harga: '',
-        satuan: 'Per Kg',
-        deskripsi: ''
-      });
-      setUploadedImageUrls([]);
-      
-      if (onSuccess) onSuccess();
-      onClose();
-      
-    } catch (error) {
-      console.error('Error:', error);
-      alert(`❌ Gagal ${isEditMode ? 'mengupdate' : 'menyimpan'}: ` + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }
 
-  // ============================================
-  // ✅ 4. RENDER JSX
-  // ============================================
+  setLoading(true);
+  
+  try {
+    const payload = {
+      nama_barang: formData.nama_barang.trim(),
+      harga: parseFloat(formData.harga),
+      satuan: formData.satuan,
+      deskripsi: formData.deskripsi.trim(),
+      foto_url: uploadedImageUrls,
+    };
+    
+    if (isEditMode) {
+      payload.id = editingProduct?.id;
+    } else {
+      payload.tempat_id = tempatId;
+      payload.user_id = profile.id;
+    }
+    
+    console.log('📤 Sending payload:', payload);
+    
+    const res = await fetch('/api/produk', {
+      method: isEditMode ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    console.log('📥 Response status:', res.status);
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      console.error('❌ Error response:', errorData);
+      throw new Error(errorData.message || errorData.error || `HTTP ${res.status}`);
+    }
+    
+    const result = await res.json();
+    console.log('✅ Success:', result);
+    
+    alert(isEditMode ? '✅ Produk berhasil diupdate!' : '✅ Produk berhasil diunggah!');
+    onSuccess?.();
+    onClose();
+    
+  } catch (error) {
+    console.error('❌ Submit error:', error);
+    alert(`Gagal ${isEditMode ? 'mengupdate' : 'menyimpan'}: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-[300] bg-slate-900/40 backdrop-blur-sm flex justify-center items-end sm:items-center">
-      
-      <div className={`w-full max-w-[420px] h-full sm:h-[90vh] sm:rounded-[40px] shadow-2xl animate-in slide-in-from-bottom-10 duration-500 overflow-y-auto ${
-        isMalam ? "bg-slate-900" : "bg-white"
-      }`}>
+      <div className={`w-full max-w-[420px] h-full sm:h-[90vh] sm:rounded-[40px] overflow-y-auto ${isMalam ? "bg-slate-900" : "bg-white"}`}>
         
-        <div className={`sticky top-0 backdrop-blur-md px-6 pt-12 pb-4 flex items-center justify-between border-b z-10 ${
-          isMalam ? "bg-slate-900/80 border-slate-800" : "bg-white/80 border-slate-100"
-        }`}>
+        {/* Header */}
+        <div className={`sticky top-0 backdrop-blur-md px-6 pt-12 pb-4 flex items-center justify-between border-b z-10 ${isMalam ? "bg-slate-900/80 border-slate-800" : "bg-white/80 border-slate-100"}`}>
           <button 
             onClick={onClose} 
             disabled={loading}
-            className={`p-2 rounded-xl active:scale-90 transition-all ${
-              isMalam ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-600"
-            }`}
+            className={`p-2 rounded-xl active:scale-90 transition-all ${isMalam ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-600"}`}
           >
             <X size={20} />
           </button>
           <h3 className={`font-black uppercase tracking-tighter text-sm ${isMalam ? "text-white" : "text-slate-800"}`}>
-            {isEditMode ? 'Edit Dagangan' : 'Gelar Dagangan Baru'}
+            {isEditMode ? 'EDIT DAGANGAN' : 'GELAR DAGANGAN BARU'}
           </h3>
-          <div className="w-10"></div>
+          <div className="w-10" />
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 pb-32 space-y-8">
+        <form onSubmit={handleSubmit} className="p-6 space-y-8 pb-32">
           
-          {/* FOTO BARANG */}
+          {/* Foto Section */}
           <div className="space-y-3">
             <div className="flex justify-between items-end">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                Foto Barang
-              </label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Foto Barang</label>
               <span className="text-[9px] font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
-                MAKS 3 • {uploadedImageUrls.length}/3
-                {uploadQueue.length > 0 && ` • Uploading ${uploadQueue.length}`}
+                {uploadedImageUrls.length}/3
+                {isUploading && ` • Uploading`}
               </span>
             </div>
             
             <div className="grid grid-cols-3 gap-3">
-              {uploadedImageUrls.length < 3 && (
-                <label className={`aspect-square rounded-[24px] border-2 border-dashed flex flex-col items-center justify-center transition-all cursor-pointer active:scale-95 ${
-                  isUploading || loading ? "opacity-50 cursor-wait" : "hover:bg-orange-50 hover:text-orange-500"
-                } ${isMalam ? "border-slate-700 text-slate-500 bg-slate-800/50" : "border-slate-200 text-slate-400 bg-white"}`}>
-                  {(isUploading || uploadQueue.length > 0) ? (
-                    <Loader2 size={24} className="animate-spin" />
-                  ) : (
-                    <Upload size={24} />
-                  )}
-                  <span className="text-[8px] font-black mt-2 uppercase">
-                    {isUploading ? `Upload ${uploadQueue.length}` : 'Tambah'}
-                  </span>
-                  <input 
-                    type="file" 
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden" 
-                    onChange={handleImageUpload}
-                    multiple
-                    disabled={isUploading || loading}
-                  />
-                </label>
-              )}
-              
-              {uploadedImageUrls.map((url, idx) => (
-                <div key={idx} className="relative aspect-square rounded-[24px] overflow-hidden group">
-                  <img src={url} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => removeImage(idx)}
-                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
+              {uploadedImageUrls.map((url, i) => (
+                <div key={i} className="relative aspect-square rounded-[24px] overflow-hidden group">
+                  <img src={url} className="w-full h-full object-cover" />
+                  <button 
+                    type="button" 
+                    onClick={() => removeImage(i)} 
+                    className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600"
+                    disabled={loading}
                   >
                     <Trash2 size={12} />
                   </button>
                 </div>
               ))}
               
-              {[...Array(Math.max(0, 3 - uploadedImageUrls.length - (uploadedImageUrls.length < 3 ? 1 : 0)))].map((_, idx) => (
+              {uploadedImageUrls.length < 3 && (
+                <label className={`aspect-square rounded-[24px] border-2 border-dashed flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  isUploading || loading ? "opacity-50 cursor-wait" : "hover:bg-orange-50 hover:text-orange-500"
+                } ${isMalam ? "border-slate-700 text-slate-500 bg-slate-800/50" : "border-slate-200 text-slate-400 bg-white"}`}>
+                  {isUploading ? <Loader2 size={24} className="animate-spin" /> : <Upload size={24} />}
+                  <span className="text-[8px] font-black mt-2 uppercase">
+                    {isUploading ? 'Uploading' : 'Tambah'}
+                  </span>
+                  <input 
+                    type="file" 
+                    hidden 
+                    onChange={handleImageUpload} 
+                    multiple 
+                    accept="image/*" 
+                    disabled={isUploading || loading}
+                  />
+                </label>
+              )}
+              
+              {/* Empty slots */}
+              {[...Array(Math.max(0, 3 - uploadedImageUrls.length - 1))].map((_, idx) => (
                 <div key={`empty-${idx}`} className={`aspect-square rounded-[24px] flex items-center justify-center ${
                   isMalam ? "bg-slate-800/50 border border-slate-700 text-slate-600" : "bg-slate-50 border border-slate-100 text-slate-300"
                 }`}>
@@ -403,36 +303,33 @@ export default function FormPanyangan({
             </div>
           </div>
 
-          {/* INPUT DATA */}
+          {/* Form Input */}
           <div className="space-y-5">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Jeneng Barang *</label>
               <input 
-                type="text" 
-                name="nama_barang"
-                value={formData.nama_barang}
-                onChange={handleInputChange}
-                placeholder="Misal: Tomat Mateng Pakijangan" 
                 className={`w-full rounded-2xl p-4 text-sm font-bold outline-none ${
                   isMalam ? "bg-slate-800 text-white placeholder:text-slate-500" : "bg-slate-50 text-slate-900 placeholder:text-slate-300"
                 }`}
+                placeholder="Misal: Tomat Mateng Pakijangan"
+                value={formData.nama_barang}
+                onChange={(e) => setFormData({...formData, nama_barang: e.target.value})}
                 required
                 disabled={loading}
               />
             </div>
-
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Rego (Rp) *</label>
                 <input 
-                  type="number" 
-                  name="harga"
-                  value={formData.harga}
-                  onChange={handleInputChange}
-                  placeholder="0" 
+                  type="number"
                   className={`w-full rounded-2xl p-4 text-sm font-bold outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none ${
                     isMalam ? "bg-slate-800 text-white placeholder:text-slate-500" : "bg-slate-50 text-slate-900 placeholder:text-slate-300"
                   }`}
+                  placeholder="0"
+                  value={formData.harga}
+                  onChange={(e) => setFormData({...formData, harga: e.target.value})}
                   required
                   disabled={loading}
                 />
@@ -440,12 +337,11 @@ export default function FormPanyangan({
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Satuan</label>
                 <select 
-                  name="satuan"
-                  value={formData.satuan}
-                  onChange={handleInputChange}
                   className={`w-full rounded-2xl p-4 text-sm font-bold appearance-none outline-none ${
                     isMalam ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-900"
                   }`}
+                  value={formData.satuan}
+                  onChange={(e) => setFormData({...formData, satuan: e.target.value})}
                   disabled={loading}
                 >
                   <option>Per Kg</option>
@@ -459,24 +355,23 @@ export default function FormPanyangan({
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Keterangan</label>
               <textarea 
-                name="deskripsi"
-                value={formData.deskripsi}
-                onChange={handleInputChange}
-                rows={4} 
-                placeholder="Ceritakno barange sampeyan..." 
                 className={`w-full rounded-[24px] p-4 text-sm font-medium outline-none resize-none ${
                   isMalam ? "bg-slate-800 text-white placeholder:text-slate-500" : "bg-slate-50 text-slate-900 placeholder:text-slate-300"
                 }`}
+                rows={4}
+                placeholder="Ceritakno barange sampeyan..."
+                value={formData.deskripsi}
+                onChange={(e) => setFormData({...formData, deskripsi: e.target.value})}
                 disabled={loading}
               />
             </div>
           </div>
 
-          {/* INFORMASI TARGET */}
+          {/* Informasi */}
           {profile && (
             <div className={`p-3 rounded-xl border flex items-center gap-2 ${
               isMalam ? "bg-orange-500/5 border-orange-500/20" : "bg-orange-50 border-orange-100"
-                }`}>
+            }`}>
               <MapPin size={14} className="text-orange-500" />
               <span className={`text-[11px] font-bold ${isMalam ? "text-orange-300" : "text-orange-700"}`}>
                 Berlaku untuk semua pembeli
@@ -484,12 +379,12 @@ export default function FormPanyangan({
             </div>
           )}
 
-          {/* AKSI */}
+          {/* Tombol Submit */}
           <div className="space-y-3 pt-4">
             <button 
-              type="submit"
-              disabled={loading || isUploading || uploadQueue.length > 0 || !profile}
-              className="w-full bg-gradient-to-r from-orange-600 to-amber-500 text-white p-5 rounded-[24px] font-black text-sm shadow-xl active:scale-95 transition-all uppercase tracking-widest disabled:opacity-50"
+              type="submit" 
+              disabled={loading || isUploading}
+              className="w-full bg-gradient-to-r from-orange-600 to-amber-500 text-white p-5 rounded-[24px] font-black text-sm shadow-xl active:scale-95 transition-all uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="flex items-center justify-center gap-2">
@@ -497,7 +392,7 @@ export default function FormPanyangan({
                   <span>Menyimpan...</span>
                 </div>
               ) : (
-                isEditMode ? 'Update Dagangan' : 'Unggah Dagangan'
+                isEditMode ? 'UPDATE DAGANGAN' : 'UNGGah DAGANGAN'
               )}
             </button>
             <button 

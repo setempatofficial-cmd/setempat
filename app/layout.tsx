@@ -3,7 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DataProvider } from "@/contexts/DataContext";
 import { AuthProvider } from "@/app/context/AuthContext";
-import LocationProvider from "@/components/LocationProvider"; // 👈 TAMBAHKAN
+import LocationProvider from "@/components/LocationProvider";
+import AdminActionSheet from "./components/AdminActionSheet"; // 👈 Import di sini
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,16 +28,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <LocationProvider>  {/* 👈 TARUH DI LUAR / DALAM? */}
-          <AuthProvider>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <AuthProvider>
+          <LocationProvider> 
             <DataProvider>
+              
               {children}
+              
+              {/* 
+                Taruh di sini agar bisa mengakses context jika nanti 
+                admin action sheet butuh data user/lokasi 
+              */}
+              <AdminActionSheet />
+
             </DataProvider>
-          </AuthProvider>
-        </LocationProvider>
+          </LocationProvider>
+        </AuthProvider>
       </body>
     </html>
   );

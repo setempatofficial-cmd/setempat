@@ -5,8 +5,10 @@ import { supabase } from '@/lib/supabaseClient';
 let cachedRole = null;
 let cachedIsAdmin = false;
 let cachedIsSuperAdmin = false;
-let cachedProfile = null;  // 👈 TAMBAHKAN
+let cachedProfile = null;
+let cachedTimestamp = null;
 let cachePromise = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 menit
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -14,50 +16,64 @@ export function useAuth() {
   const [role, setRole] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [profile, setProfile] = useState(null);  // 👈 TAMBAHKAN
+  const [profile, setProfile] = useState(null);
+  const [authError, setAuthError] = useState(null);
 
-  const extractName = (user) => {
-    if (!user) return "Warga";
-    const meta = user.user_metadata || {};
+  const extractName = (userParam = null, profileParam = null) => {
+    const targetUser = userParam || user;
+    const targetProfile = profileParam || profile;
+    
+    if (!targetUser && !targetProfile) return "Warga";
+    
+    if (targetProfile?.full_name) return targetProfile.full_name;
+    if (targetProfile?.name) return targetProfile.name;
+    
+    const meta = targetUser?.user_metadata || {};
     return (
       meta.full_name ||
       meta.name ||
       meta.preferred_username ||
-      user.email?.split("@")[0] ||
+      targetUser?.email?.split("@")[0] ||
       "Warga"
     );
   };
 
-  // 🔥 FUNGSI CEK PERMISSIONS + PROFILE DENGAN CACHE
-  const checkPermissions = async (user) => {
-    if (!user) {
+  const checkPermissions = async (userObj) => {
+    if (!userObj) {
       return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
     }
 
-    // 🔥 Jika sudah ada cache, gunakan langsung
-    if (cachedRole !== null && cachedProfile !== null) {
-      console.log("📦 Using cached role:", cachedRole);
-      console.log("📦 Using cached profile:", cachedProfile);
-      return {
-        role: cachedRole,
-        isAdmin: cachedIsAdmin,
-        isSuperAdmin: cachedIsSuperAdmin,
-        profile: cachedProfile
-      };
+    if (cachedRole !== null && cachedProfile !== null && cachedTimestamp) {
+      const isExpired = Date.now() - cachedTimestamp > CACHE_DURATION;
+      if (!isExpired) {
+        console.log("📦 Using cached role:", cachedRole);
+        return {
+          role: cachedRole,
+          isAdmin: cachedIsAdmin,
+          isSuperAdmin: cachedIsSuperAdmin,
+          profile: cachedProfile
+        };
+      }
     }
 
-    // 🔥 Jika sedang dalam proses fetch, tunggu hasilnya
     if (cachePromise) {
+      console.log("⏳ Waiting for existing fetch...");
       return await cachePromise;
     }
 
-    // 🔥 Fetch data dengan Promise.all
     cachePromise = (async () => {
       try {
+        console.log("🔄 Fetching permissions for user:", userObj.id);
+        
         const [profileRes, adminRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-          supabase.from('admins').select('id').eq('user_id', user.id).maybeSingle()
+          supabase.from('profiles').select('*').eq('id', userObj.id).maybeSingle(),
+          supabase.from('admins').select('id').eq('user_id', userObj.id).maybeSingle()
         ]);
+
+        if (profileRes.error) {
+          console.error("Profile fetch error:", profileRes.error);
+          throw profileRes.error;
+        }
 
         const profileData = profileRes.data;
         const currentRole = profileData?.role?.toLowerCase() || "warga";
@@ -66,14 +82,13 @@ export function useAuth() {
         const superCheck = currentRole === 'superadmin';
         const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
 
-        // Simpan ke cache
         cachedRole = currentRole;
         cachedIsAdmin = adminCheck;
         cachedIsSuperAdmin = superCheck;
-        cachedProfile = profileData;  // 👈 SIMPAN PROFILE KE CACHE
+        cachedProfile = profileData;
+        cachedTimestamp = Date.now();
 
-        console.log("✅ Kasta Terverifikasi (cached):", currentRole);
-        console.log("✅ Profile Data:", profileData);
+        console.log("✅ Permissions cached:", { currentRole, adminCheck, superCheck });
         
         return {
           role: currentRole,
@@ -92,11 +107,33 @@ export function useAuth() {
     return await cachePromise;
   };
 
+  const refreshProfile = async () => {
+    if (!user?.id) return null;
+    
+    setLoading(true);
+    cachedRole = null;
+    cachedIsAdmin = false;
+    cachedIsSuperAdmin = false;
+    cachedProfile = null;
+    cachedTimestamp = null;
+    cachePromise = null;
+    
+    const perms = await checkPermissions(user);
+    setRole(perms.role);
+    setIsAdmin(perms.isAdmin);
+    setIsSuperAdmin(perms.isSuperAdmin);
+    setProfile(perms.profile);
+    setLoading(false);
+    
+    return perms.profile;
+  };
+
   useEffect(() => {
     let isMounted = true;
 
     const initAuth = async () => {
       try {
+        setAuthError(null);
         const { data: { session } } = await supabase.auth.getSession();
         const currentUser = session?.user ?? null;
         
@@ -108,7 +145,7 @@ export function useAuth() {
             setRole(perms.role);
             setIsAdmin(perms.isAdmin);
             setIsSuperAdmin(perms.isSuperAdmin);
-            setProfile(perms.profile);  // 👈 SET PROFILE
+            setProfile(perms.profile);
           }
         } else if (isMounted) {
           setRole("warga");
@@ -118,6 +155,7 @@ export function useAuth() {
         }
       } catch (err) {
         console.error("Init Auth Error:", err);
+        setAuthError(err.message);
         if (isMounted) {
           setRole("warga");
           setProfile(null);
@@ -144,11 +182,11 @@ export function useAuth() {
             setProfile(perms.profile);
           }
         } else if (isMounted) {
-          // 🔥 Reset cache saat logout
           cachedRole = null;
           cachedIsAdmin = false;
           cachedIsSuperAdmin = false;
           cachedProfile = null;
+          cachedTimestamp = null;
           setRole("warga");
           setIsAdmin(false);
           setIsSuperAdmin(false);
@@ -159,28 +197,61 @@ export function useAuth() {
       }
     );
 
+    // Subscribe ke perubahan profile
+    if (user?.id) {
+      const profileSubscription = supabase
+        .channel('profile_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${user.id}`,
+          },
+          () => {
+            console.log('🔄 Profile updated, refreshing...');
+            refreshProfile();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        isMounted = false;
+        subscription.unsubscribe();
+        profileSubscription.unsubscribe();
+      };
+    }
+
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [user?.id]);
 
   const logout = async () => {
     try {
+      setLoading(true);
       await supabase.auth.signOut({ scope: 'local' });
-      // 🔥 Reset cache saat logout
+      
       cachedRole = null;
       cachedIsAdmin = false;
       cachedIsSuperAdmin = false;
       cachedProfile = null;
+      cachedTimestamp = null;
+      cachePromise = null;
+      
       setUser(null);
       setRole("warga");
       setIsAdmin(false);
       setIsSuperAdmin(false);
       setProfile(null);
+      setAuthError(null);
     } catch (error) {
       console.error("Logout error:", error);
       setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -189,11 +260,11 @@ export function useAuth() {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       
-      // 🔥 Reset cache agar di-refresh dengan data baru
       cachedRole = null;
       cachedIsAdmin = false;
       cachedIsSuperAdmin = false;
       cachedProfile = null;
+      cachedTimestamp = null;
       
       setUser(data.user);
       const perms = await checkPermissions(data.user);
@@ -220,35 +291,22 @@ export function useAuth() {
     }
   };
 
-  // 👈 TAMBAHKAN FUNGSI REFRESH PROFILE
-  const refreshProfile = async () => {
-    if (!user?.id) return;
-    
-    cachedProfile = null;
-    cachedRole = null;
-    cachedIsAdmin = false;
-    cachedIsSuperAdmin = false;
-    
-    const perms = await checkPermissions(user);
-    setRole(perms.role);
-    setIsAdmin(perms.isAdmin);
-    setIsSuperAdmin(perms.isSuperAdmin);
-    setProfile(perms.profile);
-    
-    return perms.profile;
-  };
+  const getUserName = () => extractName();
 
   return {
     user,
     loading,
     role,
+    userRole: role,  // Untuk kompatibilitas
     isAdmin,
     isSuperAdmin,
-    profile,           // 👈 EXPORT PROFILE
-    refreshProfile,    // 👈 EXPORT REFRESH FUNCTION
+    profile,
+    authError,
+    refreshProfile,
     logout,
     login,
     register,
     extractName,
+    getUserName,
   };
 }

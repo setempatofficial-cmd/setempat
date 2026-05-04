@@ -1,4 +1,4 @@
-// app/api/chat/route.js (FINAL - Support Kedua Modal)
+// app/api/chat/route.js (FINAL - Support Feed View + AI Cerdas)
 import { createClient } from '@supabase/supabase-js';
 
 // ============================================
@@ -144,7 +144,7 @@ ${content}
 }
 
 // ============================================
-// SUPABASE DATA (SUPPORT KENTONGAN & TEMPAT)
+// SUPABASE DATA (DENGAN FEED_VIEW)
 // ============================================
 async function getDataFromSupabase(tempatId, kentonganId = null, modalType = null) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -163,7 +163,17 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const now = new Date().toISOString();
 
-    // Query laporan warga (untuk AIModalTempat)
+    // 🔥 QUERY FEED_VIEW (DATA LENGKAP)
+    let feedViewQuery = null;
+    if (tempatId) {
+      feedViewQuery = supabase
+        .from('feed_view')
+        .select('*')
+        .eq('id', tempatId)
+        .single();
+    }
+
+    // Query laporan warga
     let recentQuery = supabase
       .from('laporan_warga')
       .select('id, user_name, tipe, deskripsi, content, estimated_people, estimated_wait_time, created_at, time_tag')
@@ -176,9 +186,9 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
       .gte('created_at', today.toISOString())
       .limit(50);
     
-    // Query tempat
+    // Query tempat (fallback)
     let tempatQuery = null;
-    if (tempatId) {
+    if (tempatId && !feedViewQuery) {
       tempatQuery = supabase
         .from('tempat')
         .select('jam_buka, name, cctv_url, kode_wilayah')
@@ -195,7 +205,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
         .eq('id', kentonganId)
         .single();
     } else if (modalType === 'kentongan') {
-      // Ambil kentongan terbaru yang aktif
       kentonganQuery = supabase
         .from('kentongan')
         .select('*')
@@ -213,6 +222,7 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
     }
 
     const promises = [recentQuery, statsQuery];
+    if (feedViewQuery) promises.push(feedViewQuery);
     if (tempatQuery) promises.push(tempatQuery);
     if (kentonganQuery) promises.push(kentonganQuery);
     
@@ -220,8 +230,20 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
     
     const recentResult = results[0];
     const statsResult = results[1];
-    const tempatResult = tempatQuery ? results[2] : { data: null };
-    const kentonganResult = kentonganQuery ? results[tempatQuery ? 3 : 2] : { data: null };
+    let feedViewResult = null;
+    let tempatResult = null;
+    let kentonganResult = null;
+    
+    let idx = 2;
+    if (feedViewQuery) {
+      feedViewResult = results[idx++];
+    }
+    if (tempatQuery) {
+      tempatResult = results[idx++];
+    }
+    if (kentonganQuery) {
+      kentonganResult = results[idx];
+    }
 
     const recentReports = recentResult.data || [];
     const todayReports = statsResult.data || [];
@@ -248,10 +270,29 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
 
     const latest = recentReports.find(r => new Date(r.created_at) >= twoHoursAgo) || recentReports[0];
     
-    const jamBuka = tempatResult.data?.jam_buka || null;
-    const cctvUrl = tempatResult.data?.cctv_url || null;
-    const tempatName = tempatResult.data?.name || null;
-    const kodeWilayah = tempatResult.data?.kode_wilayah || null;
+    // 🔥 PRIORITASKAN DATA DARI FEED_VIEW
+    let jamBuka = null;
+    let cctvUrl = null;
+    let tempatName = null;
+    let kodeWilayah = null;
+    let daftarProduk = null;
+    let personilSekitar = null;
+    let infoPemilik = null;
+    
+    if (feedViewResult?.data) {
+      jamBuka = feedViewResult.data.jam_buka;
+      cctvUrl = feedViewResult.data.cctv_url;
+      tempatName = feedViewResult.data.name;
+      kodeWilayah = feedViewResult.data.kode_wilayah;
+      daftarProduk = feedViewResult.data.daftar_produk;
+      personilSekitar = feedViewResult.data.personil_sekitar;
+      infoPemilik = feedViewResult.data.info_pemilik;
+    } else if (tempatResult?.data) {
+      jamBuka = tempatResult.data.jam_buka;
+      cctvUrl = tempatResult.data.cctv_url;
+      tempatName = tempatResult.data.name;
+      kodeWilayah = tempatResult.data.kode_wilayah;
+    }
     
     const kentongan = kentonganResult?.data || null;
     const kentonganMessage = kentongan ? formatKentonganMessage(kentongan) : null;
@@ -270,7 +311,11 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
         tempatName: tempatName,
         kodeWilayah: kodeWilayah,
         kentongan: kentongan,
-        kentonganMessage: kentonganMessage
+        kentonganMessage: kentonganMessage,
+        // DATA CERDAS DARI FEED_VIEW
+        daftarProduk: daftarProduk || [],
+        personilSekitar: personilSekitar || [],
+        infoPemilik: infoPemilik || null
       }
     };
   } catch (error) {
@@ -280,12 +325,50 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
 }
 
 // ============================================
-// QUICK RESPONSE UNTUK TEMPAT
+// QUICK RESPONSE UNTUK TEMPAT (DENGAN PRODUK & PERSONIL)
 // ============================================
 function getQuickResponseForTempat(message, weatherData, supabaseData, tempatName) {
   const lowerMsg = message.toLowerCase();
-  const { todayStats, latest, trending, avgEstimasi, hasLaporan, jamBuka } = supabaseData || {};
+  const { todayStats, latest, trending, avgEstimasi, hasLaporan, jamBuka, daftarProduk, personilSekitar, infoPemilik } = supabaseData || {};
   const latestReport = latest;
+  
+  // Menu/Produk
+  if (lowerMsg.includes('menu') || lowerMsg.includes('produk') || lowerMsg.includes('jualan') || lowerMsg.includes('makanan') || lowerMsg.includes('minuman')) {
+    if (daftarProduk && daftarProduk.length > 0) {
+      const produkList = daftarProduk.slice(0, 5).map(p => 
+        `🍽️ ${p.nama_barang} - ${p.harga ? `Rp${p.harga.toLocaleString()}` : 'Hubungi'} ${p.satuan ? `/${p.satuan}` : ''}`
+      ).join('\n');
+      return `📋 *Menu di ${tempatName}:*\n${produkList}\n\nTanya saya untuk detail lebih lanjut! 🍜`;
+    }
+    return `Maaf, belum ada info menu untuk ${tempatName}. Coba tanya langsung ke tempatnya ya! 📍`;
+  }
+  
+  // Personil/Driver/Rewang
+  if (lowerMsg.includes('driver') || lowerMsg.includes('rewang') || lowerMsg.includes('ojek') || lowerMsg.includes('kurir') || lowerMsg.includes('bantuan')) {
+    if (personilSekitar && personilSekitar.length > 0) {
+      const driverList = personilSekitar.filter(p => p.is_driver).slice(0, 3);
+      const rewangList = personilSekitar.filter(p => p.is_rewang).slice(0, 3);
+      
+      let response = `🚗 *Personil Aktif di Sekitar ${tempatName}:*\n\n`;
+      if (driverList.length > 0) {
+        response += `*Driver:*\n${driverList.map(d => `  • ${d.nama_panggilan} ${d.driver_status === 'online' ? '✅ Online' : '⏸️'}`).join('\n')}\n`;
+      }
+      if (rewangList.length > 0) {
+        response += `\n*Rewang (PRT/Babysitter):*\n${rewangList.map(r => `  • ${r.nama_panggilan} ⭐ ${r.rating_rewang || 'Baru'}`).join('\n')}\n`;
+      }
+      response += `\nKetik "order driver" untuk pesan! 🛵`;
+      return response;
+    }
+    return `Belum ada driver/rewang yang online di sekitar ${tempatName} nih. Coba lagi nanti ya! 🙏`;
+  }
+  
+  // Pemilik/Kontak
+  if (lowerMsg.includes('pemilik') || lowerMsg.includes('owner') || lowerMsg.includes('kontak') || lowerMsg.includes('wa') || lowerMsg.includes('whatsapp')) {
+    if (infoPemilik) {
+      return `🏪 *Info Pemilik ${tempatName}:*\nNama: ${infoPemilik.nama}\nKontak: ${infoPemilik.kontak || 'Tidak tersedia'}\n${infoPemilik.is_verified ? '✅ Terverifikasi' : '⏳ Belum diverifikasi'}`;
+    }
+    return `Maaf, belum ada info kontak pemilik ${tempatName}.`;
+  }
   
   // Jam buka
   if (lowerMsg.includes('jam buka') || lowerMsg.includes('buka jam') || lowerMsg.includes('jam operasional')) {
@@ -304,32 +387,32 @@ function getQuickResponseForTempat(message, weatherData, supabaseData, tempatNam
   // Cuaca
   if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas')) {
     if (weatherData) {
-      return `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C ${weatherData.t > 30 ? '🔥' : '🌤️'}`;
+      return `🌤️ Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C ${weatherData.t > 30 ? '🔥 Panas nih!' : '🌡️ Sejuk'}`;
     }
     return "Cuaca cerah 🌤️ enak buat jalan!";
   }
   
   // Antrian
-  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre')) {
+  if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre') || lowerMsg.includes('queue')) {
     if (latestReport?.tipe === 'Antri') {
-      return `Antrian ${latestReport.estimated_wait_time ? `${latestReport.estimated_wait_time} menit` : 'ada'} di ${tempatName}.`;
+      return `⏰ Antrian ${latestReport.estimated_wait_time ? `${latestReport.estimated_wait_time} menit` : 'ada'} di ${tempatName}. ${latestReport.deskripsi ? `Detail: ${latestReport.deskripsi.substring(0, 100)}` : ''}`;
     }
-    return `Nggak ada laporan antrian di ${tempatName}.`;
+    return `✅ Nggak ada laporan antrian di ${tempatName}. Tenang aja!`;
   }
   
-  // Kondisi
-  if (lowerMsg.includes('ramai') || lowerMsg.includes('sepi') || lowerMsg.includes('kondisi')) {
-    if (!hasLaporan) return `Belum ada laporan untuk ${tempatName}. Kamu bisa jadi yang pertama! 📸`;
-    if (trending === 'ramai') return `Lagi RAMAI di ${tempatName}! ${todayStats.ramai} laporan.`;
-    if (trending === 'sepi') return `Suasana SEPI di ${tempatName} 🍃`;
-    if (trending === 'antri') return `Ada ANTRIAN di ${tempatName}!`;
-    return `Kondisi normal di ${tempatName}.`;
+  // Kondisi/Suasana
+  if (lowerMsg.includes('ramai') || lowerMsg.includes('sepi') || lowerMsg.includes('kondisi') || lowerMsg.includes('suasana')) {
+    if (!hasLaporan) return `📝 Belum ada laporan untuk ${tempatName}. Kamu bisa jadi yang pertama dengan klik "Lapor"! 📸`;
+    if (trending === 'ramai') return `🔥 Lagi RAMAI banget di ${tempatName}! ${todayStats.ramai} laporan, siap-siap antri ya!`;
+    if (trending === 'sepi') return `🍃 Suasana SEPI & adem di ${tempatName}. Waktunya santai!`;
+    if (trending === 'antri') return `🚶‍♂️ Ada ANTRIAN panjang di ${tempatName}!`;
+    return `😊 Kondisi normal di ${tempatName}. Nyaman buat dikunjungi!`;
   }
   
   // Default
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
-  return `${greeting}, Lur! 👋 Ada yang bisa dibantu tentang ${tempatName}?`;
+  return `${greeting}, Lur! 👋 Ada yang bisa dibantu tentang ${tempatName}?\n\n💡 Saya bisa kasih info:\n• Menu & harga 🍽️\n• Driver/Rewang 🚗\n• Kondisi terkini 📊\n• Jam buka ⏰\n• Cuaca 🌤️\n\nCoba tanya aja!`;
 }
 
 // ============================================
@@ -343,7 +426,6 @@ function getQuickResponseForKentongan(message, supabaseData) {
     return "Belum ada pengumuman resmi nih. Pantau terus ya! 📢";
   }
   
-  // Pertanyaan tentang waktu kejadian
   if (lowerMsg.includes('kapan') || lowerMsg.includes('jam berapa') || lowerMsg.includes('tanggal') || lowerMsg.includes('waktu')) {
     const createdAt = new Date(kentongan.created_at);
     const formattedDate = createdAt.toLocaleDateString('id-ID', { 
@@ -353,84 +435,139 @@ function getQuickResponseForKentongan(message, supabaseData) {
       day: 'numeric' 
     });
     const formattedTime = createdAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-    return `📅 Pengumuman ini diterbitkan pada ${formattedDate} pukul ${formattedTime}. ${kentongan.is_urgent ? '⚠️ Info penting, ya!' : 'Semoga membantu! 😊'}`;
+    return `📅 Diterbitkan: ${formattedDate} pukul ${formattedTime}. ${kentongan.is_urgent ? '⚠️ Info PENTING!' : 'Semoga bermanfaat! 😊'}`;
   }
   
-  // Pertanyaan tentang detail/isi
   if (lowerMsg.includes('detail') || lowerMsg.includes('isi') || lowerMsg.includes('ceritakan') || lowerMsg.includes('jelaskan')) {
-    return `📋 ${kentongan.title}\n\n${kentongan.content.substring(0, 400)}${kentongan.content.length > 400 ? '...' : ''}\n\nAda yang mau ditanyakan lagi?`;
+    return `📋 *${kentongan.title}*\n\n${kentongan.content.substring(0, 400)}${kentongan.content.length > 400 ? '...' : ''}\n\nAda yang mau ditanyakan lagi?`;
   }
   
-  // Pertanyaan tentang lokasi
   if (lowerMsg.includes('dimana') || lowerMsg.includes('lokasi') || lowerMsg.includes('tempat')) {
     if (kentongan.is_global) {
-      return `🌍 Pengumuman ini berlaku untuk semua wilayah.`;
+      return `🌍 Berlaku untuk SEMUA wilayah.`;
     }
     const lokasi = kentongan.target_desa || kentongan.location || 'tidak disebutkan';
     return `📍 Lokasi: ${lokasi}${kentongan.target_kecamatan ? `, Kec. ${kentongan.target_kecamatan}` : ''}.`;
   }
   
-  // Pertanyaan tentang sumber
   if (lowerMsg.includes('siapa') || lowerMsg.includes('sumber') || lowerMsg.includes('pembuat')) {
     const sumber = kentongan.source_name || kentongan.source || 'Admin Desa';
-    return `👤 Pengumuman ini dibuat oleh ${sumber}.`;
+    return `👤 Sumber: ${sumber}.`;
   }
   
-  // Default - tampilkan pengumuman
   return kentonganMessage || `📢 ${kentongan.title}\n\n${kentongan.content.substring(0, 200)}${kentongan.content.length > 200 ? '...' : ''}`;
 }
 
 // ============================================
-// AI PROMPT BUILDER
+// AI PROMPT BUILDER (SUPER CERDAS DENGAN FEED_VIEW)
 // ============================================
 function buildAIPrompt(message, supabaseData, weatherData, tempatName, modalType) {
-  const { todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka, kentongan } = supabaseData || {};
+  const { 
+    todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka, 
+    daftarProduk, personilSekitar, infoPemilik, kentongan 
+  } = supabaseData || {};
   
   let prompt = "";
   
   if (modalType === 'kentongan' && kentongan) {
-    prompt = `Kamu adalah asisten untuk pengumuman/kentongan digital.
+    prompt = `Kamu asisten untuk PENGUMUMAN RESMI (Kentongan Digital).
 
-PENGUMUMAN:
+=== DATA PENGUMUMAN ===
 Judul: ${kentongan.title}
 Isi: ${kentongan.content}
 Tanggal: ${new Date(kentongan.created_at).toLocaleString('id-ID')}
-Urgent: ${kentongan.is_urgent ? 'YA' : 'TIDAK'}
-Lokasi: ${kentongan.is_global ? 'Semua Wilayah' : (kentongan.target_desa || kentongan.location || 'Tidak disebutkan')}
+Urgent: ${kentongan.is_urgent ? 'YA (PENTING! 🚨)' : 'TIDAK'}
+Lokasi: ${kentongan.is_global ? 'SEMUA WILAYAH' : (kentongan.target_desa || kentongan.location || 'Tidak disebutkan')}
+Sumber: ${kentongan.source_name || kentongan.source || 'Admin Desa'}
 
-Pertanyaan pengguna: "${message}"
+Pertanyaan user: "${message}"
 
-Jawab dengan singkat (max 2-3 kalimat), informatif, pakai emoji. Prioritaskan info dari pengumuman di atas.`;
+INSTRUKSI:
+- Jawab RAMAH & SINGKAT (max 3 kalimat)
+- Prioritaskan informasi dari pengumuman di atas
+- Tambahkan emoji yang relevan (🚨⚠️📢📰)
+- JANGAN mengada-ada atau membuat informasi fiktif`;
   } else {
-    prompt = `Lokasi: ${tempatName || 'sini'}\n`;
-    
+    // PROMPT CERDAS UNTUK TEMPAT (dengan semua data feed_view)
+    prompt = `Kamu asisten VIRTUAL untuk tempat: ${tempatName || 'Wisata/Kuliner'}
+
+=== DATA TERKINI ===
+`;
+
     if (hasLaporan) {
-      prompt += `Statistik: ${todayStats.ramai} ramai, ${todayStats.sepi} sepi, ${todayStats.antri} antri. Trending: ${trending}`;
-      if (avgEstimasi) prompt += `, estimasi ~${avgEstimasi} org`;
-      prompt += `\n`;
+      prompt += `📊 LAPORAN PENGUNJUNG:
+- Ramai: ${todayStats.ramai} laporan
+- Sepi: ${todayStats.sepi} laporan  
+- Antri: ${todayStats.antri} laporan
+- Trending: ${trending === 'ramai' ? '🔥 RAMAI' : trending === 'antri' ? '🚶‍♂️ ANTRI' : trending === 'sepi' ? '🍃 SEPI' : 'NORMAL'}
+${avgEstimasi ? `- Rata-rata pengunjung: ~${avgEstimasi} orang` : ''}
+`;
     }
     
     if (latest) {
-      prompt += `Laporan terbaru: ${latest.tipe} - "${latest.deskripsi?.substring(0, 100)}"\n`;
+      prompt += `\n📝 LAPORAN TERBARU (${new Date(latest.created_at).toLocaleTimeString('id-ID')}):
+Tipe: ${latest.tipe}
+Deskripsi: "${latest.deskripsi?.substring(0, 150)}"
+${latest.estimated_wait_time ? `Estimasi antri: ${latest.estimated_wait_time} menit` : ''}
+`;
     }
     
     if (weatherData) {
-      prompt += `Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C\n`;
+      prompt += `\n🌤️ CUACA (REALTIME):
+${weatherData.weather_desc}, ${weatherData.t}°C, Kelembaban: ${weatherData.humidity || 'N/A'}%
+`;
     }
     
     if (jamBuka) {
-      prompt += `Jam buka: ${JSON.stringify(jamBuka)}\n`;
+      const formattedJam = typeof jamBuka === 'object' ? JSON.stringify(jamBuka) : jamBuka;
+      prompt += `\n⏰ JAM OPERASIONAL:
+${formattedJam}
+`;
     }
     
-    prompt += `\nPertanyaan: "${message}"\n`;
-    prompt += `Jawab singkat maksimal 2 kalimat, bahasa santai, pakai emoji.`;
+    if (daftarProduk && daftarProduk.length > 0) {
+      prompt += `\n🍽️ MENU/PRODUK (${daftarProduk.length} item):
+${daftarProduk.slice(0, 5).map(p => `- ${p.nama_barang}: Rp${p.harga?.toLocaleString() || '?'} ${p.satuan || ''} (Stok: ${p.stok_ready ? '✅ Tersedia' : '❌ Habis'})`).join('\n')}
+${daftarProduk.length > 5 ? `...dan ${daftarProduk.length - 5} menu lainnya` : ''}
+`;
+    }
+    
+    if (personilSekitar && personilSekitar.length > 0) {
+      const drivers = personilSekitar.filter(p => p.is_driver);
+      const rewang = personilSekitar.filter(p => p.is_rewang);
+      prompt += `\n🚗 PERSONIL AKTIF DI SEKITAR:
+${drivers.length > 0 ? `Driver: ${drivers.map(d => d.nama_panggilan).join(', ')}` : 'Tidak ada driver online'}
+${rewang.length > 0 ? `Rewang: ${rewang.map(r => r.nama_panggilan).join(', ')}` : 'Tidak ada rewang tersedia'}
+`;
+    }
+    
+    if (infoPemilik) {
+      prompt += `\n🏪 INFO PEMILIK:
+Nama: ${infoPemilik.nama}
+Kontak: ${infoPemilik.kontak || 'Tidak tersedia'}
+Verifikasi: ${infoPemilik.is_verified ? '✅ Terverifikasi' : '⏳ Belum diverifikasi'}
+`;
+    }
+    
+    prompt += `
+=== PERTANYAAN USER ===
+"${message}"
+
+=== INSTRUKSI ===
+1. Jawab dengan RAMAH, SINGKAT (max 3 kalimat), dan PAKAI EMOJI
+2. Jika ditanya menu/produk, sebutkan harga & ketersediaan
+3. Jika ditanya driver/rewang, sebutkan siapa yang online
+4. Jika ditanya kondisi, gunakan data laporan terkini
+5. Jika ditanya kontak/pemilik, berikan info yang tersedia
+6. JANGAN mengada-ada informasi yang tidak ada di data
+7. Gunakan gaya bahasa santai kayak ngobrol sama teman`;
   }
   
   return prompt;
 }
 
 // ============================================
-// MAIN HANDLER (SUPPORT KEDUA MODAL)
+// MAIN HANDLER (SUPER CERDAS DENGAN FEED_VIEW)
 // ============================================
 export async function POST(req) {
   try {
@@ -446,7 +583,6 @@ export async function POST(req) {
     const tempatName = tempat?.name || 'sini';
     const kodeWilayah = tempat?.kode_wilayah || '35.14.01.1001';
     
-    // Deteksi modal type (jika tidak dikirim, deteksi dari ada/tidaknya kentonganId)
     const detectedModalType = modalType || (kentonganId ? 'kentongan' : 'tempat');
     
     const [weatherData, supabaseResult] = await Promise.all([
@@ -459,25 +595,21 @@ export async function POST(req) {
     
     const supabaseData = supabaseResult?.success ? supabaseResult.data : null;
     
-    // 🔥 PENTING: Deteksi apakah pertanyaan spesifik (kapan, detail, dll)
-    const isSpecificQuestion = safeMsg.toLowerCase().match(/^(kapan|jam berapa|tanggal|waktu|detail|isi|apa|siapa|dimana|bagaimana|kenapa|jelaskan|ceritakan)/);
+    // Deteksi pertanyaan spesifik
+    const isSpecificQuestion = safeMsg.toLowerCase().match(/^(kapan|jam berapa|tanggal|waktu|detail|isi|apa|siapa|dimana|bagaimana|kenapa|jelaskan|ceritakan|menu|produk|driver|rewang|pemilik|kontak)/);
     
-    // 🔥 Jika modal kentongan dan ada pertanyaan spesifik, langsung jawab
+    // MODAL KENTONGAN
     if (detectedModalType === 'kentongan' && supabaseData?.kentongan) {
-      // Coba jawab dengan quick response untuk kentongan dulu
       const kentonganResponse = getQuickResponseForKentongan(safeMsg, supabaseData);
       
-      // Jika pertanyaan spesifik dan quick response bisa menjawab, pakai itu
       if (isSpecificQuestion && !kentonganResponse.includes('📢') && kentonganResponse.length < 200) {
         return Response.json({ text: kentonganResponse });
       }
       
-      // Untuk pertanyaan yang lebih kompleks, panggil AI
       if (!isSpecificQuestion && kentonganResponse.length < 100) {
         return Response.json({ text: kentonganResponse });
       }
       
-      // Panggil AI untuk jawaban yang lebih baik
       const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'kentongan');
       
       const controller = new AbortController();
@@ -492,10 +624,10 @@ export async function POST(req) {
           },
           body: JSON.stringify({
             model: "llama-3.1-8b-instant",
-            max_tokens: 200,
+            max_tokens: 250,
             temperature: 0.6,
             messages: [
-              { role: "system", content: "Asisten ramah untuk kentongan digital. Jawab singkat, informatif, pakai emoji." },
+              { role: "system", content: "Asisten RAMAH untuk kentongan digital. Jawab SINGKAT, INFORMATIF, penuh EMOJI." },
               { role: "user", content: prompt },
             ],
           }),
@@ -524,13 +656,10 @@ export async function POST(req) {
       }
     }
     
-    // ============================================
-    // UNTUK MODAL TEMPAT (AIModalTempat)
-    // ============================================
-    
+    // MODAL TEMPAT (dengan fitur cerdas)
     const quickResponse = getQuickResponseForTempat(safeMsg, weatherData, supabaseData, tempatName);
     
-    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau)$/);
+    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau|menu|produk|jualan|makanan|minuman|driver|rewang|ojek|kurir|bantuan|pemilik|owner|kontak|wa|whatsapp)$/);
     
     if (isQuickIntent) {
       return Response.json({ text: quickResponse });
@@ -540,7 +669,7 @@ export async function POST(req) {
       return Response.json({ text: quickResponse });
     }
     
-    // Panggil AI untuk pertanyaan kompleks tentang tempat
+    // Panggil AI untuk pertanyaan kompleks
     const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'tempat');
     
     const controller = new AbortController();
@@ -555,10 +684,10 @@ export async function POST(req) {
         },
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
-          max_tokens: 200,
-          temperature: 0.6,
+          max_tokens: 250,
+          temperature: 0.7,
           messages: [
-            { role: "system", content: "Asisten ramah untuk info tempat wisata/kuliner. Jawab singkat, pakai emoji." },
+            { role: "system", content: "Asisten CERDAS & RAMAH untuk info tempat wisata/kuliner. Jawab SINGKAT, gunakan DATA yang tersedia, penuh EMOJI." },
             { role: "user", content: prompt },
           ],
         }),

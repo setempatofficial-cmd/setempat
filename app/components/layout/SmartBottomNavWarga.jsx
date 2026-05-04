@@ -2,76 +2,26 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Contact2, Store, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
-import { useAuth } from "@/app/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
 
-export default function SmartBottomNav({ 
-  onOpenLaporanForm, 
+export default function SmartBottomNavWarga({ 
+  onOpenLaporanForm,  // untuk warga buka form laporan
   onOpenNotification, 
-  onOpenProfile, 
-  onOpenUpload,
-  onRefreshFeed,  // Props untuk refresh feed
+  onRefreshFeed,
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { isMalam } = useTheme();
-  const { user, isAdmin, isSuperAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState("");
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isPressing, setIsPressing] = useState(false); // ✅ State untuk sentuhan
-
-  // Ambil jumlah notifikasi yang belum dibaca
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const fetchUnreadCount = async () => {
-      try {
-        const { count, error } = await supabase
-          .from("warung_info")
-          .select("*", { count: 'exact', head: true })
-          .eq("user_id", user.id)
-          .eq("is_read", false);
-        
-        if (error) throw error;
-        setUnreadCount(count || 0);
-      } catch (err) {
-        console.error("Error fetching unread count:", err);
-        setUnreadCount(0);
-      }
-    };
-
-    fetchUnreadCount();
-
-    const channel = supabase
-      .channel(`unread_count_${user.id}`)
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'warung_info',
-        filter: `user_id=eq.${user.id}`
-      }, () => fetchUnreadCount())
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'warung_info',
-        filter: `user_id=eq.${user.id}`
-      }, () => fetchUnreadCount())
-      .subscribe();
-
-    return () => { 
-      supabase.removeChannel(channel); 
-    };
-  }, [user?.id]);
+  const [isPressing, setIsPressing] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const canUpload = isSuperAdmin || isAdmin;
 
   useEffect(() => {
     if (pathname === "/") setActiveTab("Home");
@@ -86,44 +36,31 @@ export default function SmartBottomNav({
     }
   }, [pathname]);
 
-  useEffect(() => {
-    const triggerUpload = () => {
-      if (onOpenUpload) onOpenUpload();
-      else if (onOpenLaporanForm) onOpenLaporanForm();
-    };
-
-    window.addEventListener("trigger-open-upload", triggerUpload);
-    return () => window.removeEventListener("trigger-open-upload", triggerUpload);
-  }, [onOpenUpload, onOpenLaporanForm]);
-
-  // ✅ FUNGSI REFRESH DENGAN FEEDBACK VISUAL
   const handleHomePress = async () => {
-    // Jika sudah di halaman home, lakukan refresh
     if (pathname === "/") {
-      if (isRefreshing) return; // Cegah double refresh
-      
+      if (isRefreshing) return;
       setIsRefreshing(true);
-      
-      // Trigger refresh
-      if (onRefreshFeed) {
-        await onRefreshFeed();
-      } else {
-        window.dispatchEvent(new CustomEvent("refresh-feed"));
-      }
-      
-      // Animasi refresh selesai setelah 1 detik
+      if (onRefreshFeed) await onRefreshFeed();
       setTimeout(() => setIsRefreshing(false), 1000);
     } else {
-      // Jika tidak di home, navigasi ke home
       router.push("/");
     }
   };
 
-  // ✅ HANDLE NAVIGASI DENGAN FEEDBACK SENTUHAN
+  const handleWargaLapor = () => {
+    setIsPressing(true);
+    setTimeout(() => setIsPressing(false), 150);
+    
+    // Langsung buka form laporan untuk warga
+    if (onOpenLaporanForm) {
+      onOpenLaporanForm();
+    } else {
+      window.dispatchEvent(new CustomEvent("open-laporan-form"));
+    }
+  };
+
   const handleNavigation = async (tabId) => {
     setActiveTab(tabId);
-    
-    // Feedback sentuhan: scale effect
     setIsPressing(true);
     setTimeout(() => setIsPressing(false), 150);
     
@@ -144,26 +81,12 @@ export default function SmartBottomNav({
     }
   };
 
-  const handleLapor = () => {
-    if (typeof window !== "undefined") {
-      // Jika Admin, tampilkan pilihan
-      if (isSuperAdmin || isAdmin) {
-        // Kamu bisa menggunakan CustomEvent untuk memicu Modal Pilihan di Layout Utama
-        window.dispatchEvent(new CustomEvent("open-admin-upload-options"));
-      } 
-      // Jika bukan admin (fallback)
-      else {
-        onOpenLaporanForm?.() || window.dispatchEvent(new CustomEvent("open-laporan-form"));
-      }
-    }
-  };
-
   if (!mounted) return null;
 
   const tabs = [
-    { id: "Home", icon: <Home size={22} />, refreshIcon: <RefreshCw size={22} />, label: "Home" },
+    { id: "Home", icon: <Home size={22} />, label: "Home" },
     { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
-    ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
+    { id: "WargaLapor", isAction: true }, // Tombol plus untuk warga
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
     { id: "Peken", icon: <Store size={22} />, label: "Peken" },
   ];
@@ -187,15 +110,16 @@ export default function SmartBottomNav({
 
           if (tab.isAction) {
             return (
-              <div key="action-lapor-container" className="relative w-14 flex justify-center">
+              <div key="action-warga-container" className="relative w-14 flex justify-center">
                 <button
-                  onClick={handleLapor}
+                  onClick={handleWargaLapor}
                   className={`absolute -top-7 flex items-center justify-center w-14 h-14
                     bg-gradient-to-br from-orange-500 to-amber-400 
                     rounded-2xl shadow-xl shadow-orange-500/40 active:scale-90 transition-all duration-200
                     border-[6px] ${isMalam ? "border-[#0C0C0C]" : "border-white"}`}
+                  aria-label="Buat Laporan"
                 >
-                  <Plus className="text-black" strokeWidth={3} size={28} />
+                  <Plus className="text-white" strokeWidth={3} size={28} />
                 </button>
               </div>
             );
@@ -217,14 +141,12 @@ export default function SmartBottomNav({
                     ? "text-orange-500 -translate-y-0.5" 
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
-                {/* ✅ Tampilkan icon refresh berputar saat proses refresh di home */}
                 {isHomeRefreshing ? (
                   <RefreshCw size={22} className="animate-spin" />
                 ) : (
                   tab.icon
                 )}
                 
-                {/* BADGE NOTIFIKASI */}
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
                     rounded-full bg-red-600 px-1 text-[8px] font-black text-white 

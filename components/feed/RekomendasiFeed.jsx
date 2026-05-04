@@ -24,6 +24,7 @@ export default function RekomendasiFeed({
   const [comments, setComments] = useState({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
   const loaderRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const MAX_ITEMS = 15;
 
@@ -92,25 +93,38 @@ export default function RekomendasiFeed({
   // Load komentar untuk items
   useEffect(() => {
     const loadCommentsForItems = async () => {
+      if (items.length === 0) return;
+      
       const commentsMap = {};
-      for (const item of items) {
-        const { data } = await supabase
+      const promises = items.map(async (item) => {
+        const { data, error } = await supabase
           .from("komentar")
           .select("*")
           .eq("tempat_id", item.id)
-          .order("created_at", { ascending: false });
-        commentsMap[item.id] = data || [];
-      }
+          .order("created_at", { ascending: false })
+          .limit(10); // Limit untuk performa
+        
+        if (!error && data) {
+          commentsMap[item.id] = data;
+        } else {
+          commentsMap[item.id] = [];
+        }
+      });
+      
+      await Promise.all(promises);
       setComments(commentsMap);
     };
     
-    if (items.length > 0) {
-      loadCommentsForItems();
-    }
+    loadCommentsForItems();
   }, [items]);
 
   const fetchRekomendasi = useCallback(
     async (reset = false) => {
+      // Cancel previous request if exists
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      
       if (!hasMore && !reset) return;
       if (items.length >= MAX_ITEMS && !reset) return;
 
@@ -119,6 +133,10 @@ export default function RekomendasiFeed({
       const offset = currentPage * limit;
 
       setLoading(true);
+      
+      // Create new abort controller
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
 
       try {
         let query = supabase
@@ -128,7 +146,7 @@ export default function RekomendasiFeed({
           .order("created_at", { ascending: false })
           .range(offset, offset + limit - 1);
 
-        if (locationReady && userLocation?.latitude) {
+        if (locationReady && userLocation?.latitude && userLocation?.longitude) {
           const radius = 10;
           const lat = userLocation.latitude;
           const lng = userLocation.longitude;
@@ -142,6 +160,9 @@ export default function RekomendasiFeed({
         }
 
         const { data, error } = await query;
+        
+        if (abortController.signal.aborted) return;
+        
         if (error) throw error;
 
         const uniqueData = data
@@ -170,9 +191,13 @@ export default function RekomendasiFeed({
         setItems(newItems);
         setPage(currentPage + 1);
       } catch (err) {
-        console.error("Error fetching rekomendasi:", err);
+        if (err.name !== 'AbortError') {
+          console.error("Error fetching rekomendasi:", err);
+        }
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     },
     [currentItemId, page, hasMore, locationReady, userLocation, items.length]
@@ -180,7 +205,7 @@ export default function RekomendasiFeed({
 
   // Infinite scroll observer
   useEffect(() => {
-    if (!loaderRef.current) return;
+    if (!loaderRef.current || !hasMore || items.length >= MAX_ITEMS) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -197,13 +222,33 @@ export default function RekomendasiFeed({
     );
 
     observer.observe(loaderRef.current);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [loading, hasMore, fetchRekomendasi, items.length]);
 
   // Initial fetch
   useEffect(() => {
     fetchRekomendasi(true);
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
+
+  // Reset ketika currentItemId berubah
+  useEffect(() => {
+    setItems([]);
+    setPage(0);
+    setHasMore(true);
+    setSelectedPhotoIndex({});
+    fetchRekomendasi(true);
+  }, [currentItemId]);
 
   // ========== GABUNGKAN FEED CARD DENGAN BREAK CARD ==========
   const feedItemsWithBreaks = useMemo(() => {
@@ -224,7 +269,7 @@ export default function RekomendasiFeed({
         if (breakCard) {
           result.push({
             _isBreak: true,
-            id: `break-${i}-${Date.now()}`,
+            id: `break-${i}-${Date.now()}-${Math.random()}`,
             type: breakCard.type,
             level: breakCard.level,
             data: breakCard.data,
@@ -237,6 +282,12 @@ export default function RekomendasiFeed({
     return result;
   }, [items, generateBreakCard]);
 
+  // Handler untuk photo click di FeedCard
+  const handlePhotoClick = useCallback((photos, index) => {
+    // Bisa diimplementasikan untuk modal galeri
+    console.log('Photo clicked:', photos, index);
+  }, []);
+
   if (loading && items.length === 0) {
     return (
       <div className="flex justify-center py-8">
@@ -245,7 +296,7 @@ export default function RekomendasiFeed({
     );
   }
 
-  if (items.length === 0) {
+  if (items.length === 0 && !loading) {
     return (
       <div className="text-center py-8">
         <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
@@ -266,6 +317,7 @@ export default function RekomendasiFeed({
               layout
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.3 }}
               className="mb-6"
             >
@@ -279,8 +331,10 @@ export default function RekomendasiFeed({
           );
         }
         
-        // FeedCard
+        // FeedCard - pastikan semua props terdefinisi
         const isPriority = index < 2;
+        const itemComments = comments[item.id] || [];
+        
         return (
           <motion.div
             key={`rekomendasi-${item.id}`}
@@ -288,26 +342,33 @@ export default function RekomendasiFeed({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3, delay: index * 0.05 }}
+            transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.5) }}
             className="mb-6"
           >
             <FeedCard
               item={item}
               location={userLocation}
               locationReady={locationReady}
-              comments={comments}
-              selectedPhotoIndex={selectedPhotoIndex}
-              setSelectedPhotoIndex={setSelectedPhotoIndex}
+              comments={itemComments}
+              selectedPhotoIndex={selectedPhotoIndex[item.id] || 0}
+              setSelectedPhotoIndex={(index) => {
+                setSelectedPhotoIndex(prev => ({
+                  ...prev,
+                  [item.id]: index
+                }));
+              }}
               openAIModal={onOpenAIModal}
               openKomentarModal={onOpenKomentarModal}
               onShare={onShare}
               priority={isPriority}
+              onPhotoClick={handlePhotoClick}
             />
           </motion.div>
         );
       })}
       
-      {hasMore && items.length < MAX_ITEMS && (
+      {/* Loading indicator untuk infinite scroll */}
+      {hasMore && items.length < MAX_ITEMS && items.length > 0 && (
         <div key="loader" ref={loaderRef} className="h-10" />
       )}
 
@@ -317,7 +378,7 @@ export default function RekomendasiFeed({
         </div>
       )}
 
-      {!hasMore && items.length >= MAX_ITEMS && (
+      {!hasMore && items.length >= MAX_ITEMS && items.length > 0 && (
         <div key="end-message" className="text-center py-4">
           <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
             ✨ Semua rekomendasi telah ditampilkan ✨

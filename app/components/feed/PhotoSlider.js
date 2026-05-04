@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { MapPin, Zap, ChevronLeft, ChevronRight } from "lucide-react";
+import { MapPin, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getIndonesianTimeLabel } from "@/utils/timeUtils";
 import OptimizedMedia from "@/components/OptimizedMedia";
@@ -24,6 +24,17 @@ const normalizeOfficialPhotos = (photos) => {
   });
   
   return result;
+};
+
+// Cache dengan TTL lebih panjang
+const officialPhotosCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 menit
+
+// Preload image helper
+const preloadImage = (url) => {
+  if (!url || typeof window === 'undefined') return;
+  const img = new Image();
+  img.src = url;
 };
 
 // ========== HOOK UNTUK TIME KEY ==========
@@ -82,26 +93,6 @@ const useTimeKey = () => {
   return timeKey;
 };
 
-// ========== PRELOAD IMAGE ==========
-const preloadImage = (url, priority = false) => {
-  if (!url || !priority) return;
-  if (typeof window === 'undefined') return;
-  
-  const existingLink = document.querySelector(`link[rel="preload"][as="image"][href="${url}"]`);
-  if (!existingLink) {
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'image';
-    link.href = url;
-    link.fetchPriority = 'high';
-    document.head.appendChild(link);
-  }
-};
-
-// ========== CACHE UNTUK OFFICIAL PHOTOS ==========
-const officialPhotosCache = new Map();
-const CACHE_TTL = 30 * 1000; 
-
 export default function PhotoSlider({
   photos = [],
   tempatId,
@@ -116,7 +107,6 @@ export default function PhotoSlider({
   const currentTimeKey = useTimeKey();
   
   const [officialPhotos, setOfficialPhotos] = useState(() => {
-    // ✅ Coba ambil dari cache dulu
     const cached = officialPhotosCache.get(tempatId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       return cached.data;
@@ -128,8 +118,8 @@ export default function PhotoSlider({
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(() => selectedPhotoIndex || 0);
   const [shouldLoad, setShouldLoad] = useState(priority);
   const sliderRef = useRef(null);
-  const preloadDoneRef = useRef(false);
-  const hasFetchedRef = useRef(false);
+  const channelRef = useRef(null);
+  const preloadedRef = useRef(new Set()); // Track sudah preload atau belum
   
   // Sync with parent
   useEffect(() => {
@@ -176,64 +166,38 @@ export default function PhotoSlider({
     };
   }, [priority, shouldLoad]);
 
-  // ✅ PRELOAD FIRST IMAGE (LCP)
-  useEffect(() => {
-    if (!priority || preloadDoneRef.current || !shouldLoad) return;
-    
-    let firstImageUrl = null;
-    
-    // Prioritaskan dari props photos (sudah ada di cache)
-    if (photos.length > 0) {
-      const freshWargaPhotos = photos.filter(p => {
-        const createdAt = p.created_at || p.timestamp;
-        if (!createdAt) return true;
-        return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
-      });
-      if (freshWargaPhotos.length > 0) {
-        firstImageUrl = freshWargaPhotos[0]?.url || freshWargaPhotos[0]?.photo_url;
-      }
-    }
-    
-    // Jika tidak ada di photos, coba dari officialPhotos state (sudah ada)
-    if (!firstImageUrl && officialPhotos[currentTimeKey]?.length > 0) {
-      firstImageUrl = officialPhotos[currentTimeKey][0]?.url || officialPhotos[currentTimeKey][0];
-    }
-    
-    if (firstImageUrl && typeof firstImageUrl === 'string' && firstImageUrl.startsWith('http')) {
-      preloadImage(firstImageUrl, true);
-      preloadDoneRef.current = true;
-    }
-  }, [priority, shouldLoad, photos, officialPhotos, currentTimeKey]);
-
-  // ✅ Fetch official photos (hanya sekali, dengan cache)
+  // Fetch official photos
   const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId || !shouldLoad || hasFetchedRef.current) return;
+    if (!tempatId || !shouldLoad) return;
     
-    // Cek cache lagi
     const cached = officialPhotosCache.get(tempatId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       setOfficialPhotos(cached.data);
-      hasFetchedRef.current = true;
       return;
     }
     
-    hasFetchedRef.current = true;
-    
+    setIsLoading(true);
     try {
       const { data, error } = await supabase
-        .from("tempat")
-        .select("photos")
-        .eq("id", tempatId)
+        .from('tempat')
+        .select('photos')
+        .eq('id', tempatId)
         .single();
-        
-      if (!error && data?.photos) {
+      
+      if (error) throw error;
+      
+      if (data?.photos) {
         const normalized = normalizeOfficialPhotos(data.photos);
         setOfficialPhotos(normalized);
-        // Simpan ke cache
-        officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
+        officialPhotosCache.set(tempatId, { 
+          data: normalized, 
+          timestamp: Date.now() 
+        });
       }
-    } catch (err) {
-      console.error("Fetch error:", err);
+    } catch (error) {
+      console.error('Error fetching official photos:', error);
+    } finally {
+      setIsLoading(false);
     }
   }, [tempatId, shouldLoad]);
 
@@ -242,33 +206,54 @@ export default function PhotoSlider({
     fetchOfficialPhotos();
   }, [fetchOfficialPhotos, shouldLoad]);
 
-  // Realtime subscription
+  // Realtime subscription (tetap seperti yang sudah tepat)
   useEffect(() => {
     if (!tempatId || !shouldLoad) return;
-    
-    const channel = supabase
-      .channel(`tempat_${tempatId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'tempat',
-        filter: `id=eq.${tempatId}`
-      }, (payload) => {
-        if (payload.new?.photos) {
-          const normalized = normalizeOfficialPhotos(payload.new.photos);
-          setOfficialPhotos(normalized);
-          // Update cache
-          officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    const channelName = `realtime_tempat_${tempatId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const channel = supabase.channel(channelName);
+    channelRef.current = channel;
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'tempat',
+          filter: `id=eq.${tempatId}`,
+        },
+        (payload) => {
+          if (payload.new?.photos) {
+            const normalized = normalizeOfficialPhotos(payload.new.photos);
+            setOfficialPhotos(normalized);
+            officialPhotosCache.set(tempatId, { 
+              data: normalized, 
+              timestamp: Date.now() 
+            });
+          }
         }
-      })
-      .subscribe();
-    
-    return () => supabase.removeChannel(channel);
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to changes for tempat ${tempatId}`);
+        }
+      });
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
   }, [tempatId, shouldLoad]);
 
-  // ✅ Process current photos - LANGSUNG dari data yang sudah ada
+  // Process current photos
   const currentPhotos = useMemo(() => {
-    // Prioritaskan foto warga dari props
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -291,7 +276,6 @@ export default function PhotoSlider({
       }
     }
     
-    // Foto official
     const timePhotos = officialPhotos[currentTimeKey];
     if (timePhotos?.length > 0) {
       const sorted = [...timePhotos].sort((a, b) => {
@@ -310,6 +294,40 @@ export default function PhotoSlider({
     return [];
   }, [photos, officialPhotos, currentTimeKey]);
 
+  // PRELOAD ADJACENT IMAGES - SOLUSI UTAMA UNTUK LOADING CEPAT
+  useEffect(() => {
+    if (!shouldLoad || currentPhotos.length === 0) return;
+    
+    // Preload next image
+    const nextIndex = (currentPhotoIndex + 1) % currentPhotos.length;
+    const nextPhoto = currentPhotos[nextIndex];
+    if (nextPhoto?.url && !preloadedRef.current.has(nextPhoto.url)) {
+      preloadImage(nextPhoto.url);
+      preloadedRef.current.add(nextPhoto.url);
+    }
+    
+    // Preload previous image
+    const prevIndex = (currentPhotoIndex - 1 + currentPhotos.length) % currentPhotos.length;
+    const prevPhoto = currentPhotos[prevIndex];
+    if (prevPhoto?.url && !preloadedRef.current.has(prevPhoto.url)) {
+      preloadImage(prevPhoto.url);
+      preloadedRef.current.add(prevPhoto.url);
+    }
+  }, [currentPhotoIndex, currentPhotos, shouldLoad]);
+
+  // Preload first image saat load pertama
+  useEffect(() => {
+    if (!shouldLoad || currentPhotos.length === 0) return;
+    if (preloadedRef.current.has('initial_preload_done')) return;
+    
+    const firstPhoto = currentPhotos[0];
+    if (firstPhoto?.url) {
+      preloadImage(firstPhoto.url);
+      preloadedRef.current.add(firstPhoto.url);
+      preloadedRef.current.add('initial_preload_done');
+    }
+  }, [currentPhotos, shouldLoad]);
+
   const nextPhoto = useCallback(() => {
     if (currentPhotos.length <= 1) return;
     setCurrentPhotoIndex((prev) => (prev + 1) % currentPhotos.length);
@@ -322,15 +340,18 @@ export default function PhotoSlider({
 
   const currentPhoto = currentPhotos[currentPhotoIndex];
   const hasMultiplePhotos = currentPhotos.length > 1;
-  const hasNoPhoto = currentPhotos.length === 0 && !shouldLoad;
 
-  // ✅ TAMPILAN LEBIH CEPAT: Langsung render jika ada photos
+  const handlePhotoClick = useCallback(() => {
+    if (onPhotoClick && currentPhotos.length > 0) {
+      onPhotoClick(currentPhotos, currentPhotoIndex);
+    }
+  }, [onPhotoClick, currentPhotos, currentPhotoIndex]);
+
+  // Main render with photos
   if (currentPhotos.length > 0) {
     return (
       <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-[30px] shadow-2xl border border-white/5">
-        <div className="absolute inset-0 z-0"
-        onClick={() => onPhotoClick?.(currentPhotos, currentPhotoIndex)}
->
+        <div className="absolute inset-0 z-0" onClick={handlePhotoClick}>
           <OptimizedMedia 
             src={currentPhoto.url} 
             className="w-full h-full object-cover" 
@@ -358,15 +379,28 @@ export default function PhotoSlider({
 
         {hasMultiplePhotos && (
           <>
-            <button onClick={prevPhoto} className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95">
+            <button 
+              onClick={prevPhoto} 
+              className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
+              aria-label="Previous photo"
+            >
               <ChevronLeft size={16} />
             </button>
-            <button onClick={nextPhoto} className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95">
+            <button 
+              onClick={nextPhoto} 
+              className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/70 transition-all active:scale-95"
+              aria-label="Next photo"
+            >
               <ChevronRight size={16} />
             </button>
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
               {currentPhotos.map((_, idx) => (
-                <button key={idx} onClick={() => setCurrentPhotoIndex(idx)} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`} />
+                <button 
+                  key={idx} 
+                  onClick={() => setCurrentPhotoIndex(idx)} 
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white w-3' : 'bg-white/50'}`}
+                  aria-label={`Go to photo ${idx + 1}`}
+                />
               ))}
             </div>
           </>
@@ -378,7 +412,7 @@ export default function PhotoSlider({
     );
   }
 
-  // Loading state (hanya jika benar-benar tidak ada data)
+  // Loading state
   if (!shouldLoad || (isLoading && currentPhotos.length === 0)) {
     return (
       <div ref={sliderRef} className="relative h-full w-full rounded-[30px] bg-zinc-800/50 flex items-center justify-center">

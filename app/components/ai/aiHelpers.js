@@ -1,104 +1,181 @@
-// components/ai/aiHelpers.js
+// app/components/aiHelpers.js
 
-export const getCurrentTimeTag = () => {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 11) return "pagi";
-  if (h >= 11 && h < 15) return "siang";
-  if (h >= 15 && h < 18) return "sore";
-  return "malam";
-};
-
-export const getGreeting = () => {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 11) return "Selamat pagi";
-  if (h >= 11 && h < 15) return "Selamat siang";
-  if (h >= 15 && h < 18) return "Selamat sore";
-  return "Selamat malam";
-};
-
-export const getRandomEmoji = () => {
-  const emojis = ["😊", "👋", "🤗", "🏘️", "🌳", "🚶", "☕", "🍜", "📢", "👥"];
-  return emojis[Math.floor(Math.random() * emojis.length)];
-};
-
-export const isLaporIntent = (text) => {
-  const lower = text.toLowerCase();
-  const keywords = ["lapor", "kirim", "upload", "foto", "report", "posting", "mau cerita", "ceritain"];
-  return keywords.some(k => lower.includes(k));
-};
-
-export const generateRingkasanDariData = (reports, stats, tempatName, jarak) => {
-  const hasLaporan = reports.length > 0;
-  const waktuTag = getCurrentTimeTag();
-  const greeting = getGreeting();
-  const emoji = getRandomEmoji();
-  
-  if (!hasLaporan) {
-    return `${greeting}, Lur! ${emoji}\n\nBelum ada laporan terbaru di **${tempatName}**${jarak ? ` (${jarak} dari sini)` : ''}.\n\n**📸 Yuk jadi yang pertama lapor!**`;
-  }
-  
-  const latest = reports[0];
-  const kondisi = latest.tipe === 'Sepi' ? 'sepi' : latest.tipe === 'Ramai' ? 'ramai' : latest.tipe === 'Antri' ? 'ada antrian' : 'normal';
-  const estimasi = latest.estimated_people ? ` sekitar ${latest.estimated_people} orang` : '';
-  const cerita = latest.deskripsi || latest.content;
-  const userName = latest.user_name?.split(' ')[0] || 'Warga';
-  
-  let ringkasan = `${greeting}, Lur! ${emoji}\n\n`;
-  ringkasan += `📍 **${tempatName}**${jarak ? ` (${jarak} dari sini)` : ''}\n`;
-  ringkasan += `🕐 ${waktuTag} ini kondisi **${kondisi}**${estimasi}.\n\n`;
-  
-  if (cerita) {
-    ringkasan += `🗣️ **Cerita terbaru dari @${userName}**:\n"${cerita.substring(0, 100)}${cerita.length > 100 ? '...' : ''}"\n\n`;
-  }
-  
-  if (stats.total > 1) {
-    ringkasan += `📊 **Hari ini**: ${stats.total} laporan (${stats.ramai} ramai, ${stats.sepi} sepi, ${stats.antri} antri)\n\n`;
-  }
-  
-  ringkasan += `**📢 Ada yang mau kamu ceritakan tentang ${tempatName}?**`;
-  
-  return ringkasan;
-};
-
-export const getQuickActionsByCategory = (category, hasLaporan) => {
-  const categoryLower = category?.toLowerCase() || '';
-  
+// Fungsi untuk mendapatkan quick actions berdasarkan kategori tempat
+export function getQuickActionsByCategory(category, hasLaporan = false) {
+  // Base actions yang selalu ada
   const baseActions = [
-    { label: "🍃 Kondisi", query: "Kondisi di sini gimana?" },
-    { label: "🌧️ Cuaca", query: "Cuaca di sana gimana?" },
-    { label: "🕐 Jam Buka", query: "Jam buka di sini jam berapa?" },
+    { 
+      id: "menu", 
+      emoji: "🍽️", 
+      label: "Menu", 
+      query: "Ada menu atau produk apa saja di sini?",
+      category: "info"
+    },
+    { 
+      id: "driver", 
+      emoji: "🚗", 
+      label: "Cek Driver", 
+      query: "Ada driver atau ojek online di sekitar sini?",
+      category: "service"
+    },
+    { 
+      id: "rewang", 
+      emoji: "🧹", 
+      label: "Cek Rewang", 
+      query: "Ada jasa rewang atau PRT di sekitar sini?",
+      category: "service"
+    },
+    { 
+      id: "contact", 
+      emoji: "📞", 
+      label: "Kontak Pemilik", 
+      query: "Bisa minta nomor kontak pemiliknya?",
+      category: "info"
+    },
+    { 
+      id: "jam_buka", 
+      emoji: "⏰", 
+      label: "Jam Buka", 
+      query: "Jam berapa buka dan tutupnya?",
+      category: "info"
+    },
+    { 
+      id: "cctv", 
+      emoji: "🎥", 
+      label: "Lihat CCTV", 
+      query: "Ada CCTV live streaming?",
+      category: "pantau"
+    },
+    { 
+      id: "kondisi", 
+      emoji: hasLaporan ? "📊" : "👀", 
+      label: hasLaporan ? "Kondisi Terkini" : "Pantau Sekarang", 
+      query: "Kondisi di sini sekarang gimana? Ramai atau sepi?",
+      category: "pantau"
+    },
+    { 
+      id: "cuaca", 
+      emoji: "🌤️", 
+      label: "Cuaca", 
+      query: "Cuaca di sini bagaimana?",
+      category: "info"
+    },
+    { 
+      id: "antrian", 
+      emoji: "⏳", 
+      label: "Cek Antrian", 
+      query: "Sekarang antri panjang nggak?",
+      category: "pantau"
+    }
   ];
+
+  // Actions berdasarkan kategori tempat
+  const categoryActions = {
+    // Tempat makan/kuliner
+    'makanan': [
+      { id: "menu_makanan", emoji: "🍜", label: "Menu Makanan", query: "Menu makanan apa yang tersedia? Ada yang viral?", category: "kuliner" },
+      { id: "minuman", emoji: "🥤", label: "Menu Minuman", query: "Ada minuman apa saja?", category: "kuliner" },
+      { id: "promo", emoji: "🎉", label: "Promo", query: "Ada promo atau diskon hari ini?", category: "kuliner" }
+    ],
+    'wisata': [
+      { id: "tiket", emoji: "🎟️", label: "Harga Tiket", query: "Harga tiket masuk berapa?", category: "wisata" },
+      { id: "fasilitas", emoji: "🏊", label: "Fasilitas", query: "Fasilitas apa saja yang tersedia?", category: "wisata" },
+      { id: "jam_operasional", emoji: "⏰", label: "Jam Operasional", query: "Jam operasional sampai jam berapa?", category: "wisata" }
+    ],
+    'kafe': [
+      { id: "menu_kafe", emoji: "☕", label: "Menu Kopi", query: "Menu kopi apa yang enak?", category: "kuliner" },
+      { id: "wifi", emoji: "📶", label: "Ada WiFi?", query: "Ada WiFi gratis nggak?", category: "fasilitas" },
+      { id: "live_music", emoji: "🎸", label: "Live Music", query: "Ada live music atau acara?", category: "hiburan" }
+    ],
+    'pasar': [
+      { id: "komoditas", emoji: "🥬", label: "Harga Komoditas", query: "Harga sayur dan bahan pokok naik turun?", category: "belanja" },
+      { id: "pedagang", emoji: "👨‍🌾", label: "Pedagang", query: "Pedagang apa saja yang buka?", category: "info" }
+    ]
+  };
+
+  // Gabungkan base actions + actions berdasarkan kategori
+  let actions = [...baseActions];
   
-  let categoryActions = [];
-  
-  if (categoryLower.includes('kuliner') || categoryLower.includes('cafe')) {
-    categoryActions = [
-      { label: "🍽️ Rekomendasi", query: "Menu rekomendasi di sini apa?" },
-      { label: "⏰ Jam Ramai", query: "Jam berapa biasanya ramai?" },
-    ];
-  } 
-  else if (categoryLower.includes('wisata') || categoryLower.includes('taman')) {
-    categoryActions = [
-      { label: "🎟️ Tiket", query: "Berapa harga tiket masuk?" },
-      { label: "⏰ Jam Buka", query: "Jam buka sampai jam berapa?" },
-    ];
-  }
-  else if (categoryLower.includes('jalan') || categoryLower.includes('simpang')) {
-    categoryActions = [
-      { label: "🚗 Lalin", query: "Lalu lintas di sini gimana?" },
-      { label: "🚦 Macet", query: "Sekitar sini macet?" },
-    ];
-  }
-  else {
-    categoryActions = [
-      { label: "👥 Ramai?", query: "Sekitar sini ramai?" },
-      { label: "⏳ Antrian?", query: "Ada antrian?" },
-    ];
+  if (category && categoryActions[category]) {
+    actions = [...actions, ...categoryActions[category]];
   }
   
-  if (hasLaporan) {
-    categoryActions.unshift({ label: "📢 Cerita Terbaru", query: "Apa cerita warga terbaru?" });
+  // Filter duplikat berdasarkan query
+  const seen = new Set();
+  actions = actions.filter(action => {
+    if (seen.has(action.query)) return false;
+    seen.add(action.query);
+    return true;
+  });
+  
+  // Batasi maksimal 8 actions agar tidak penuh
+  return actions.slice(0, 8);
+}
+
+// Fungsi untuk mendapatkan sambutan AI yang dinamis
+export function getDynamicGreeting(tempatName, userName, weather, activeReport, distance) {
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
+  
+  const namaFormatted = userName ? `, ${userName}` : "";
+  const jarakText = distance ? ` (${distance.toFixed(1)} km dari lokasi kamu)` : "";
+  
+  // Case 1: Ada laporan aktif
+  if (activeReport?.tipe) {
+    const emojis = { 'Ramai': '👥', 'Sepi': '🍃', 'Antri': '⏳', 'Macet': '🚗', 'Banjir': '🌊' };
+    const emoji = emojis[activeReport.tipe] || '📝';
+    
+    return `### ${greeting}${namaFormatted}! 👋
+
+Saya menemukan laporan **${activeReport.tipe}** di **${tempatName}**${jarakText}.
+
+---
+
+> ${emoji} **Info Terkini:**  
+> "${activeReport.deskripsi || "Kondisi saat ini memerlukan perhatian lebih."}"
+
+💡 **Coba tanya saya:**
+• "Ada menu apa?" 🍽️
+• "Cek driver online" 🚗
+• "Kontak pemiliknya" 📞
+• "Jam buka berapa?" ⏰
+
+Atau klik tombol di bawah! 👇`;
   }
   
-  return [...baseActions, ...categoryActions].slice(0, 6);
-};
+  // Case 2: Ada data cuaca
+  if (weather?.weather_desc) {
+    return `### ${greeting}${namaFormatted}! 👋
+
+☀️ **Cuaca di ${tempatName}**${jarakText}
+Saat ini **${weather.weather_desc}** dengan suhu **${weather.t}°C**.
+
+---
+
+💡 **Apa yang bisa saya bantu?**
+• 🍽️ Lihat menu & harga
+• 🚗 Cek driver/rewang terdekat
+• 📊 Pantau kondisi terkini
+• 📞 Kontak pemilik tempat
+
+Tinggal tanya atau klik tombol di bawah! 😊`;
+  }
+  
+  // Case 3: Default greeting
+  return `### ${greeting}${namaFormatted}! 👋
+
+Selamat datang di **${tempatName}**${jarakText}
+
+---
+
+💡 **Saya asisten virtual siap bantu 24 jam!**
+
+🍽️ **Tanya menu** → "Ada menu apa?"
+🚗 **Cari driver** → "Ada driver online?"
+📊 **Pantau kondisi** → "Sekarang ramai nggak?"
+⏰ **Jam operasional** → "Jam berapa buka?"
+🌤️ **Info cuaca** → "Cuaca di sini gimana?"
+📞 **Kontak pemilik** → "Nomor pemiliknya dong"
+
+Klik tombol di bawah atau tulis pertanyaanmu! 👇`;
+}

@@ -110,7 +110,7 @@ Saya menemukan laporan **${activeReport.tipe}** di wilayah **${tempat.name}** ${
 // 2. Kondisi Kedua: Tidak ada laporan, tapi ada data Cuaca
 else if (weather && weather.weather_desc) {
     sambutan = `### ${greeting}${namaUser}! 👋
-### Info Cuaca Terkini ☀️
+**Info Cuaca Terkini** ☀️
 Di sekitaran **${tempat.name}** saat ini terpantau **${weather.weather_desc}** dengan suhu **${weather.t}°C**.
 
 ---

@@ -70,7 +70,7 @@ function FeedCard({
   displayLocation,
   tempat = [],
   comments = {},
-  selectedPhotoIndex = {},
+  selectedPhotoIndex = 0,
   setSelectedPhotoIndex,
   openAIModal,
   openKomentarModal,
@@ -78,7 +78,8 @@ function FeedCard({
   onRefreshNeeded,
   priority = false,
   preloadNext = false,
-  cardIndex = 0, 
+  cardIndex = 0,
+  onPhotoClick,
 }) {
 
   const safeItem = item || DEFAULT_ITEM;
@@ -87,23 +88,15 @@ function FeedCard({
   // --- Hooks ---
   const { user } = useAuth();
   const theme = useTheme();
-
-  // ✅ FIX 1: Gunakan catStyle langsung, jangan buat cardBgClass
-  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam); 
-  
-  // ✅ FIX 2: Gabungkan semua class background dengan benar
-  const cardBackgroundClass = `${catStyle.bg} ${theme.isMalam ? 'dark' : ''}`;
-
+  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
-  const isMedium = windowWidth >= 380 && windowWidth < 640;
   
   // --- State ---
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxItems, setLightboxItems] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-
   const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -113,6 +106,7 @@ function FeedCard({
   const [localLaporanWarga, setLocalLaporanWarga] = useState(
     () => item?.laporan_terbaru || []
   );
+  
   const laporanTerbaru = localLaporanWarga[0];
   const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
@@ -140,6 +134,7 @@ function FeedCard({
   const prevLaporanRef = useRef(item?.laporan_terbaru);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
+  const subscriptionAttemptedRef = useRef(false);
 
   const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
@@ -157,7 +152,10 @@ function FeedCard({
     return () => {
       isMounted.current = false;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
       if (observerRef.current) observerRef.current.disconnect();
     };
   }, []);
@@ -165,6 +163,7 @@ function FeedCard({
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
+    
     const initObserver = () => {
       observerRef.current = new IntersectionObserver(
         ([entry]) => {
@@ -177,7 +176,9 @@ function FeedCard({
       );
       observerRef.current.observe(currentCard);
     };
+    
     timeoutRef.current = setTimeout(initObserver, 0);
+    
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (observerRef.current) observerRef.current.disconnect();
@@ -191,18 +192,83 @@ function FeedCard({
     }
   }, [safeItem.laporan_terbaru]);
 
+  // ✅ FIX: Perbaikan realtime subscription - pendekatan yang lebih aman
   useEffect(() => {
     if (!tempatId || !isVisible || !isMounted.current) return;
-    if (channelRef.current) supabase.removeChannel(channelRef.current);
-    channelRef.current = supabase
-      .channel(`lw_${tempatId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "laporan_warga", filter: `tempat_id=eq.${tempatId}` },
-        ({ new: n }) => {
-          if (!n || !isMounted.current) return;
-          setLocalLaporanWarga((prev) => prev.some((l) => l.id === n.id) ? prev : [n, ...prev].slice(0, 50));
+    
+    // Reset flag
+    subscriptionAttemptedRef.current = false;
+    
+    // Clean up existing subscription
+    const setupSubscription = async () => {
+      try {
+        if (channelRef.current) {
+          await supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
         }
-      ).subscribe();
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+        
+        // Create brand new channel
+        const channel = supabase.channel(`laporan_warga_${tempatId}_${Date.now()}`);
+        
+        // Save to ref BEFORE adding callbacks
+        channelRef.current = channel;
+        
+        // ✅ Define callbacks
+        const handleInsert = (payload) => {
+          if (!payload.new || !isMounted.current) return;
+          
+          setLocalLaporanWarga((prev) => {
+            if (prev.some((l) => l.id === payload.new.id)) return prev;
+            return [payload.new, ...prev].slice(0, 50);
+          });
+        };
+        
+        const handleUpdate = (payload) => {
+          if (!payload.new || !isMounted.current) return;
+          
+          setLocalLaporanWarga((prev) => {
+            const index = prev.findIndex((l) => l.id === payload.new.id);
+            if (index === -1) return prev;
+            const updated = [...prev];
+            updated[index] = payload.new;
+            return updated;
+          });
+        };
+        
+        // ✅ Add all callbacks BEFORE subscribe
+        channel
+          .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'laporan_warga',
+            filter: `tempat_id=eq.${tempatId}`,
+          }, handleInsert)
+          .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'laporan_warga',
+            filter: `tempat_id=eq.${tempatId}`,
+          }, handleUpdate);
+        
+        // ✅ Subscribe
+        const status = await channel.subscribe();
+        
+        if (status === 'SUBSCRIBED' && isMounted.current) {
+          console.log(`✅ Subscribed to laporan_warga for tempat ${tempatId}`);
+        }
+      } catch (error) {
+        console.error(`Error setting up subscription for ${tempatId}:`, error);
+      }
+    };
+    
+    setupSubscription();
+    
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
   }, [tempatId, isVisible]);
 
   // --- Memoized Values ---
@@ -214,9 +280,15 @@ function FeedCard({
 
   const photoUrls = useMemo(() => {
     const photos = Array.isArray(safeItem.photos) ? safeItem.photos : [];
-    return photos.filter((p) => p && typeof p === "string" && p.startsWith("http"))
-      .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
-  }, [safeItem.photos]);
+    return photos
+      .filter((p) => p && typeof p === "string" && p.startsWith("http"))
+      .map((p, idx) => ({ 
+        url: p, 
+        type: 'official', 
+        caption: `Official photo ${idx + 1}`,
+        created_at: safeItem.created_at
+      }));
+  }, [safeItem.photos, safeItem.created_at]);
 
   const allSignals = useMemo(() => {
     const combined = [...(localLaporanWarga || []), ...(externalSignals || [])];
@@ -229,39 +301,62 @@ function FeedCard({
       url: p.url,
       caption: p.caption,
       created_at: p.created_at,
+      type: p.type
     }));
     setLightboxItems(items);
     setLightboxIndex(currentIndex);
     setIsLightboxOpen(true);
-  }, []);
+    
+    if (onPhotoClick) {
+      onPhotoClick(photos, currentIndex);
+    }
+  }, [onPhotoClick]);
 
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
     setIsSesuai(true);
     setLocalValidationCount((v) => v + 1);
-    try { await supabase.from("minat").insert([{ tempat_id: safeItem.id }]); } catch (e) { console.error(e); }
+    try { 
+      await supabase.from("minat").insert([{ tempat_id: safeItem.id }]); 
+    } catch (e) { 
+      console.error(e); 
+    }
   }, [isSesuai, safeItem.id]);
 
   const handleOpenStoryModal = useCallback((id, stories) => {
-    setActiveStories((stories || []).map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
+    setActiveStories((stories || []).map((s) => ({ 
+      ...s, 
+      url: s.url || s.photo_url || s.image_url 
+    })));
     setIsStoryModalOpen(true);
   }, []);
 
   const handleUploadSuccess = useCallback((newLaporan) => {
-    setLocalLaporanWarga((prev) => prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50));
+    setLocalLaporanWarga((prev) => 
+      prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50)
+    );
     requestAnimationFrame(() => {
-      setActiveStories((prev) => [newLaporan, ...prev].map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
+      setActiveStories((prev) => 
+        [newLaporan, ...prev].map((s) => ({ 
+          ...s, 
+          url: s.url || s.photo_url || s.image_url 
+        }))
+      );
       setIsStoryModalOpen(true);
     });
     handleLocalRefresh();
   }, [handleLocalRefresh]);
 
-  const handleOpenAIModal = useCallback((query) => openAIModal?.(safeItem, handleUploadSuccess, query), [openAIModal, safeItem, handleUploadSuccess]);
+  const handleOpenAIModal = useCallback((query) => 
+    openAIModal?.(safeItem, handleUploadSuccess, query), 
+    [openAIModal, safeItem, handleUploadSuccess]
+  );
+  
   const handleCloseStoryModal = useCallback(() => setIsStoryModalOpen(false), []);
 
   if (!item?.id) return null;
 
-  const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
+  const currentPhotoIndex = typeof selectedPhotoIndex === 'number' ? selectedPhotoIndex : 0;
   const headline = feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
   const alamatText = safeItem.alamat || "AREA SETEMPAT";
@@ -276,7 +371,6 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
-  // ✅ FIX 3: Perbaiki border class untuk konsistensi
   const cardBorderClass = useMemo(() => {
     if (safeItem.isViral) return "border-b-4 border-red-500/50";
     if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
@@ -285,8 +379,6 @@ function FeedCard({
 
   // Responsive spacing classes
   const paddingX = `px-4 ${!isNarrow ? 'sm:px-5' : ''}`;
-  const paddingY = `py-3 ${isNarrow ? 'py-2' : 'sm:py-4'}`;
-  const gapSize = isNarrow ? 'gap-1' : 'gap-2';
   const textSize = isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]';
 
   return (
@@ -313,9 +405,9 @@ function FeedCard({
           shadow-sm
         `}
       >
-        {/* Header - Responsive Padding */}
+        {/* Header */}
         <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
-          <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
+          <div className="flex items-center justify-between mb-2 sm:mb-4">
             <div className="flex flex-col gap-0.5 sm:gap-1">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className={`${textSize} font-black uppercase tracking-widest ${catStyle.text} flex items-center gap-1.5`}>
@@ -365,14 +457,14 @@ function FeedCard({
               namaTempat={safeItem.name}
               isHujan={safeItem.status === "hujan"}
               priority={priority}
-              selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
+              selectedPhotoIndex={currentPhotoIndex}
               setSelectedPhotoIndex={(idx) => {
                 if (setSelectedPhotoIndex) {
-                  setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
+                  setSelectedPhotoIndex(idx);
                 }
               }}
               onUploadSuccess={handleUploadSuccess}
-              onPhotoClick={handlePhotoClick} 
+              onPhotoClick={handlePhotoClick}
             />
 
             {/* Story Circle */}
@@ -390,35 +482,19 @@ function FeedCard({
         </div>
 
         {/* Metadata */}
-        <div className={`
-          ${paddingX} 
-          pb-4 pt-1 
-          flex items-center justify-between 
-          opacity-40 
-          -mt-2
-        `}>
+        <div className={`${paddingX} pb-4 pt-1 flex items-center justify-between opacity-40 -mt-2`}>
           <div className="flex items-center gap-1.5 truncate flex-1">
-            <div className={`
-              p-1 rounded-md 
-              ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
-              text-[7px] font-black tracking-tighter
-            `}>
+            <div className={`p-1 rounded-md ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} text-[7px] font-black tracking-tighter`}>
               📍
             </div>
-            <p className={`
-              ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
-              font-bold ${theme.text} truncate tracking-tight
-            `}>
+            <p className={`${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} font-bold ${theme.text} truncate tracking-tight`}>
               {alamatText}
             </p>
           </div>
           
           <div className="flex items-center gap-2 ml-4">
             <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
-            <span className={`
-              ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
-              font-mono font-black tracking-tighter ${catStyle.text}
-            `}>
+            <span className={`${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} font-mono font-black tracking-tighter ${catStyle.text}`}>
               #{String(safeItem.id).padStart(4, '0')}
             </span>
           </div>
@@ -482,10 +558,12 @@ function FeedCard({
   );
 }
 
-const areEqual = (p, n) => {
-  return p.item?.id === n.item?.id && 
-         p.item?.vibe_count === n.item?.vibe_count &&
-         p.selectedPhotoIndex?.[p.item?.id] === n.selectedPhotoIndex?.[n.item?.id];
+// Updated comparison function for memo
+const areEqual = (prevProps, nextProps) => {
+  return prevProps.item?.id === nextProps.item?.id && 
+         prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
+         prevProps.selectedPhotoIndex === nextProps.selectedPhotoIndex &&
+         prevProps.priority === nextProps.priority;
 };
 
 export default memo(FeedCard, areEqual);

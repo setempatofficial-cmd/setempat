@@ -206,7 +206,7 @@ const ToastMessage = memo(({ show, message }) => (
 export default function FeedContent() {
   const router = useRouter();
   const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, role: userRole, profile, loading: authLoading } = useAuth(); 
   const theme = useTheme();
 
   // ========== NETWORK STATE ==========
@@ -248,8 +248,7 @@ export default function FeedContent() {
 
   // ========== MODAL STATES ==========
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [userId, setUserId] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [selectedLaporanWarga, setSelectedLaporanWarga] = useState([]);
   const [selectedUploadSuccess, setSelectedUploadSuccess] = useState(null);
@@ -564,8 +563,16 @@ const resetFeed = useCallback((soft = false) => {
     setError(null);
     lastLoadedIdRef.current = null;
     existingIdsRef.current.clear();
+  
+
+if (isLocationChange && typeof window !== 'undefined' && window.__feedItemCache) {
+      window.__feedItemCache.clear();
+      console.log('🧹 Global feed item cache cleared');
+    }
   }
 }, []);
+
+
 
   // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
@@ -1477,7 +1484,7 @@ useEffect(() => {
       <UploadModal
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
-        userId={userId}
+        userId={user?.id}
         userRole={userRole}
       />
 
