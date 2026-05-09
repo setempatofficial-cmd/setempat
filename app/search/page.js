@@ -439,40 +439,69 @@ function SearchContent() {
   }, []);
   
   // ========== INITIAL LOAD ==========
-  useEffect(() => {
-    if (initialLoadDone.current) return;
-    initialLoadDone.current = true;
+useEffect(() => {
+  if (initialLoadDone.current) return;
+  initialLoadDone.current = true;
+  
+  const loadInitial = async () => {
+    const instantSuggestions = getPreloadedSuggestions(placeName);
+    setSmartSuggestions(instantSuggestions);
     
-    const loadInitial = async () => {
-      const instantSuggestions = getPreloadedSuggestions(placeName);
-      setSmartSuggestions(instantSuggestions);
-      
-      let hasValidCache = false;
-      try {
-        const cached = sessionStorage.getItem('search_cache_v2');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.length > 0) {
-            setAllData(parsed);
-            setLoading(false);
-            hasValidCache = true;
-          }
+    // STEP 1: COBA CACHE - LANGSUNG TAMPILKAN
+    try {
+      const cached = sessionStorage.getItem('search_cache_v2');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.length > 0) {
+          setAllData(parsed);
+          setLoading(false);
+          console.log("✅ Load dari cache: CEPAT!");
         }
-      } catch (e) {}
-      
-      if (!hasValidCache) {
-        await fetchFreshData(true);
-      } else {
-        fetchFreshData(false);
       }
-      
-      if (placeName) {
-        const updatedSuggestions = getPreloadedSuggestions(placeName);
-        setSmartSuggestions(updatedSuggestions);
-      }
-    };
+    } catch (e) {}
     
-    loadInitial();
+    // STEP 2: FETCH DI BACKGROUND (tanpa loading state)
+    try {
+      const [tempatResult, laporanResult] = await Promise.all([
+        supabase
+          .from("tempat")
+          .select("id, name, category, latitude, longitude")
+          .limit(100)
+          .order("name", { ascending: true }),
+        supabase
+          .from("laporan_warga")
+          .select("id, tempat_id, content, created_at, tipe")
+          .limit(200)
+          .order("created_at", { ascending: false })
+      ]);
+      
+      const tempatData = tempatResult.data || [];
+      const laporanData = laporanResult.data || [];
+      
+      // Group laporan by tempat_id
+      const laporanMap = new Map();
+      for (const laporan of laporanData) {
+        if (!laporanMap.has(laporan.tempat_id)) {
+          laporanMap.set(laporan.tempat_id, []);
+        }
+        const list = laporanMap.get(laporan.tempat_id);
+        if (list.length < 5) list.push(laporan);
+      }
+      
+      const merged = tempatData.map(tempat => ({
+        ...tempat,
+        laporan_terbaru: laporanMap.get(tempat.id) || []
+      }));
+      
+      setAllData(merged);
+      sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
+      console.log("✅ Fetch fresh selesai di background");
+    } catch (err) {
+      console.error("Background fetch error:", err);
+    }
+  };
+  
+  loadInitial();
     
     const channel = supabase
       .channel('search-laporan-updates')
@@ -509,23 +538,22 @@ function SearchContent() {
   };
   
   // ========== RENDER ==========
-  if (loading && allData.length === 0) {
-    return (
-      <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
-        <div 
-          className="mx-auto flex justify-center items-center h-64" 
-          style={{ maxWidth: '420px' }}
-        >
-          <div className="relative flex items-center justify-center">
-            <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
-            <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
-            <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
-          </div>
+if (loading && allData.length === 0) {
+  return (
+    <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
+      <div 
+        className="mx-auto flex justify-center items-center h-64" 
+        style={{ maxWidth: '420px' }}
+      >
+        <div className="relative flex items-center justify-center">
+          {/* Spin lebih cepat */}
+          <div className="relative h-8 w-8 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" 
+               style={{ animationDuration: '0.35s' }}></div>
         </div>
       </div>
-    );
-  }
-  
+    </div>
+  );
+}
   return (
     <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
       {/* Border di container luar (opsional) */}

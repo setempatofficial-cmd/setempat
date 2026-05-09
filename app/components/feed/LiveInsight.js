@@ -5,21 +5,25 @@ import { formatRelativeTime } from "@/lib/feedEngine";
 import { supabase } from "@/lib/supabaseClient";
 
 // ============================================
-// 🎯 FUNGSI AVATAR SAMA PERSIS DENGAN CITIZENHUB
+// 🎯 FUNGSI AVATAR - DIPERBAIKI
 // ============================================
-const getAvatarUrl = (report) => {
-  // Prioritas 1: avatar dari database (user_avatar)
+const getAvatarUrl = (report, isMe, currentUserAvatar) => {
+  // ✅ PRIORITAS 1: Avatar current user dari props (untuk laporan sendiri)
+  if (isMe && currentUserAvatar) return currentUserAvatar;
+  
+  // ✅ PRIORITAS 2: avatar dari database (user_avatar)
   if (report?.user_avatar) return report.user_avatar;
-  // Prioritas 2: fallback ke UI Avatars
+  
+  // ✅ PRIORITAS 3: fallback ke UI Avatars
   const name = report?.user_name || "Warga";
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`;
 };
 
 // Komponen Avatar dengan error handling
-const AvatarImage = ({ report, isDark }) => {
+const AvatarImage = ({ report, isDark, isMe, currentUserAvatar }) => {
   const [imgError, setImgError] = useState(false);
   
-  const avatarUrl = !imgError ? getAvatarUrl(report) : 
+  const avatarUrl = !imgError ? getAvatarUrl(report, isMe, currentUserAvatar) : 
     `https://ui-avatars.com/api/?name=${encodeURIComponent(report?.user_name || "Warga")}&background=0D8ABC&color=fff`;
   
   return (
@@ -40,7 +44,9 @@ export default function LiveInsight({
   locationName = "Sekitar", 
   currentUser = null,
   tempatId = null,
-  tempatData = null 
+  tempatData = null,
+  userAvatar = null,
+  userProfile = null,
 }) {
   const [index, setIndex] = useState(0);
   const [descriptionFromDB, setDescriptionFromDB] = useState(null);
@@ -49,14 +55,6 @@ export default function LiveInsight({
   const containerRef = useRef(null);
   
   const isDark = theme?.isMalam || theme?.name === "MALAM";
-
-  // Navigasi dengan loop
-  const navigate = useCallback((direction) => {
-    setIndex(prev => {
-      if (direction === 'next') return (prev + 1) % insightsLength;
-      return (prev - 1 + insightsLength) % insightsLength;
-    });
-  }, []);
 
   // Fetch Info Tempat
   useEffect(() => {
@@ -106,7 +104,7 @@ export default function LiveInsight({
           id: s.id,
           text: s.deskripsi || s.content || "Update tersedia",
           author: authorName,
-          reportData: s, // ✅ Kirim seluruh data report untuk avatar
+          reportData: s,
           time: formatRelativeTime(s.created_at),
           sourceLabel: isMe ? "LAPORAN ANDA" : "WARGA",
           isUrgent: /(macet|kecelakaan|banjir|ramai|antri)/i.test((s.deskripsi || "").toLowerCase()),
@@ -128,7 +126,8 @@ export default function LiveInsight({
         sourceLabel: "TENTANG TEMPAT",
         fromDescription: true,
         isUrgent: false,
-        tipe: "Informasi"
+        tipe: "Informasi",
+        isMe: false
       });
     }
 
@@ -212,10 +211,15 @@ export default function LiveInsight({
         </div>
 
         <div className="p-3">
-          {/* Header dengan Avatar - PAKAI KOMPONEN AVATAR YANG SAMA */}
+          {/* Header dengan Avatar - PAKAI KOMPONEN AVATAR YANG DIPERBAIKI */}
           <div className="flex items-center gap-2 mb-1.5">
             {current.reportData ? (
-              <AvatarImage report={current.reportData} isDark={isDark} />
+              <AvatarImage 
+                report={current.reportData} 
+                isDark={isDark} 
+                isMe={current.isMe}
+                currentUserAvatar={userAvatar}
+              />
             ) : (
               <div className={`w-7 h-7 rounded-full flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-gray-200'}`}>
                 <span className="text-[20px] font-bold">🏠</span>

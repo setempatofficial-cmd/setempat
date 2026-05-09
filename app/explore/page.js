@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -68,6 +69,8 @@ export default function CitizenHub({ userId, userRole }) {
   const [selectedReport, setSelectedReport] = useState(null);
   const [cachedReports, setCachedReports] = useState(null);
   const [viewCounts, setViewCounts] = useState({});
+  const [activeFilter, setActiveFilter] = useState("semua");
+
   
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
@@ -75,6 +78,7 @@ export default function CitizenHub({ userId, userRole }) {
   const isAutoScrollingRef = useRef(false);
   const recordedViewsRef = useRef(new Set());
   const viewsLoadedRef = useRef(false);
+
 
   // 🔥 FIX: Deklarasikan activeUserId di sini (paling atas setelah state)
   const activeUserId = userId || sessionUserId;
@@ -118,19 +122,28 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   };
 
-  // Search filter
+  // ✅ FILTER REPORTS (Gabungan search + tab filter)
   const filteredReports = useMemo(() => {
-    const reportsList = displayReports;
-    const searchLower = searchQuery.toLowerCase().trim();
-    if (!searchLower) return reportsList;
-    return reportsList.filter(report => {
-      const tempatName = (report.tempat?.name || "").toLowerCase();
-      const deskripsi = (report.deskripsi || "").toLowerCase();
-      return tempatName.includes(searchLower) || deskripsi.includes(searchLower);
-    });
-  }, [displayReports, searchQuery]);
+    let result = displayReports;
+    
+    // Filter by search
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      result = result.filter(r => 
+        r.tempat?.name?.toLowerCase().includes(searchLower) ||
+        r.deskripsi?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Filter by tab (Ramai/Sepi/Antri)
+    if (activeFilter !== "semua") {
+      result = result.filter(r => r.tipe?.toLowerCase() === activeFilter);
+    }
+    
+    return result;
+  }, [displayReports, searchQuery, activeFilter]);
 
-  // 🔥 FIX: Record view dengan debounce - pindahkan setelah activeUserId didefinisikan
+  // 🔥 FIX: Record view dengan debounce
   const recordStoryView = useCallback(async (laporanId) => {
     if (!activeUserId) return;
     if (recordedViewsRef.current.has(laporanId)) return;
@@ -435,7 +448,61 @@ export default function CitizenHub({ userId, userRole }) {
     </motion.div>
   );
 
-  // Render tetap sama seperti sebelumnya
+
+
+const FilterTabs = () => (
+  <div className="flex gap-2 overflow-x-auto pb-4 mb-2 hide-scrollbar px-1">
+    {[
+      { id: "semua", label: "Semua", icon: "📋", color: "zinc-500" },
+      { id: "ramai", label: "Ramai", icon: "🔥", color: "#E3655B" }, // Warna khas Setempat
+      { id: "sepi", label: "Sepi", icon: "🍃", color: "#10b981" }, // Emerald
+      { id: "antri", label: "Antri", icon: "⏳", color: "#f43f5e" }, // Rose
+    ].map(tab => {
+      const isActive = activeFilter === tab.id;
+      
+      return (
+        <button
+          key={tab.id}
+          onClick={() => setActiveFilter(tab.id)}
+          className="relative group flex items-center"
+        >
+          <div className={`
+            relative z-10 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all duration-300
+            ${isActive 
+              ? "text-white" 
+              : isMalam ? "text-white/40 hover:text-white/70" : "text-gray-500 hover:text-gray-800"
+            }
+          `}>
+            <span className={`transition-transform duration-300 ${isActive ? 'scale-110' : 'grayscale'}`}>
+              {tab.icon}
+            </span>
+            <span className="tracking-widest">{tab.label}</span>
+          </div>
+
+          {/* ✅ Background Pill dengan Framer Motion */}
+          {isActive && (
+            <motion.div
+              layoutId="activeTab"
+              className="absolute inset-0 rounded-xl shadow-lg"
+              style={{ 
+                backgroundColor: tab.id === 'semua' ? (isMalam ? '#3f3f46' : '#18181b') : tab.color,
+                boxShadow: `0 4px 15px -5px ${tab.id === 'semua' ? 'rgba(0,0,0,0.3)' : tab.color + '66'}`
+              }}
+              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+
+          {/* ✅ Border Subtle pas Hover (Mode Malam) */}
+          {!isActive && isMalam && (
+            <div className="absolute inset-0 border border-white/5 rounded-xl bg-white/[0.02]" />
+          )}
+        </button>
+      );
+    })}
+  </div>
+);
+
+  // Render utama
   return (
     <div className={`min-h-screen ${isMalam ? 'bg-black' : 'bg-gray-50'} flex justify-center font-sans`}>
       <div className={`w-full max-w-[400px] min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
@@ -460,6 +527,8 @@ export default function CitizenHub({ userId, userRole }) {
                   onOpenAuthModal={() => setIsAuthModalOpen(true)} theme={{ isMalam, text: isMalam ? 'text-white' : 'text-slate-900' }} />
               </div>
             </div>
+            
+            {/* Search Input */}
             <div className="relative group">
               <div className={`absolute left-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg ${isMalam ? 'bg-white/5' : 'bg-gray-200/50'}`}>
                 <Search size={14} className={`${isMalam ? 'text-white/40' : 'text-gray-500'} group-focus-within:text-[#E3655B] transition-colors`} />
@@ -468,11 +537,14 @@ export default function CitizenHub({ userId, userRole }) {
                 placeholder="Cek Ceritane Lokasi Sekitar..."
                 className={`w-full ${isMalam ? 'bg-white/5 border-white/5 text-white placeholder:text-white/20' : 'bg-gray-50 border-gray-100 text-gray-900 placeholder:text-gray-400'} border rounded-2xl py-3 pl-12 pr-4 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#E3655B]/20 focus:bg-transparent transition-all shadow-sm`} />
             </div>
+            
+            {/* ✅ TAB FILTER - DITEMPATKAN DI SINI */}
+            <FilterTabs />
           </div>
         </motion.header>
 
         <main 
-          className={`flex-1 overflow-y-auto px-3 pb-32 pt-[150px] ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}
+          className={`flex-1 overflow-y-auto px-3 pb-32 pt-[210px] ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}
           style={{ 
             WebkitOverflowScrolling: 'touch', 
             scrollbarWidth: 'none',
@@ -486,13 +558,10 @@ export default function CitizenHub({ userId, userRole }) {
           {isActuallyLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="relative flex items-center justify-center">
-  <div className="relative flex items-center justify-center">
-    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
-    <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
-    
-    <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
-  </div>
-</div>
+                <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
+                <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
+                <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -505,14 +574,12 @@ export default function CitizenHub({ userId, userRole }) {
 
         <SmartBottomNavWarga
           onOpenLaporanForm={() => {
-          setSelectedTempat(null);
-          setShowLaporPanel(true);
+            setSelectedTempat(null);
+            setShowLaporPanel(true);
           }}
           onOpenNotification={() => router.push("/woro")}
           onOpenProfile={() => router.push("/peken")}
         />
-
-
 
         {/* Lapor Panel */}
         {showLaporPanel && (

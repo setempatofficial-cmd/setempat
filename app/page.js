@@ -3,6 +3,7 @@
 import { Providers } from "./providers";
 import FeedContent from "./components/feed/FeedContent";
 import { useTheme } from "@/app/hooks/useTheme";
+import { useWindowSize } from "@/hooks/useWindowSize";
 
 // Konten utama yang pakai theme
 function HomeContent() {
@@ -15,7 +16,7 @@ function HomeContent() {
       {theme.isMalam && (
         <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
           <div 
-            className="absolute top-y[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
+            className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
             style={{ backgroundColor: '#3b82f6' }} 
           />
           <div 

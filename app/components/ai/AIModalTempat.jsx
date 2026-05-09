@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { Camera, X, Send, Loader2 } from "lucide-react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/app/context/AuthContext";
 import LaporPanel from "./LaporPanel";
@@ -8,7 +9,7 @@ import AIHeader from "./AIHeader";
 import AIMessageBubble from "./AIMessageBubble";
 import AIQuickActions from "./AIQuickActions";
 import AIInput from "./AIInput";
-import { getQuickActionsByCategory } from "./aiHelpers";
+import { getQuickActionsByCategory, getDynamicGreeting } from "./aiHelpers";
 
 export default function AIModalTempat({
   isOpen,
@@ -23,123 +24,92 @@ export default function AIModalTempat({
   theme = { isMalam: false, card: "bg-white", border: "border-gray-100", text: "text-gray-900" },
 }) {
   const { user } = useAuth();
-  const BRAND_COLOR = "#E3655B";
-
-  // State Management
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showLaporPanel, setShowLaporPanel] = useState(false);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [isClient, setIsClient] = useState(false); // ✅ Tambahan untuk client-side guard
-  const hasWeather = weather && weather.weather_desc && weather.t;
+  const [isClient, setIsClient] = useState(false);
 
   const modalContentRef = useRef(null);
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
   const startY = useRef(0);
+  const lastTempatIdRef = useRef(null); // 🔥 TAMBAHKAN: untuk追踪 tempat terakhir
 
   const isMalam = theme?.isMalam;
 
-  // ✅ Set client-side flag
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  useEffect(() => { setIsClient(true); }, []);
 
-  // Helpers
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0) setTimeout(scrollToBottom, 100);
-  }, [messages, scrollToBottom]);
+    if (messages.length > 0) {
+      const timer = setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, scrollToBottom, isTyping]);
 
-  // ========== LOGIKA SAMBUTAN (GREETING) DENGAN NAMA ==========
+  // 🔥 PERBAIKAN: Reset ketika tempat berubah
   useEffect(() => {
-    // ✅ Guard: hanya jalan di client dan ketika tempat tersedia
-    if (!isClient || !isOpen || !tempat?.id || hasInitialized.current) return;
+    if (tempat?.id && lastTempatIdRef.current !== tempat.id) {
+      // Tempat berubah, reset initialized flag
+      hasInitialized.current = false;
+      lastTempatIdRef.current = tempat.id;
+      // Kosongkan messages saat tempat berganti
+      setMessages([]);
+    }
+  }, [tempat?.id]);
+
+  // ========== INITIAL GREETING LOGIC (DIPERBAIKI) ==========
+  useEffect(() => {
+    if (!isClient || !isOpen || !tempat?.id) return;
+    
+    // 🔥 JIKA SUDAH INITIALIZED, JANGAN BUAT ULANG
+    if (hasInitialized.current) return;
+    
+    // 🔥 TANDAI SUDAH INITIALIZED
     hasInitialized.current = true;
 
-    const hour = new Date().getHours();
-    const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
-    
-    const namaUser = (() => {
-  // 1. Prioritas utama: Nama asli dari profil
-  if (user?.display_name) {
-    return `, ${user.display_name.split(' ')[0]}`;
-  }
-  
-  // 2. Jika tidak ada nama, olah dari email
-  if (user?.email) {
-    // Ambil sebelum '@', lalu ambil sebelum '.' atau '_'
-    const partBeforeAt = user.email.split('@')[0];
-    const cleanName = partBeforeAt.split(/[\._]/)[0]; // Memotong jika ada titik atau underscore
-    
-    // Jadikan huruf kapital di depan (Contoh: redaksi -> Redaksi)
-    const capitalized = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
-    
-    return `, ${capitalized}`;
-  }
-  
-  // 3. Jika tamu (tidak login)
-  return "";
-})();
+    // Ambil nama panggil (First name atau email part)
+    const firstName = user?.display_name 
+      ? user.display_name.split(' ')[0] 
+      : user?.email 
+        ? user.email.split('@')[0].split(/[._]/)[0].charAt(0).toUpperCase() + user.email.split('@')[0].split(/[._]/)[0].slice(1)
+        : "";
 
-    const jarakText = tempat?.distance ? ` (${tempat.distance.toFixed(1)} km dari sini)` : "";
-
-    let sambutan = "";
-
-// 1. Kondisi Prioritas Utama: Ada Laporan Aktif
-if (activeReport?.tipe) {
-    const emojis = { 'Ramai': '👥', 'Sepi': '🍃', 'Antri': '⏳', 'Macet': '🚗', 'Banjir': '🌊' };
-    const emoji = emojis[activeReport.tipe] || '📝';
-    
-    sambutan = `### ${greeting}${namaUser}! 👋
-Saya menemukan laporan **${activeReport.tipe}** di wilayah **${tempat.name}** ${jarakText}.
-
----
-
-> ${emoji} **Pantauan Lokasi:**  
-> "${activeReport.deskripsi || "Kondisi saat ini memerlukan perhatian lebih."}"
-
-💬 Ada yang ingin kamu tanyakan atau butuh pantauan visual?`;
-
-} 
-// 2. Kondisi Kedua: Tidak ada laporan, tapi ada data Cuaca
-else if (weather && weather.weather_desc) {
-    sambutan = `### ${greeting}${namaUser}! 👋
-**Info Cuaca Terkini** ☀️
-Di sekitaran **${tempat.name}** saat ini terpantau **${weather.weather_desc}** dengan suhu **${weather.t}°C**.
-
----
-
-Ada yang bisa kami bantu pantau di setempat ini?`;
-
-} 
-// 3. Kondisi Terakhir: Jika semua data kosong (Fallback)
-else {
-    sambutan = `### ${greeting}${namaUser}! 👋
-**Pantauan Wilayah** 🌤️
-Saat ini belum ada laporan di **${tempat.name}**. Kondisi terpantau normal.
-
----
-
-Ada yang bisa saya bantu?`;
-}
+    // Panggil helper yang sudah kita buat tadi
+    const sambutan = getDynamicGreeting(
+      tempat.name, 
+      firstName, 
+      weather, 
+      activeReport
+    );
 
     setMessages([{
       id: Date.now(),
       type: "ai",
       text: sambutan,
-      showLaporButton: true,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }]);
 
-  }, [isClient, isOpen, tempat?.id, tempat?.name, tempat?.distance, weather?.weather_desc, weather?.t, activeReport?.tipe, activeReport?.deskripsi, user?.display_name, user?.email]);
+  }, [isClient, isOpen, tempat?.id, tempat?.name, weather, activeReport, user]);
 
-  // ========== STRATEGI AI (LOCAL & SERVER) ==========
+  // ========== RESET KETIKA MODAL DITUTUP ==========
+  useEffect(() => {
+    if (!isOpen) {
+      // Jangan reset hasInitialized di sini, biarkan untuk tempat yang sama
+      // Tapi kosongkan messages
+      setMessages([]);
+    }
+  }, [isOpen]);
+
+  // ========== CHAT STRATEGY ==========
   const handleSend = useCallback(async (textOverride = null) => {
     const msg = textOverride || input;
     if (!msg.trim() || isTyping) return;
@@ -155,36 +125,33 @@ Ada yang bisa saya bantu?`;
     setInput("");
     setIsTyping(true);
 
-    let aiText = "";
-
     try {
-      // 1. Jalur Utama: Chrome AI (Gratis & Cepat)
+      let aiText = "";
       if (typeof window !== "undefined" && window.ai) {
         try {
           const session = await window.ai.createTextSession();
           aiText = await session.prompt(msg);
-        } catch (e) { console.warn("Chrome AI refused, falling back..."); }
+        } catch (e) { console.warn("Chrome AI skip"); }
       }
 
-      // 2. Jalur Fallback: Server API
       if (!aiText) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: msg,
-            context: { reports: reports.slice(0, 3), stats },
-            tempat: tempat ? { id: tempat.id, name: tempat.name } : null // ✅ Guard null
+            tempat: { id: tempat.id, name: tempat.name, category: tempat.category },
+            context: { reports: reports.slice(0, 3), stats, weather }
           }),
         });
         const data = await res.json();
-        aiText = data?.text;
+        aiText = data?.text || data?.reply;
       }
 
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         type: "ai",
-        text: aiText || "Maaf, Setempat AI sedang istirahat sebentar. Coba tanya lagi ya!",
+        text: aiText || "Maaf Cak, Setempat AI lagi 'ngopi' sebentar. Tanya lagi ya!",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }]);
     } catch (err) {
@@ -192,11 +159,11 @@ Ada yang bisa saya bantu?`;
     } finally {
       setIsTyping(false);
     }
-  }, [input, isTyping, reports, stats, tempat?.id, tempat?.name]); // ✅ Optional chaining di dependency
+  }, [input, isTyping, reports, stats, tempat, weather]);
 
-  // ========== GESTURE HANDLERS ==========
+  // ========== GESTURES & RENDER ==========
   const onTouchStart = (e) => {
-    if (modalContentRef.current && modalContentRef.current.scrollTop <= 0) { // ✅ Guard null
+    if (modalContentRef.current?.scrollTop <= 0) {
       setIsDragging(true);
       startY.current = e.touches[0].clientY;
     }
@@ -214,97 +181,94 @@ Ada yang bisa saya bantu?`;
     setIsDragging(false);
   };
 
-  // ✅ Early return jika tidak open atau belum client
-  if (!isOpen) return null;
-  
-  // ✅ Loading state saat server render atau tempat belum tersedia
-  if (!isClient || !tempat) {
-    return null; // Atau return loading skeleton
-  }
+  if (!isOpen || !isClient || !tempat) return null;
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center p-0 sm:p-4">
-      {/* Overlay */}
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center p-0 sm:p-4 overflow-hidden">
       <motion.div 
         initial={{ opacity: 0 }} 
         animate={{ opacity: 1 }} 
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-zinc-950/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-zinc-950/60 backdrop-blur-sm"
       />
       
-      {/* Modal Content */}
       <motion.div
         initial={{ y: "100%" }}
         animate={{ y: translateY }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-        className={`relative w-[95%] max-w-[420px] mx-auto h-[92vh] sm:h-[85vh] ${theme.card} rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border-t ${theme.border}`}
+        className={`relative w-full max-w-[440px] h-[90vh] sm:h-[650px] ${theme.card} rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden border-t ${theme.border}`}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Drag Handle */}
-        <div className="flex justify-center py-3 flex-shrink-0">
-          <div className="w-10 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+        <div className="flex justify-center py-3 flex-shrink-0 cursor-grab active:cursor-grabbing">
+          <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
         </div>
 
         <AIHeader locationName={tempat.name} isMalam={isMalam} onClose={onClose} theme={theme} />
 
-        {/* Chat Area */}
-        <div ref={modalContentRef} className="flex-1 overflow-y-auto px-4 py-2 space-y-4 no-scrollbar">
+        <div ref={modalContentRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-6 scrollbar-hide">
           {messages.map((msg) => (
             <AIMessageBubble 
               key={msg.id} 
               message={msg} 
               isUser={msg.type === "user"} 
               isMalam={isMalam} 
-              onLaporClick={() => setShowLaporPanel(true)} 
+              onLaporClick={() => setShowLaporPanel(true)}
+              onActionClick={handleSend} 
             />
           ))}
           {isTyping && (
-            <div className="flex gap-2 items-center text-zinc-400 p-2">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
+            <div className="flex justify-start">
+               <div className="bg-zinc-100 dark:bg-zinc-900/50 p-4 rounded-2xl rounded-bl-none">
+                 <span className="flex gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce" />
+                 </span>
+               </div>
             </div>
           )}
-          <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} className="h-4" />
         </div>
 
-        {/* Action Bar (Sticky Bottom) */}
-        <div className="border-t border-zinc-50 dark:border-zinc-800/50 bg-inherit pb-safe">
-          <div className="pt-2">
-            <AIQuickActions 
-              actions={getQuickActionsByCategory(tempat?.category, stats.total > 0)} 
-              onActionClick={handleSend} 
-              onLaporClick={() => setShowLaporPanel(true)}
-              isMalam={isMalam}
-            />
-          </div>
+        <div className={`${isMalam ? 'bg-zinc-950' : 'bg-white'} border-t ${theme.border} pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)]`}>
+          <AIQuickActions 
+            actions={getQuickActionsByCategory(tempat?.category, stats.total > 0)} 
+            onActionClick={handleSend} 
+            onLaporClick={() => setShowLaporPanel(true)}
+            isMalam={isMalam}
+            isTyping={isTyping}
+          />
           <AIInput 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             onSend={() => handleSend()} 
             onLaporClick={() => setShowLaporPanel(true)}
             isTyping={isTyping}
+            isMalam={isMalam}
           />
         </div>
 
-        {/* Lapor Slide-up Panel */}
         <AnimatePresence>
           {showLaporPanel && (
             <motion.div 
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              className="absolute inset-0 z-[50] bg-white dark:bg-zinc-950 flex flex-col"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "tween", duration: 0.3 }}
+              className="absolute inset-0 z-[100] bg-zinc-50 dark:bg-zinc-950 flex flex-col"
             >
-              <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="font-bold text-zinc-800 dark:text-zinc-100">Kirim Laporan</h3>
-                <button onClick={() => setShowLaporPanel(false)} className="text-zinc-400 text-sm font-bold">TUTUP</button>
+              <div className="flex items-center justify-between p-5 border-b bg-white dark:bg-zinc-900 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#E3655B]/10 flex items-center justify-center">
+                    <Camera size={16} className="text-[#E3655B]" />
+                  </div>
+                  <h3 className="font-black text-xs tracking-widest uppercase text-zinc-800 dark:text-zinc-100">Kirim Laporan</h3>
+                </div>
+                <button onClick={() => setShowLaporPanel(false)} className="text-[10px] font-black tracking-widest text-[#E3655B]">TUTUP</button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <LaporPanel 
@@ -313,7 +277,11 @@ Ada yang bisa saya bantu?`;
                   onSuccess={(newLap) => {
                     setShowLaporPanel(false);
                     onUploadSuccess?.(newLap);
-                    setMessages(prev => [...prev, { id: Date.now(), type: 'ai', text: 'Terima kasih laporannya! 🙌' }]);
+                    setMessages(prev => [...prev, { 
+                      id: Date.now(), 
+                      type: 'ai', 
+                      text: `### Laporan Terkirim! 🙌\n\nTerima kasih kontribusinya. Laporan kamu sudah muncul di timeline warga.` 
+                    }]);
                   }} 
                 />
               </div>

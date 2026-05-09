@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 
 import PhotoSlider from "./PhotoSlider";
 import LiveInsight from "./LiveInsight";
@@ -65,12 +66,14 @@ const useWindowSize = () => {
 // ==================== MAIN COMPONENT ====================
 function FeedCard({
   item = DEFAULT_ITEM,
+  isDetail = false,
+  showAIButton = true,
   locationReady,
   location,
   displayLocation,
   tempat = [],
   comments = {},
-  selectedPhotoIndex = 0,
+  selectedPhotoIndex = {},
   setSelectedPhotoIndex,
   openAIModal,
   openKomentarModal,
@@ -78,8 +81,9 @@ function FeedCard({
   onRefreshNeeded,
   priority = false,
   preloadNext = false,
-  cardIndex = 0,
-  onPhotoClick,
+  cardIndex = 0, 
+  userProfile,
+  userAvatar, 
 }) {
 
   const safeItem = item || DEFAULT_ITEM;
@@ -88,25 +92,31 @@ function FeedCard({
   // --- Hooks ---
   const { user } = useAuth();
   const theme = useTheme();
-  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
+
+  // ✅ FIX 1: Gunakan catStyle langsung, jangan buat cardBgClass
+  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam); 
+  
+  // ✅ FIX 2: Gabungkan semua class background dengan benar
+  const cardBackgroundClass = `${catStyle.bg} ${theme.isMalam ? 'dark' : ''}`;
+
   const router = useRouter();
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
+  const isMedium = windowWidth >= 380 && windowWidth < 640;
   
   // --- State ---
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxItems, setLightboxItems] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+
   const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [activeStories, setActiveStories] = useState([]);
   const [isVisible, setIsVisible] = useState(false);
-  const [localLaporanWarga, setLocalLaporanWarga] = useState(
-    () => item?.laporan_terbaru || []
-  );
-  
+  const [localLaporanWarga, setLocalLaporanWarga] = useState([]);
+
   const laporanTerbaru = localLaporanWarga[0];
   const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
@@ -134,7 +144,6 @@ function FeedCard({
   const prevLaporanRef = useRef(item?.laporan_terbaru);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
-  const subscriptionAttemptedRef = useRef(false);
 
   const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
@@ -152,10 +161,7 @@ function FeedCard({
     return () => {
       isMounted.current = false;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
       if (observerRef.current) observerRef.current.disconnect();
     };
   }, []);
@@ -163,7 +169,6 @@ function FeedCard({
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
-    
     const initObserver = () => {
       observerRef.current = new IntersectionObserver(
         ([entry]) => {
@@ -176,97 +181,60 @@ function FeedCard({
       );
       observerRef.current.observe(currentCard);
     };
-    
     timeoutRef.current = setTimeout(initObserver, 0);
-    
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (observerRef.current) observerRef.current.disconnect();
     };
   }, []);
 
+  // ==================== SUBSCRIPTION REAL-TIME DENGAN CHANNEL ID UNIK 
   useEffect(() => {
-    if (prevLaporanRef.current !== safeItem.laporan_terbaru) {
-      prevLaporanRef.current = safeItem.laporan_terbaru;
-      setLocalLaporanWarga(safeItem.laporan_terbaru || []);
-    }
-  }, [safeItem.laporan_terbaru]);
-
-  // ✅ FIX: Perbaikan realtime subscription - pendekatan yang lebih aman
-  useEffect(() => {
-    if (!tempatId || !isVisible || !isMounted.current) return;
-    
-    // Reset flag
-    subscriptionAttemptedRef.current = false;
-    
-    // Clean up existing subscription
-    const setupSubscription = async () => {
-      try {
-        if (channelRef.current) {
-          await supabase.removeChannel(channelRef.current);
-          channelRef.current = null;
-        }
-        
-        // Create brand new channel
-        const channel = supabase.channel(`laporan_warga_${tempatId}_${Date.now()}`);
-        
-        // Save to ref BEFORE adding callbacks
-        channelRef.current = channel;
-        
-        // ✅ Define callbacks
-        const handleInsert = (payload) => {
-          if (!payload.new || !isMounted.current) return;
-          
-          setLocalLaporanWarga((prev) => {
-            if (prev.some((l) => l.id === payload.new.id)) return prev;
-            return [payload.new, ...prev].slice(0, 50);
-          });
-        };
-        
-        const handleUpdate = (payload) => {
-          if (!payload.new || !isMounted.current) return;
-          
-          setLocalLaporanWarga((prev) => {
-            const index = prev.findIndex((l) => l.id === payload.new.id);
-            if (index === -1) return prev;
-            const updated = [...prev];
-            updated[index] = payload.new;
-            return updated;
-          });
-        };
-        
-        // ✅ Add all callbacks BEFORE subscribe
-        channel
-          .on('postgres_changes', {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'laporan_warga',
-            filter: `tempat_id=eq.${tempatId}`,
-          }, handleInsert)
-          .on('postgres_changes', {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'laporan_warga',
-            filter: `tempat_id=eq.${tempatId}`,
-          }, handleUpdate);
-        
-        // ✅ Subscribe
-        const status = await channel.subscribe();
-        
-        if (status === 'SUBSCRIBED' && isMounted.current) {
-          console.log(`✅ Subscribed to laporan_warga for tempat ${tempatId}`);
-        }
-      } catch (error) {
-        console.error(`Error setting up subscription for ${tempatId}:`, error);
+    const fetchLaporanWarga = async () => {
+      if (!tempatId || !isVisible) return;
+      
+      const { data, error } = await supabase
+        .from('laporan_warga')
+        .select('*, user_avatar, deskripsi, user_name, photo_url')
+        .eq('tempat_id', tempatId)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      
+      if (data && !error) {
+        setLocalLaporanWarga(data);
       }
     };
     
-    setupSubscription();
+    fetchLaporanWarga();
     
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+    const uniqueId = `${tempatId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const channelId = `feed_lw_${uniqueId}`;
+    
+    const channel = supabase
+      .channel(channelId)
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'laporan_warga', 
+          filter: `tempat_id=eq.${tempatId}` 
+        },
+        (payload) => {
+          if (isMounted.current) {
+            setLocalLaporanWarga(prev => [payload.new, ...prev].slice(0, 50));
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`✅ Subscribed to laporan_warga for tempat ${tempatId}`);
+        }
+      });
+      
+    return () => { 
+      if (channel) {
+        supabase.removeChannel(channel);
       }
     };
   }, [tempatId, isVisible]);
@@ -280,15 +248,9 @@ function FeedCard({
 
   const photoUrls = useMemo(() => {
     const photos = Array.isArray(safeItem.photos) ? safeItem.photos : [];
-    return photos
-      .filter((p) => p && typeof p === "string" && p.startsWith("http"))
-      .map((p, idx) => ({ 
-        url: p, 
-        type: 'official', 
-        caption: `Official photo ${idx + 1}`,
-        created_at: safeItem.created_at
-      }));
-  }, [safeItem.photos, safeItem.created_at]);
+    return photos.filter((p) => p && typeof p === "string" && p.startsWith("http"))
+      .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
+  }, [safeItem.photos]);
 
   const allSignals = useMemo(() => {
     const combined = [...(localLaporanWarga || []), ...(externalSignals || [])];
@@ -301,62 +263,51 @@ function FeedCard({
       url: p.url,
       caption: p.caption,
       created_at: p.created_at,
-      type: p.type
     }));
     setLightboxItems(items);
     setLightboxIndex(currentIndex);
     setIsLightboxOpen(true);
-    
-    if (onPhotoClick) {
-      onPhotoClick(photos, currentIndex);
-    }
-  }, [onPhotoClick]);
+  }, []);
 
   const handleSesuai = useCallback(async () => {
     if (isSesuai || !safeItem.id) return;
     setIsSesuai(true);
     setLocalValidationCount((v) => v + 1);
-    try { 
-      await supabase.from("minat").insert([{ tempat_id: safeItem.id }]); 
-    } catch (e) { 
-      console.error(e); 
-    }
+    try { await supabase.from("minat").insert([{ tempat_id: safeItem.id }]); } catch (e) { console.error(e); }
   }, [isSesuai, safeItem.id]);
 
   const handleOpenStoryModal = useCallback((id, stories) => {
-    setActiveStories((stories || []).map((s) => ({ 
-      ...s, 
-      url: s.url || s.photo_url || s.image_url 
-    })));
+    setActiveStories((stories || []).map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
     setIsStoryModalOpen(true);
   }, []);
 
   const handleUploadSuccess = useCallback((newLaporan) => {
-    setLocalLaporanWarga((prev) => 
-      prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50)
-    );
+    setLocalLaporanWarga((prev) => prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50));
     requestAnimationFrame(() => {
-      setActiveStories((prev) => 
-        [newLaporan, ...prev].map((s) => ({ 
-          ...s, 
-          url: s.url || s.photo_url || s.image_url 
-        }))
-      );
+      setActiveStories((prev) => [newLaporan, ...prev].map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
       setIsStoryModalOpen(true);
     });
     handleLocalRefresh();
   }, [handleLocalRefresh]);
 
-  const handleOpenAIModal = useCallback((query) => 
-    openAIModal?.(safeItem, handleUploadSuccess, query), 
-    [openAIModal, safeItem, handleUploadSuccess]
-  );
-  
+  const handleOpenAIModal = useCallback((query) => openAIModal?.(safeItem, handleUploadSuccess, query), [openAIModal, safeItem, handleUploadSuccess]);
   const handleCloseStoryModal = useCallback(() => setIsStoryModalOpen(false), []);
+
+  // ==================== NAVIGATION TO DETAIL PAGE ====================
+  const handleGoToDetail = useCallback(() => {
+    if (isDetail) return;
+    // Save current scroll position
+    const scrollY = window.scrollY;
+    sessionStorage.setItem(`feed_scroll_${safeItem.id}`, scrollY.toString());
+    sessionStorage.setItem(`feed_return_category`, safeItem.category || 'all');
+    
+    // Navigate to detail page
+   router.push(`/post/${item.id}`);
+  }, [router, safeItem.id, safeItem.category, isDetail]);
 
   if (!item?.id) return null;
 
-  const currentPhotoIndex = typeof selectedPhotoIndex === 'number' ? selectedPhotoIndex : 0;
+  const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
   const headline = feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
   const alamatText = safeItem.alamat || "AREA SETEMPAT";
@@ -371,6 +322,7 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
+  // ✅ FIX 3: Perbaiki border class untuk konsistensi
   const cardBorderClass = useMemo(() => {
     if (safeItem.isViral) return "border-b-4 border-red-500/50";
     if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
@@ -379,6 +331,8 @@ function FeedCard({
 
   // Responsive spacing classes
   const paddingX = `px-4 ${!isNarrow ? 'sm:px-5' : ''}`;
+  const paddingY = `py-3 ${isNarrow ? 'py-2' : 'sm:py-4'}`;
+  const gapSize = isNarrow ? 'gap-1' : 'gap-2';
   const textSize = isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]';
 
   return (
@@ -405,9 +359,9 @@ function FeedCard({
           shadow-sm
         `}
       >
-        {/* Header */}
+        {/* Header - Responsive Padding */}
         <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
-          <div className="flex items-center justify-between mb-2 sm:mb-4">
+          <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
             <div className="flex flex-col gap-0.5 sm:gap-1">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className={`${textSize} font-black uppercase tracking-widest ${catStyle.text} flex items-center gap-1.5`}>
@@ -441,60 +395,80 @@ function FeedCard({
         </div>
 
         {/* Media Section */}
-        <div className="px-2 sm:px-3 mb-2 sm:mb-3">
-          <div 
-            className="relative w-full rounded-[20px] sm:rounded-[24px] overflow-hidden border shadow-lg"
-            style={{ 
-              minHeight: '200px',
-              maxHeight: '45vh',
-              aspectRatio: '16/9',
-              backgroundColor: theme.isMalam ? '#1a1a1a' : '#f5f5f5'
-            }}
-          >
-            <PhotoSlider
-              photos={photoUrls}
-              tempatId={safeItem.id}
-              namaTempat={safeItem.name}
-              isHujan={safeItem.status === "hujan"}
-              priority={priority}
-              selectedPhotoIndex={currentPhotoIndex}
-              setSelectedPhotoIndex={(idx) => {
-                if (setSelectedPhotoIndex) {
-                  setSelectedPhotoIndex(idx);
-                }
-              }}
-              onUploadSuccess={handleUploadSuccess}
-              onPhotoClick={handlePhotoClick}
-            />
+<div className="px-2 sm:px-3 mb-2 sm:mb-3">
+  <div 
+    className="relative w-full rounded-[20px] sm:rounded-[24px] overflow-hidden border shadow-lg"
+    style={{ 
+      minHeight: isDetail ? '350px' : '220px', 
+      height: isDetail ? 'auto' : 'auto', 
+      aspectRatio: isDetail ? 'unset' : '16/9',
+      backgroundColor: theme.isMalam ? '#1a1a1a' : '#f5f5f5'
+    }}
+  >
+    <div className={`${isDetail ? 'absolute inset-0 w-full h-full' : 'relative w-full h-full'}`}>
+      <PhotoSlider
+        photos={photoUrls}
+        tempatId={safeItem.id}
+        namaTempat={safeItem.name}
+        isHujan={safeItem.status === "hujan"}
+        priority={priority}
+        // TAMBAHKAN CLASS INI UNTUK MEMAKSA SLIDER MENGISI SELURUH RUANG
+        className="w-full h-full object-cover" 
+        selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
+        setSelectedPhotoIndex={(idx) => {
+          if (setSelectedPhotoIndex) {
+            setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
+          }
+        }}
+        onUploadSuccess={handleUploadSuccess}
+        onPhotoClick={handlePhotoClick} 
+      />
+    </div>
 
-            {/* Story Circle */}
-            <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
-              <StoryCircle
-                laporanWarga={localLaporanWarga}
-                tempatId={safeItem.id}
-                namaTempat={safeItem.name}
-                theme={theme}
-                openStoryModal={handleOpenStoryModal}
-                onRefreshNeeded={handleLocalRefresh}
-              />
-            </div>
-          </div>
-        </div>
+    {/* Story Circle */}
+    <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
+      <StoryCircle
+        laporanWarga={localLaporanWarga}
+        tempatId={safeItem.id}
+        namaTempat={safeItem.name}
+        theme={theme}
+        openStoryModal={handleOpenStoryModal}
+        onRefreshNeeded={handleLocalRefresh}
+      />
+    </div>
+  </div>
+</div>
 
         {/* Metadata */}
-        <div className={`${paddingX} pb-4 pt-1 flex items-center justify-between opacity-40 -mt-2`}>
+        <div className={`
+          ${paddingX} 
+          pb-4 pt-1 
+          flex items-center justify-between 
+          opacity-40 
+          -mt-2
+        `}>
           <div className="flex items-center gap-1.5 truncate flex-1">
-            <div className={`p-1 rounded-md ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} text-[7px] font-black tracking-tighter`}>
+            <div className={`
+              p-1 rounded-md 
+              ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
+              text-[7px] font-black tracking-tighter
+            `}>
               📍
             </div>
-            <p className={`${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} font-bold ${theme.text} truncate tracking-tight`}>
+            <p className={`
+              ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
+              font-bold ${theme.text} truncate tracking-tight
+            `}>
               {alamatText}
             </p>
           </div>
           
           <div className="flex items-center gap-2 ml-4">
             <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
-            <span className={`${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} font-mono font-black tracking-tighter ${catStyle.text}`}>
+            <span className={`
+              ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
+              font-mono font-black tracking-tighter ${catStyle.text}
+            `}>
               #{String(safeItem.id).padStart(4, '0')}
             </span>
           </div>
@@ -508,6 +482,8 @@ function FeedCard({
               theme={theme}
               isCompact={isNarrow}
               currentUser={user}
+              userProfile={userProfile} 
+              userAvatar={userAvatar} 
               tempatCategory={safeItem?.category}
               tempatDescription={safeItem?.description || item?.description || null}
               tempatData={safeItem}
@@ -515,13 +491,45 @@ function FeedCard({
             />
           </div>
 
-          <AIButton
-            item={safeItem}
-            kondisi={kondisi} 
-            display={statusDisplay}
-            theme={theme}
-            handleOpenAIModal={handleOpenAIModal}
-          />
+          {/* AI Button & Detail Button Container */}
+          <div className="flex flex-col gap-2">
+            
+            {/* Hanya muncul di FEED, sembunyikan di DETAIL karena di detail sudah ada AI Button di bawah card */}
+            {!isDetail && showAIButton && (
+              <AIButton
+                item={safeItem}
+                kondisi={kondisi} 
+                display={statusDisplay}
+                theme={theme}
+                handleOpenAIModal={handleOpenAIModal}
+              />
+            )}
+
+            {/* TOMBOL LIHAT DETAIL - HARUS SEMBUNYI DI HALAMAN DETAIL */}
+            {!isDetail && (
+              <button 
+                onClick={handleGoToDetail}
+                className={`
+                  w-full py-3 rounded-xl sm:rounded-2xl
+                  flex items-center justify-center gap-2
+                  text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em]
+                  transition-all duration-300 active:scale-95
+                  ${theme.isMalam 
+                    ? "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white" 
+                    : "bg-black/5 text-black/40 border border-black/10 hover:bg-black/10 hover:text-black"
+                  }
+                `}
+              >
+                <span>Lihat Detail</span>
+                <motion.div
+                  animate={{ x: [0, 4, 0] }}
+                  transition={{ repeat: Infinity, duration: 1.5, repeatDelay: 1 }}
+                >
+                  <ChevronRight size={14} />
+                </motion.div>
+              </button>
+            )}
+          </div>
         </div>
 
         <StoryModal
@@ -558,12 +566,10 @@ function FeedCard({
   );
 }
 
-// Updated comparison function for memo
-const areEqual = (prevProps, nextProps) => {
-  return prevProps.item?.id === nextProps.item?.id && 
-         prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
-         prevProps.selectedPhotoIndex === nextProps.selectedPhotoIndex &&
-         prevProps.priority === nextProps.priority;
+const areEqual = (p, n) => {
+  return p.item?.id === n.item?.id && 
+         p.item?.vibe_count === n.item?.vibe_count &&
+         p.selectedPhotoIndex?.[p.item?.id] === n.selectedPhotoIndex?.[n.item?.id];
 };
 
 export default memo(FeedCard, areEqual);

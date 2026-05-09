@@ -1,144 +1,132 @@
 "use client";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useTheme } from "@/app/hooks/useTheme";
-import { Sparkles, MapPin, Flame, BarChart3, Camera, Clock, Megaphone } from "lucide-react";
+import { Sparkles, MapPin, Flame, BarChart3, Camera, Clock, Megaphone, ChevronRight } from "lucide-react";
+import Image from "next/image";
 
-// Tone generator yang lebih variatif
-const prefixes = [
-  "Sekarang terlihat",
-  "Saat ini",
-  "Terpantau",
-  "Dari laporan warga",
-  "Di sekitar kamu",
-  "Update terkini",
-  "Hasil Ronda:",
-];
+const prefixes = ["Terpantau", "Laporan Warga", "Update Terkini", "Kabar Desa", "Hasil Ronda"];
 const getRandomPrefix = () => prefixes[Math.floor(Math.random() * prefixes.length)];
 
-// Level styles dengan efek Glassmorphism
 const levelStyles = {
   A: {
-    wrapper: "rounded-[28px] p-6 my-6 bg-gradient-to-br from-orange-500/20 via-amber-500/5 to-transparent border border-orange-500/20 backdrop-blur-md shadow-[0_20px_40px_-15px_rgba(249,115,22,0.1)]",
+    wrapper: "rounded-[32px] my-6 bg-gradient-to-br from-orange-500/20 via-slate-900/60 to-black border border-orange-500/30 backdrop-blur-xl shadow-[0_20px_50px_-12px_rgba(249,115,22,0.2)]",
     titleColor: "text-orange-400",
     iconColor: "text-orange-500",
   },
   B: {
-    wrapper: "rounded-[24px] p-5 my-4 bg-white/[0.03] dark:bg-black/20 border border-current/5 backdrop-blur-sm",
+    wrapper: "rounded-[32px] my-4 bg-white/[0.03] dark:bg-black/40 border border-white/10 backdrop-blur-md",
     titleColor: "opacity-60",
     iconColor: "opacity-40",
   },
-  C: {
-    wrapper: "",
-  },
+  C: { wrapper: "" },
 };
 
 const typeConfig = {
-  "area-summary": { label: "Kondisi Sekitar", icon: <MapPin size={16} />, defaultLevel: "B" },
-  "heatmap-text": { label: "Titik Paling Aktif", icon: <Flame size={16} />, defaultLevel: "B" },
-  "ai-insight": { label: "Insight Sekarang", icon: <Sparkles size={16} />, defaultLevel: "A" },
-  "statistic": { label: "Aktivitas Hari Ini", icon: <BarChart3 size={16} />, defaultLevel: "B" },
-  "trigger-action": { label: "Ikut Update", icon: <Camera size={16} />, defaultLevel: "A" },
-  "time-divider": { label: "", icon: <Clock size={16} />, defaultLevel: "C" },
-  // 🔥 TAMBAHKAN TIPE KENTONGAN
-  "kentongan": { label: "KABAR SETEMPAT", icon: <Megaphone size={16} />, defaultLevel: "A" },
+  "area-summary": { label: "Kondisi Sekitar", icon: <MapPin size={18} />, defaultLevel: "B" },
+  "ai-insight": { label: "Insight Sekarang", icon: <Sparkles size={18} />, defaultLevel: "A" },
+  "trigger-action": { label: "Ikut Update", icon: <Camera size={18} />, defaultLevel: "A" },
+  "time-divider": { label: "", icon: <Clock size={18} />, defaultLevel: "C" },
+  "kentongan": { label: "KABAR SETEMPAT", icon: <Megaphone size={18} />, defaultLevel: "A" },
 };
 
 const BreakCard = memo(({ type, data, theme: themeProp, onClick, level: forcedLevel }) => {
   const theme = themeProp || useTheme();
   const isMalam = theme.isMalam;
-  const config = typeConfig[type] || { label: "Info", icon: <MapPin size={16} />, defaultLevel: "B" };
+  const config = typeConfig[type] || typeConfig["area-summary"];
   const level = forcedLevel || config.defaultLevel;
   const style = levelStyles[level];
-  const prefix = getRandomPrefix();
-
-  const variants = {
-    hidden: { opacity: 0, scale: 0.95, y: 10 },
-    visible: { opacity: 1, scale: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
-  };
+  const prefix = useMemo(() => getRandomPrefix(), [data?.text]);
 
   if (level === "C") {
     return (
-      <motion.div
-        variants={variants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        className="flex items-center justify-center gap-6 my-8 px-10"
-      >
-        <div className="flex-1 h-[1px] bg-gradient-to-r from-transparent via-current opacity-10" />
-        <div className="flex items-center gap-2 opacity-30">
-          {config.icon}
-          <span className="text-[10px] font-black uppercase tracking-[0.3em]">
-            {data?.label || "TIMELINE"}
-          </span>
-        </div>
-        <div className="flex-1 h-[1px] bg-gradient-to-r from-transparent via-current opacity-10" />
-      </motion.div>
+      <div className="flex items-center gap-6 my-10 px-10 opacity-20">
+        <div className="h-[1px] flex-1 bg-current" />
+        <span className="text-[10px] font-black tracking-[0.5em] uppercase">{data?.label || "TIMELINE"}</span>
+        <div className="h-[1px] flex-1 bg-current" />
+      </div>
     );
   }
-
-  const isClickable = type === "trigger-action" || type === "kentongan";
 
   return (
     <div className="px-4 w-full">
       <motion.div
-        variants={variants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
-        onClick={isClickable ? onClick : undefined}
-        className={`
-          ${style.wrapper} 
-          ${isClickable ? "active:scale-[0.98] transition-transform cursor-pointer" : ""}
-          relative overflow-hidden group
-        `}
+        initial={{ opacity: 0, y: 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-50px" }}
+        onClick={onClick}
+        className={`${style.wrapper} relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all duration-500 min-h-[220px] flex flex-col`}
       >
-        {/* Efek khusus untuk kentongan urgent */}
-        {type === "kentongan" && data?.is_urgent && (
-          <>
-            <div className="absolute -right-4 -top-4 w-24 h-24 bg-red-500/20 blur-[40px] rounded-full animate-pulse" />
-            <div className="absolute inset-0 border-2 border-red-500/30 rounded-[28px] pointer-events-none" />
-          </>
-        )}
-
-        <div className="flex items-center gap-2 mb-3">
-          <span className={`${style.iconColor}`}>
-            {config.icon}
-          </span>
-          <span className={`text-[10px] font-black uppercase tracking-widest ${style.titleColor || (isMalam ? "text-white/40" : "text-black/40")}`}>
-            {config.label}
-          </span>
-          {type === "kentongan" && data?.is_urgent && (
-            <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white">
-              URGENT
-            </span>
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <p className={`text-[10px] font-bold uppercase tracking-tighter opacity-40 ${isMalam ? "text-white" : "text-black"}`}>
-            {prefix}
-          </p>
-          <p className={`text-[16px] font-bold leading-tight tracking-tight ${isMalam ? "text-white/90" : "text-neutral-900"}`}>
-            {data?.text}
-          </p>
-          {/* Info target untuk kentongan */}
-          {type === "kentongan" && data?.target_desa && !data?.is_global && (
-            <p className="text-[10px] opacity-40 flex items-center gap-1 mt-2">
-              <MapPin size={10} /> Target: {data.target_desa}
-            </p>
-          )}
-        </div>
-
-        {isClickable && (
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-black text-orange-500 uppercase">
-            <span>{type === "kentongan" ? "Simak Detail Infonya" : "Ambil Foto Sekarang"}</span>
-            <motion.span animate={{ x: [0, 4, 0] }} transition={{ repeat: Infinity, duration: 1.5 }}>
-              →
-            </motion.span>
+        {/* BACKGROUND IMAGE (Jika ada) */}
+        {data?.image_url && (
+          <div className="absolute inset-0 z-0">
+            <Image 
+              src={data.image_url} 
+              alt="background" 
+              fill 
+              className="object-cover opacity-40 group-hover:scale-110 transition-transform duration-1000"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
           </div>
         )}
+
+        {/* GLOW EFFECT UNTUK URGENT */}
+        {data?.is_urgent && (
+          <div className="absolute -right-10 -top-10 w-40 h-40 bg-red-600/20 blur-[80px] animate-pulse" />
+        )}
+
+        {/* CONTENT CONTAINER */}
+        <div className="relative z-10 p-7 flex flex-col h-full grow">
+          {/* HEADER */}
+          <div className="flex items-center justify-between mb-auto">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-2xl bg-white/5 border border-white/10 ${style.iconColor}`}>
+                {config.icon}
+              </div>
+              <span className={`text-[11px] font-black tracking-[0.2em] uppercase ${style.titleColor}`}>
+                {config.label}
+              </span>
+            </div>
+            
+            {data?.is_urgent && (
+              <span className="bg-red-500 text-white text-[9px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.5)]">
+                URGENT
+              </span>
+            )}
+          </div>
+
+          {/* BODY */}
+          <div className="mt-8 mb-6">
+            <p className="text-[11px] font-bold uppercase tracking-widest opacity-50 mb-2 flex items-center gap-2">
+              <span className="w-4 h-[1px] bg-current" />
+              {prefix}
+            </p>
+            <h2 className={`text-2xl font-bold leading-tight tracking-tight ${isMalam ? "text-white" : "text-slate-900"}`}>
+              {data?.text || data?.title}
+            </h2>
+            
+            {(data?.target_desa || data?.location) && (
+              <div className="flex items-center gap-2 mt-4 text-[12px] font-medium opacity-60">
+                <MapPin size={14} className="text-orange-500" />
+                <span>{data.target_desa || data.location}</span>
+              </div>
+            )}
+          </div>
+
+          {/* FOOTER / ACTION */}
+          <div className="mt-auto pt-5 border-t border-white/10 flex items-center justify-between">
+            <span className="text-[12px] font-black text-orange-500 uppercase tracking-tighter flex items-center gap-2">
+              {type === "kentongan" ? "Simak Selengkapnya" : "Update Sekarang"}
+              <ChevronRight size={16} />
+            </span>
+            <span className="text-[10px] opacity-30 font-medium italic">
+              {data?.created_at ? new Date(data.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Baru saja'}
+            </span>
+          </div>
+        </div>
+
+        {/* SHIMMER EFFECT ON HOVER */}
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
       </motion.div>
     </div>
   );

@@ -1,390 +1,200 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
-import FeedCard from "@/app/components/feed/FeedCard";
-import BreakCard from "@/components/BreakCard";
-import { useTheme } from "@/app/hooks/useTheme";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { MapPin, ArrowUpRight } from "lucide-react";
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 
 export default function RekomendasiFeed({
   currentItemId,
   userLocation,
   locationReady,
   theme,
-  onOpenAIModal,
-  onOpenKomentarModal,
-  onShare,
 }) {
-  const { isMalam } = useTheme();
-  const [items, setItems] = useState([]);
+  const router = useRouter();
+  const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(0);
-  const [comments, setComments] = useState({});
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
-  const loaderRef = useRef(null);
-  const abortControllerRef = useRef(null);
+  const isMalam = theme?.isMalam;
 
-  const MAX_ITEMS = 15;
-
-  // State untuk BreakCard
-  const previousConditionsRef = useRef({});
-  const lastBreakTimeRef = useRef(Date.now());
-
-  // ========== GENERATE BREAK CARD ==========
-  const generateBreakCard = useCallback((scrollIndex, displayedPlaces) => {
-    // Cek perubahan kondisi tempat
-    let hasSignificantChange = false;
-    let changeText = "";
-    
-    for (const place of displayedPlaces.slice(-3)) {
-      const prev = previousConditionsRef.current[place.id];
-      const curr = place.isRamai ? "ramai" : (place.isViral ? "viral" : "normal");
-      if (prev === "sepi" && curr === "ramai") {
-        hasSignificantChange = true;
-        changeText = `🔥 Aktivitas mulai meningkat di ${place.name}`;
-        break;
-      }
-      previousConditionsRef.current[place.id] = curr;
-    }
-    
-    if (hasSignificantChange) {
-      return {
-        type: "area-summary",
-        level: "B",
-        data: { text: changeText },
-      };
-    }
-
-    // Time divider (setiap 15 menit)
-    const now = Date.now();
-    if (now - lastBreakTimeRef.current > 15 * 60 * 1000) {
-      lastBreakTimeRef.current = now;
-      const hours = new Date().getHours();
-      const minutes = new Date().getMinutes();
-      return {
-        type: "time-divider",
-        level: "C",
-        data: { label: `Update ${hours}:${minutes.toString().padStart(2, '0')}` },
-      };
-    }
-
-    // Statistik setelah beberapa card
-    if (scrollIndex >= 5 && scrollIndex % 5 === 0) {
-      const totalLaporanHariIni = displayedPlaces.reduce((acc, p) => {
-        const todayReports = (p.laporan_terbaru || []).filter(l => {
-          const lDate = new Date(l.created_at);
-          return lDate.toDateString() === new Date().toDateString();
-        }).length;
-        return acc + todayReports;
-      }, 0);
-      
-      return {
-        type: "statistic",
-        level: "B",
-        data: { text: `📊 ${displayedPlaces.length} lokasi aktif · ${totalLaporanHariIni} laporan hari ini` },
-      };
-    }
-
-    return null;
-  }, []);
-
-  // Load komentar untuk items
   useEffect(() => {
-    const loadCommentsForItems = async () => {
-      if (items.length === 0) return;
-      
-      const commentsMap = {};
-      const promises = items.map(async (item) => {
-        const { data, error } = await supabase
-          .from("komentar")
-          .select("*")
-          .eq("tempat_id", item.id)
-          .order("created_at", { ascending: false })
-          .limit(10); // Limit untuk performa
-        
-        if (!error && data) {
-          commentsMap[item.id] = data;
-        } else {
-          commentsMap[item.id] = [];
-        }
-      });
-      
-      await Promise.all(promises);
-      setComments(commentsMap);
-    };
+    let isMounted = true;
     
-    loadCommentsForItems();
-  }, [items]);
-
-  const fetchRekomendasi = useCallback(
-    async (reset = false) => {
-      // Cancel previous request if exists
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      
-      if (!hasMore && !reset) return;
-      if (items.length >= MAX_ITEMS && !reset) return;
-
-      const currentPage = reset ? 0 : page;
-      const limit = 5;
-      const offset = currentPage * limit;
-
+    async function fetchData() {
       setLoading(true);
-      
-      // Create new abort controller
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-
       try {
-        let query = supabase
+        // 🔥 PERBAIKAN: Hanya kolom yang pasti ada
+        const { data, error } = await supabase
           .from("feed_view")
-          .select("*")
+          .select("id, name, latitude, longitude, photos, category")
           .neq("id", currentItemId)
-          .order("created_at", { ascending: false })
-          .range(offset, offset + limit - 1);
+          .limit(60);
 
-        if (locationReady && userLocation?.latitude && userLocation?.longitude) {
-          const radius = 10;
-          const lat = userLocation.latitude;
-          const lng = userLocation.longitude;
-          const latDelta = radius / 111;
-          const lngDelta = radius / (111 * Math.cos((lat * Math.PI) / 180));
-
-          query = query
-            .gte("latitude", lat - latDelta)
-            .lte("latitude", lat + latDelta)
-            .gte("longitude", lng - lngDelta);
-        }
-
-        const { data, error } = await query;
-        
-        if (abortController.signal.aborted) return;
-        
         if (error) throw error;
-
-        const uniqueData = data
-          ? Array.from(new Map(data.map((item) => [item.id, item])).values())
-          : [];
-
-        let newItems;
-        if (reset) {
-          newItems = uniqueData || [];
-        } else {
-          const combined = [...items, ...(uniqueData || [])];
-          newItems = Array.from(
-            new Map(combined.map((item) => [item.id, item])).values()
-          );
-        }
-
-        if (newItems.length > MAX_ITEMS) {
-          newItems = newItems.slice(0, MAX_ITEMS);
-          setHasMore(false);
-        } else {
-          setHasMore(
-            (data || []).length === limit && newItems.length < MAX_ITEMS
-          );
-        }
-
-        setItems(newItems);
-        setPage(currentPage + 1);
+        if (isMounted && data) setAllItems(data);
       } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error("Error fetching rekomendasi:", err);
-        }
+        console.error("Fetch Error:", err.message);
       } finally {
-        if (!abortController.signal.aborted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
-    },
-    [currentItemId, page, hasMore, locationReady, userLocation, items.length]
-  );
+    }
 
-  // Infinite scroll observer
-  useEffect(() => {
-    if (!loaderRef.current || !hasMore || items.length >= MAX_ITEMS) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          !loading &&
-          hasMore &&
-          items.length < MAX_ITEMS
-        ) {
-          fetchRekomendasi(false);
-        }
-      },
-      { threshold: 0.1, rootMargin: "200px" }
-    );
-
-    observer.observe(loaderRef.current);
-    return () => {
-      observer.disconnect();
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [loading, hasMore, fetchRekomendasi, items.length]);
-
-  // Initial fetch
-  useEffect(() => {
-    fetchRekomendasi(true);
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Reset ketika currentItemId berubah
-  useEffect(() => {
-    setItems([]);
-    setPage(0);
-    setHasMore(true);
-    setSelectedPhotoIndex({});
-    fetchRekomendasi(true);
+    fetchData();
+    return () => { isMounted = false; };
   }, [currentItemId]);
 
-  // ========== GABUNGKAN FEED CARD DENGAN BREAK CARD ==========
-  const feedItemsWithBreaks = useMemo(() => {
-    if (!items.length) return [];
-    
-    const result = [];
-    let cardsSinceLastBreak = 0;
-    
-    for (let i = 0; i < items.length; i++) {
-      result.push(items[i]);
-      cardsSinceLastBreak++;
-      
-      // Tambah BreakCard setiap 3-4 card
-      const shouldAddBreak = cardsSinceLastBreak >= 3 && cardsSinceLastBreak % 3 === 0;
-      
-      if (shouldAddBreak && i !== items.length - 1) {
-        const breakCard = generateBreakCard(i + 1, items.slice(0, i + 1));
-        if (breakCard) {
-          result.push({
-            _isBreak: true,
-            id: `break-${i}-${Date.now()}-${Math.random()}`,
-            type: breakCard.type,
-            level: breakCard.level,
-            data: breakCard.data,
-          });
-        }
-        cardsSinceLastBreak = 0;
-      }
-    }
-    
-    return result;
-  }, [items, generateBreakCard]);
+  const nearbyItems = useMemo(() => {
+    if (!locationReady || !userLocation?.latitude) return [];
 
-  // Handler untuk photo click di FeedCard
-  const handlePhotoClick = useCallback((photos, index) => {
-    // Bisa diimplementasikan untuk modal galeri
-    console.log('Photo clicked:', photos, index);
-  }, []);
+    return allItems
+      .map(item => ({
+        ...item,
+        distance: calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          item.latitude,
+          item.longitude
+        )
+      }))
+      .filter(item => item.distance !== null && item.distance <= 10)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 6);
+  }, [allItems, userLocation, locationReady]);
 
-  if (loading && items.length === 0) {
+  if (loading) {
     return (
-      <div className="flex justify-center py-8">
-        <div className="w-5 h-5 border-2 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
+      <div className="space-y-4 px-2">
+        {[1, 2, 3].map(i => (
+          <div key={i} className={`h-20 rounded-[24px] animate-pulse ${isMalam ? 'bg-white/5' : 'bg-black/5'}`} />
+        ))}
       </div>
     );
   }
 
-  if (items.length === 0 && !loading) {
+  if (nearbyItems.length === 0) {
     return (
-      <div className="text-center py-8">
-        <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
-          Belum ada konten lain di sekitar
+      <div className={`mx-2 p-8 text-center rounded-[24px] border-2 border-dashed ${
+        isMalam ? 'border-white/5 bg-white/[0.02]' : 'border-black/5 bg-black/[0.01]'
+      }`}>
+        <div className="mb-2 flex justify-center opacity-20"><MapPin size={32}/></div>
+        <p className={`text-xs font-medium ${isMalam ? 'text-white/40' : 'text-slate-400'}`}>
+          {!locationReady ? "Aktifkan lokasi untuk melihat tempat terdekat" : "Belum ada rekomendasi di radius 10km"}
         </p>
       </div>
     );
   }
 
   return (
-    <AnimatePresence mode="popLayout" initial={false}>
-      {feedItemsWithBreaks.map((item, index) => {
-        // Jika BreakCard
-        if (item._isBreak) {
+    <div className="w-full space-y-3 px-2 pb-6">
+      <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] px-2 mb-4 opacity-50 ${isMalam ? 'text-white' : 'text-slate-900'}`}>
+        Rekomendasi Kondisi Sekitar
+      </h3>
+      
+      <AnimatePresence mode="popLayout">
+        {nearbyItems.map((item, index) => {
+          const isTerdekat = index === 0;
+          const displayDist = item.distance < 1 
+            ? `${(item.distance * 1000).toFixed(0)} m` 
+            : `${item.distance.toFixed(1)} km`;
+
+          const thumbnailUrl = item.photos?.[0] || null;
+
           return (
             <motion.div
               key={item.id}
               layout
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.3 }}
-              className="mb-6"
+              transition={{ duration: 0.3, delay: index * 0.05 }}
+              onClick={() => {
+                router.push(`/post/${item.id}`);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`
+                group relative flex items-center gap-4 p-3 rounded-[24px] cursor-pointer
+                transition-all duration-300 active:scale-[0.98]
+                ${isMalam 
+                  ? 'bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/5 shadow-2xl shadow-black/50' 
+                  : 'bg-white hover:bg-slate-50 border border-slate-100 shadow-sm'
+                }
+              `}
             >
-              <BreakCard
-                type={item.type}
-                data={item.data}
-                theme={theme}
-                level={item.level}
-              />
+              {/* Thumbnail Section */}
+              <div className="relative h-16 w-16 flex-shrink-0 rounded-2xl overflow-hidden bg-zinc-800">
+                {thumbnailUrl ? (
+                  <Image 
+                    src={thumbnailUrl}
+                    alt={item.name}
+                    fill
+                    sizes="64px"
+                    className="object-cover transition-transform duration-500 group-hover:scale-110"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full bg-orange-500/10 text-orange-500">
+                    <MapPin size={20} />
+                  </div>
+                )}
+              </div>
+
+              {/* Info Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    isTerdekat 
+                      ? 'bg-green-500 text-white' 
+                      : isMalam ? 'bg-white/10 text-white/70' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {displayDist}
+                  </span>
+                  {isTerdekat && (
+                    <span className="text-[10px] font-bold text-green-500 animate-pulse">
+                      Terdekat!
+                    </span>
+                  )}
+                </div>
+                
+                <h4 className={`text-[15px] font-bold truncate leading-tight ${isMalam ? 'text-white' : 'text-slate-800'}`}>
+                  {item.name}
+                </h4>
+                
+                <div className="flex items-center gap-2 mt-1.5 overflow-hidden">
+                  <span className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    isMalam ? 'border-white/10 text-white/40' : 'border-slate-200 text-slate-400'
+                  }`}>
+                    {item.category || 'Tempat'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Icon */}
+              <div className={`
+                flex items-center justify-center w-9 h-9 rounded-2xl transition-all
+                ${isMalam 
+                  ? 'bg-white/5 text-white/40 group-hover:bg-orange-500 group-hover:text-white' 
+                  : 'bg-slate-50 text-slate-300 group-hover:bg-orange-500 group-hover:text-white'
+                }
+              `}>
+                <ArrowUpRight size={18} strokeWidth={2.5} />
+              </div>
             </motion.div>
           );
-        }
-        
-        // FeedCard - pastikan semua props terdefinisi
-        const isPriority = index < 2;
-        const itemComments = comments[item.id] || [];
-        
-        return (
-          <motion.div
-            key={`rekomendasi-${item.id}`}
-            layout
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.5) }}
-            className="mb-6"
-          >
-            <FeedCard
-              item={item}
-              location={userLocation}
-              locationReady={locationReady}
-              comments={itemComments}
-              selectedPhotoIndex={selectedPhotoIndex[item.id] || 0}
-              setSelectedPhotoIndex={(index) => {
-                setSelectedPhotoIndex(prev => ({
-                  ...prev,
-                  [item.id]: index
-                }));
-              }}
-              openAIModal={onOpenAIModal}
-              openKomentarModal={onOpenKomentarModal}
-              onShare={onShare}
-              priority={isPriority}
-              onPhotoClick={handlePhotoClick}
-            />
-          </motion.div>
-        );
-      })}
-      
-      {/* Loading indicator untuk infinite scroll */}
-      {hasMore && items.length < MAX_ITEMS && items.length > 0 && (
-        <div key="loader" ref={loaderRef} className="h-10" />
-      )}
-
-      {loading && items.length > 0 && (
-        <div key="loading-indicator" className="flex justify-center py-4">
-          <div className="w-4 h-4 border-2 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {!hasMore && items.length >= MAX_ITEMS && items.length > 0 && (
-        <div key="end-message" className="text-center py-4">
-          <p className={`text-xs ${isMalam ? "text-white/40" : "text-slate-400"}`}>
-            ✨ Semua rekomendasi telah ditampilkan ✨
-          </p>
-        </div>
-      )}
-    </AnimatePresence>
+        })}
+      </AnimatePresence>
+    </div>
   );
 }

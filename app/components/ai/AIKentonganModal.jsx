@@ -1,303 +1,213 @@
-// app/components/ai/AIKentonganModal.jsx
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import AIHeader from "./AIHeader";
-import AIMessageBubble from "./AIMessageBubble";
-import AISuggestionBubble from "./AISuggestionBubble";
-import AIInput from "./AIInput";
+import { Send, Loader2, Sparkles, Bot, X, MapPin, Calendar, Info } from "lucide-react";
 
 export default function AIKentonganModal({
   isOpen,
   onClose,
   kentongan,
-  theme = { isMalam: false, card: "bg-white", border: "border-gray-100", text: "text-gray-900" },
+  initialQuery,
+  theme = { isMalam: true, card: "bg-zinc-950", border: "border-white/10" }
 }) {
-  // ========== STATES ==========
   const [messages, setMessages] = useState([]);
-  const [currentSuggestions, setCurrentSuggestions] = useState(null);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startY, setStartY] = useState(0);
-  const [translateY, setTranslateY] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   
-  // ========== REFS ==========
-  const modalRef = useRef(null);
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
-  const hasUserInteracted = useRef(false);
-  const messageCounter = useRef(0);
-  const kentonganIdRef = useRef(kentongan?.id);
-  
-  // ========== HELPER FUNCTIONS ==========
-  const isMalam = theme?.isMalam;
-  
-  const getCurrentTime = useCallback(() => {
-    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }, []);
-  
-  const getUniqueId = useCallback(() => {
-    messageCounter.current += 1;
-    return `${Date.now()}-${messageCounter.current}`;
-  }, []);
-  
-  // ========== SCROLL LOGIC ==========
-  const scrollToBottom = useCallback(() => {
-    if (!hasUserInteracted.current) return;
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }, 100);
-  }, []);
-  
+  const autoSentRef = useRef(false);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping, scrollToBottom]);
-  
-  // ========== GENERATE SUGGESTIONS ==========
-  const generateDynamicSuggestions = useCallback((kentonganData) => {
-    if (!kentonganData) return null;
+  }, [messages, isLoading]);
+
+  // 1. Core Send Function
+  const handleSend = useCallback(async (forcedQuery = null) => {
+    const msg = (forcedQuery || input).trim();
+    if (!msg || isLoading) return;
+
+    if (!forcedQuery) setInput("");
     
-    const { title, content, is_urgent, image_url } = kentonganData;
-    const isNewsMode = !!image_url;
-    
-    let suggestions = [];
-    const hasKorban = content?.match(/korban|meninggal|luka|terdampar/i);
-    const hasKerugian = content?.match(/kerugian|rugi|milyar|juta/i);
-    
-    if (isNewsMode) {
-      if (hasKorban) suggestions.push("Berapa jumlah korban jiwa?");
-      if (hasKerugian) suggestions.push("Berapa estimasi kerugian materil?");
-      suggestions.push("Kronologi kejadian ini?");
-      suggestions.push("Bagaimana respons pihak terkait?");
-    } else {
-      if (title?.includes('darurat') || is_urgent) {
-        suggestions.push("Apa yang harus dilakukan?");
-        suggestions.push("Di mana lokasi aman terdekat?");
-      } else {
-        suggestions.push("Apa dampak ini bagi warga?");
-        suggestions.push("Siapa yang bisa dihubungi untuk info lebih lanjut?");
-      }
-    }
-    
-    // Fallback jika tidak ada suggestion
-    if (suggestions.length === 0) {
-      suggestions = ["Ceritakan lebih detail tentang ini", "Apa yang perlu saya ketahui?"];
-    }
-    
-    return {
-      title: "💡 Yang mungkin ingin Anda tanyakan:",
-      items: suggestions.slice(0, 3).map((s, i) => ({
-        id: i,
-        text: s,
-        emoji: ["🔍", "📍", "💬"][i] || "✨"
-      }))
-    };
-  }, []);
-  
-  // ========== TOUCH HANDLERS ==========
-  const handleTouchStart = useCallback((e) => {
-    if (modalRef.current?.scrollTop <= 0) {
-      setIsDragging(true);
-      setStartY(e.touches[0].clientY);
-    }
-  }, []);
-  
-  const handleTouchMove = useCallback((e) => {
-    if (!isDragging) return;
-    const diff = e.touches[0].clientY - startY;
-    if (diff > 0) {
-      e.preventDefault();
-      setTranslateY(Math.min(diff, 200));
-    }
-  }, [isDragging, startY]);
-  
-  const handleTouchEnd = useCallback(() => {
-    if (isDragging) {
-      if (translateY > 50) {
-        onClose();
-      } else {
-        setTranslateY(0);
-      }
-      setIsDragging(false);
-    }
-  }, [isDragging, translateY, onClose]);
-  
-  // ========== INITIALIZE MODAL ==========
-  useEffect(() => {
-    if (!isOpen || !kentongan) return;
-    if (hasInitialized.current) return;
-    
-    hasInitialized.current = true;
-    hasUserInteracted.current = false;
-    
-    // Update ref untuk kentongan ID
-    kentonganIdRef.current = kentongan?.id;
-    
-    const { title, content, image_url, is_urgent, created_at, is_global, target_desa, target_kecamatan } = kentongan;
-    
-    const isNewsMode = !!image_url;
-    const categoryLabel = is_urgent ? "🚨 BREAKING NEWS" : (isNewsMode ? "📰 KABAR SETEMPAT" : "📢 PENGUMUMAN RESMI");
-    const thumbnail = isNewsMode ? `![thumbnail](${image_url})\n\n` : "";
-    const locationInfo = is_global ? "SetempatID" : `${target_desa || 'Desa Setempat'}, ${target_kecamatan || 'Kecamatan'}`;
-    
-    const finalMessage = `${categoryLabel}\n${thumbnail}### ${title}\n\n**${locationInfo}** — ${content}\n\n---\n📅 ${new Date(created_at).toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}\n${isNewsMode ? "✍️ Tim Setempat" : "👑 Petinggi Setempat"}`;
-    
-    setMessages([{ 
-      id: getUniqueId(), 
-      type: "ai", 
-      text: finalMessage, 
-      time: getCurrentTime() 
-    }]);
-    
-    setCurrentSuggestions(generateDynamicSuggestions(kentongan));
-  }, [isOpen, kentongan, getUniqueId, getCurrentTime, generateDynamicSuggestions]);
-  
-  // ========== HANDLE SEND ==========
-  const handleSend = useCallback(async (customMessage) => {
-    const msg = (customMessage || input).trim();
-    if (!msg) return;
-    
-    hasUserInteracted.current = true;
-    setCurrentSuggestions(null);
-    
-    setMessages(prev => [...prev, {
-      id: getUniqueId(),
-      type: "user",
-      text: msg,
-      time: getCurrentTime()
-    }]);
-    
-    setInput("");
-    setIsTyping(true);
-    
+    setMessages(prev => [...prev, { id: Date.now(), role: "user", content: msg }]);
+    setIsLoading(true);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: msg,
-          kentonganId: kentonganIdRef.current,
+          kentonganId: kentongan?.id,
           modalType: 'kentongan',
         }),
       });
       const data = await res.json();
+      
       setMessages(prev => [...prev, {
-        id: getUniqueId(),
-        type: "ai",
-        text: data?.text || `Maaf, saya belum bisa menjawab pertanyaan itu.`,
-        time: getCurrentTime()
+        id: Date.now() + 1,
+        role: "assistant",
+        content: data?.text || "Maaf, Cak. AI-nya lagi istirahat sebentar. Coba lagi ya!"
       }]);
     } catch (error) {
-      console.error("API Error:", error);
       setMessages(prev => [...prev, {
-        id: getUniqueId(),
-        type: "ai",
-        text: `Maaf, sedang ada gangguan. Coba lagi nanti ya! 🙏`,
-        time: getCurrentTime()
+        id: Date.now() + 1,
+        role: "assistant",
+        content: "Waduh, koneksi ke pusat informasi lagi terputus. 🙏"
       }]);
     } finally {
-      setIsTyping(false);
+      setIsLoading(false);
     }
-  }, [input, getUniqueId, getCurrentTime]);
-  
-  // Reset ref when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      hasInitialized.current = false;
-    }
-  }, [isOpen]);
-  
-  if (!isOpen) return null;
-  
-  return (
-    <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div
-        ref={modalRef}
-        className={`relative w-[95%] max-w-[420px] mx-auto h-[92vh] sm:h-[85vh] ${theme.card} rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border-t ${theme.border}`}
-        style={{ 
-          transform: `translateY(${translateY}px)`, 
-          transition: isDragging ? "none" : "transform 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.1)",
-          touchAction: isDragging ? "none" : "auto"
-        }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div className="flex justify-center pt-2 pb-1 flex-shrink-0">
-          <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
-        </div>
-        
-        <AIHeader locationName="Kabar Setempat" isMalam={isMalam} onClose={onClose} theme={theme} />
-        
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {messages.map((msg) => (
-            <AIMessageBubble
-              key={msg.id}
-              message={msg}
-              isUser={msg.type === "user"}
-              isMalam={isMalam}
-              onLaporClick={null}
-              showLaporButton={false}
-            />
-          ))}
-          
-          <AnimatePresence>
-            {currentSuggestions && !isTyping && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="pt-2"
-              >
-                <AISuggestionBubble
-                  suggestions={currentSuggestions}
-                  onSuggestionClick={(text) => handleSend(text)}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          
-          {isTyping && <TypingIndicator />}
-          <div ref={messagesEndRef} />
-        </div>
-        
-        <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/10 px-3 py-3">
-          <AIInput
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              if (currentSuggestions) setCurrentSuggestions(null);
-            }}
-            onSend={() => handleSend()}
-            isTyping={isTyping}
-            placeholder="Tanya detail informasi..."
-          />
-          <p className="text-[8px] text-center text-slate-400 mt-2">
-            ✨ Tanya detail kronologi, dampak, atau instruksi lebih lanjut
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
+  }, [input, isLoading, kentongan]);
 
-// Typing Indicator Component
-function TypingIndicator() {
+  // 2. Initialize Greeting (Layout Visual Keren)
+  useEffect(() => {
+    if (!isOpen || !kentongan || hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    // Pesan pertama berupa objek khusus agar bisa di-render dengan layout foto
+    setMessages([{
+      id: "init",
+      role: "assistant",
+      type: "news_card", // Tipe khusus untuk render layout berita
+      data: {
+        title: kentongan.title,
+        content: kentongan.content,
+        image: kentongan.image_url,
+        isUrgent: kentongan.is_urgent,
+        location: kentongan.target_desa || "Wilayah Setempat",
+        time: new Date(kentongan.created_at).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      }
+    }]);
+  }, [isOpen, kentongan]);
+
+  // 3. Auto-Send Logic
+  useEffect(() => {
+    if (initialQuery && isOpen && hasInitialized.current && !autoSentRef.current) {
+      autoSentRef.current = true;
+      const timer = setTimeout(() => handleSend(initialQuery), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [initialQuery, isOpen, handleSend]);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="flex items-start gap-2">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
-        <span className="text-sm">🤖</span>
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[2000] flex items-end justify-center sm:items-center bg-black/80 backdrop-blur-md p-0 sm:p-4" onClick={onClose}>
+        <motion.div 
+          initial={{ y: "100%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "100%", opacity: 0 }}
+          className={`relative w-full max-w-[420px] h-[90vh] sm:h-[650px] ${theme.card} border-t sm:border ${theme.border} sm:rounded-[32px] flex flex-col overflow-hidden shadow-2xl`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header High-End */}
+          <div className="p-4 border-b border-white/5 bg-zinc-900/50 flex items-center justify-between backdrop-blur-md">
+             <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.1)]">
+                  <Bot className="text-red-500" size={22} />
+                </div>
+                <div>
+                  <h2 className="text-white font-black text-[12px] tracking-[0.15em] flex items-center gap-2">
+                    AI KENTONGAN <Sparkles size={12} className="text-amber-400" />
+                  </h2>
+                  <p className="text-[10px] text-white/40 font-bold uppercase truncate max-w-[180px]">
+                    {kentongan?.title}
+                  </p>
+                </div>
+             </div>
+             <button onClick={onClose} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
+               <X size={18} className="text-white/40" />
+             </button>
+          </div>
+
+          {/* Chat Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide bg-gradient-to-b from-zinc-950 to-black">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.type === "news_card" ? (
+                  /* RENDER LAYOUT BERITA DENGAN FOTO */
+                  <div className="w-full space-y-4">
+                    <div className="bg-white/5 border border-white/10 rounded-[24px] overflow-hidden">
+                      {msg.data.image && (
+                        <div className="relative h-48 w-full">
+                          <img src={msg.data.image} alt="news" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent" />
+                          {msg.data.isUrgent && (
+                            <div className="absolute top-3 left-3 bg-red-600 text-[10px] font-black px-2 py-1 rounded-md text-white">URGENT</div>
+                          )}
+                        </div>
+                      )}
+                      <div className="p-4 space-y-3">
+                        <h3 className="text-white font-bold text-lg leading-tight">{msg.data.title}</h3>
+                        <div className="flex flex-wrap gap-3 text-[11px] text-white/40 font-medium">
+                          <span className="flex items-center gap-1"><MapPin size={12} /> {msg.data.location}</span>
+                          <span className="flex items-center gap-1"><Calendar size={12} /> {msg.data.time}</span>
+                        </div>
+                        <p className="text-white/70 text-sm leading-relaxed border-t border-white/5 pt-3">
+                          {msg.data.content}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 text-amber-400 bg-amber-400/5 p-3 rounded-xl border border-amber-400/10">
+                      <Info size={16} className="shrink-0 mt-0.5" />
+                      <p className="text-[11px] leading-tight font-medium">Saya sudah menganalisa laporan ini. Silakan tanya jika butuh info dampak, bantuan, atau kronologi lengkap.</p>
+                    </div>
+                  </div>
+                ) : (
+                  /* RENDER BUBBLE CHAT BIASA */
+                  <div className={`max-w-[85%] p-4 rounded-[22px] text-sm leading-relaxed shadow-lg ${
+                    msg.role === "user" 
+                    ? "bg-red-600 text-white rounded-tr-none shadow-red-600/10" 
+                    : "bg-white/5 text-white/90 border border-white/10 rounded-tl-none"
+                  }`}>
+                    {msg.content}
+                  </div>
+                )}
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white/5 border border-white/10 p-3.5 rounded-[20px] rounded-tl-none">
+                  <div className="flex gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce" />
+                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <div className="p-4 bg-zinc-900/80 border-t border-white/5 backdrop-blur-md">
+            <div className="flex gap-2">
+              <input 
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder="Tanya detail laporan..."
+                className="flex-1 bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white text-sm outline-none focus:border-red-500/50 transition-all placeholder:text-white/20"
+              />
+              <button 
+                onClick={() => handleSend()}
+                disabled={isLoading || !input.trim()}
+                className="p-3.5 bg-red-600 rounded-2xl text-white shadow-lg shadow-red-600/20 disabled:opacity-30 transition-all"
+              >
+                {isLoading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+              </button>
+            </div>
+            <p className="text-[9px] text-center text-white/20 mt-3 font-black tracking-[0.2em] uppercase">Setempat Intelligence System</p>
+          </div>
+        </motion.div>
       </div>
-      <div className="px-4 py-2.5 rounded-2xl bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white rounded-tl-sm">
-        <div className="flex gap-1">
-          <span className="w-2 h-2 rounded-full bg-current animate-bounce" />
-          <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-75" />
-          <span className="w-2 h-2 rounded-full bg-current animate-bounce delay-150" />
-        </div>
-      </div>
-    </div>
+    </AnimatePresence>
   );
 }

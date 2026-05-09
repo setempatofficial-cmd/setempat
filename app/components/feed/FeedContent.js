@@ -34,8 +34,8 @@ const SearchModal = React.lazy(() => import("./SearchModal"));
 const CACHE_DURATION = 30 * 60 * 1000;
 const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
-const RANKING_WEIGHT = 0.7;
-const DISTANCE_WEIGHT = 0.3;
+const RANKING_WEIGHT = 0.3;
+const DISTANCE_WEIGHT = 0.7;
 const SESSION_CACHE_KEY = 'feed_backup';  // TAMBAHKAN INI
 const SESSION_CACHE_DURATION = 30 * 60 * 1000; 
 
@@ -46,7 +46,7 @@ const getDynamicLimit = () => {
   if (!connection) return 8;
   
   switch(connection.effectiveType) {
-    case '4g': return 12;
+    case '4g': return 8;
     case '3g': return 6;
     case '2g':
     case 'slow-2g': return 3;
@@ -206,7 +206,7 @@ const ToastMessage = memo(({ show, message }) => (
 export default function FeedContent() {
   const router = useRouter();
   const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
-  const { user, isAdmin, role: userRole, profile, loading: authLoading } = useAuth(); 
+  const { user, isAdmin, profile } = useAuth();
   const theme = useTheme();
 
   // ========== NETWORK STATE ==========
@@ -248,7 +248,8 @@ export default function FeedContent() {
 
   // ========== MODAL STATES ==========
   const [showUploadModal, setShowUploadModal] = useState(false);
-
+  const [userId, setUserId] = useState(null);
+  const [userRole, setUserRole] = useState(null);
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [selectedLaporanWarga, setSelectedLaporanWarga] = useState([]);
   const [selectedUploadSuccess, setSelectedUploadSuccess] = useState(null);
@@ -563,16 +564,8 @@ const resetFeed = useCallback((soft = false) => {
     setError(null);
     lastLoadedIdRef.current = null;
     existingIdsRef.current.clear();
-  
-
-if (isLocationChange && typeof window !== 'undefined' && window.__feedItemCache) {
-      window.__feedItemCache.clear();
-      console.log('🧹 Global feed item cache cleared');
-    }
   }
 }, []);
-
-
 
   // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
@@ -859,44 +852,6 @@ useEffect(() => {
   return () => window.removeEventListener('scroll', handleScroll);
 }, []);
 
-  // ========== DETEKSI LOKASI MATI/DINONAKTIFKAN ==========
-useEffect(() => {
-  const hadLocation = lastLocationCacheKeyRef.current !== null && 
-                      lastLocationCacheKeyRef.current !== 'feed_default';
-  
-  if (hadLocation && !locationReady) {
-    console.log('📍 Lokasi dinonaktifkan - membersihkan cache dan reset feed');
-    
-    setIsActivatingLocation(true);
-    
-    cacheManager.invalidate();
-    sessionStorage.removeItem(SESSION_CACHE_KEY);
-    sessionStorage.removeItem('last_location_key');
-    
-    setOrderedIds([]);
-    setItemsMap(new Map());
-    
-    setInitialLoad(true);
-    setHasMore(true);
-    setError(null);
-    
-    lastLoadedIdRef.current = null;
-    existingIdsRef.current.clear();
-    lastLocationCacheKeyRef.current = 'feed_default';
-    
-    loadPlaces(true, false).finally(() => {
-      setIsActivatingLocation(false);
-    });
-    
-    setToast({ 
-      show: true, 
-      message: "📍 Lokasi dinonaktifkan - menampilkan semua tempat" 
-    });
-    setTimeout(() => setToast({ show: false, message: "" }), 2000);
-  }
-  
-}, [locationReady, cacheManager]); 
-
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
     
@@ -1094,6 +1049,7 @@ useEffect(() => {
         setItemsMap(limitedMap);
         setOrderedIds(limitedIds);
         setInitialLoad(false);
+        setLoading(false); 
         initialLoadDoneRef.current = true;
         console.log(`✅ Restored ${limitedIds.length} items from cache`);
         return;
@@ -1400,8 +1356,8 @@ useEffect(() => {
                             openKomentarModal={openKomentarModal}
                             onShare={handleShare}
                             priority={isPriority}
-			    preloadNext={isNearby}
-			    shouldRender={isNearViewport}
+                            userProfile={profile}
+                            userAvatar={profile?.avatar_url}
                           />
                         </FeedCardWrapper>
                       </motion.div>
@@ -1421,17 +1377,11 @@ useEffect(() => {
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             exit={{ opacity: 0 }} 
-            className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-40"
+            className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50"
           >
             <div className="flex flex-col items-center gap-3">
-              <div className="relative flex items-center justify-center">
-                <div className="absolute animate-ping h-14 w-14 rounded-full bg-[#E3655B] opacity-20"></div>
-                <div className="absolute animate-ping h-14 w-14 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
-                <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
-              </div>
-              <p className="text-white/60 text-xs font-medium">
-                Setempat memperbarui lokasi baru...
-              </p>
+              <div className="relative h-8 w-8 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
+              <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
             </div>
           </motion.div>
         )}
@@ -1484,7 +1434,7 @@ useEffect(() => {
       <UploadModal
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
-        userId={user?.id}
+        userId={userId}
         userRole={userRole}
       />
 

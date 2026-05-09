@@ -451,28 +451,19 @@ export default function LaporPanel({
                 }}
               >
                 {({ open }) => (
-                  <button 
-                    onClick={() => {
-                      const btn = document.activeElement;
-                      if (btn) btn.style.transform = 'scale(0.97)';
-                      setTimeout(() => {
-                        open();
-                        setTimeout(() => {
-                          if (btn) btn.style.transform = '';
-                        }, 150);
-                      }, 50);
-                    }}
-                    className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95 group"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
-                      📸
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
-                      <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
-                    </div>
-                  </button>
-                )}
+  <button 
+    onClick={() => open?.()}
+    className="w-full aspect-video rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95 group"
+  >
+    <div className="w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
+      📸
+    </div>
+    <div className="text-center">
+      <p className="text-[12px] font-black text-slate-700 uppercase tracking-wider">Ambil Foto/Video</p>
+      <p className="text-[10px] text-slate-400">Otomatis masuk StoryCircle</p>
+    </div>
+  </button>
+)}
               </CldUploadWidget>
               
               <div className="relative py-2 flex items-center">

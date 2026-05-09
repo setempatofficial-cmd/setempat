@@ -115,11 +115,15 @@ export default function PhotoSlider({
   });
   
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(() => selectedPhotoIndex || 0);
   const [shouldLoad, setShouldLoad] = useState(priority);
   const sliderRef = useRef(null);
   const channelRef = useRef(null);
-  const preloadedRef = useRef(new Set()); // Track sudah preload atau belum
+  const preloadedRef = useRef(new Set());
+  const fetchAttemptedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
   
   // Sync with parent
   useEffect(() => {
@@ -166,17 +170,29 @@ export default function PhotoSlider({
     };
   }, [priority, shouldLoad]);
 
-  // Fetch official photos
+  // Fetch official photos dengan error handling yang lebih baik
   const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId || !shouldLoad) return;
-    
-    const cached = officialPhotosCache.get(tempatId);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      setOfficialPhotos(cached.data);
+    if (!tempatId || !shouldLoad) {
       return;
     }
     
+    // Cek cache
+    const cached = officialPhotosCache.get(tempatId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      setOfficialPhotos(cached.data);
+      setError(null);
+      return;
+    }
+    
+    // Prevent multiple simultaneous fetches
+    if (fetchAttemptedRef.current) {
+      return;
+    }
+    
+    fetchAttemptedRef.current = true;
     setIsLoading(true);
+    setError(null);
+    
     try {
       const { data, error } = await supabase
         .from('tempat')
@@ -193,11 +209,33 @@ export default function PhotoSlider({
           data: normalized, 
           timestamp: Date.now() 
         });
+      } else {
+        setOfficialPhotos({ pagi: [], siang: [], sore: [], malam: [] });
       }
+      
+      // Reset retry count on success
+      retryCountRef.current = 0;
     } catch (error) {
-      console.error('Error fetching official photos:', error);
+      console.error('Error fetching official photos for tempat', tempatId, ':', error);
+      setError(error.message);
+      
+      // Retry logic
+      if (retryCountRef.current < maxRetries) {
+        retryCountRef.current++;
+        setTimeout(() => {
+          if (shouldLoad && !fetchAttemptedRef.current) {
+            fetchOfficialPhotos();
+          }
+        }, 2000 * retryCountRef.current);
+      }
+      
+      // Jangan hapus cache jika ada, tetap pakai cache lama
+      if (cached) {
+        setOfficialPhotos(cached.data);
+      }
     } finally {
       setIsLoading(false);
+      fetchAttemptedRef.current = false;
     }
   }, [tempatId, shouldLoad]);
 
@@ -206,47 +244,95 @@ export default function PhotoSlider({
     fetchOfficialPhotos();
   }, [fetchOfficialPhotos, shouldLoad]);
 
-  // Realtime subscription (tetap seperti yang sudah tepat)
+  // ✅ PERBAIKAN: Realtime subscription dengan error handling yang lebih baik
   useEffect(() => {
     if (!tempatId || !shouldLoad) return;
 
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-    }
+    // Clean up existing channel
+    const cleanup = async () => {
+      if (channelRef.current) {
+        try {
+          await supabase.removeChannel(channelRef.current);
+        } catch (err) {
+          console.warn('Error removing channel:', err);
+        }
+        channelRef.current = null;
+      }
+    };
 
-    const channelName = `realtime_tempat_${tempatId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    const channel = supabase.channel(channelName);
-    channelRef.current = channel;
-
-    channel
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'tempat',
-          filter: `id=eq.${tempatId}`,
-        },
-        (payload) => {
-          if (payload.new?.photos) {
-            const normalized = normalizeOfficialPhotos(payload.new.photos);
-            setOfficialPhotos(normalized);
-            officialPhotosCache.set(tempatId, { 
-              data: normalized, 
-              timestamp: Date.now() 
-            });
+    const setupChannel = async () => {
+      await cleanup();
+      
+      try {
+        // Check if supabase realtime is available
+        if (!supabase || !supabase.channel) {
+          console.warn('Supabase realtime not available');
+          return;
+        }
+        
+        const channelName = `tempat_photos_${tempatId}_${Date.now()}`;
+        const channel = supabase.channel(channelName, {
+          config: {
+            broadcast: { ack: false },
+            presence: { key: '' }
           }
+        });
+        
+        if (!channel) {
+          console.warn('Failed to create channel for:', tempatId);
+          return;
         }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to changes for tempat ${tempatId}`);
-        }
-      });
-
+        
+        // Add callback BEFORE subscribe
+        channel.on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'tempat',
+            filter: `id=eq.${tempatId}`,
+          },
+          (payload) => {
+            if (payload.new?.photos) {
+              const normalized = normalizeOfficialPhotos(payload.new.photos);
+              setOfficialPhotos(normalized);
+              officialPhotosCache.set(tempatId, { 
+                data: normalized, 
+                timestamp: Date.now() 
+              });
+            }
+          }
+        );
+        
+        // Subscribe with error handling
+        channel.subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`✅ Subscribed to tempat ${tempatId} updates`);
+            retryCountRef.current = 0;
+          } else if (status === 'CHANNEL_ERROR') {
+            console.warn(`Channel error for ${tempatId}:`, err);
+            // Don't throw, just log and continue
+            // The channel will try to reconnect automatically
+          } else if (status === 'TIMED_OUT') {
+            console.warn(`Channel timeout for ${tempatId}`);
+          } else if (status === 'CLOSED') {
+            console.log(`Channel closed for ${tempatId}`);
+          }
+        });
+        
+        channelRef.current = channel;
+      } catch (err) {
+        console.error('Error setting up realtime channel:', err);
+      }
+    };
+    
+    setupChannel();
+    
     return () => {
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        supabase.removeChannel(channelRef.current).catch(err => {
+          console.warn('Error removing channel during cleanup:', err);
+        });
         channelRef.current = null;
       }
     };
@@ -254,6 +340,7 @@ export default function PhotoSlider({
 
   // Process current photos
   const currentPhotos = useMemo(() => {
+    // Prioritaskan foto warga
     if (photos.length > 0) {
       const freshWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -276,6 +363,7 @@ export default function PhotoSlider({
       }
     }
     
+    // Foto official
     const timePhotos = officialPhotos[currentTimeKey];
     if (timePhotos?.length > 0) {
       const sorted = [...timePhotos].sort((a, b) => {
@@ -294,11 +382,10 @@ export default function PhotoSlider({
     return [];
   }, [photos, officialPhotos, currentTimeKey]);
 
-  // PRELOAD ADJACENT IMAGES - SOLUSI UTAMA UNTUK LOADING CEPAT
+  // Preload adjacent images
   useEffect(() => {
     if (!shouldLoad || currentPhotos.length === 0) return;
     
-    // Preload next image
     const nextIndex = (currentPhotoIndex + 1) % currentPhotos.length;
     const nextPhoto = currentPhotos[nextIndex];
     if (nextPhoto?.url && !preloadedRef.current.has(nextPhoto.url)) {
@@ -306,7 +393,6 @@ export default function PhotoSlider({
       preloadedRef.current.add(nextPhoto.url);
     }
     
-    // Preload previous image
     const prevIndex = (currentPhotoIndex - 1 + currentPhotos.length) % currentPhotos.length;
     const prevPhoto = currentPhotos[prevIndex];
     if (prevPhoto?.url && !preloadedRef.current.has(prevPhoto.url)) {
@@ -315,7 +401,7 @@ export default function PhotoSlider({
     }
   }, [currentPhotoIndex, currentPhotos, shouldLoad]);
 
-  // Preload first image saat load pertama
+  // Preload first image
   useEffect(() => {
     if (!shouldLoad || currentPhotos.length === 0) return;
     if (preloadedRef.current.has('initial_preload_done')) return;

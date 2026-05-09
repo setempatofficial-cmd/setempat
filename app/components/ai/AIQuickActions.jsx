@@ -1,127 +1,118 @@
+"use client";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { ChevronDown, Camera, Sparkles } from "lucide-react";
 
 export default function AIQuickActions({ actions = [], onActionClick, onLaporClick, isMalam, isTyping }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
-  // Tema Solid & High Contrast (Premium AI Look)
   const theme = {
-    bg: isMalam ? "bg-[#09090b]" : "bg-white", 
-    text: isMalam ? "text-zinc-400" : "text-zinc-500",
-    border: isMalam ? "border-zinc-800" : "border-zinc-100",
-    mainText: isMalam ? "text-zinc-100" : "text-zinc-900",
-    // Accent khusus kanggo tombol Pantauan
+    bg: isMalam ? "bg-zinc-950" : "bg-white", 
+    text: isMalam ? "text-zinc-500" : "text-zinc-400",
+    border: isMalam ? "border-zinc-900" : "border-zinc-100",
     accent: isMalam 
-      ? "bg-cyan-500/5 border-cyan-500/20 text-cyan-400" 
-      : "bg-cyan-50 border-cyan-200 text-cyan-600"
+      ? "bg-cyan-500/10 border-cyan-500/20 text-cyan-400" 
+      : "bg-cyan-50 border-cyan-100 text-cyan-700"
   };
 
+  // Filter Aksi Utama (Pantauan/Situasi)
   const mainActions = actions.filter(a => 
-    a.label.toLowerCase().includes('kondisi') || 
-    a.label.toLowerCase().includes('pantau') ||
-    a.label.toLowerCase().includes('situasi')
+    /kondisi|pantau|situasi/i.test(a.label)
   );
 
+  // Aksi Pendukung Lainnya (Umum)
   const supportActions = actions.filter(a => 
-    !a.label.toLowerCase().includes('kondisi') && 
-    !a.label.toLowerCase().includes('pantau') &&
-    !a.label.toLowerCase().includes('situasi')
+    !/kondisi|pantau|situasi/i.test(a.label)
   );
 
   if (isTyping || actions.length === 0) return null;
 
   return (
-    <div className={`w-full select-none border-t ${theme.border} ${theme.bg} transition-colors duration-300`}>
+    <div className={`w-full select-none border-t ${theme.border} ${theme.bg} transition-colors duration-500`}>
       
-      {/* HEADER TOGGLE - Lini interaksi utama */}
+      {/* HEADER TOGGLE */}
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-zinc-500/5 transition-colors"
+        className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-zinc-500/5 transition-colors"
       >
-        <div className="flex items-center gap-2">
-          <div className="flex space-x-1">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center -space-x-1">
             <div className="h-1.5 w-1.5 rounded-full bg-cyan-500 animate-pulse" />
-            <div className="h-1.5 w-1.5 rounded-full bg-cyan-500/40" />
+            <div className="h-1.5 w-1.5 rounded-full bg-cyan-500/30" />
           </div>
-          <span className="text-[10px] font-black tracking-[0.2em] text-zinc-500">SETEMPAT AI</span>
+          <span className="text-[10px] font-black tracking-[0.2em] text-zinc-500 uppercase">
+            Takon Cepat
+          </span>
         </div>
         
         <div className="flex items-center gap-2">
-           <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">
-             {isExpanded ? "Sembunyikan" : "Tampilkan Aksi"}
-           </span>
-           <motion.span 
-             animate={{ rotate: isExpanded ? 180 : 0 }}
-             className="text-[10px] text-zinc-500"
-           >
-             ▼
-           </motion.span>
+           <motion.div animate={{ rotate: isExpanded ? 0 : 180 }}>
+             <ChevronDown size={14} className="text-zinc-500" />
+           </motion.div>
         </div>
       </div>
 
-      {/* BODY - Konten Aksi */}
+      {/* BODY ACTIONS */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-4">
+            <div className="px-5 pb-6 space-y-4">
               
-              {/* GRUP 1: ACTION UTAMA */}
+              {/* TOMBOL UTAMA */}
               <div className="flex flex-wrap gap-2">
                 <motion.button
-                  whileHover={{ scale: 1.02, x: 2 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={onLaporClick}
-                  className="group flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-zinc-100 text-zinc-900 border border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900 shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-black bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-sm"
                 >
-                  <span className="group-hover:rotate-12 transition-transform">📸</span>
+                  <Camera size={14} />
                   LAPOR
                 </motion.button>
 
-                {mainActions.map((action) => (
+                {mainActions.map((action, i) => (
                   <motion.button
-                    key={action.id}
+                    key={action.id || `main-${i}`}
                     whileHover={{ y: -1 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => onActionClick(action.query)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border ${theme.accent} shadow-sm transition-all`}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => onActionClick(action.query || action.prompt)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold border ${theme.accent} shadow-sm`}
                   >
-                    <span>{action.emoji}</span>
+                    <span>{action.emoji || action.icon}</span>
                     <span className="uppercase tracking-tight">{action.label}</span>
                   </motion.button>
                 ))}
               </div>
 
-              {/* GRUP 2: LAYANAN PENDUKUNG */}
+              {/* TOMBOL PENDUKUNG */}
               {supportActions.length > 0 && (
-                <div className="space-y-2">
-                  <div className="h-[1px] w-full bg-zinc-800/10 dark:bg-zinc-800/50" />
-                  <div className="flex flex-wrap gap-2">
-                    {supportActions.map((action) => (
-                      <motion.button
-                        key={action.id}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => onActionClick(action.query)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${theme.border} ${theme.bg} ${theme.text} hover:border-zinc-500 transition-colors shadow-sm`}
-                      >
-                        <span className="grayscale-[0.5] group-hover:grayscale-0">{action.emoji}</span>
-                        {action.label}
-                      </motion.button>
-                    ))}
-                  </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {supportActions.map((action, i) => (
+                    <motion.button
+                      key={action.id || `sup-${i}`}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => onActionClick(action.query || action.prompt)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-medium border ${theme.border} ${theme.bg} ${theme.text} hover:border-zinc-400 transition-colors shadow-sm`}
+                    >
+                      <span className="text-xs">{action.emoji || action.icon}</span>
+                      {action.label}
+                    </motion.button>
+                  ))}
                 </div>
               )}
 
-              {/* FOOTER / TIPS */}
-              <div className="flex items-center gap-2 opacity-50">
-                <div className="h-[1px] w-4 bg-zinc-500" />
-                <p className="text-[9px] font-medium tracking-tight text-zinc-500 uppercase">
-                  Sapa AI kanggo bantuan luwih lanjut
+              {/* FOOTER TIPS */}
+              <div className="flex items-center gap-2 pt-1 opacity-40">
+                <Sparkles size={10} className="text-cyan-500" />
+                <p className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase">
+                  Pilih aksi atau ketik pertanyaanmu
                 </p>
               </div>
             </div>

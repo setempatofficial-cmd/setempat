@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Minus, Plus, Truck, MapPin, ShoppingBag, ArrowLeft, 
   Package, RefreshCw, Navigation, Edit2, CheckCircle,
@@ -18,6 +18,9 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
   const [realDistance, setRealDistance] = useState(null);
   const [distance, setDistance] = useState(1);
   const [ongkirOjek, setOngkirOjek] = useState(5000);
+  const [isAutoSliding, setIsAutoSliding] = useState(false); // Status auto slide
+  
+  const autoSlideIntervalRef = useRef(null); // Ref untuk interval auto slide
   
   const [orderForm, setOrderForm] = useState({ 
     jumlah: 1, 
@@ -26,6 +29,50 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
     recipient_name: '',
     recipient_phone: ''
   });
+
+  // Fungsi untuk menghentikan auto slide
+  const stopAutoSlide = () => {
+    if (autoSlideIntervalRef.current) {
+      clearInterval(autoSlideIntervalRef.current);
+      autoSlideIntervalRef.current = null;
+    }
+    setIsAutoSliding(false);
+  };
+
+  // Fungsi untuk memulai auto slide dari jarak minimal ke jarak sebenarnya
+  const startAutoSlide = (targetDistance) => {
+    // Hentikan auto slide yang sedang berjalan
+    stopAutoSlide();
+    
+    const startDistance = Math.max(realDistance || 0.5, 0.5);
+    const endDistance = targetDistance;
+    
+    // Jika jarak awal sama dengan jarak target, tidak perlu animasi
+    if (startDistance === endDistance) return;
+    
+    setIsAutoSliding(true);
+    
+    const duration = 1500; // Durasi animasi 1.5 detik
+    const steps = 30; // Jumlah langkah
+    const stepDuration = duration / steps;
+    const stepValue = (endDistance - startDistance) / steps;
+    
+    let currentStep = 0;
+    
+    autoSlideIntervalRef.current = setInterval(() => {
+      currentStep++;
+      
+      if (currentStep >= steps) {
+        // Selesai, set ke nilai target
+        setDistance(endDistance);
+        stopAutoSlide();
+      } else {
+        // Update nilai distance secara bertahap
+        const newDistance = startDistance + (stepValue * currentStep);
+        setDistance(parseFloat(newDistance.toFixed(1)));
+      }
+    }, stepDuration);
+  };
 
   // Ambil data user dari tabel profiles
   const fetchUserData = async () => {
@@ -44,7 +91,7 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
         .from('profiles')
         .select('full_name, phone, alamat, latitude, longitude, desa, kecamatan, kabupaten')
         .eq('id', userId)
-        .maybeSingle(); // Gunakan maybeSingle() instead of single() untuk menghindari error jika tidak ada data
+        .maybeSingle();
 
       if (error) {
         console.error("Error fetch user:", error);
@@ -55,7 +102,6 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
       if (userData) {
         console.log("User data found:", userData);
         
-        // Format alamat lengkap dari komponen yang ada
         let fullAddress = userData.alamat || '';
         if (userData.desa) fullAddress += `${fullAddress ? ', ' : ''}${userData.desa}`;
         if (userData.kecamatan) fullAddress += `${fullAddress ? ', ' : ''}${userData.kecamatan}`;
@@ -77,10 +123,21 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
             parseFloat(product.penjual_lon)
           );
           setRealDistance(d);
-          setDistance(Math.max(d, 0.5));
+          
+          // MULAI AUTO SLIDE dari jarak minimal ke jarak sebenarnya
+          // Set initial distance ke minimal (0.5 atau realDistance jika lebih kecil)
+          const initialDistance = Math.max(d, 0.5);
+          setDistance(0.5); // Mulai dari 0.5 km
+          
+          // Delay sebentar sebelum auto slide dimulai (biar user lihat perubahannya)
+          setTimeout(() => {
+            startAutoSlide(initialDistance);
+          }, 500);
+          
         } else {
           console.log("Tidak ada koordinat untuk hitung jarak");
           setRealDistance(1);
+          setDistance(1);
         }
       } else {
         console.log("No user data found for ID:", userId);
@@ -95,18 +152,17 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
   };
 
   const maskPhoneNumber = (phone) => {
-  if (!phone) return '-';
-  const str = phone.toString();
-  if (str.length <= 6) return str;
-  
-  // Tampilkan 4 digit awal dan 3 digit akhir
-  const start = str.slice(0, 4);
-  const end = str.slice(-3);
-  const starsCount = str.length - 7;
-  const stars = '*'.repeat(Math.min(starsCount, 6));
-  
-  return `${start}${stars}${end}`;
-};
+    if (!phone) return '-';
+    const str = phone.toString();
+    if (str.length <= 6) return str;
+    
+    const start = str.slice(0, 4);
+    const end = str.slice(-3);
+    const starsCount = str.length - 7;
+    const stars = '*'.repeat(Math.min(starsCount, 6));
+    
+    return `${start}${stars}${end}`;
+  };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return 1;
@@ -150,9 +206,19 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
     }
   };
 
+  // Cleanup interval saat component unmount atau modal ditutup
+  useEffect(() => {
+    return () => {
+      stopAutoSlide();
+    };
+  }, []);
+
   useEffect(() => {
     if (isOpen && userId) {
       fetchUserData();
+    } else if (!isOpen) {
+      // Hentikan auto slide saat modal ditutup
+      stopAutoSlide();
     }
   }, [isOpen, userId]);
 
@@ -283,7 +349,7 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
                 {isLoadingUserData ? (
                   <div className="flex items-center justify-center gap-2 p-4">
                     <RefreshCw size={16} className="animate-spin" />
-                    <span className="text-xs">Memuat data profil...</span>
+                    <span className="text-xs">Menghitung jarak anda ke penjual...</span>
                   </div>
                 ) : errorLoad ? (
                   <div className="flex items-center gap-2 p-3 bg-red-500/20 rounded-xl">
@@ -358,27 +424,53 @@ export default function OrderModal({ isOpen, onClose, product, userId, onOrderSu
                   </div>
                 )}
 
-                {/* Informasi Jarak */}
+                {/* Informasi Jarak dengan Auto Slider */}
                 <div className="mt-3 pt-3 border-t border-white/20">
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-center gap-1">
                       <Compass size={10} className="opacity-70" />
                       <span className="text-[9px] font-bold opacity-70">JARAK TEMPUH</span>
+                      {isAutoSliding && (
+                        <div className="flex items-center gap-1 ml-2">
+                          <RefreshCw size={8} className="animate-spin" />
+                          <span className="text-[7px] opacity-60">Menghitung ongkir...</span>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs font-bold">{distance} KM</span>
+                    <span className="text-xs font-bold">
+                      {distance} KM
+                      {realDistance && Math.abs(distance - realDistance) > 0.1 && !isAutoSliding && (
+                        <span className="text-[8px] ml-1 opacity-60">(Jarak Perkiraan: {realDistance} km)</span>
+                      )}
+                    </span>
                   </div>
                   <input 
                     type="range" 
-                    min={realDistance || 0.5} 
-                    max="15" 
-                    step="0.5" 
+                    min={realDistance ? Math.min(0.5, realDistance - 1) : 0.5} 
+                    max={realDistance ? Math.max(realDistance + 3, 15) : 15} 
+                    step="0.1" 
                     value={distance} 
-                    onChange={(e) => setDistance(parseFloat(e.target.value))} 
-                    className="w-full h-1 accent-white rounded-full"
-                    disabled={!realDistance}
+                    onChange={(e) => {
+                      setDistance(parseFloat(e.target.value));
+                      stopAutoSlide(); // Hentikan auto slide saat user menggeser manual
+                    }} 
+                    className="w-full h-1 accent-white rounded-full cursor-pointer"
                   />
+                  
+                  {/* Progress bar animasi */}
+                  {isAutoSliding && (
+                    <div className="mt-1 h-0.5 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white/60 rounded-full animate-pulse" style={{ width: '100%' }} />
+                    </div>
+                  )}
+                  
                   <p className="text-[8px] opacity-50 mt-1 text-center">
                     Ongkos Kirim: {formatRupiah(ongkirOjek)}
+                    {realDistance && (
+                      <span className="block opacity-40 mt-0.5">
+                        *Perkiraan ongkir berdasarkan jarak {realDistance} km dari lokasi Anda
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
