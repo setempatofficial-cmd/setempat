@@ -1,9 +1,10 @@
 "use client";
 
 import { useDataContext } from "@/contexts/DataContext";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusText";
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
+import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
 
 // Helper function untuk cek fresh report
 const getFreshReports = (reports, maxHours = 12) => {
@@ -39,6 +40,8 @@ export default function StatusIsland({
 }) {
   const { getAIContext } = useDataContext();
   const [internalExpanded, setInternalExpanded] = useState(false);
+  const [passiveSignal, setPassiveSignal] = useState(null);
+  const [isLoadingPassive, setIsLoadingPassive] = useState(false);
   
   const isExpanded = externalExpanded !== undefined ? externalExpanded : internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
@@ -52,96 +55,112 @@ export default function StatusIsland({
     return getAIContext(targetId);
   }, [item?.id, tempatId, getAIContext]);
   
-  // Ambil semua laporan (unfiltered)
   const allReportsRaw = useMemo(() => {
     if (allReports && allReports.length > 0) return allReports;
     return realtimeData?.recentReports || item?.laporan_terbaru || [];
   }, [allReports, realtimeData, item]);
   
-  // FILTER: HANYA laporan dalam 12 jam terakhir
-  const freshReports = useMemo(() => {
-    return getFreshReports(allReportsRaw, 12);
-  }, [allReportsRaw]);
-  
-  // Latest report dari data fresh
-  const latestFreshReport = useMemo(() => {
-    return getLatestFreshReport(allReportsRaw, 12);
-  }, [allReportsRaw]);
-  
-  // Hitung jam sejak laporan terakhir (unfiltered, untuk info)
-  const hoursSinceLastReport = useMemo(() => {
-    return getHoursSinceLastReport(allReportsRaw);
-  }, [allReportsRaw]);
-  
-  // Apakah ada data fresh?
-  const hasFreshData = useMemo(() => {
-    return freshReports.length > 0;
-  }, [freshReports]);
+  const freshReports = useMemo(() => getFreshReports(allReportsRaw, 12), [allReportsRaw]);
+  const latestFreshReport = useMemo(() => getLatestFreshReport(allReportsRaw, 12), [allReportsRaw]);
+  const hoursSinceLastReport = useMemo(() => getHoursSinceLastReport(allReportsRaw), [allReportsRaw]);
+  const hasFreshData = useMemo(() => freshReports.length > 0, [freshReports]);
   
   // ============================================
-  // SEED untuk deterministic text (dari item.id)
+  // FETCH PASSIVE SIGNAL (hanya jika tidak ada laporan fresh)
   // ============================================
-  const seed = useMemo(() => {
-    return String(item?.id || tempatId || "default");
-  }, [item?.id, tempatId]);
+  useEffect(() => {
+    const targetId = item?.id || tempatId;
+    if (!targetId) return;
+    
+    if (hasFreshData) {
+      setPassiveSignal(null);
+      return;
+    }
+    
+    const fetchSignals = async () => {
+      setIsLoadingPassive(true);
+      try {
+        const result = await getPassiveSignals(targetId, 4);
+        setPassiveSignal(result);
+      } catch (err) {
+        console.error("Error fetching passive signals:", err);
+        setPassiveSignal(null);
+      } finally {
+        setIsLoadingPassive(false);
+      }
+    };
+    
+    fetchSignals();
+  }, [item?.id, tempatId, hasFreshData]);
   
   // ============================================
-  // DEFAULT TEXT YANG KONSISTEN (gunakan getDefaultTextByTime)
+  // SEED & DEFAULT TEXT
   // ============================================
-const defaultSuasana = useMemo(() => {
-  const category = item?.category || "general";
-  return getDefaultTextByTime(seed, category);
-}, [seed, item?.category]);
+  const seed = useMemo(() => String(item?.id || tempatId || "default"), [item?.id, tempatId]);
+  
+  const defaultSuasana = useMemo(() => {
+    const category = item?.category || "general";
+    return getDefaultTextByTime(seed, category);
+  }, [seed, item?.category]);
   
   // ============================================
-  // GENERATE STATUS TEXT (berdasarkan ada/tidak data fresh)
+  // GENERATE STATUS TEXT
   // ============================================
   const status = useMemo(() => {
-    if (!hasFreshData) {
-      return {
-        text: defaultSuasana,
-        color: "text-gray-500",
-        bgColor: "bg-gray-500",
-        icon: "📍",
-        badge: "NORMAL",
-        vibe: hoursSinceLastReport 
-          ? `Belum ada laporan dalam ${hoursSinceLastReport} jam terakhir`
-          : "Belum ada laporan",
-        level: 1
-      };
+    // PRIORITAS 1: Ada laporan fresh dari warga
+    if (hasFreshData) {
+      const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
+      const trafficCondition = latestFreshReport?.traffic_condition;
+      const total = freshReports.length;
+      const isRecent = latestFreshReport?.created_at 
+        ? (new Date() - new Date(latestFreshReport.created_at)) < (2 * 60 * 60 * 1000)
+        : false;
+      
+      return generateStatusText({
+        kondisi,
+        trafficCondition,
+        total,
+        isRecent,
+        category: item?.category || "general",
+        name: item?.name || "",
+        deskripsi: latestFreshReport?.deskripsi || "",
+        jarak: item?.distance,
+        seed,
+      });
     }
     
-    // Ada data fresh, generate status berdasarkan data fresh
-    const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
-    const trafficCondition = latestFreshReport?.traffic_condition;
-    const total = freshReports.length;
-    const isRecent = latestFreshReport?.created_at 
-      ? (new Date() - new Date(latestFreshReport.created_at)) < (2 * 60 * 60 * 1000)
-      : false;
+    // PRIORITAS 2: Tidak ada laporan, tapi ada passive signal
+    if (passiveSignal && passiveSignal.total > 0) {
+      const passiveStatus = getPassiveStatusText(passiveSignal);
+      if (passiveStatus) return passiveStatus;
+    }
     
-    return generateStatusText({
-      kondisi,
-      trafficCondition,
-      total,
-      isRecent,
-      category: item?.category || "general",
-      name: item?.name || "",
-      deskripsi: latestFreshReport?.deskripsi || "",
-      jarak: item?.distance,
-      seed: seed // PASS SEED ke generateStatusText
-    });
-  }, [hasFreshData, freshReports, latestFreshReport, item, hoursSinceLastReport, defaultSuasana, seed]);
+    // PRIORITAS 3: Default
+    return {
+      text: defaultSuasana,
+      color: "text-gray-500",
+      bgColor: "bg-gray-500",
+      icon: "📍",
+      badge: "NORMAL",
+      vibe: hoursSinceLastReport 
+        ? `Belum ada laporan dalam ${hoursSinceLastReport} jam`
+        : "Belum ada laporan",
+      level: 1,
+    };
+  }, [hasFreshData, freshReports, latestFreshReport, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
   
   // ============================================
-  // RINGKASAN MULTI-USER (HANYA dari data fresh)
+  // RINGKASAN MULTI-USER (EXPAND)
   // ============================================
   const ringkasanMultiUser = useMemo(() => {
-    if (!hasFreshData) {
-      return "Belum ada laporan terbaru dari warga sekitar.";
+    if (hasFreshData) {
+      return generateRingkasanMultiUser(freshReports, item?.category || "general");
     }
-    const category = item?.category || "general";
-    return generateRingkasanMultiUser(freshReports, category);
-  }, [freshReports, item?.category, hasFreshData]);
+    if (passiveSignal && passiveSignal.total > 0) {
+      return getPassiveRingkasan(passiveSignal, item?.name);
+    }
+    return "Belum ada laporan terbaru dari warga sekitar.";
+  }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal]);
   
   // ============================================
   // JARAK (FORMATTED)
@@ -154,7 +173,7 @@ const defaultSuasana = useMemo(() => {
   }, [item?.distance]);
   
   // ============================================
-  // WAKTU UPDATE (dari laporan fresh terbaru)
+  // WAKTU UPDATE
   // ============================================
   const waktuUpdate = useMemo(() => {
     if (!latestFreshReport?.created_at) return null;
@@ -168,31 +187,129 @@ const defaultSuasana = useMemo(() => {
   // ============================================
   // LEVEL & EXPAND
   // ============================================
-  const canExpand = status.level >= 2 && hasFreshData;
+  const canExpand = (status.level >= 2 && hasFreshData) || (passiveSignal && passiveSignal.total > 0);
   
   // ============================================
-  // RENDER: Kasus TIDAK ADA DATA FRESH
+  // RENDER: TIDAK ADA DATA FRESH
   // ============================================
   if (!hasFreshData) {
-    return (
-      <div className="h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm">
-        <div className="flex items-center gap-3 w-full">
-          <div className="h-2 w-2 rounded-full shrink-0 bg-gray-400" />
-          <p className="text-[14px] font-black uppercase tracking-tight truncate flex-1 text-gray-500">
-             {defaultSuasana}
-          </p>
-          {hoursSinceLastReport && (
-            <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-              {hoursSinceLastReport} jam lalu
-            </span>
-          )}
+    if (isLoadingPassive && !passiveSignal) {
+      return (
+        <div className="h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3 w-full">
+            <div className="h-2 w-2 rounded-full shrink-0 bg-gray-300 animate-pulse" />
+            <p className="text-[14px] font-black uppercase tracking-tight truncate flex-1 text-gray-400">
+              Memuat...
+            </p>
+          </div>
         </div>
+      );
+    }
+    
+    return (
+      <div className="relative">
+        <div 
+          onClick={() => canExpand && setIsExpanded(!isExpanded)}
+          className={`h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm transition-all duration-200
+            ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''}
+            ${isExpanded ? 'rounded-b-none' : ''}
+          `}
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3 w-full">
+              <div className={`h-2 w-2 rounded-full shrink-0 ${status.color?.replace('text', 'bg') || 'bg-gray-400'}`} />
+              <p className={`text-[14px] font-black uppercase tracking-tight truncate flex-1 ${status.color || 'text-gray-500'}`}>
+                {status.icon} {status.text}
+              </p>
+              {passiveSignal ? (
+                <span className="text-[9px] text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
+                  📊 {passiveSignal.total} interaksi
+                </span>
+              ) : hoursSinceLastReport && (
+                <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
+                  {hoursSinceLastReport} jam lalu
+                </span>
+              )}
+            </div>
+            
+            {canExpand && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 ml-2">
+                <span className="text-[9px] font-black uppercase text-gray-500">
+                  {isExpanded ? 'Tutup' : 'Detail'}
+                </span>
+                <svg 
+                  className={`w-3 h-3 transition-transform duration-200 text-gray-500 ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isExpanded && canExpand && (
+          <div className="bg-white border border-t-0 border-gray-100 rounded-b-[28px] px-5 pb-5 pt-3 shadow-sm">
+            <div className="space-y-3">
+              <div className={`p-3 rounded-xl ${passiveSignal?.isCrowded ? 'bg-orange-50/80 border border-orange-100' : 'bg-purple-50/80 border border-purple-100'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-[9px] font-bold uppercase tracking-wider ${passiveSignal?.isCrowded ? 'text-orange-600' : 'text-purple-600'}`}>
+                    {passiveSignal?.isCrowded ? '📊 AKTIVITAS PENGGUNA' : '👀 MINAT PENGGUNA'}
+                  </span>
+                  <span className="text-[9px] text-gray-400">4 jam terakhir</span>
+                </div>
+                
+                <p className="text-[13px] leading-relaxed text-gray-700 whitespace-pre-line">
+                  {ringkasanMultiUser}
+                </p>
+
+                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-purple-200/50">
+                  <div className="flex -space-x-2">
+                    {[...Array(Math.min(passiveSignal?.total || 0, 5))].map((_, idx) => (
+                      <div key={idx} className="w-6 h-6 rounded-full bg-purple-200 border-2 border-white shadow-sm flex items-center justify-center">
+                        <span className="text-[8px] font-bold text-purple-600">👤</span>
+                      </div>
+                    ))}
+                  </div>
+                  <span className="text-[9px] text-gray-500">
+                    {passiveSignal?.total || 0} interaksi dalam 4 jam
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between px-1">
+                <div className="flex gap-3">
+                  <div>
+                    <span className="text-[8px] font-bold text-gray-400 uppercase">Status</span>
+                    <p className="text-[10px] font-bold text-gray-600">{status.badge || status.text}</p>
+                  </div>
+                  <div className="border-l border-gray-200 pl-3">
+                    <span className="text-[8px] font-bold text-gray-400 uppercase">Saksi</span>
+                    <p className="text-[10px] font-bold text-gray-600">🗃️ {jumlahWarga || 0}</p>
+                  </div>
+                  <div className="border-l border-gray-200 pl-3">
+                    <span className="text-[8px] font-bold text-gray-400 uppercase">Interaksi</span>
+                    <p className="text-[10px] font-bold text-gray-600">👥 {passiveSignal?.total || 0}</p>
+                  </div>
+                </div>
+                {jarakFix && (
+                  <div className="text-right">
+                    <span className="text-[8px] font-bold text-gray-400 uppercase">Jarak</span>
+                    <p className="text-[10px] font-bold text-gray-500">{jarakFix}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
   
   // ============================================
-  // RENDER: ADA DATA FRESH tapi LEVEL 1 (tidak bisa expand)
+  // RENDER: ADA DATA FRESH LEVEL 1
   // ============================================
   if (status.level === 1 && !isExpanded) {
     return (
@@ -213,11 +330,10 @@ const defaultSuasana = useMemo(() => {
   }
   
   // ============================================
-  // RENDER: ADA DATA FRESH dengan LEVEL 2 & 3 (bisa expand)
+  // RENDER: ADA DATA FRESH LEVEL 2 & 3
   // ============================================
   return (
     <div className="relative">
-      {/* HEADER - Selalu berwarna, bisa diklik */}
       <div 
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         className={`rounded-[28px] h-14 px-5 flex items-center shadow-sm cursor-pointer transition-all duration-200
@@ -251,11 +367,9 @@ const defaultSuasana = useMemo(() => {
         </div>
       </div>
 
-      {/* EXPANDED CONTENT - Muncul di bawah header */}
       {isExpanded && canExpand && (
         <div className="bg-white border border-t-0 border-gray-100 rounded-b-[28px] px-5 pb-5 pt-3 shadow-sm">
           <div className="space-y-3">
-            {/* Ringkasan Multi-User */}
             <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-100">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[9px] font-bold text-amber-600 uppercase tracking-wider">
@@ -268,11 +382,10 @@ const defaultSuasana = useMemo(() => {
                 )}
               </div>
               
-              <p className="text-[13px] leading-relaxed text-gray-700 italic">
+              <p className="text-[13px] leading-relaxed text-gray-700 italic whitespace-pre-line">
                 "{ringkasanMultiUser}"
               </p>
 
-              {/* Avatar Group */}
               <div className="flex items-center gap-2 mt-3 pt-2 border-t border-amber-200/50">
                 <div className="flex -space-x-2">
                   {freshReports.slice(0, 5).map((report, idx) => (
@@ -297,7 +410,6 @@ const defaultSuasana = useMemo(() => {
               </div>
             </div>
 
-            {/* Footer Info */}
             <div className="flex items-center justify-between px-1">
               <div className="flex gap-3">
                 <div>

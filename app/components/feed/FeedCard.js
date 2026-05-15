@@ -3,11 +3,10 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Heart, Share2, MessageCircle } from "lucide-react";
 
 import PhotoSlider from "./PhotoSlider";
 import LiveInsight from "./LiveInsight";
-import FeedActions from "./FeedActions";
 import StatusIsland from "./StatusIsland";
 import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
@@ -21,11 +20,312 @@ import { useExternalSignals } from '@/hooks/useExternalSignals';
 import { getCategoryStyle } from "@/lib/feedStyles";
 
 // ==================== ANIMATION CONSTANTS ====================
-const PING_ANIM = {
-  animate: { opacity: [0.5, 1, 0.5] },
-  transition: { repeat: Infinity, duration: 2 },
+const CARD_ANIMATION = {
+  initial: { opacity: 0, y: 20, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -20, scale: 0.98 },
+  transition: { duration: 0.4, type: "spring", stiffness: 300, damping: 25 }
 };
 
+const HOVER_SCALE = { scale: 1.01 };
+const HOVER_SHADOW = { boxShadow: "0 20px 40px -12px rgba(0,0,0,0.3)" };
+const PULSE_ANIMATION = {
+  animate: {
+    scale: [1, 1.05, 1],
+    opacity: [0.8, 1, 0.8]
+  },
+  transition: { repeat: Infinity, duration: 2 }
+};
+
+const GLOW_ANIMATION = {
+  animate: {
+    boxShadow: [
+      "0 0 0px rgba(229, 62, 62, 0)",
+      "0 0 20px rgba(229, 62, 62, 0.5)",
+      "0 0 0px rgba(229, 62, 62, 0)"
+    ]
+  },
+  transition: { repeat: Infinity, duration: 2, repeatDelay: 1 }
+};
+
+// ==================== HOOKS ====================
+const useWindowSize = () => {
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 375,
+    height: typeof window !== 'undefined' ? window.innerHeight : 667,
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let timeoutId;
+    const handleResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setWindowSize({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+      }, 100);
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
+  return windowSize;
+};
+
+const usePrefersReducedMotion = () => {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+
+    const handler = (e) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  return prefersReducedMotion;
+};
+
+// ==================== UTILITIES ====================
+const safeArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && value !== null) {
+    const possibleArray = Object.values(value);
+    if (possibleArray.length > 0 && possibleArray.every(v => v !== undefined)) {
+      return possibleArray;
+    }
+  }
+  return [];
+};
+
+// ==================== PREMIUM COMPONENTS ====================
+
+const ViralBadge = memo(() => {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  return (
+    <motion.div
+      {...(prefersReducedMotion ? {} : GLOW_ANIMATION)}
+      className="bg-gradient-to-r from-red-600 to-orange-500 text-white text-[7px] sm:text-[8px] px-2 sm:px-3 py-1 rounded-full font-black flex items-center gap-1"
+    >
+      {!prefersReducedMotion && (
+        <motion.span
+          animate={{ rotate: [0, 10, -10, 0] }}
+          transition={{ repeat: Infinity, duration: 1.5, repeatDelay: 0.5 }}
+        >
+          🔥
+        </motion.span>
+      )}
+      {prefersReducedMotion && <span>🔥</span>}
+      VIRAL
+    </motion.div>
+  );
+});
+
+ViralBadge.displayName = 'ViralBadge';
+
+const DistanceBadge = memo(({ distance, theme }) => {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  return (
+    <motion.div
+      whileHover={{ scale: 1.05 }}
+      className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-md ${theme.isMalam ? "bg-black/50" : "bg-black/30"} border border-white/20`}
+    >
+      <p
+        className={`text-[8px] sm:text-[9px] font-black text-white whitespace-nowrap flex items-center gap-1`}
+        {...(!prefersReducedMotion && {
+          animate: { x: [0, -2, 2, 0] },
+          transition: { repeat: Infinity, duration: 3, repeatDelay: 2 }
+        })}
+      >
+        📍 {distance}
+      </p>
+    </motion.div>
+  );
+});
+
+DistanceBadge.displayName = 'DistanceBadge';
+
+const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  };
+
+  return (
+    <motion.button
+      whileHover={{ scale: 1.05, y: -2 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={handleClick}
+      className={`
+        flex-1 py-2.5 rounded-xl font-medium text-sm transition-all
+        bg-white/10 hover:bg-white/20 
+        ${theme.text}
+        flex items-center justify-center gap-2
+        focus:outline-none focus:ring-2 focus:ring-white/50
+      `}
+      aria-label={label}
+    >
+      <Icon size={16} className={theme.text} aria-hidden="true" />
+      <span className="hidden sm:inline">{label}</span>
+    </motion.button>
+  );
+});
+
+PremiumActionButton.displayName = 'PremiumActionButton';
+
+const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChange }) => {
+  const { user } = useAuth();
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(initialLikeCount || 0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const checkLikeStatus = async () => {
+      if (!user?.id || !tempatId) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('tempat_id', tempatId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!error && data && isMounted.current) {
+          setIsLiked(true);
+        }
+      } catch (error) {
+        console.error('Error checking like status:', error);
+      }
+    };
+
+    checkLikeStatus();
+  }, [user?.id, tempatId]);
+
+  const handleLike = async () => {
+    if (!user?.id) {
+      window.dispatchEvent(new CustomEvent('open-auth-modal'));
+      return;
+    }
+
+    if (isLoading) return;
+
+    setError(null);
+    setIsLoading(true);
+
+    const newIsLiked = !isLiked;
+    const newCount = newIsLiked ? likeCount + 1 : likeCount - 1;
+
+    setIsLiked(newIsLiked);
+    setLikeCount(newCount);
+    if (onLikeChange) onLikeChange(newIsLiked, newCount);
+
+    try {
+      if (newIsLiked) {
+        const { error } = await supabase.from('likes').insert({
+          tempat_id: tempatId,
+          user_id: user.id,
+          created_at: new Date().toISOString()
+        });
+        if (error) throw error;
+
+        await supabase.rpc('increment_vibe_count', { place_id: tempatId });
+      } else {
+        const { error } = await supabase.from('likes')
+          .delete()
+          .eq('tempat_id', tempatId)
+          .eq('user_id', user.id);
+        if (error) throw error;
+
+        await supabase.rpc('decrement_vibe_count', { place_id: tempatId });
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      setError('Gagal menyukai. Coba lagi nanti.');
+
+      if (isMounted.current) {
+        setIsLiked(!newIsLiked);
+        setLikeCount(newIsLiked ? likeCount : likeCount + 1);
+        if (onLikeChange) onLikeChange(!newIsLiked, newIsLiked ? likeCount : likeCount + 1);
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+        setTimeout(() => setError(null), 3000);
+      }
+    }
+  };
+
+  return (
+    <div className="relative flex-1">
+      <motion.button
+        whileHover={{ scale: 1.05, y: -2 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={handleLike}
+        disabled={isLoading}
+        className={`
+          w-full py-2.5 rounded-xl font-medium text-sm transition-all
+          flex items-center justify-center gap-2
+          focus:outline-none focus:ring-2 focus:ring-white/50
+          ${isLiked
+            ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/25'
+            : 'bg-white/10 hover:bg-white/20'
+          }
+          ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
+        aria-label={isLiked ? 'Batal suka' : 'Suka'}
+        aria-busy={isLoading}
+      >
+        <motion.div
+          animate={isLiked && !isLoading ? { scale: [1, 1.3, 1], rotate: [0, 15, -15, 0] } : {}}
+          transition={{ duration: 0.3 }}
+        >
+          <Heart
+            size={16}
+            className={isLiked ? "fill-white text-white" : theme.text}
+            aria-hidden="true"
+          />
+        </motion.div>
+        <span className={`hidden sm:inline ${isLiked ? 'text-white' : theme.text}`}>
+          {`Suka (${likeCount})`}
+        </span>
+      </motion.button>
+      {error && (
+        <div className="absolute -bottom-6 left-0 right-0 text-center">
+          <span className="text-xs text-red-500 bg-black/50 px-2 py-1 rounded">
+            {error}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+PremiumLikeButton.displayName = 'PremiumLikeButton';
+
+// ==================== MAIN COMPONENT ====================
 const DEFAULT_ITEM = {
   id: 0,
   name: "",
@@ -39,32 +339,7 @@ const DEFAULT_ITEM = {
   isRamai: false,
 };
 
-// ==================== HOOKS ====================
-const useWindowSize = () => {
-  const [windowSize, setWindowSize] = useState({
-    width: typeof window !== 'undefined' ? window.innerWidth : 375,
-    height: typeof window !== 'undefined' ? window.innerHeight : 667,
-  });
-
-  useEffect(() => {
-    const handleResize = () => {
-      setWindowSize({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-    };
-
-    window.addEventListener('resize', handleResize);
-    handleResize();
-    
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  return windowSize;
-};
-
-// ==================== MAIN COMPONENT ====================
-function FeedCard({
+function FeedCardV2Premium({
   item = DEFAULT_ITEM,
   isDetail = false,
   showAIButton = true,
@@ -80,36 +355,33 @@ function FeedCard({
   onShare,
   onRefreshNeeded,
   priority = false,
-  preloadNext = false,
-  cardIndex = 0, 
+  cardIndex = 0,
   userProfile,
-  userAvatar, 
+  userAvatar,
 }) {
+  const safeItem = useMemo(() => {
+    if (!item || typeof item !== 'object') return DEFAULT_ITEM;
+    return {
+      ...DEFAULT_ITEM,
+      ...item,
+      photos: safeArray(item.photos)
+    };
+  }, [item]);
 
-  const safeItem = item || DEFAULT_ITEM;
   const tempatId = safeItem.id;
-
-  // --- Hooks ---
   const { user } = useAuth();
   const theme = useTheme();
-
-  // ✅ FIX 1: Gunakan catStyle langsung, jangan buat cardBgClass
-  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam); 
-  
-  // ✅ FIX 2: Gabungkan semua class background dengan benar
-  const cardBackgroundClass = `${catStyle.bg} ${theme.isMalam ? 'dark' : ''}`;
-
+  const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
+  const prefersReducedMotion = usePrefersReducedMotion();
+
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
-  const isMedium = windowWidth >= 380 && windowWidth < 640;
-  
-  // --- State ---
+
+  const [isHovered, setIsHovered] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxItems, setLightboxItems] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-
-  const [isSesuai, setIsSesuai] = useState(false);
   const [localValidationCount, setLocalValidationCount] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
@@ -120,7 +392,6 @@ function FeedCard({
   const laporanTerbaru = localLaporanWarga[0];
   const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
 
-  // OPTIMIZED: Update jam setiap menit
   const [currentTime, setCurrentTime] = useState(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -131,17 +402,14 @@ function FeedCard({
       const now = new Date();
       setCurrentTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
     }, 60000);
-    
     return () => clearInterval(interval);
   }, []);
 
   const [currentHour, currentMinute] = currentTime.split(':');
 
-  // --- Refs ---
   const cardRef = useRef(null);
   const observerRef = useRef(null);
   const channelRef = useRef(null);
-  const prevLaporanRef = useRef(item?.laporan_terbaru);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
 
@@ -155,7 +423,6 @@ function FeedCard({
     router.refresh();
   }, [onRefreshNeeded, router]);
 
-  // --- Core Lifecycle ---
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -169,6 +436,7 @@ function FeedCard({
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
+
     const initObserver = () => {
       observerRef.current = new IntersectionObserver(
         ([entry]) => {
@@ -181,6 +449,7 @@ function FeedCard({
       );
       observerRef.current.observe(currentCard);
     };
+
     timeoutRef.current = setTimeout(initObserver, 0);
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -188,68 +457,90 @@ function FeedCard({
     };
   }, []);
 
-  // ==================== SUBSCRIPTION REAL-TIME DENGAN CHANNEL ID UNIK 
   useEffect(() => {
+    if (!tempatId || !isVisible) return;
+
     const fetchLaporanWarga = async () => {
-      if (!tempatId || !isVisible) return;
-      
-      const { data, error } = await supabase
-        .from('laporan_warga')
-        .select('*, user_avatar, deskripsi, user_name, photo_url')
-        .eq('tempat_id', tempatId)
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (data && !error) {
-        setLocalLaporanWarga(data);
+      try {
+        const { data, error } = await supabase
+          .from('laporan_warga')
+          .select('*, user_avatar, deskripsi, user_name, photo_url')
+          .eq('tempat_id', tempatId)
+          .eq('status', 'approved')
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (data && !error && isMounted.current) {
+          setLocalLaporanWarga(data);
+        }
+      } catch (error) {
+        console.error('Error fetching laporan warga:', error);
       }
     };
-    
+
     fetchLaporanWarga();
-    
+
     const uniqueId = `${tempatId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const channelId = `feed_lw_${uniqueId}`;
-    
+
     const channel = supabase
       .channel(channelId)
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'laporan_warga', 
-          filter: `tempat_id=eq.${tempatId}` 
+      .on('postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'laporan_warga',
+          filter: `tempat_id=eq.${tempatId}`
         },
         (payload) => {
-          if (isMounted.current) {
+          if (isMounted.current && payload.new) {
             setLocalLaporanWarga(prev => [payload.new, ...prev].slice(0, 50));
           }
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`✅ Subscribed to laporan_warga for tempat ${tempatId}`);
-        }
-      });
-      
-    return () => { 
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
       if (channel) {
         supabase.removeChannel(channel);
       }
     };
   }, [tempatId, isVisible]);
 
-  // --- Memoized Values ---
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
-  const feed = useMemo(() => processFeedItem({ item: safeItem, comments, locationReady, location }),
-    [safeItem.id, safeItem.vibe_count, safeItem.status, safeItem.isViral, safeItem.isRamai, comments, locationReady, location?.latitude, location?.longitude]
-  );
+  const feed = useMemo(() => {
+    try {
+      return processFeedItem({ item: safeItem, comments, locationReady, location });
+    } catch (error) {
+      console.error('Error processing feed item:', error);
+      return null;
+    }
+  }, [safeItem.id, safeItem.vibe_count, safeItem.status, safeItem.isViral, safeItem.isRamai, comments, locationReady, location?.latitude, location?.longitude]);
 
-  const photoUrls = useMemo(() => {
-    const photos = Array.isArray(safeItem.photos) ? safeItem.photos : [];
-    return photos.filter((p) => p && typeof p === "string" && p.startsWith("http"))
-      .map((p) => ({ url: p, isOfficial: true, badge: "⭐ Official" }));
+  const officialPhotosByTime = useMemo(() => {
+    const photos = safeItem.photos;
+    if (!photos || typeof photos !== 'object') return null;
+
+    // Cek apakah photos memiliki struktur { pagi, siang, sore, malam }
+    if (photos.pagi || photos.siang || photos.sore || photos.malam) {
+      return photos; // Kirim full object ke PhotoSlider
+    }
+
+    // Fallback: ubah array biasa ke format time-based
+    if (Array.isArray(photos)) {
+      // Semua foto masuk ke semua waktu (atau sesuaikan)
+      return {
+        pagi: photos,
+        siang: photos,
+        sore: photos,
+        malam: photos
+      };
+    }
+
+    return null;
   }, [safeItem.photos]);
 
   const allSignals = useMemo(() => {
@@ -257,10 +548,10 @@ function FeedCard({
     return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [localLaporanWarga, externalSignals]);
 
-  // --- Callbacks ---
   const handlePhotoClick = useCallback((photos, currentIndex) => {
+    if (!photos || !Array.isArray(photos)) return;
     const items = photos.map(p => ({
-      url: p.url,
+      url: p.url || p,
       caption: p.caption,
       created_at: p.created_at,
     }));
@@ -270,45 +561,61 @@ function FeedCard({
   }, []);
 
   const handleSesuai = useCallback(async () => {
-    if (isSesuai || !safeItem.id) return;
-    setIsSesuai(true);
+    if (!safeItem.id) return;
     setLocalValidationCount((v) => v + 1);
-    try { await supabase.from("minat").insert([{ tempat_id: safeItem.id }]); } catch (e) { console.error(e); }
-  }, [isSesuai, safeItem.id]);
+    try {
+      await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [safeItem.id]);
 
   const handleOpenStoryModal = useCallback((id, stories) => {
-    setActiveStories((stories || []).map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
+    const safeStories = (stories || []).map((s) => ({
+      ...s,
+      url: s.url || s.photo_url || s.image_url
+    }));
+    setActiveStories(safeStories);
     setIsStoryModalOpen(true);
   }, []);
 
   const handleUploadSuccess = useCallback((newLaporan) => {
-    setLocalLaporanWarga((prev) => prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50));
+    if (!newLaporan) return;
+    setLocalLaporanWarga((prev) =>
+      prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50)
+    );
     requestAnimationFrame(() => {
-      setActiveStories((prev) => [newLaporan, ...prev].map((s) => ({ ...s, url: s.url || s.photo_url || s.image_url })));
+      setActiveStories((prev) => [newLaporan, ...prev].map((s) => ({
+        ...s,
+        url: s.url || s.photo_url || s.image_url
+      })));
       setIsStoryModalOpen(true);
     });
     handleLocalRefresh();
   }, [handleLocalRefresh]);
 
-  const handleOpenAIModal = useCallback((query) => openAIModal?.(safeItem, handleUploadSuccess, query), [openAIModal, safeItem, handleUploadSuccess]);
+  const handleOpenAIModal = useCallback(() => {
+    if (openAIModal) {
+      openAIModal(safeItem, handleUploadSuccess);
+    }
+  }, [openAIModal, safeItem, handleUploadSuccess]);
+
   const handleCloseStoryModal = useCallback(() => setIsStoryModalOpen(false), []);
 
-  // ==================== NAVIGATION TO DETAIL PAGE ====================
   const handleGoToDetail = useCallback(() => {
     if (isDetail) return;
-    // Save current scroll position
     const scrollY = window.scrollY;
     sessionStorage.setItem(`feed_scroll_${safeItem.id}`, scrollY.toString());
     sessionStorage.setItem(`feed_return_category`, safeItem.category || 'all');
-    
-    // Navigate to detail page
-   router.push(`/post/${item.id}`);
+    router.push(`/post/${safeItem.id}`);
   }, [router, safeItem.id, safeItem.category, isDetail]);
 
-  if (!item?.id) return null;
+  const handleLikeChange = useCallback((isLiked, newCount) => {
+    console.log(`Like status changed for ${safeItem.name}: ${isLiked}, count: ${newCount}`);
+  }, [safeItem.name]);
 
-  const currentPhotoIndex = selectedPhotoIndex?.[safeItem.id] || 0;
-  const headline = feed?.headline?.text || feed?.narasiCerita?.split(".")[0] || "UPDATE SEKITAR";
+  if (!item?.id && safeItem.id === 0) return null;
+
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
   const alamatText = safeItem.alamat || "AREA SETEMPAT";
   const itemStatusClass = safeItem.isViral ? "viral" : safeItem.isRamai ? "ramai" : "biasa";
@@ -322,212 +629,231 @@ function FeedCard({
     return statusMap[itemStatusClass] || statusMap.biasa;
   }, [itemStatusClass]);
 
-  // ✅ FIX 3: Perbaiki border class untuk konsistensi
-  const cardBorderClass = useMemo(() => {
-    if (safeItem.isViral) return "border-b-4 border-red-500/50";
-    if (safeItem.isRamai) return "border-b-4 border-yellow-500/50";
-    return theme.isMalam ? 'border-b border-white/10' : 'border-b border-black/10';
-  }, [safeItem.isViral, safeItem.isRamai, theme.isMalam]);
-
-  // Responsive spacing classes
   const paddingX = `px-4 ${!isNarrow ? 'sm:px-5' : ''}`;
-  const paddingY = `py-3 ${isNarrow ? 'py-2' : 'sm:py-4'}`;
-  const gapSize = isNarrow ? 'gap-1' : 'gap-2';
-  const textSize = isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]';
+
+  const cardAnimation = prefersReducedMotion
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.2 } }
+    : CARD_ANIMATION;
+
+  const hoverAnimation = prefersReducedMotion ? {} : { whileHover: HOVER_SCALE };
+  const hoverShadowAnimation = prefersReducedMotion ? {} : { whileHover: HOVER_SHADOW };
+  const pulseAnimation = prefersReducedMotion ? {} : PULSE_ANIMATION;
+
+
+  // Logika menentukan teks ajakan yang luwes
+  const getPinarakText = () => {
+    const category = safeItem?.category?.toLowerCase() || '';
+    const name = safeItem?.name || 'lokasi ini';
+
+    if (category.includes('balai desa') || category.includes('kantor')) {
+      return `Intip layanan & jeroane ${name}`;
+    }
+    if (category.includes('pasar') || category.includes('peken') || category.includes('toko')) {
+      return `Cek rego & keramaian di ${name}`;
+    }
+    if (category.includes('kuliner') || category.includes('warung') || category.includes('kafe')) {
+      return `Intip menu & suasana di ${name}`;
+    }
+    if (category.includes('wisata') || category.includes('taman')) {
+      return `Delok pemandangan di ${name}`;
+    }
+
+    // Default kalau kategori tidak spesifik
+    return `Pinarak, intip kondisi terkini di ${name}`;
+  };
 
   return (
-    <div
+    <motion.div
       ref={cardRef}
       id={`feed-card-${safeItem.id}`}
-      className="relative mb-3 sm:mb-4 w-full will-change-transform feed-card"
+      layout={!prefersReducedMotion}
+      {...cardAnimation}
+      {...hoverAnimation}
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+      className="relative mb-4 sm:mb-5 w-full will-change-transform"
       style={{ isolation: "isolate" }}
     >
       <motion.div
-        layout
+        layout={!prefersReducedMotion}
         layoutId={`card-container-${safeItem.id}`}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
+        {...hoverShadowAnimation}
         className={`
           relative overflow-hidden
-          rounded-xl sm:rounded-2xl
+          rounded-2xl sm:rounded-3xl
           ${catStyle.border}
           ${catStyle.bg}
           flex flex-col 
           transition-all duration-300
-          ${cardBorderClass}
-          shadow-sm
+          backdrop-blur-sm
+          ${safeItem.isViral ? 'ring-2 ring-red-500/30' : ''}
+          ${isHovered && !prefersReducedMotion ? 'shadow-2xl' : 'shadow-lg'}
         `}
       >
-        {/* Header - Responsive Padding */}
-        <div className={`${paddingX} pt-4 sm:pt-6 pb-2 sm:pb-3`}>
-          <div className={`flex items-center justify-between mb-2 sm:mb-4 ${gapSize}`}>
-            <div className="flex flex-col gap-0.5 sm:gap-1">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <span className={`${textSize} font-black uppercase tracking-widest ${catStyle.text} flex items-center gap-1.5`}>
-                  <span>{catStyle.icon}</span>
-                  <span>{safeItem.category || 'Update Terkini'}</span>
-                </span>
-                {safeItem.isViral && (
-                  <motion.span {...PING_ANIM} className="bg-red-500 text-white text-[7px] sm:text-[8px] px-1.5 sm:px-2 py-0.5 rounded-full font-black">VIRAL</motion.span>
-                )}
-              </div>
-              <h3 className={`text-[13px] sm:text-[15px] font-[1000] uppercase tracking-tight leading-tight ${theme.text}`}>
-                ⭕{safeItem.name}
-              </h3>
-            </div>
+        <AnimatePresence>
+          {isHovered && !prefersReducedMotion && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none z-0"
+            />
+          )}
+        </AnimatePresence>
 
-            <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl ${theme.isMalam ? "bg-white/10" : "bg-black/5"}`}>
-              <p className={`${textSize} font-black ${theme.text} opacity-60 whitespace-nowrap`}>
-                📍 {distanceText}
-              </p>
+        {/* ==================== MEDIA SECTION (FOTO) ==================== */}
+        <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
+          <PhotoSlider
+            photos={officialPhotosByTime}
+            tempatId={safeItem.id}
+            namaTempat={safeItem.name}
+            isHujan={safeItem.status === "hujan"}
+            priority={priority}
+            className="w-full h-full object-cover"
+            selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
+            setSelectedPhotoIndex={(idx) => {
+              if (setSelectedPhotoIndex) {
+                setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
+              }
+            }}
+            onUploadSuccess={handleUploadSuccess}
+            onPhotoClick={handlePhotoClick}
+          />
+
+          {/* GRADIENT OVERLAY untuk teks */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
+
+          {/* ==================== FLOATING HEADER (DI ATAS FOTO) ==================== */}
+          <div className="absolute top-0 left-0 right-0 p-5 z-20">
+            <div className="flex justify-between items-start gap-2">
+              {/* Kiri: Kategori & Nama Tempat */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg">
+                    {catStyle.icon} {safeItem.category || 'Update Terkini'}
+                  </span>
+                  {safeItem.isViral && <ViralBadge />}
+                </div>
+
+                {/* NAMA TEMPAT SAJA (tanpa alamat) */}
+                <h3 className="text-xl sm:text-2xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
+                  <span className="text-cyan-400 mr-2">●</span>{safeItem.name}
+                </h3>
+              </div>
+
+              {/* Kanan: DISTANCE BADGE */}
+              <div className="flex-shrink-0">
+                <DistanceBadge distance={distanceText} theme={{ ...theme, isMalam: true }} />
+              </div>
             </div>
           </div>
 
+          {/* ==================== STORY CIRCLE (KIRI BAWAH FOTO) ==================== */}
+          <motion.div
+            className="absolute bottom-4 left-4 z-50"
+            whileHover={!prefersReducedMotion ? { scale: 1.1 } : {}}
+            {...(localLaporanWarga.length > 0 && !prefersReducedMotion ? pulseAnimation : {})}
+          >
+            <StoryCircle
+              laporanWarga={localLaporanWarga}
+              tempatId={safeItem.id}
+              namaTempat={safeItem.name}
+              theme={theme}
+              openStoryModal={handleOpenStoryModal}
+              onRefreshNeeded={handleLocalRefresh}
+            />
+          </motion.div>
+        </div>
+
+        {/* ==================== STATUS ISLAND (DI BAWAH FOTO) ==================== */}
+        <div className={`${paddingX} pt-4 pb-2`}>
           <StatusIsland
             item={safeItem}
             theme={theme}
-            allReports={allSignals} 
+            allReports={allSignals}
             isExpanded={isExpanded}
             setIsExpanded={setIsExpanded}
             jumlahWarga={totalSaksi}
           />
         </div>
 
-        {/* Media Section */}
-<div className="px-2 sm:px-3 mb-2 sm:mb-3">
-  <div 
-    className="relative w-full rounded-[20px] sm:rounded-[24px] overflow-hidden border shadow-lg"
-    style={{ 
-      minHeight: isDetail ? '350px' : '220px', 
-      height: isDetail ? 'auto' : 'auto', 
-      aspectRatio: isDetail ? 'unset' : '16/9',
-      backgroundColor: theme.isMalam ? '#1a1a1a' : '#f5f5f5'
-    }}
-  >
-    <div className={`${isDetail ? 'absolute inset-0 w-full h-full' : 'relative w-full h-full'}`}>
-      <PhotoSlider
-        photos={photoUrls}
-        tempatId={safeItem.id}
-        namaTempat={safeItem.name}
-        isHujan={safeItem.status === "hujan"}
-        priority={priority}
-        // TAMBAHKAN CLASS INI UNTUK MEMAKSA SLIDER MENGISI SELURUH RUANG
-        className="w-full h-full object-cover" 
-        selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
-        setSelectedPhotoIndex={(idx) => {
-          if (setSelectedPhotoIndex) {
-            setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
-          }
-        }}
-        onUploadSuccess={handleUploadSuccess}
-        onPhotoClick={handlePhotoClick} 
-      />
-    </div>
-
-    {/* Story Circle */}
-    <div className={`absolute ${isNarrow ? 'top-2 left-1.5' : 'top-3 sm:top-4 left-2 sm:left-3'} z-50`}>
-      <StoryCircle
-        laporanWarga={localLaporanWarga}
-        tempatId={safeItem.id}
-        namaTempat={safeItem.name}
-        theme={theme}
-        openStoryModal={handleOpenStoryModal}
-        onRefreshNeeded={handleLocalRefresh}
-      />
-    </div>
-  </div>
-</div>
-
-        {/* Metadata */}
-        <div className={`
-          ${paddingX} 
-          pb-4 pt-1 
-          flex items-center justify-between 
-          opacity-40 
-          -mt-2
-        `}>
-          <div className="flex items-center gap-1.5 truncate flex-1">
-            <div className={`
-              p-1 rounded-md 
-              ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'} 
-              text-[7px] font-black tracking-tighter
-            `}>
-              📍
-            </div>
-            <p className={`
-              ${isNarrow ? 'text-[8px]' : 'text-[9px] sm:text-[10px]'} 
-              font-bold ${theme.text} truncate tracking-tight
-            `}>
-              {alamatText}
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-2 ml-4">
-            <div className={`w-1 h-1 rounded-full ${theme.isMalam ? 'bg-white/20' : 'bg-black/20'}`} />
-            <span className={`
-              ${isNarrow ? 'text-[7px]' : 'text-[8px] sm:text-[9px]'} 
-              font-mono font-black tracking-tighter ${catStyle.text}
-            `}>
-              #{String(safeItem.id).padStart(4, '0')}
-            </span>
-          </div>
-        </div>
-
-        {/* Insight & Action */}
+        {/* ==================== LIVE INSIGHT & ACTIONS ==================== */}
         <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
-          <div className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}>
+          <motion.div
+            className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
+            whileHover={!prefersReducedMotion ? { y: -2 } : {}}
+            transition={{ type: "spring", stiffness: 400 }}
+          >
             <LiveInsight
               signals={allSignals}
               theme={theme}
               isCompact={isNarrow}
               currentUser={user}
-              userProfile={userProfile} 
-              userAvatar={userAvatar} 
+              userProfile={userProfile}
+              userAvatar={userAvatar}
               tempatCategory={safeItem?.category}
               tempatDescription={safeItem?.description || item?.description || null}
               tempatData={safeItem}
-              tempatId={safeItem.id} 
+              tempatId={safeItem.id}
             />
-          </div>
+          </motion.div>
 
-          {/* AI Button & Detail Button Container */}
-          <div className="flex flex-col gap-2">
-            
-            {/* Hanya muncul di FEED, sembunyikan di DETAIL karena di detail sudah ada AI Button di bawah card */}
-            {!isDetail && showAIButton && (
-              <AIButton
-                item={safeItem}
-                kondisi={kondisi} 
-                display={statusDisplay}
-                theme={theme}
-                handleOpenAIModal={handleOpenAIModal}
-              />
+          <div className="flex flex-col gap-3">
+
+
+            {!isDetail && (
+              <div className="flex gap-2">
+                <PremiumLikeButton
+                  tempatId={safeItem.id}
+                  initialLikeCount={safeItem.vibe_count || 0}
+                  theme={theme}
+                  onLikeChange={handleLikeChange}
+                />
+                <PremiumActionButton
+                  onClick={() => openKomentarModal?.(safeItem)}
+                  icon={MessageCircle}
+                  label="Komentar"
+                  theme={theme}
+                />
+                <PremiumActionButton
+                  onClick={() => onShare?.(safeItem)}
+                  icon={Share2}
+                  label="Bagikan"
+                  theme={theme}
+                />
+              </div>
             )}
 
-            {/* TOMBOL LIHAT DETAIL - HARUS SEMBUNYI DI HALAMAN DETAIL */}
             {!isDetail && (
-              <button 
-                onClick={handleGoToDetail}
-                className={`
-                  w-full py-3 rounded-xl sm:rounded-2xl
-                  flex items-center justify-center gap-2
-                  text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em]
-                  transition-all duration-300 active:scale-95
-                  ${theme.isMalam 
-                    ? "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white" 
-                    : "bg-black/5 text-black/40 border border-black/10 hover:bg-black/10 hover:text-black"
-                  }
-                `}
-              >
-                <span>Lihat Detail</span>
-                <motion.div
-                  animate={{ x: [0, 4, 0] }}
-                  transition={{ repeat: Infinity, duration: 1.5, repeatDelay: 1 }}
+              <div className="flex flex-col gap-2">
+                {/* Teks Ajakan Dinamis */}
+                <p className={`text-[9px] font-medium italic opacity-50 px-1 ${theme.isMalam ? 'text-white' : 'text-black'}`}>
+                  "{getPinarakText()}"
+                </p>
+
+                <motion.button
+                  onClick={handleGoToDetail}
+                  whileTap={{ scale: 0.97 }}
+                  className={`
+        w-full py-4 rounded-xl
+        flex items-center justify-center gap-3
+        text-[10px] sm:text-[11px] font-black uppercase tracking-[0.25em]
+        transition-all duration-200
+        ${theme.isMalam
+                      ? "bg-white text-black hover:bg-gray-100"
+                      : "bg-black text-white hover:bg-zinc-800"
+                    }
+      `}
                 >
-                  <ChevronRight size={14} />
-                </motion.div>
-              </button>
+                  <span>PINARAK</span>
+                  <motion.div
+                    animate={{ x: [0, 3, 0] }}
+                    transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                  >
+                    <ChevronRight size={16} strokeWidth={3} />
+                  </motion.div>
+                </motion.button>
+              </div>
             )}
           </div>
         </div>
@@ -541,7 +867,6 @@ function FeedCard({
         />
       </motion.div>
 
-      {/* LIGHTBOX */}
       <ImmersiveLightbox
         items={lightboxItems}
         initialIndex={lightboxIndex}
@@ -553,23 +878,28 @@ function FeedCard({
         openKomentarModal={openKomentarModal}
         onShare={onShare}
         theme={theme}
-        isSesuai={isSesuai}
+        isSesuai={false}
         totalSaksi={totalSaksi}
         onSesuaiClick={handleSesuai}
-        headline={headline}
+        headline={feed?.headline?.text || ""}
         currentHour={currentHour}
         currentMinute={currentMinute}
         isViral={safeItem.isViral}
         catStyle={catStyle}
       />
-    </div>
+    </motion.div>
   );
 }
 
-const areEqual = (p, n) => {
-  return p.item?.id === n.item?.id && 
-         p.item?.vibe_count === n.item?.vibe_count &&
-         p.selectedPhotoIndex?.[p.item?.id] === n.selectedPhotoIndex?.[n.item?.id];
+const areEqual = (prevProps, nextProps) => {
+  return (
+    prevProps.item?.id === nextProps.item?.id &&
+    prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
+    prevProps.item?.photos?.length === nextProps.item?.photos?.length &&
+    prevProps.selectedPhotoIndex?.[prevProps.item?.id] === nextProps.selectedPhotoIndex?.[nextProps.item?.id] &&
+    prevProps.isDetail === nextProps.isDetail &&
+    prevProps.showAIButton === nextProps.showAIButton
+  );
 };
 
-export default memo(FeedCard, areEqual);
+export default memo(FeedCardV2Premium, areEqual);

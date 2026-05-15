@@ -3,6 +3,7 @@
 
 import { isVideoUrl } from '@/utils/mediaUtils';
 import VideoPlayer from './VideoPlayer';
+import { optimizeVideoUrl, optimizeImageUrl } from '@/lib/cloudinary'; // ← TAMBAHKAN
 
 export default function MediaRenderer({ 
   url, 
@@ -25,12 +26,25 @@ export default function MediaRenderer({
   }
 
   const isVideo = isVideoUrl(url);
+  
+  // 🔥 OPTIMASI VIDEO
+  let finalUrl = url;
+  if (isVideo && url.includes('cloudinary')) {
+    finalUrl = optimizeVideoUrl(url);
+  }
+  
+  // 🔥 TAMBAHKAN: OPTIMASI GAMBAR
+  if (!isVideo && url.includes('cloudinary')) {
+    // Untuk thumbnail, pakai ukuran lebih kecil
+    const options = thumbnail ? { width: 320 } : { width: 720 };
+    finalUrl = optimizeImageUrl(url, options);
+  }
 
   // Untuk video
   if (isVideo) {
     return (
       <VideoPlayer
-        src={url}
+        src={finalUrl}
         className={className}
         autoPlay={autoPlay}
         muted={thumbnail ? true : muted}
@@ -43,10 +57,10 @@ export default function MediaRenderer({
     );
   }
 
-  // Untuk gambar
+  // 🔥 Untuk gambar (sudah dioptimasi)
   return (
     <img
-      src={url}
+      src={finalUrl}
       className={className}
       alt="Media"
       loading="lazy"

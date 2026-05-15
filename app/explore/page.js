@@ -15,7 +15,7 @@ import UserMenu from "@/app/components/layout/UserMenu";
 import AuthModal from "@/app/components/auth/AuthModal";
 import { useAuth } from "@/app/context/AuthContext";
 import AIModalTempat from "@/app/components/ai/AIModalTempat";
-import FeedActions from "@/app/components/feed/FeedActions"; 
+import FeedActions from "@/app/components/feed/FeedActions";
 import KomentarModal from "@/app/components/feed/KomentarModal";
 import MediaRenderer from "@/components/media/MediaRenderer";
 
@@ -27,9 +27,9 @@ const getBatchStoryViews = async (laporanIds) => {
       .from("story_views")
       .select("laporan_id")
       .in("laporan_id", laporanIds);
-    
+
     if (error) throw error;
-    
+
     const counts = {};
     data?.forEach(view => {
       counts[view.laporan_id] = (counts[view.laporan_id] || 0) + 1;
@@ -51,9 +51,9 @@ export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
   const { user, isAdmin } = useAuth();
-  
+
   const { data: reports, loading, refresh, updateCache } = useLaporanWarga({ limit: 50 });
-  
+
   const [currentIndex, setCurrentIndex] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showLaporPanel, setShowLaporPanel] = useState(false);
@@ -71,7 +71,7 @@ export default function CitizenHub({ userId, userRole }) {
   const [viewCounts, setViewCounts] = useState({});
   const [activeFilter, setActiveFilter] = useState("semua");
 
-  
+
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
@@ -92,7 +92,7 @@ export default function CitizenHub({ userId, userRole }) {
         if (data?.length && (Date.now() - timestamp) < 5 * 60 * 1000) {
           setCachedReports(data);
         }
-      } catch(e) {}
+      } catch (e) { }
     }
   }, []);
 
@@ -102,16 +102,16 @@ export default function CitizenHub({ userId, userRole }) {
   // Batch load view counts
   useEffect(() => {
     if (!displayReports.length || viewsLoadedRef.current) return;
-    
+
     const loadViewCountsBatch = async () => {
       const reportIds = displayReports.map(r => r.id).filter(Boolean);
       if (!reportIds.length) return;
-      
+
       const counts = await getBatchStoryViews(reportIds);
       setViewCounts(counts);
       viewsLoadedRef.current = true;
     };
-    
+
     loadViewCountsBatch();
   }, [displayReports]);
 
@@ -125,21 +125,21 @@ export default function CitizenHub({ userId, userRole }) {
   // ✅ FILTER REPORTS (Gabungan search + tab filter)
   const filteredReports = useMemo(() => {
     let result = displayReports;
-    
+
     // Filter by search
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
-      result = result.filter(r => 
+      result = result.filter(r =>
         r.tempat?.name?.toLowerCase().includes(searchLower) ||
         r.deskripsi?.toLowerCase().includes(searchLower)
       );
     }
-    
+
     // Filter by tab (Ramai/Sepi/Antri)
     if (activeFilter !== "semua") {
       result = result.filter(r => r.tipe?.toLowerCase() === activeFilter);
     }
-    
+
     return result;
   }, [displayReports, searchQuery, activeFilter]);
 
@@ -147,9 +147,9 @@ export default function CitizenHub({ userId, userRole }) {
   const recordStoryView = useCallback(async (laporanId) => {
     if (!activeUserId) return;
     if (recordedViewsRef.current.has(laporanId)) return;
-    
+
     recordedViewsRef.current.add(laporanId);
-    
+
     setTimeout(async () => {
       try {
         const { data: existingView } = await supabase
@@ -158,7 +158,7 @@ export default function CitizenHub({ userId, userRole }) {
           .eq("laporan_id", laporanId)
           .eq("user_id", activeUserId)
           .maybeSingle();
-        
+
         if (!existingView) {
           await supabase
             .from("story_views")
@@ -167,7 +167,7 @@ export default function CitizenHub({ userId, userRole }) {
               user_id: activeUserId,
               viewed_at: new Date().toISOString()
             });
-          
+
           setViewCounts(prev => ({
             ...prev,
             [laporanId]: (prev[laporanId] || 0) + 1
@@ -212,16 +212,16 @@ export default function CitizenHub({ userId, userRole }) {
   // Back button handler
   useEffect(() => {
     if (currentIndex === null) return;
-    
+
     const handlePopState = (event) => {
       event.preventDefault();
       if (currentIndex > 0) {
         const prevIndex = currentIndex - 1;
         setCurrentIndex(prevIndex);
         if (modalScrollRef.current?.children[prevIndex]) {
-          modalScrollRef.current.children[prevIndex].scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'start' 
+          modalScrollRef.current.children[prevIndex].scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
           });
         }
       } else {
@@ -229,7 +229,7 @@ export default function CitizenHub({ userId, userRole }) {
       }
       window.history.pushState(null, '', window.location.href);
     };
-    
+
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -256,28 +256,28 @@ export default function CitizenHub({ userId, userRole }) {
   useEffect(() => {
     const getCurrentUser = async () => {
       if (!activeUserId) return;
-      
+
       const cached = sessionStorage.getItem(`user_${activeUserId}`);
       if (cached) {
         try {
           setCurrentUser(JSON.parse(cached));
           return;
-        } catch(e) {}
+        } catch (e) { }
       }
-      
+
       try {
         const { data, error } = await supabase
           .from("profiles")
           .select("username, full_name, avatar_url")
           .eq("id", activeUserId)
           .maybeSingle();
-        
+
         const userData = (!error && data) ? data : {
           username: `user_${activeUserId?.slice(0, 8) || "unknown"}`,
           full_name: "Warga",
           avatar_url: null
         };
-        
+
         sessionStorage.setItem(`user_${activeUserId}`, JSON.stringify(userData));
         setCurrentUser(userData);
       } catch (err) {
@@ -308,7 +308,7 @@ export default function CitizenHub({ userId, userRole }) {
     setSelectedReport(report);
     document.body.style.overflow = 'hidden';
     isAutoScrollingRef.current = true;
-    
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (modalScrollRef.current?.children[index]) {
@@ -353,12 +353,12 @@ export default function CitizenHub({ userId, userRole }) {
 
   const handleShare = async (report) => {
     const shareUrl = `${window.location.origin}/post/${report.id}`;
-  
+
     if (navigator.share) {
       try {
         await navigator.share({
-           title: report.tempat?.name || "Ronda",
-           text: report.deskripsi || "Lihat update kondisi terkini!",
+          title: report.tempat?.name || "Ronda",
+          text: report.deskripsi || "Lihat update kondisi terkini!",
           url: shareUrl,
         });
       } catch (err) { console.log("Share cancelled:", err); }
@@ -391,7 +391,7 @@ export default function CitizenHub({ userId, userRole }) {
       key={report.id}
       whileTap={{ scale: 0.98 }}
       onClick={() => openModal(index)}
-      className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"    
+      className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"
     >
       {report.photo_url || report.video_url ? (
         <>
@@ -450,63 +450,63 @@ export default function CitizenHub({ userId, userRole }) {
 
 
 
-const FilterTabs = () => (
-  <div className="flex gap-2 overflow-x-auto pb-4 mb-2 hide-scrollbar px-1">
-    {[
-      { id: "semua", label: "Semua", icon: "📋", color: "zinc-500" },
-      { id: "ramai", label: "Ramai", icon: "🔥", color: "#E3655B" }, // Warna khas Setempat
-      { id: "sepi", label: "Sepi", icon: "🍃", color: "#10b981" }, // Emerald
-      { id: "antri", label: "Antri", icon: "⏳", color: "#f43f5e" }, // Rose
-    ].map(tab => {
-      const isActive = activeFilter === tab.id;
-      
-      return (
-        <button
-          key={tab.id}
-          onClick={() => setActiveFilter(tab.id)}
-          className="relative group flex items-center"
-        >
-          <div className={`
+  const FilterTabs = () => (
+    <div className="flex gap-2 overflow-x-auto pb-4 mb-2 hide-scrollbar px-1">
+      {[
+        { id: "semua", label: "Semua", icon: "📋", color: "zinc-500" },
+        { id: "ramai", label: "Ramai", icon: "🔥", color: "#E3655B" }, // Warna khas Setempat
+        { id: "sepi", label: "Sepi", icon: "🍃", color: "#10b981" }, // Emerald
+        { id: "antri", label: "Antri", icon: "⏳", color: "#f43f5e" }, // Rose
+      ].map(tab => {
+        const isActive = activeFilter === tab.id;
+
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setActiveFilter(tab.id)}
+            className="relative group flex items-center"
+          >
+            <div className={`
             relative z-10 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all duration-300
-            ${isActive 
-              ? "text-white" 
-              : isMalam ? "text-white/40 hover:text-white/70" : "text-gray-500 hover:text-gray-800"
-            }
+            ${isActive
+                ? "text-white"
+                : isMalam ? "text-white/40 hover:text-white/70" : "text-gray-500 hover:text-gray-800"
+              }
           `}>
-            <span className={`transition-transform duration-300 ${isActive ? 'scale-110' : 'grayscale'}`}>
-              {tab.icon}
-            </span>
-            <span className="tracking-widest">{tab.label}</span>
-          </div>
+              <span className={`transition-transform duration-300 ${isActive ? 'scale-110' : 'grayscale'}`}>
+                {tab.icon}
+              </span>
+              <span className="tracking-widest">{tab.label}</span>
+            </div>
 
-          {/* ✅ Background Pill dengan Framer Motion */}
-          {isActive && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute inset-0 rounded-xl shadow-lg"
-              style={{ 
-                backgroundColor: tab.id === 'semua' ? (isMalam ? '#3f3f46' : '#18181b') : tab.color,
-                boxShadow: `0 4px 15px -5px ${tab.id === 'semua' ? 'rgba(0,0,0,0.3)' : tab.color + '66'}`
-              }}
-              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-            />
-          )}
+            {/* ✅ Background Pill dengan Framer Motion */}
+            {isActive && (
+              <motion.div
+                layoutId="activeTab"
+                className="absolute inset-0 rounded-xl shadow-lg"
+                style={{
+                  backgroundColor: tab.id === 'semua' ? (isMalam ? '#3f3f46' : '#18181b') : tab.color,
+                  boxShadow: `0 4px 15px -5px ${tab.id === 'semua' ? 'rgba(0,0,0,0.3)' : tab.color + '66'}`
+                }}
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
 
-          {/* ✅ Border Subtle pas Hover (Mode Malam) */}
-          {!isActive && isMalam && (
-            <div className="absolute inset-0 border border-white/5 rounded-xl bg-white/[0.02]" />
-          )}
-        </button>
-      );
-    })}
-  </div>
-);
+            {/* ✅ Border Subtle pas Hover (Mode Malam) */}
+            {!isActive && isMalam && (
+              <div className="absolute inset-0 border border-white/5 rounded-xl bg-white/[0.02]" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   // Render utama
   return (
     <div className={`min-h-screen ${isMalam ? 'bg-black' : 'bg-gray-50'} flex justify-center font-sans`}>
       <div className={`w-full max-w-[400px] min-h-screen ${isMalam ? 'bg-zinc-900' : 'bg-white'} shadow-2xl overflow-hidden relative flex flex-col ${isMalam ? 'border-x border-white/5' : 'border-x border-gray-200'}`}>
-        
+
         {/* Header */}
         <motion.header
           initial={{ y: 0 }}
@@ -527,7 +527,7 @@ const FilterTabs = () => (
                   onOpenAuthModal={() => setIsAuthModalOpen(true)} theme={{ isMalam, text: isMalam ? 'text-white' : 'text-slate-900' }} />
               </div>
             </div>
-            
+
             {/* Search Input */}
             <div className="relative group">
               <div className={`absolute left-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg ${isMalam ? 'bg-white/5' : 'bg-gray-200/50'}`}>
@@ -537,24 +537,25 @@ const FilterTabs = () => (
                 placeholder="Cek Ceritane Lokasi Sekitar..."
                 className={`w-full ${isMalam ? 'bg-white/5 border-white/5 text-white placeholder:text-white/20' : 'bg-gray-50 border-gray-100 text-gray-900 placeholder:text-gray-400'} border rounded-2xl py-3 pl-12 pr-4 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#E3655B]/20 focus:bg-transparent transition-all shadow-sm`} />
             </div>
-            
+
             {/* ✅ TAB FILTER - DITEMPATKAN DI SINI */}
             <FilterTabs />
           </div>
         </motion.header>
 
-        <main 
+        <main
           className={`flex-1 overflow-y-auto px-3 pb-32 pt-[210px] ${isMalam ? 'bg-zinc-950' : 'bg-gray-50'}`}
-          style={{ 
-            WebkitOverflowScrolling: 'touch', 
+          style={{
+            WebkitOverflowScrolling: 'touch',
             scrollbarWidth: 'none',
             msOverflowStyle: 'none'
           }}
         >
-          <style dangerouslySetInnerHTML={{__html: `
+          <style dangerouslySetInnerHTML={{
+            __html: `
             main::-webkit-scrollbar { display: none; }
           `}} />
-          
+
           {isActuallyLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="relative flex items-center justify-center">
@@ -609,170 +610,169 @@ const FilterTabs = () => (
                 <div ref={modalScrollRef} onScroll={handleModalScroll}
                   className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar scroll-smooth touch-pan-y"
                   style={{ WebkitOverflowScrolling: 'touch', scrollSnapStop: 'always' }}>
-                  
+
                   {filteredReports.map((report, idx) => {
-  const hasMedia = report.photo_url || report.video_url;
-  const postId = report.id; 
-  
-  return (
-    <div key={report.id} className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden">
-      
-      {/* OVERLAY UTAMA - Klik area mana saja (kecuali tombol) akan ke detail tempat */}
-      <div 
-        onClick={() => {
-          if (postId) {
-            closeModal();
-            router.push(`/post/${report.id}`);
-          }
-        }}
-        className="absolute inset-0 z-10 cursor-pointer"
-      />
-      {/* Media Background */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden">
-        {hasMedia ? (
-          <>
-            <MediaRenderer
-              url={report.video_url || report.photo_url}
-              className="w-full h-full object-cover"
-              autoPlay={idx === currentIndex}
-              muted={true}
-              loop={true}
-              playsInline={true}
-            />
-            {!report.video_url && (
-              <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
-            )}
-          </>
-        ) : (
-          <div className="relative h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
-            <div className="text-center px-6 py-8 max-w-sm mx-auto">
-              <div className="text-7xl mb-6 opacity-60">
-                {report.tipe === "Ramai" ? "🏃‍♂️" : report.tipe === "Antri" ? "⏰" : "📢"}
-              </div>
-              {report.tipe && (
-                <div className="mb-4 flex justify-center">
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${
-                    report.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" : 
-                    report.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" : 
-                    "bg-emerald-500/20 text-emerald-300"
-                  }`}>
-                    {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
-                    <span>{report.tipe}</span>
-                  </span>
-                </div>
-              )}
-              <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed tracking-tight italic mb-6">
-                "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
-              </p>
-              <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
-                <MapPin size={14} className="text-[#E3655B]" />
-                <span>{report.tempat?.name || "Lokasi"}</span>
-              </div>
-              <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10">
-                <img src={getAvatarUrl(report)} className="w-8 h-8 rounded-full border border-white/30" alt="avatar" />
-                <span className="text-white/80 text-sm font-medium">
-                  @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
-                </span>
-                <span className="text-white/40 text-xs">•</span>
-                <span className="text-white/40 text-xs">{formatTimeAgo(report.created_at)}</span>
-              </div>
-              <div className="mt-6 flex items-center justify-center gap-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <span className="text-[11px] font-bold text-white/35">
-                  {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+                    const hasMedia = report.photo_url || report.video_url;
+                    const isActive = idx === currentIndex;
+                    const postId = report.id;
 
-      {/* FeedActions - SELALU ADA */}
-      <div className="absolute right-3 bottom-28 z-50">
-        <FeedActions
-          item={{ id: report.tempat_id, name: report.tempat?.name, activePhoto: report.photo_url }}
-          comments={{}}
-          openAIModal={() => openAIChat(report)}
-          openKomentarModal={handleKomentarModal}
-          onShare={() => handleShare(report)}
-          variant="floating-sidebar"
-          theme={theme}
-          handleSesuai={handleSesuai}
-          isSesuai={false}
-        />
-      </div>
+                    return (
+                      <div key={report.id} className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden">
 
-      {/* ✅ Content hanya untuk yang ADA FOTO */}
-      {hasMedia && (
-        <div className="absolute inset-0 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
-          <div className="relative p-4 pb-4 pr-16 sm:pb-6 sm:pr-20 w-full">
-            <div className="flex flex-col gap-2 mb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="relative shrink-0">
-                  <img 
-                    src={getAvatarUrl(report)} 
-                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white/30"
-                    alt="avatar" 
-                    referrerPolicy="no-referrer"
-                    onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }} 
-                  />
-                  <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
-                    <ShieldCheck size={8} className="text-white" />
-                  </div>
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="text-[8px] text-white/50 uppercase font-black tracking-widest">Warga Setempat</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-white">
-                      @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
-                    </span>
-                    <span className="text-[10px] text-white/40">• {formatTimeAgo(report.created_at)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {report.tipe && (
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
-                    report.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" : 
-                    report.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : 
-                    "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                  }`}>
-                    <span>{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
-                    <span>{report.tipe}</span>
-                  </span>
-                )}
-                <div className="flex items-center gap-1 bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md text-white/60 text-[10px]">
-                  <MapPin size={10} className="text-[#E3655B]" />
-                  <span className="truncate max-w-[120px] font-medium">{report.tempat?.name || "Pasuruan"}</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
-              {report.deskripsi || "Tidak ada deskripsi kondisi terkini."}
-            </p>
-          </div>
-          <div className="relative pb-6 w-full">
-            <div className="text-center">
-              <div className="inline-flex items-center gap-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <span className="text-[11px] font-bold text-white/35">
-                  {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-})}
+                        {/* OVERLAY UTAMA - Klik area mana saja (kecuali tombol) akan ke detail tempat */}
+                        <div
+                          onClick={() => {
+                            if (postId) {
+                              closeModal();
+                              router.push(`/post/${report.id}`);
+                            }
+                          }}
+                          className="absolute inset-0 z-10 cursor-pointer"
+                        />
+                        {/* Media Background */}
+                        <div className="absolute inset-0 w-full h-full overflow-hidden">
+                          {hasMedia ? (
+                            <>
+                              <MediaRenderer
+                                url={report.video_url || report.photo_url}
+                                className="w-full h-full object-cover"
+                                autoPlay={isActive}
+                                muted={!isActive}
+                                loop={true}
+                                playsInline={true}
+                              />
+                              {!report.video_url && (
+                                <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+                              )}
+                            </>
+                          ) : (
+                            <div className="relative h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
+                              <div className="text-center px-6 py-8 max-w-sm mx-auto">
+                                <div className="text-7xl mb-6 opacity-60">
+                                  {report.tipe === "Ramai" ? "🏃‍♂️" : report.tipe === "Antri" ? "⏰" : "📢"}
+                                </div>
+                                {report.tipe && (
+                                  <div className="mb-4 flex justify-center">
+                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${report.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" :
+                                      report.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" :
+                                        "bg-emerald-500/20 text-emerald-300"
+                                      }`}>
+                                      {report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}
+                                      <span>{report.tipe}</span>
+                                    </span>
+                                  </div>
+                                )}
+                                <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed tracking-tight italic mb-6">
+                                  "{report.deskripsi || "Tidak ada deskripsi kondisi"}"
+                                </p>
+                                <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
+                                  <MapPin size={14} className="text-[#E3655B]" />
+                                  <span>{report.tempat?.name || "Lokasi"}</span>
+                                </div>
+                                <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10">
+                                  <img src={getAvatarUrl(report)} className="w-8 h-8 rounded-full border border-white/30" alt="avatar" />
+                                  <span className="text-white/80 text-sm font-medium">
+                                    @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                                  </span>
+                                  <span className="text-white/40 text-xs">•</span>
+                                  <span className="text-white/40 text-xs">{formatTimeAgo(report.created_at)}</span>
+                                </div>
+                                <div className="mt-6 flex items-center justify-center gap-1.5">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                  </svg>
+                                  <span className="text-[11px] font-bold text-white/35">
+                                    {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* FeedActions - SELALU ADA */}
+                        <div className="absolute right-3 bottom-28 z-50">
+                          <FeedActions
+                            item={{ id: report.tempat_id, name: report.tempat?.name, activePhoto: report.photo_url }}
+                            comments={{}}
+                            openAIModal={() => openAIChat(report)}
+                            openKomentarModal={handleKomentarModal}
+                            onShare={() => handleShare(report)}
+                            variant="floating-sidebar"
+                            theme={theme}
+                            handleSesuai={handleSesuai}
+                            isSesuai={false}
+                          />
+                        </div>
+
+                        {/* ✅ Content hanya untuk yang ADA FOTO */}
+                        {hasMedia && (
+                          <div className="absolute inset-0 flex flex-col justify-end">
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
+                            <div className="relative p-4 pb-4 pr-16 sm:pb-6 sm:pr-20 w-full">
+                              <div className="flex flex-col gap-2 mb-3">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="relative shrink-0">
+                                    <img
+                                      src={getAvatarUrl(report)}
+                                      className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white/30"
+                                      alt="avatar"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }}
+                                    />
+                                    <div className="absolute -bottom-0.5 -right-0.5 bg-[#0095f6] rounded-full p-0.5 border border-black">
+                                      <ShieldCheck size={8} className="text-white" />
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-[8px] text-white/50 uppercase font-black tracking-widest">Warga Setempat</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-sm font-bold text-white">
+                                        @{report.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                                      </span>
+                                      <span className="text-[10px] text-white/40">• {formatTimeAgo(report.created_at)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {report.tipe && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${report.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" :
+                                      report.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" :
+                                        "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                                      }`}>
+                                      <span>{report.tipe === "Ramai" ? "🏃" : report.tipe === "Antri" ? "⏳" : "🍃"}</span>
+                                      <span>{report.tipe}</span>
+                                    </span>
+                                  )}
+                                  <div className="flex items-center gap-1 bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md text-white/60 text-[10px]">
+                                    <MapPin size={10} className="text-[#E3655B]" />
+                                    <span className="truncate max-w-[120px] font-medium">{report.tempat?.name || "Pasuruan"}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
+                                {report.deskripsi || "Tidak ada deskripsi kondisi terkini."}
+                              </p>
+                            </div>
+                            <div className="relative pb-6 w-full">
+                              <div className="text-center">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                  </svg>
+                                  <span className="text-[11px] font-bold text-white/35">
+                                    {(viewCounts[report.id] || 0).toLocaleString("id-ID")}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -795,13 +795,15 @@ const FilterTabs = () => (
         )}
 
         <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} theme={{ isMalam }} />
-        
+
         <AIModalTempat isOpen={isAIModalOpen} onClose={() => { setIsAIModalOpen(false); setSelectedAITempat(null); setSelectedReport(null); }}
           tempat={selectedAITempat} activeReport={selectedReport} reports={filteredReports}
-          stats={{ total: filteredReports.length, ramai: filteredReports.filter(r => r.tipe === 'Ramai').length,
-            sepi: filteredReports.filter(r => r.tipe === 'Sepi').length, antri: filteredReports.filter(r => r.tipe === 'Antri').length }}
+          stats={{
+            total: filteredReports.length, ramai: filteredReports.filter(r => r.tipe === 'Ramai').length,
+            sepi: filteredReports.filter(r => r.tipe === 'Sepi').length, antri: filteredReports.filter(r => r.tipe === 'Antri').length
+          }}
           theme={{ isMalam: isMalam, card: isMalam ? 'bg-slate-900' : 'bg-white', border: isMalam ? 'border-white/10' : 'border-gray-100', text: isMalam ? 'text-white' : 'text-gray-900' }}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={() => {}} />
+          onOpenAuthModal={() => setIsAuthModalOpen(true)} onUploadSuccess={() => { }} />
       </div>
 
       <style jsx global>{`

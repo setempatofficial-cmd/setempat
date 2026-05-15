@@ -172,9 +172,14 @@ export default function PhotoSlider({
 
   // Fetch official photos dengan error handling yang lebih baik
   const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId || !shouldLoad) {
-      return;
-    }
+  if (!tempatId || tempatId === 0 || tempatId === undefined || isNaN(tempatId)) {
+    console.log('[PhotoSlider] Skip fetch - invalid tempatId:', tempatId);
+    return;
+  }
+  
+  if (!shouldLoad) {
+    return;
+  }
     
     // Cek cache
     const cached = officialPhotosCache.get(tempatId);

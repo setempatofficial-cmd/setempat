@@ -335,38 +335,49 @@ useEffect(() => {
 
   // ========== BREAK CARD GENERATOR ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
-    const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
-    if (urgentKentongan.length > 0 && scrollIndex >= 1) {
-      const k = urgentKentongan[0];
-      return {
-        type: "kentongan",
-        level: "A",
-        data: {
-          text: `🚨 ${k.title}`,
-          is_urgent: true,
-          target_desa: k.target_desa,
-          is_global: k.is_global,
-          content: k.content,
-        },
-        onClick: () => openAIModalWithKentongan(k),
-      };
-    }
-    
-    if (kentonganForFeed.length > 0 && scrollIndex >= 2) {
-      const k = kentonganForFeed[0];
-      return {
-        type: "kentongan",
-        level: "B",
-        data: {
-          text: k.title,
-          is_urgent: false,
-          target_desa: k.target_desa,
-          is_global: k.is_global,
-          content: k.content,
-        },
-        onClick: () => openAIModalWithKentongan(k),
-      };
-    }
+  // ✅ URGENT: selalu tampilkan yang pertama
+  const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
+  if (urgentKentongan.length > 0 && scrollIndex >= 1) {
+    const k = urgentKentongan[0];
+    return {
+      type: "kentongan",
+      level: "A",
+      data: {
+        title: k.title,
+        text: `🚨 ${k.title}`,
+        is_urgent: true,
+        target_desa: k.target_desa,
+        is_global: k.is_global,
+        content: k.content,
+        image_url: k.image_url,
+        
+      },
+      onClick: () => openAIModalWithKentongan(k),
+    };
+  }
+  
+  // ✅ BIASA: ROTASI berdasarkan scrollIndex
+  const normalKentongan = kentonganForFeed.filter(k => !k.is_urgent);
+  if (normalKentongan.length > 0 && scrollIndex >= 2) {
+    // Hitung index berdasarkan scrollIndex (berganti setiap 5 scroll)
+    const idx = Math.floor(scrollIndex / 5) % normalKentongan.length;
+    const k = normalKentongan[idx];
+    return {
+      type: "kentongan",
+      level: "B",
+      data: {
+        title: k.title,
+        text: k.title,
+        is_urgent: false,
+        target_desa: k.target_desa,
+        is_global: k.is_global,
+        content: k.content,
+        image_url: k.image_url,
+        created_at: k.created_at,
+      },
+      onClick: () => openAIModalWithKentongan(k),
+    };
+  }
 
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentReports = allPlaces.reduce((acc, p) => {

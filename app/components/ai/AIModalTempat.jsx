@@ -36,7 +36,7 @@ export default function AIModalTempat({
   const messagesEndRef = useRef(null);
   const hasInitialized = useRef(false);
   const startY = useRef(0);
-  const lastTempatIdRef = useRef(null); // 🔥 TAMBAHKAN: untuk追踪 tempat terakhir
+  const lastTempatIdRef = useRef(null); // 
 
   const isMalam = theme?.isMalam;
 

@@ -32,17 +32,16 @@ function LiveStatus({ weather, theme, onShowStatistik, isScrolled }) {
       onClick={onShowStatistik}
       animate={{ scale: isScrolled ? 0.9 : 1 }}
       // Lebar dikunci agar tidak mekar-kuncup yang merusak visual center
-      className={`group flex items-center justify-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-2xl border transition-all duration-700 min-w-[100px] sm:min-w-[120px] ${
-        theme.isMalam
-          ? "bg-white/[0.04] border-white/10 text-white/90"
-          : "bg-black/[0.03] border-black/5 text-slate-700"
-      }`}
+      className={`group flex items-center justify-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-2xl border transition-all duration-700 min-w-[100px] sm:min-w-[120px] ${theme.isMalam
+        ? "bg-white/[0.04] border-white/10 text-white/90"
+        : "bg-black/[0.03] border-black/5 text-slate-700"
+        }`}
     >
       <div className="relative flex h-1.5 w-1.5 flex-shrink-0">
         <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-40 ${current.color}`} />
         <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${current.color}`} />
       </div>
-      
+
       <div className="overflow-hidden relative h-3 flex items-center">
         <AnimatePresence mode="wait">
           <motion.span
@@ -77,14 +76,13 @@ export default function Header({
   return (
     <header className={`sticky top-0 z-[1000] w-full transition-all duration-700 ${isScrolled ? "py-2" : "py-4"}`}>
       {/* Glass Background */}
-      <div className={`absolute inset-0 transition-all duration-1000 -z-10 ${
-          isScrolled
-            ? theme.isMalam ? "bg-[#0a0a0a]/80 backdrop-blur-2xl border-b border-white/5 shadow-2xl" : "bg-white/80 backdrop-blur-2xl border-b border-black/5 shadow-sm"
-            : "bg-transparent"
-      }`} />
+      <div className={`absolute inset-0 transition-all duration-1000 -z-10 ${isScrolled
+        ? theme.isMalam ? "bg-[#0a0a0a]/80 backdrop-blur-2xl border-b border-white/5 shadow-2xl" : "bg-white/80 backdrop-blur-2xl border-b border-black/5 shadow-sm"
+        : "bg-transparent"
+        }`} />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between relative h-12">
-        
+
         {/* LEFT: BRAND & LOCATION (Min-width agar tidak penyet) */}
         <div className="flex-1 flex items-center min-w-0 pr-2">
           <motion.div
@@ -95,7 +93,7 @@ export default function Header({
             <motion.div animate={{ scale: isScrolled ? 0.85 : 1 }} className="relative flex-shrink-0">
               <AnimatePresence>
                 {locationReady && (
-                  <motion.div 
+                  <motion.div
                     initial={{ scale: 0 }} animate={{ scale: 1 }}
                     className="absolute -top-0.5 -right-0.5 z-10 w-3 h-3 bg-emerald-500 border-2 rounded-full"
                     style={{ borderColor: theme.isMalam ? '#111' : '#fff' }}
@@ -135,9 +133,8 @@ export default function Header({
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={() => router.push('/search')}
-            className={`w-9 h-9 sm:w-10 sm:h-10 flex-shrink-0 flex items-center justify-center rounded-xl border transition-colors ${
-              theme.isMalam ? "bg-white/5 border-white/5" : "bg-black/5 border-black/5"
-            }`}
+            className={`w-9 h-9 sm:w-10 sm:h-10 flex-shrink-0 flex items-center justify-center rounded-xl border transition-colors ${theme.isMalam ? "bg-white/5 border-white/5" : "bg-black/5 border-black/5"
+              }`}
           >
             <svg className="w-4 h-4 sm:w-5 sm:h-5 text-[#E3655B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

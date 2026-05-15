@@ -50,9 +50,11 @@ export default function LiveInsight({
 }) {
   const [index, setIndex] = useState(0);
   const [descriptionFromDB, setDescriptionFromDB] = useState(null);
+  const [expandedTextId, setExpandedTextId] = useState(null); // ✅ NEW: state untuk expand teks
   const touchStart = useRef(null);
   const touchMoved = useRef(false);
   const containerRef = useRef(null);
+  const autoSlideIntervalRef = useRef(null); // ✅ NEW: untuk pause auto-slide saat expand
   
   const isDark = theme?.isMalam || theme?.name === "MALAM";
 
@@ -136,13 +138,35 @@ export default function LiveInsight({
 
   const insightsLength = insights.length;
   
+  // ✅ NEW: Fungsi untuk pause/resume auto-slide
+  const pauseAutoSlide = useCallback(() => {
+    if (autoSlideIntervalRef.current) {
+      clearInterval(autoSlideIntervalRef.current);
+      autoSlideIntervalRef.current = null;
+    }
+  }, []);
+
+  const resumeAutoSlide = useCallback(() => {
+    if (autoSlideIntervalRef.current) {
+      clearInterval(autoSlideIntervalRef.current);
+    }
+    if (insightsLength <= 1) return;
+    autoSlideIntervalRef.current = setInterval(() => {
+      setIndex(prev => (prev + 1) % insightsLength);
+    }, 5000);
+  }, [insightsLength]);
+
   // Auto slide
   useEffect(() => {
     if (insightsLength <= 1) return;
-    const interval = setInterval(() => {
+    autoSlideIntervalRef.current = setInterval(() => {
       setIndex(prev => (prev + 1) % insightsLength);
     }, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      if (autoSlideIntervalRef.current) {
+        clearInterval(autoSlideIntervalRef.current);
+      }
+    };
   }, [insightsLength]);
 
   // Fix index jika melebihi length
@@ -186,8 +210,36 @@ export default function LiveInsight({
     touchMoved.current = false;
   };
 
+  // ✅ NEW: Handle expand/collapse teks
+  const handleToggleExpand = useCallback((insightId, e) => {
+    e.stopPropagation(); // Mencegah event bubbling
+    
+    if (expandedTextId === insightId) {
+      setExpandedTextId(null);
+      resumeAutoSlide();
+    } else {
+      setExpandedTextId(insightId);
+      pauseAutoSlide();
+      
+      // Auto-collapse setelah 10 detik (opsional)
+      setTimeout(() => {
+        setExpandedTextId(prev => prev === insightId ? null : prev);
+        resumeAutoSlide();
+      }, 10000);
+    }
+  }, [expandedTextId, pauseAutoSlide, resumeAutoSlide]);
+
   const current = insights[index] || insights[0];
   if (!current || insightsLength === 0) return null;
+
+  // ✅ NEW: Cek apakah teks memerlukan tombol expand (lebih dari 100 karakter atau mengandung baris baru)
+  const needsExpand = current?.text && (
+    current.text.length > 100 || 
+    (current.text.match(/\n/g) || []).length > 1 ||
+    current.text.includes('. ') && current.text.split('. ').length > 2
+  );
+
+  const isExpanded = expandedTextId === current.id;
 
   return (
     <div 
@@ -211,7 +263,7 @@ export default function LiveInsight({
         </div>
 
         <div className="p-3">
-          {/* Header dengan Avatar - PAKAI KOMPONEN AVATAR YANG DIPERBAIKI */}
+          {/* Header dengan Avatar */}
           <div className="flex items-center gap-2 mb-1.5">
             {current.reportData ? (
               <AvatarImage 
@@ -233,11 +285,35 @@ export default function LiveInsight({
             </div>
           </div>
 
-          {/* Content */}
-          <div className="min-h-[40px] flex items-center">
-            <p className={`text-[12px] leading-relaxed line-clamp-2 italic ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+          {/* ✅ CONTENT DENGAN EXPAND/COLLAPSE */}
+          <div className="min-h-[40px]">
+            <p className={`text-[12px] leading-relaxed italic transition-all duration-200 ${
+              !isExpanded ? 'line-clamp-2' : ''
+            } ${isDark ? "text-slate-300" : "text-slate-600"}`}>
               “{current?.text}”
             </p>
+            
+            {/* ✅ TOMBOL BACA SELENGKAPNYA */}
+            {needsExpand && (
+              <button 
+                onClick={(e) => handleToggleExpand(current.id, e)}
+                className={`text-[9px] font-semibold mt-1.5 transition-colors flex items-center gap-1 ${
+                  isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-700'
+                }`}
+              >
+                <span>
+                  {isExpanded ? '📖 Tutup' : '📖 Baca selengkapnya...'}
+                </span>
+                <svg 
+                  className={`w-2.5 h-2.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* Footer Indicators */}

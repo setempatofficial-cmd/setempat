@@ -8,7 +8,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { processFeedItem } from "@/lib/feedEngine";
 
-// ✅ PAKAI HEADER V1 LANGSUNG (LEBIH BAGUS)
+// ✅ PAKAI HEADER V1 LANGSUNG
 import Header from "@/components/Header";
 import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 
@@ -17,6 +17,9 @@ import StoryStrip from "@/components/v2/StoryStrip";
 import UpdateSekitar from "@/components/v2/UpdateSekitar";
 import AIInsight from "@/components/v2/AIInsight";
 import { getProminentPlacesInRadius } from "@/lib/v2/storyFilter";
+
+// TIDAK PERLU import FeedCard, KomentarModal, SearchModal, dll!
+// V1 Anda tidak pakai itu semua!
 
 function HomeContentV2() {
   const theme = useTheme();
@@ -145,18 +148,7 @@ function HomeContentV2() {
   return (
     <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text}`}>
       
-      {/* ✅ HEADER V1 - LEBIH BAGUS DENGAN WEATHER & LIVE STATUS */}
-      <Header
-        user={user}
-        locationReady={locationReady}
-        villageLocation={placeName || "Pilih Lokasi"}
-        isScrolled={isScrolled}
-        onOpenLocationModal={() => {}}
-        onShowStatistik={() => {}}
-        onOpenAuthModal={() => {}}
-      />
-      
-      {/* Ambient Effects */}
+      {/* Ambient Effects dari V1 */}
       {theme.isMalam && (
         <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
           <div className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]" style={{ backgroundColor: '#3b82f6' }} />
@@ -164,15 +156,27 @@ function HomeContentV2() {
         </div>
       )}
       
+      {/* HEADER V1 */}
+      <Header
+  user={user}
+  locationReady={locationReady}
+  villageLocation={placeName || "Pilih Lokasi"}
+  isScrolled={isScrolled}
+  onOpenLocationModal={() => {}}
+  onShowStatistik={() => {}}
+  onOpenAuthModal={() => {}}
+/>
+      
       <div className="relative z-10 pb-24">
         <div className="px-4 max-w-md mx-auto">
           
-          {/* 1. LOKASI AKTIF (Hero) */}
+          {/* 1. LOKASI AKTIF (Hero) dengan Foto */}
           {activeTempat && (
             <ActiveLocationCard 
               tempat={activeTempat} 
               theme={theme}
               onRefresh={handleRefresh}
+              location={location}
             />
           )}
           
@@ -182,7 +186,7 @@ function HomeContentV2() {
             theme={theme}
           />
           
-          {/* 3. STORY STRIP (Cerita Terbaru) */}
+          {/* 3. STORY STRIP */}
           <StoryStrip 
             places={storyPlaces}
             activePlace={activeTempat}
@@ -190,7 +194,7 @@ function HomeContentV2() {
             theme={theme}
           />
           
-          {/* 4. UPDATE SEKITAR */}
+          {/* 4. UPDATE SEKITAR - SAMA PERSIS KAYA V1 */}
           <UpdateSekitar 
             allPlaces={allTempat}
             onSelectPlace={setActiveTempat}
@@ -206,21 +210,37 @@ function HomeContentV2() {
   );
 }
 
-// Di dalam ActiveLocationCard component, tambahkan foto untuk hero
-function ActiveLocationCard({ tempat, theme, onRefresh }) {
+// ActiveLocationCard dengan Hero Photo (dari V1)
+function ActiveLocationCard({ tempat, theme, onRefresh, location }) {
   const latestReport = tempat.laporan_terbaru?.[0];
   const kondisi = tempat.latest_condition || (tempat.isRamai ? "RAMAI" : "LANCAR");
   const lastUpdate = latestReport?.created_at || tempat.created_at;
   const waktuLalu = formatTimeAgo(new Date(lastUpdate));
   
-  // ✅ Ambil foto hero
+  // Ambil foto hero
   const heroPhoto = tempat.photos?.[0] || latestReport?.photo_url || latestReport?.image_url;
   
-  const description = latestReport?.deskripsi || latestReport?.content || tempat.narasiCerita || `Lalu lintas ${kondisi.toLowerCase()} di ${tempat.name} aktivitas normal`;
+  // Hitung jarak
+  let distanceText = "";
+  if (location && tempat.latitude && tempat.longitude) {
+    const distance = haversineDistance(
+      location.latitude,
+      location.longitude,
+      tempat.latitude,
+      tempat.longitude
+    );
+    if (distance < 1) {
+      distanceText = `${Math.round(distance * 1000)}m`;
+    } else {
+      distanceText = `${distance.toFixed(1)}km`;
+    }
+  }
+  
+  const description = latestReport?.deskripsi || latestReport?.content || 
+    tempat.narasiCerita || `Lalu lintas ${kondisi.toLowerCase()} di ${tempat.name} aktivitas normal`;
   
   return (
     <div className="mb-6 bg-zinc-900/40 rounded-2xl overflow-hidden border border-white/5">
-      {/* ✅ Tambahkan Foto Hero jika ada */}
       {heroPhoto && (
         <div className="relative h-32 w-full overflow-hidden">
           <img 
@@ -230,14 +250,24 @@ function ActiveLocationCard({ tempat, theme, onRefresh }) {
             onError={(e) => e.target.style.display = 'none'}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          {distanceText && (
+            <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded-full text-xs text-white/80">
+              📍 {distanceText}
+            </div>
+          )}
+          <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-semibold
+            ${kondisi === "LANCAR" ? 'bg-green-500/80 text-white' : 'bg-yellow-500/80 text-black'}`}>
+            {kondisi}
+          </div>
         </div>
       )}
       
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
-            LOKASI AKTIF
-          </h2>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⭕</span>
+            <h3 className="text-lg font-bold">{tempat.name}</h3>
+          </div>
           <button onClick={onRefresh} className="p-1 rounded-full hover:bg-white/10">
             <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -245,21 +275,11 @@ function ActiveLocationCard({ tempat, theme, onRefresh }) {
           </button>
         </div>
         
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⭕</span>
-            <h3 className="text-lg font-bold">{tempat.name}</h3>
-          </div>
-          <span className={`text-sm font-semibold ${kondisi === "LANCAR" ? 'text-green-500' : 'text-yellow-500'}`}>
-            {kondisi}
-          </span>
-        </div>
-        
         <p className="text-xs text-zinc-500 mb-2">
           Terakhir update {waktuLalu}
         </p>
         
-        <p className="text-sm text-zinc-300 mb-3">
+        <p className="text-sm text-zinc-300 mb-3 line-clamp-2">
           {description}
         </p>
         
@@ -271,6 +291,7 @@ function ActiveLocationCard({ tempat, theme, onRefresh }) {
   );
 }
 
+// Helper functions
 function formatTimeAgo(date) {
   const now = new Date();
   const diffMs = now - date;
@@ -283,6 +304,19 @@ function formatTimeAgo(date) {
   return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
 }
 
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// EXPORT
 export default function V2TestPage() {
   return (
     <Providers>
