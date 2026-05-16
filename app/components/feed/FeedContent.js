@@ -37,15 +37,15 @@ const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.3;
 const DISTANCE_WEIGHT = 0.7;
 const SESSION_CACHE_KEY = 'feed_backup';  // TAMBAHKAN INI
-const SESSION_CACHE_DURATION = 30 * 60 * 1000; 
+const SESSION_CACHE_DURATION = 30 * 60 * 1000;
 
 // Helper Functions
 const getDynamicLimit = () => {
   if (typeof navigator === 'undefined') return 8;
   const connection = navigator.connection;
   if (!connection) return 8;
-  
-  switch(connection.effectiveType) {
+
+  switch (connection.effectiveType) {
     case '4g': return 8;
     case '3g': return 6;
     case '2g':
@@ -58,11 +58,11 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 };
 
@@ -79,7 +79,7 @@ const getDistanceScore = (distance) => {
 
 const calculateHybridScore = (item, userLocation) => {
   const rankingScore = item.realtimeScore || 50;
-  
+
   let distance = null;
   if (userLocation && item.latitude && item.longitude) {
     distance = haversineDistance(
@@ -89,10 +89,10 @@ const calculateHybridScore = (item, userLocation) => {
       item.longitude
     );
   }
-  
+
   const distanceScore = getDistanceScore(distance);
   const hybridScore = (rankingScore * RANKING_WEIGHT) + (distanceScore * DISTANCE_WEIGHT);
-  
+
   return { hybridScore, rankingScore, distanceScore, distance };
 };
 
@@ -104,20 +104,20 @@ if (typeof window !== 'undefined' && !window.__feedItemCache) {
 
 const cachedProcessFeedItem = (item, locationReady, location) => {
   if (typeof window === 'undefined') return processFeedItem({ item, locationReady, location, comments: {} });
-  
+
   const cacheKey = `${item.id}_${locationReady}_${location?.latitude || 0}_${location?.longitude || 0}`;
-  
+
   if (window.__feedItemCache.has(cacheKey)) {
     return window.__feedItemCache.get(cacheKey);
   }
-  
+
   const result = processFeedItem({ item, locationReady, location, comments: {} });
-  
+
   if (window.__feedItemCache.size > window.__feedItemCacheMaxSize) {
     const firstKey = window.__feedItemCache.keys().next().value;
     window.__feedItemCache.delete(firstKey);
   }
-  
+
   window.__feedItemCache.set(cacheKey, result);
   return result;
 };
@@ -172,10 +172,10 @@ const EndOfFeed = memo(() => (
 const PullToRefreshIndicator = memo(({ refreshing }) => (
   <AnimatePresence>
     {refreshing && (
-      <motion.div 
-        initial={{ y: -60, opacity: 0 }} 
-        animate={{ y: 0, opacity: 1 }} 
-        exit={{ y: -60, opacity: 0 }} 
+      <motion.div
+        initial={{ y: -60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: -60, opacity: 0 }}
         className="fixed top-0 left-0 right-0 bg-black/80 backdrop-blur-md py-3 text-center text-white/70 text-sm z-50 shadow-lg"
       >
         <div className="flex items-center justify-center gap-3">
@@ -228,7 +228,7 @@ export default function FeedContent() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState(null);
   const searchRadius = activeMode === 'general' ? 40 : 10;
-  
+
   // ========== UI STATE ==========
   const [isScrolled, setIsScrolled] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "" });
@@ -236,10 +236,10 @@ export default function FeedContent() {
   const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
   const [feedOpacity, setFeedOpacity] = useState(1);
   const [isActivatingLocation, setIsActivatingLocation] = useState(false);
-  
+
 
   // ========== DETEKSI ARAH SCROLL ==========
- const [scrollDirection, setScrollDirection] = useState('down');  
+  const [scrollDirection, setScrollDirection] = useState('down');
 
   // ========== BREAK CARD STATE ==========
   const previousConditionsRef = useRef({});
@@ -267,8 +267,8 @@ export default function FeedContent() {
   const fetchIdRef = useRef(0);
   const lastCardRef = useRef(null);
   const lastLocationCacheKeyRef = useRef(
-  typeof window !== 'undefined' ? sessionStorage.getItem('last_location_key') : null
-);
+    typeof window !== 'undefined' ? sessionStorage.getItem('last_location_key') : null
+  );
   const abortControllerRef = useRef(null);
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
@@ -288,34 +288,34 @@ export default function FeedContent() {
   // ========== STATE UNTUK KENTONGAN DI AI MODAL ==========
   const [selectedKentongan, setSelectedKentongan] = useState(null);
 
-    // ========== SESSION STORAGE BACKUP (OPTIMIZED) ==========
-useEffect(() => {
-  if (orderedIds.length === 0 || itemsMap.size === 0 || initialLoad) return;
-  
-  // Debounce: Tunggu 1 detik setelah perubahan terakhir
-  const timeoutId = setTimeout(() => {
-    try {
-      // ✅ Hanya backup 20 item pertama
-      const itemsToBackup = orderedIds.slice(0, 20);
-      const itemsArray = itemsToBackup.map(id => [id, itemsMap.get(id)]).filter(([, item]) => item);
-      
-      const backupData = {
-        itemsMap: itemsArray,
-        orderedIds: itemsToBackup,
-        searchRadius: searchRadius,
-        timestamp: Date.now(),
-        version: '2.0' // Update version
-      };
-      
-      sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
-      console.log(`💾 Feed backup saved: ${itemsToBackup.length} items (debounced)`);
-    } catch (e) {
-      console.warn('Failed to save feed backup:', e);
-    }
-  }, 1000); // ✅ Tunggu 1 detik
-  
-  return () => clearTimeout(timeoutId);
-}, [itemsMap, orderedIds, searchRadius, initialLoad]); // Dependensi tetap, tapi ada debounce
+  // ========== SESSION STORAGE BACKUP (OPTIMIZED) ==========
+  useEffect(() => {
+    if (orderedIds.length === 0 || itemsMap.size === 0 || initialLoad) return;
+
+    // Debounce: Tunggu 1 detik setelah perubahan terakhir
+    const timeoutId = setTimeout(() => {
+      try {
+        // ✅ Hanya backup 20 item pertama
+        const itemsToBackup = orderedIds.slice(0, 20);
+        const itemsArray = itemsToBackup.map(id => [id, itemsMap.get(id)]).filter(([, item]) => item);
+
+        const backupData = {
+          itemsMap: itemsArray,
+          orderedIds: itemsToBackup,
+          searchRadius: searchRadius,
+          timestamp: Date.now(),
+          version: '2.0' // Update version
+        };
+
+        sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
+        console.log(`💾 Feed backup saved: ${itemsToBackup.length} items (debounced)`);
+      } catch (e) {
+        console.warn('Failed to save feed backup:', e);
+      }
+    }, 1000); // ✅ Tunggu 1 detik
+
+    return () => clearTimeout(timeoutId);
+  }, [itemsMap, orderedIds, searchRadius, initialLoad]); // Dependensi tetap, tapi ada debounce
 
   // ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
   const openAIModalWithKentongan = useCallback((kentongan) => {
@@ -335,56 +335,56 @@ useEffect(() => {
 
   // ========== BREAK CARD GENERATOR ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
-  // ✅ URGENT: selalu tampilkan yang pertama
-  const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
-  if (urgentKentongan.length > 0 && scrollIndex >= 1) {
-    const k = urgentKentongan[0];
-    return {
-      type: "kentongan",
-      level: "A",
-      data: {
-        title: k.title,
-        text: `🚨 ${k.title}`,
-        is_urgent: true,
-        target_desa: k.target_desa,
-        is_global: k.is_global,
-        content: k.content,
-        image_url: k.image_url,
-        
-      },
-      onClick: () => openAIModalWithKentongan(k),
-    };
-  }
-  
-  // ✅ BIASA: ROTASI berdasarkan scrollIndex
-  const normalKentongan = kentonganForFeed.filter(k => !k.is_urgent);
-  if (normalKentongan.length > 0 && scrollIndex >= 2) {
-    // Hitung index berdasarkan scrollIndex (berganti setiap 5 scroll)
-    const idx = Math.floor(scrollIndex / 5) % normalKentongan.length;
-    const k = normalKentongan[idx];
-    return {
-      type: "kentongan",
-      level: "B",
-      data: {
-        title: k.title,
-        text: k.title,
-        is_urgent: false,
-        target_desa: k.target_desa,
-        is_global: k.is_global,
-        content: k.content,
-        image_url: k.image_url,
-        created_at: k.created_at,
-      },
-      onClick: () => openAIModalWithKentongan(k),
-    };
-  }
+    // ✅ URGENT: selalu tampilkan yang pertama
+    const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
+    if (urgentKentongan.length > 0 && scrollIndex >= 1) {
+      const k = urgentKentongan[0];
+      return {
+        type: "kentongan",
+        level: "A",
+        data: {
+          title: k.title,
+          text: `🚨 ${k.title}`,
+          is_urgent: true,
+          target_desa: k.target_desa,
+          is_global: k.is_global,
+          content: k.content,
+          image_url: k.image_url,
+
+        },
+        onClick: () => openAIModalWithKentongan(k),
+      };
+    }
+
+    // ✅ BIASA: ROTASI berdasarkan scrollIndex
+    const normalKentongan = kentonganForFeed.filter(k => !k.is_urgent);
+    if (normalKentongan.length > 0 && scrollIndex >= 2) {
+      // Hitung index berdasarkan scrollIndex (berganti setiap 5 scroll)
+      const idx = Math.floor(scrollIndex / 5) % normalKentongan.length;
+      const k = normalKentongan[idx];
+      return {
+        type: "kentongan",
+        level: "B",
+        data: {
+          title: k.title,
+          text: k.title,
+          is_urgent: false,
+          target_desa: k.target_desa,
+          is_global: k.is_global,
+          content: k.content,
+          image_url: k.image_url,
+          created_at: k.created_at,
+        },
+        onClick: () => openAIModalWithKentongan(k),
+      };
+    }
 
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentReports = allPlaces.reduce((acc, p) => {
       const reports = (p.laporan_terbaru || []).filter(l => new Date(l.created_at) > oneHourAgo);
       return acc + reports.length;
     }, 0);
-    
+
     if (recentReports > 5) {
       return {
         type: "statistic",
@@ -405,7 +405,7 @@ useEffect(() => {
       }
       previousConditionsRef.current[place.id] = curr;
     }
-    
+
     if (hasSignificantChange) {
       return {
         type: "area-summary",
@@ -419,7 +419,7 @@ useEffect(() => {
       const latest = p.laporan_terbaru?.[0];
       return !latest || new Date(latest.created_at) < threeHoursAgo;
     });
-    
+
     if (silentPlaces.length > 2) {
       return {
         type: "trigger-action",
@@ -456,68 +456,68 @@ useEffect(() => {
       }).length;
       return acc + todayReports;
     }, 0);
-    
+
     return {
       type: "statistic",
       level: "B",
       data: { text: `📊 ${allPlaces.length} lokasi aktif · ${totalLaporanHariIni} laporan hari ini` },
     };
-  }, [kentonganForFeed, openAIModalWithKentongan]); 
+  }, [kentonganForFeed, openAIModalWithKentongan]);
 
   // ========== GABUNGKAN FEED CARD DAN BREAK CARD (OPTIMIZED) ==========
-  const LIMIT_VISIBLE = 10; 
+  const LIMIT_VISIBLE = 10;
   const feedItemsWithBreaks = useMemo(() => {
     if (!tempat.length) return [];
-  
-  // 1. Batasi hanya 50 item pertama yang disisipi Break Card
-  const itemsToProcess = tempat.slice(0, LIMIT_VISIBLE);
-  const remainingItems = tempat.slice(LIMIT_VISIBLE); 
-  
-  const result = [];
-  let cardsSinceLastBreak = 0;
-  
-  // 2. Loop hanya pada itemsToProcess
-  for (let i = 0; i < itemsToProcess.length; i++) {
-    result.push(itemsToProcess[i]);
-    cardsSinceLastBreak++;
-    
-    const shouldAddBreak = (() => {
-      if (cardsSinceLastBreak < 2) return false;
-      if (cardsSinceLastBreak >= 5) return true;
-      
-      const recentPlaces = itemsToProcess.slice(Math.max(0, i - 2), i + 1);
-      const hasViral = recentPlaces.some(p => p.isViral === true);
-      const hasManyReports = recentPlaces.some(p => (p.laporan_terbaru?.length || 0) > 3);
-      
-      let hasStatusChange = false;
-      if (recentPlaces.length >= 2) {
-        const statuses = recentPlaces.map(p => p.isRamai ? "ramai" : (p.isViral ? "viral" : "normal"));
-        hasStatusChange = statuses[0] !== statuses[statuses.length - 1];
-      }
-      
-      return (hasViral || hasManyReports || hasStatusChange) || cardsSinceLastBreak >= 4;
-    })();
-    
-    if (shouldAddBreak && i !== itemsToProcess.length - 1) {
-      const breakCard = generateBreakCard(i + 1, itemsToProcess.slice(0, i + 1), itemsToProcess);
-      if (breakCard) {
-        result.push({
-          _isBreak: true,
-          id: `break-${i}-${Date.now()}`,
-          type: breakCard.type,
-          level: breakCard.level,
-          data: breakCard.data,
-          onClick: breakCard.onClick,
-        });
-      }
-      cardsSinceLastBreak = 0;
-    }
-  }
-  
-  // 3. Gabungkan langsung sisanya tanpa proses logika tambahan
-  return [...result, ...remainingItems];
 
-}, [tempat, generateBreakCard]);
+    // 1. Batasi hanya 50 item pertama yang disisipi Break Card
+    const itemsToProcess = tempat.slice(0, LIMIT_VISIBLE);
+    const remainingItems = tempat.slice(LIMIT_VISIBLE);
+
+    const result = [];
+    let cardsSinceLastBreak = 0;
+
+    // 2. Loop hanya pada itemsToProcess
+    for (let i = 0; i < itemsToProcess.length; i++) {
+      result.push(itemsToProcess[i]);
+      cardsSinceLastBreak++;
+
+      const shouldAddBreak = (() => {
+        if (cardsSinceLastBreak < 2) return false;
+        if (cardsSinceLastBreak >= 5) return true;
+
+        const recentPlaces = itemsToProcess.slice(Math.max(0, i - 2), i + 1);
+        const hasViral = recentPlaces.some(p => p.isViral === true);
+        const hasManyReports = recentPlaces.some(p => (p.laporan_terbaru?.length || 0) > 3);
+
+        let hasStatusChange = false;
+        if (recentPlaces.length >= 2) {
+          const statuses = recentPlaces.map(p => p.isRamai ? "ramai" : (p.isViral ? "viral" : "normal"));
+          hasStatusChange = statuses[0] !== statuses[statuses.length - 1];
+        }
+
+        return (hasViral || hasManyReports || hasStatusChange) || cardsSinceLastBreak >= 4;
+      })();
+
+      if (shouldAddBreak && i !== itemsToProcess.length - 1) {
+        const breakCard = generateBreakCard(i + 1, itemsToProcess.slice(0, i + 1), itemsToProcess);
+        if (breakCard) {
+          result.push({
+            _isBreak: true,
+            id: `break-${i}-${Date.now()}`,
+            type: breakCard.type,
+            level: breakCard.level,
+            data: breakCard.data,
+            onClick: breakCard.onClick,
+          });
+        }
+        cardsSinceLastBreak = 0;
+      }
+    }
+
+    // 3. Gabungkan langsung sisanya tanpa proses logika tambahan
+    return [...result, ...remainingItems];
+
+  }, [tempat, generateBreakCard]);
 
   // ========== CACHE MANAGER ==========
   const getCacheKey = useCallback(() => {
@@ -543,7 +543,7 @@ useEffect(() => {
     set: (key, itemsMap, orderedIds) => {
       try {
         if (!orderedIds || orderedIds.length === 0) return;
-        const itemsToCache = networkInfo.isSlowConnection 
+        const itemsToCache = networkInfo.isSlowConnection
           ? Array.from(itemsMap.entries()).slice(0, 30)
           : Array.from(itemsMap.entries());
         localStorage.setItem(key, JSON.stringify({
@@ -560,28 +560,28 @@ useEffect(() => {
   }), [networkInfo.isSlowConnection]);
 
   // ========== RESET FEED ==========
-const resetFeed = useCallback((soft = false) => {
-  if (soft) {
-    // Soft reset: hanya clear flag, data tetap ada
-    setHasMore(true);
-    setInitialLoad(false);
-    setError(null);
-  } else {
-    // Hard reset: bersihkan semua (hanya untuk ganti lokasi)
-    setOrderedIds([]);
-    setItemsMap(new Map());
-    setHasMore(true);
-    setInitialLoad(true);
-    setError(null);
-    lastLoadedIdRef.current = null;
-    existingIdsRef.current.clear();
-  }
-}, []);
+  const resetFeed = useCallback((soft = false) => {
+    if (soft) {
+      // Soft reset: hanya clear flag, data tetap ada
+      setHasMore(true);
+      setInitialLoad(false);
+      setError(null);
+    } else {
+      // Hard reset: bersihkan semua (hanya untuk ganti lokasi)
+      setOrderedIds([]);
+      setItemsMap(new Map());
+      setHasMore(true);
+      setInitialLoad(true);
+      setError(null);
+      lastLoadedIdRef.current = null;
+      existingIdsRef.current.clear();
+    }
+  }, []);
 
   // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
     if (isFetchingRef.current && !reset) return;
-    
+
     const currentFetchId = ++fetchIdRef.current;
     isFetchingRef.current = true;
 
@@ -605,7 +605,7 @@ const resetFeed = useCallback((soft = false) => {
 
     try {
       const cacheKey = getCacheKey();
-      
+
       if (reset && !isLocationChange) {
         const cached = cacheManager.get(cacheKey);
         if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
@@ -664,13 +664,13 @@ const resetFeed = useCallback((soft = false) => {
             item.longitude
           );
         }
-        
+
         if (distance !== null && distance > searchRadius) continue;
-        
+
         const processedItem = cachedProcessFeedItem(item, !!userLocation, userLocation);
-        
+
         const hybridScoreData = calculateHybridScore(processedItem, userLocation);
-        
+
         processedItems.push({
           ...processedItem,
           _distance: distance,
@@ -733,29 +733,29 @@ const resetFeed = useCallback((soft = false) => {
       setHasMore(processedItems.length === dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
       if (reset && processedItems.length > 0) {
-  const finalMap = new Map();
-  const finalIds = [];
-  for (const item of processedItems) {
-    finalMap.set(item.id, item);
-    finalIds.push(item.id);
-  }
-  cacheManager.set(cacheKey, finalMap, finalIds);
-  
-  // ✅ SAVE KE SESSION STORAGE - HANYA 20 ITEM PERTAMA
-  try {
-    const itemsToBackup = finalIds.slice(0, 20);
-    const itemsArray = itemsToBackup.map(id => [id, finalMap.get(id)]);
-    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
-      itemsMap: itemsArray,
-      orderedIds: itemsToBackup,
-      searchRadius: searchRadius,
-      timestamp: Date.now(),
-      version: '2.0'
-    }));
-    console.log(`💾 Fresh feed saved to sessionStorage: ${itemsToBackup.length} items`);
-  } catch (e) {
-    console.warn('Failed to save to sessionStorage:', e);
-  }
+        const finalMap = new Map();
+        const finalIds = [];
+        for (const item of processedItems) {
+          finalMap.set(item.id, item);
+          finalIds.push(item.id);
+        }
+        cacheManager.set(cacheKey, finalMap, finalIds);
+
+        // ✅ SAVE KE SESSION STORAGE - HANYA 20 ITEM PERTAMA
+        try {
+          const itemsToBackup = finalIds.slice(0, 20);
+          const itemsArray = itemsToBackup.map(id => [id, finalMap.get(id)]);
+          sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
+            itemsMap: itemsArray,
+            orderedIds: itemsToBackup,
+            searchRadius: searchRadius,
+            timestamp: Date.now(),
+            version: '2.0'
+          }));
+          console.log(`💾 Fresh feed saved to sessionStorage: ${itemsToBackup.length} items`);
+        } catch (e) {
+          console.warn('Failed to save to sessionStorage:', e);
+        }
 
         if (isLocationChange) {
           setFeedOpacity(1);
@@ -764,9 +764,9 @@ const resetFeed = useCallback((soft = false) => {
 
         if (locationReady) {
           const connectionText = networkInfo.isSlowConnection ? " (mode hemat data)" : "";
-          setToast({ 
-            show: true, 
-            message: `📍 ${processedItems.length} tempat dalam radius ${searchRadius}km${connectionText}` 
+          setToast({
+            show: true,
+            message: `📍 ${processedItems.length} tempat dalam radius ${searchRadius}km${connectionText}`
           });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
@@ -787,120 +787,120 @@ const resetFeed = useCallback((soft = false) => {
 
   // ========== EFFECTS ==========
 
-useEffect(() => {
-  let isMounted = true;
-  
-  const getUser = async () => {
-    try {
-      // Ganti dari getUser() ke getSession()
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.warn("Session error:", error.message);
-        return;
-      }
-      
-      const authUser = session?.user;
-      
-      if (authUser && isMounted) {
-        setUserId(authUser.id);
-        
-        // Gunakan maybeSingle() biar tidak error jika profile tidak ada
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', authUser.id)
-          .maybeSingle(); // ✅ Ganti .single() dengan .maybeSingle()
-        
-        if (!profileError && profile) {
-          setUserRole(profile?.role || 'warga');
-        } else {
-          setUserRole('warga'); // Default role
+  useEffect(() => {
+    let isMounted = true;
+
+    const getUser = async () => {
+      try {
+        // Ganti dari getUser() ke getSession()
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.warn("Session error:", error.message);
+          return;
         }
+
+        const authUser = session?.user;
+
+        if (authUser && isMounted) {
+          setUserId(authUser.id);
+
+          // Gunakan maybeSingle() biar tidak error jika profile tidak ada
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', authUser.id)
+            .maybeSingle(); // ✅ Ganti .single() dengan .maybeSingle()
+
+          if (!profileError && profile) {
+            setUserRole(profile?.role || 'warga');
+          } else {
+            setUserRole('warga'); // Default role
+          }
+        }
+      } catch (err) {
+        console.warn("Auth error:", err.message);
       }
-    } catch (err) {
-      console.warn("Auth error:", err.message);
-    }
-  };
-  
-  getUser();
-  
-  return () => {
-    isMounted = false;
-  };
-}, []);
+    };
+
+    getUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
 
- useEffect(() => {
-  let lastScrollY = window.scrollY;
-  let ticking = false;
-  
-  const handleScroll = () => {
-    if (!ticking) {
-      requestAnimationFrame(() => {
-        const currentScrollY = window.scrollY;
-        
-        // Update scroll direction
-        if (currentScrollY > lastScrollY) {
-          setScrollDirection('down');
-        } else if (currentScrollY < lastScrollY) {
-          setScrollDirection('up');
-        }
-        lastScrollY = currentScrollY;
-        
-        // Update scrolled state
-        setIsScrolled(currentScrollY > 50);
-        
-        ticking = false;
-      });
-      ticking = true;
-    }
-  };
-  
-  window.addEventListener('scroll', handleScroll, { passive: true });
-  handleScroll(); // Initial call
-  
-  return () => window.removeEventListener('scroll', handleScroll);
-}, []);
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+
+          // Update scroll direction
+          if (currentScrollY > lastScrollY) {
+            setScrollDirection('down');
+          } else if (currentScrollY < lastScrollY) {
+            setScrollDirection('up');
+          }
+          lastScrollY = currentScrollY;
+
+          // Update scrolled state
+          setIsScrolled(currentScrollY > 50);
+
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll(); // Initial call
+
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
-    
+
     const updateNetworkInfo = () => {
       const conn = navigator.connection;
       const effectiveType = conn?.effectiveType || '4g';
       const saveData = conn?.saveData || false;
       const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
-      
+
       setNetworkInfo({ effectiveType, saveData, isSlowConnection });
       setDynamicLimit(getDynamicLimit());
       setUseRealtime(!isSlowConnection && !saveData);
     };
-    
+
     updateNetworkInfo();
     navigator.connection.addEventListener('change', updateNetworkInfo);
-    
+
     return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
   }, []);
 
   // Polling for slow connections
   const pollForUpdates = useCallback(() => {
-    if (!locationReady || !hasMore) return () => {};
-    
+    if (!locationReady || !hasMore) return () => { };
+
     let interval = null;
     const checkNewContent = async () => {
       try {
         const lastItemId = orderedIds[0];
         if (!lastItemId) return;
-        
+
         const { data, error } = await supabase
           .from("feed_view")
           .select("id")
           .gt('id', lastItemId)
           .limit(1);
-          
+
         if (error) throw error;
-        
+
         if (data && data.length > 0) {
           loadPlaces(true);
           setToast({ show: true, message: "📢 Ada konten baru! Feed diperbarui." });
@@ -910,7 +910,7 @@ useEffect(() => {
         console.warn("Polling error:", err);
       }
     };
-    
+
     interval = setInterval(checkNewContent, networkInfo.isSlowConnection ? 60000 : 30000);
     return () => clearInterval(interval);
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection, locationReady, hasMore]);
@@ -921,7 +921,7 @@ useEffect(() => {
       const cleanup = pollForUpdates();
       return cleanup;
     }
-    
+
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
@@ -938,7 +938,7 @@ useEffect(() => {
 
         let inRadius = false;
         let distance = null;
-        
+
         if (userLocation && newItem.latitude && newItem.longitude) {
           distance = haversineDistance(
             userLocation.latitude,
@@ -965,12 +965,12 @@ useEffect(() => {
             newMap.set(finalItem.id, finalItem);
             return newMap;
           });
-          
+
           setOrderedIds(prevIds => {
             if (prevIds.includes(newItem.id)) return prevIds;
             return [...prevIds, newItem.id];
           });
-          
+
           setComments(prev => ({ ...prev, [newItem.id]: [] }));
           setToast({ show: true, message: `📢 ${newItem.name} menambahkan update baru!` });
           setTimeout(() => setToast({ show: false, message: "" }), 2000);
@@ -1002,7 +1002,7 @@ useEffect(() => {
   }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length]);
 
   // Pull to refresh
-  
+
   useEffect(() => {
     let startY = 0;
     let isPulling = false;
@@ -1041,117 +1041,117 @@ useEffect(() => {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-    // ========== RESTORE FROM SESSION STORAGE ==========
-useEffect(() => {
-  const backup = sessionStorage.getItem(SESSION_CACHE_KEY);
-  
-  if (backup && !initialLoadDoneRef.current) {
-    try {
-      const data = JSON.parse(backup);
-      const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
-      
-      // ✅ Validasi data dan batasi jumlah
-      if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
-        // ✅ Hanya restore maksimal 20 item
-        const maxRestore = Math.min(data.orderedIds.length, 20);
-        const limitedIds = data.orderedIds.slice(0, maxRestore);
-        const limitedMap = new Map(data.itemsMap.slice(0, maxRestore));
-        
-        setItemsMap(limitedMap);
-        setOrderedIds(limitedIds);
-        setInitialLoad(false);
-        setLoading(false); 
-        initialLoadDoneRef.current = true;
-        console.log(`✅ Restored ${limitedIds.length} items from cache`);
-        return;
-      } else if (data.version !== '2.0') {
-        console.log('⚠️ Old cache version, clearing...');
+  // ========== RESTORE FROM SESSION STORAGE ==========
+  useEffect(() => {
+    const backup = sessionStorage.getItem(SESSION_CACHE_KEY);
+
+    if (backup && !initialLoadDoneRef.current) {
+      try {
+        const data = JSON.parse(backup);
+        const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
+
+        // ✅ Validasi data dan batasi jumlah
+        if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
+          // ✅ Hanya restore maksimal 20 item
+          const maxRestore = Math.min(data.orderedIds.length, 20);
+          const limitedIds = data.orderedIds.slice(0, maxRestore);
+          const limitedMap = new Map(data.itemsMap.slice(0, maxRestore));
+
+          setItemsMap(limitedMap);
+          setOrderedIds(limitedIds);
+          setInitialLoad(false);
+          setLoading(false);
+          initialLoadDoneRef.current = true;
+          console.log(`✅ Restored ${limitedIds.length} items from cache`);
+          return;
+        } else if (data.version !== '2.0') {
+          console.log('⚠️ Old cache version, clearing...');
+          sessionStorage.removeItem(SESSION_CACHE_KEY);
+        }
+      } catch (e) {
+        console.warn('Failed to restore cache:', e);
         sessionStorage.removeItem(SESSION_CACHE_KEY);
       }
-    } catch(e) {
-      console.warn('Failed to restore cache:', e);
-      sessionStorage.removeItem(SESSION_CACHE_KEY);
     }
-  }
-  
-  if (!initialLoadDoneRef.current) {
-    initialLoadDoneRef.current = true;
-    loadPlaces(true, false);
-  }
-}, []);
 
- // RESPON PERUBAHAN LOKASI (AKTIF)
-useEffect(() => {
-  if (!initialLoadDoneRef.current) return;
-  if (!locationReady) return;
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      loadPlaces(true, false);
+    }
+  }, []);
 
-  const currentCacheKey = getCacheKey();
-  
-  // ✅ TAMBAHKAN INI: Jika lastLocationCacheKeyRef masih null (baru mount), skip
-  if (lastLocationCacheKeyRef.current === null) {
+  // RESPON PERUBAHAN LOKASI (AKTIF)
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) return;
+    if (!locationReady) return;
+
+    const currentCacheKey = getCacheKey();
+
+    // ✅ TAMBAHKAN INI: Jika lastLocationCacheKeyRef masih null (baru mount), skip
+    if (lastLocationCacheKeyRef.current === null) {
+      lastLocationCacheKeyRef.current = currentCacheKey;
+      sessionStorage.setItem('last_location_key', currentCacheKey);
+      return; // ✅ LANGSUNG RETURN, TIDAK FETCH
+    }
+
+    if (lastLocationCacheKeyRef.current === currentCacheKey) return;
+
+    console.log(`📍 Lokasi aktif/berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
+
+    setIsActivatingLocation(true);
     lastLocationCacheKeyRef.current = currentCacheKey;
+
     sessionStorage.setItem('last_location_key', currentCacheKey);
-    return; // ✅ LANGSUNG RETURN, TIDAK FETCH
-  }
-  
-  if (lastLocationCacheKeyRef.current === currentCacheKey) return;
 
-  console.log(`📍 Lokasi aktif/berubah: ${lastLocationCacheKeyRef.current} -> ${currentCacheKey}`);
-  
-  setIsActivatingLocation(true);
-  lastLocationCacheKeyRef.current = currentCacheKey;
-  
-  sessionStorage.setItem('last_location_key', currentCacheKey);
-  
-  cacheManager.invalidate();
-  sessionStorage.removeItem(SESSION_CACHE_KEY);
-  
-  loadPlaces(true, true).finally(() => {
-    setIsActivatingLocation(false);
-  });
+    cacheManager.invalidate();
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
 
-  setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
-  setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  
-}, [getCacheKey, locationReady, cacheManager, villageLocation]);
+    loadPlaces(true, true).finally(() => {
+      setIsActivatingLocation(false);
+    });
+
+    setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
+    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+
+  }, [getCacheKey, locationReady, cacheManager, villageLocation]);
 
   // Fetch kentongan
   useEffect(() => {
     fetchKentonganForFeed();
   }, [fetchKentonganForFeed]);
-	
+
   // ========== LISTENER UNTUK REFRESH DARI BOTTOM NAV ==========
-useEffect(() => {
-  const handleRefreshFeed = async () => {
-    console.log('♻️ Refresh feed triggered from bottom nav');
-    setIsActivatingLocation(true); // Tampilkan loading overlay
-    
-    try {
-      cacheManager.invalidate();
-      sessionStorage.removeItem(SESSION_CACHE_KEY);
-      await loadPlaces(true, false);
-      setToast({ show: true, message: "♻️ Kondisi Update!" });
-      setTimeout(() => setToast({ show: false, message: "" }), 1500);
-    } finally {
-      setIsActivatingLocation(false);
-    }
-  };
-  
-  window.addEventListener('refresh-feed', handleRefreshFeed);
-  
-  return () => {
-    window.removeEventListener('refresh-feed', handleRefreshFeed);
-  };
-}, [cacheManager, loadPlaces]);
-  
+  useEffect(() => {
+    const handleRefreshFeed = async () => {
+      console.log('♻️ Refresh feed triggered from bottom nav');
+      setIsActivatingLocation(true); // Tampilkan loading overlay
+
+      try {
+        cacheManager.invalidate();
+        sessionStorage.removeItem(SESSION_CACHE_KEY);
+        await loadPlaces(true, false);
+        setToast({ show: true, message: "♻️ Kondisi Update!" });
+        setTimeout(() => setToast({ show: false, message: "" }), 1500);
+      } finally {
+        setIsActivatingLocation(false);
+      }
+    };
+
+    window.addEventListener('refresh-feed', handleRefreshFeed);
+
+    return () => {
+      window.removeEventListener('refresh-feed', handleRefreshFeed);
+    };
+  }, [cacheManager, loadPlaces]);
+
   // ========== HANDLERS ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
-   
+
 
     setManualLocation(selectedLocation);
     cacheManager.invalidate();
-	sessionStorage.removeItem(SESSION_CACHE_KEY);
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
     await resetFeed();
     setIsTransitioningLocation(true);
     setFeedOpacity(0.5);
@@ -1164,8 +1164,8 @@ useEffect(() => {
 
   const handleGPSActivation = useCallback(async (mode = 'gps') => {
     console.log(`📍 Aktifkan GPS location mode: ${mode}...`);
-    
-     
+
+
     await requestLocation(mode);
     await new Promise(resolve => setTimeout(resolve, 800));
     cacheManager.invalidate();
@@ -1179,7 +1179,7 @@ useEffect(() => {
   }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
 
   const handleRadiusChange = useCallback((newRadius) => {
-    
+
     cacheManager.invalidate();
     loadPlaces(true);
     setToast({ show: true, message: `🔍 Radius ${newRadius}km` });
@@ -1284,22 +1284,22 @@ useEffect(() => {
       />
 
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
-      <LaporanWarga 
-        tempat={tempat} 
-        locationReady={locationReady} 
-        displayLocation={villageLocation} 
-        location={location} 
-        forceShow={forceShowLaporan} 
-        onHide={() => setForceShowLaporan(false)} 
+      <LaporanWarga
+        tempat={tempat}
+        locationReady={locationReady}
+        displayLocation={villageLocation}
+        location={location}
+        forceShow={forceShowLaporan}
+        onHide={() => setForceShowLaporan(false)}
       />
-      <FormLaporanAktif 
-        isOpen={showFormLaporan} 
-        onClose={() => setShowFormLaporan(false)} 
-        villageLocation={villageLocation} 
-        theme={theme} 
-        user={user} 
+      <FormLaporanAktif
+        isOpen={showFormLaporan}
+        onClose={() => setShowFormLaporan(false)}
+        villageLocation={villageLocation}
+        theme={theme}
+        user={user}
       />
-      
+
       <LocationModal
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
@@ -1311,9 +1311,9 @@ useEffect(() => {
         customLocationName={placeName}
       />
 
-            <motion.div 
-        className="mt-4 space-y-2 min-h-[60vh] relative" 
-        animate={{ opacity: feedOpacity }} 
+      <motion.div
+        className="pt-[72px] space-y-2 min-h-[60vh] relative"
+        animate={{ opacity: feedOpacity }}
         transition={{ duration: LOCATION_TRANSITION_DELAY / 1000 }}
       >
         {initialLoad ? (
@@ -1324,59 +1324,59 @@ useEffect(() => {
           <EmptyState radius={searchRadius} locationName={villageLocation} onExpandRadius={handleExpandRadius} />
         ) : (
           <Suspense fallback={<SkeletonLoader />}>
-            
-              <motion.div layout className="space-y-2">
-                <AnimatePresence initial={false}>
-                  {feedItemsWithBreaks.map((item, index) => {
-                    if (item._isBreak) {
-                      return (
-                        <BreakCard
-                          key={item.id}
-                          type={item.type}
-                          data={item.data}
-                          theme={theme}
-                          level={item.level}
-                          onClick={item.onClick}
-                        />
-                      );
-                    }
-                    
-                    const isLast = index === feedItemsWithBreaks.length - 1;
-                    const isPriority = index < 3;
-					const isNearby = index < 10;
-					const isNearViewport = index < 15;
+
+            <motion.div layout className="space-y-2">
+              <AnimatePresence initial={false}>
+                {feedItemsWithBreaks.map((item, index) => {
+                  if (item._isBreak) {
                     return (
-                      <motion.div
+                      <BreakCard
                         key={item.id}
-                        layout
-                        initial={false}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3 }}
-                        ref={isLast ? lastCardRef : null}
-                        className="mb-6"
-                      >
-                        <FeedCardWrapper theme={theme}>
-                          <FeedCard
-                            item={item}
-                            locationReady={locationReady}
-                            location={location}
-                            comments={comments}
-                            selectedPhotoIndex={selectedPhotoIndex}
-                            setSelectedPhotoIndex={setSelectedPhotoIndex}
-                            openAIModal={openAICardModal}
-                            openKomentarModal={openKomentarModal}
-                            onShare={handleShare}
-                            priority={isPriority}
-                            userProfile={profile}
-                            userAvatar={profile?.avatar_url}
-                          />
-                        </FeedCardWrapper>
-                      </motion.div>
+                        type={item.type}
+                        data={item.data}
+                        theme={theme}
+                        level={item.level}
+                        onClick={item.onClick}
+                      />
                     );
-                  })}
-                </AnimatePresence>
-              </motion.div>
-            
+                  }
+
+                  const isLast = index === feedItemsWithBreaks.length - 1;
+                  const isPriority = index < 3;
+                  const isNearby = index < 10;
+                  const isNearViewport = index < 15;
+                  return (
+                    <motion.div
+                      key={item.id}
+                      layout
+                      initial={false}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      ref={isLast ? lastCardRef : null}
+                      className="mb-6"
+                    >
+                      <FeedCardWrapper theme={theme}>
+                        <FeedCard
+                          item={item}
+                          locationReady={locationReady}
+                          location={location}
+                          comments={comments}
+                          selectedPhotoIndex={selectedPhotoIndex}
+                          setSelectedPhotoIndex={setSelectedPhotoIndex}
+                          openAIModal={openAICardModal}
+                          openKomentarModal={openKomentarModal}
+                          onShare={handleShare}
+                          priority={isPriority}
+                          userProfile={profile}
+                          userAvatar={profile?.avatar_url}
+                        />
+                      </FeedCardWrapper>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </motion.div>
+
           </Suspense>
         )}
 
@@ -1384,10 +1384,10 @@ useEffect(() => {
         {!hasMore && feedItemsWithBreaks.length > 0 && !error && <EndOfFeed />}
 
         {isTransitioningLocation && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50"
           >
             <div className="flex flex-col items-center gap-3">
@@ -1410,38 +1410,38 @@ useEffect(() => {
           villageLocation={villageLocation}
         />
       </Suspense>
-      
+
       <Suspense fallback={null}>
-        <AIModal 
-          isOpen={showAIModal} 
-          onClose={closeModals} 
+        <AIModal
+          isOpen={showAIModal}
+          onClose={closeModals}
           tempat={selectedTempat}
-          kentongan={selectedKentongan} 
-          context={aiContext} 
-          onOpenAuthModal={() => setIsAuthModalOpen(true)} 
-          onUploadSuccess={selectedUploadSuccess} 
-          initialQuery={initialQuery} 
-          item={selectedTempat} 
-          laporanWarga={selectedLaporanWarga} 
-        />
-      </Suspense>
-      
-      <Suspense fallback={null}>
-        <KomentarModal 
-          isOpen={showKomentarModal} 
-          onClose={closeModals} 
-          tempat={selectedTempat} 
-          isAdmin={isAdmin} 
+          kentongan={selectedKentongan}
+          context={aiContext}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onUploadSuccess={selectedUploadSuccess}
+          initialQuery={initialQuery}
+          item={selectedTempat}
+          laporanWarga={selectedLaporanWarga}
         />
       </Suspense>
 
-      <SmartBottomNav 
+      <Suspense fallback={null}>
+        <KomentarModal
+          isOpen={showKomentarModal}
+          onClose={closeModals}
+          tempat={selectedTempat}
+          isAdmin={isAdmin}
+        />
+      </Suspense>
+
+      <SmartBottomNav
         onOpenUpload={() => setShowUploadModal(true)}
         onOpenLaporanForm={() => setShowFormLaporan(true)}
         onOpenNotification={() => router.push("/woro")}
         onOpenProfile={() => router.push("/rewang")}
       />
-      
+
       <UploadModal
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}

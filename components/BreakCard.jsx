@@ -2,36 +2,44 @@
 import { memo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useTheme } from "@/app/hooks/useTheme";
-import { 
-  Megaphone, MapPin, Clock, ChevronRight, 
+import {
+  Megaphone, MapPin, Clock, ChevronRight,
   AlertTriangle, Bell, Volume2, Camera, Sparkles, Image as ImageIcon
 } from "lucide-react";
 
 // ==================== TYPE CONFIG ====================
 const typeConfig = {
-  kentongan: { 
-    label: "INFO DESA", 
-    icon: <Megaphone size={18} />, 
-    bgLight: "bg-orange-50",
-    bgDark: "bg-orange-950/30",
+  kentongan: {
+    label: "INFO DESA",
+    icon: <Megaphone size={14} />,
+    bgLight: "bg-gradient-to-b from-orange-50 to-white",
+    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    accent: "text-orange-500",
+    borderDark: "border-orange-500/20"
   },
-  "area-summary": { 
-    label: "UPDATE AREA", 
-    icon: <MapPin size={18} />, 
-    bgLight: "bg-blue-50",
-    bgDark: "bg-blue-950/30",
+  "area-summary": {
+    label: "UPDATE AREA",
+    icon: <MapPin size={14} />,
+    bgLight: "bg-gradient-to-b from-blue-50 to-white",
+    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    accent: "text-blue-500",
+    borderDark: "border-blue-500/20"
   },
-  "trigger-action": { 
-    label: "AJAKAN", 
-    icon: <Camera size={18} />, 
-    bgLight: "bg-purple-50",
-    bgDark: "bg-purple-950/30",
+  "trigger-action": {
+    label: "AJAKAN",
+    icon: <Camera size={14} />,
+    bgLight: "bg-gradient-to-b from-purple-50 to-white",
+    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    accent: "text-purple-500",
+    borderDark: "border-purple-500/20"
   },
-  "ai-insight": { 
-    label: "AI INSIGHT", 
-    icon: <Sparkles size={18} />, 
-    bgLight: "bg-emerald-50",
-    bgDark: "bg-emerald-950/30",
+  "ai-insight": {
+    label: "AI INSIGHT",
+    icon: <Sparkles size={14} />,
+    bgLight: "bg-gradient-to-b from-emerald-50 to-white",
+    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    accent: "text-emerald-500",
+    borderDark: "border-emerald-500/20"
   },
 };
 
@@ -39,31 +47,31 @@ const typeConfig = {
 const UrgencyBadge = ({ isUrgent, urgency }) => {
   if (isUrgent) {
     return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg">
-        <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-        <span className="text-[9px] font-black">DARURAT</span>
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500 text-white shadow-md shadow-red-500/20">
+        <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+        <span className="text-[8px] font-black tracking-wider uppercase">DARURAT</span>
       </div>
     );
   }
-  
+
   if (urgency === 'high') {
     return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500 text-white">
-        <AlertTriangle size={10} />
-        <span className="text-[9px] font-black">PENTING</span>
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500 text-white">
+        <AlertTriangle size={8} />
+        <span className="text-[8px] font-black tracking-wider uppercase">PENTING</span>
       </div>
     );
   }
-  
+
   if (urgency === 'medium') {
     return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500 text-white">
-        <Bell size={10} />
-        <span className="text-[9px] font-black">INFO</span>
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500 text-white">
+        <Bell size={8} />
+        <span className="text-[8px] font-black tracking-wider uppercase">INFO</span>
       </div>
     );
   }
-  
+
   return null;
 };
 
@@ -73,151 +81,137 @@ const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" })
   const isMalam = theme?.isMalam;
   const [imgError, setImgError] = useState(false);
   const [imgLoading, setImgLoading] = useState(true);
-  
+
   const config = typeConfig[type] || typeConfig.kentongan;
-  
-  // ✅ AMBIL URL GAMBAR - PASTI KEAMBIL
   const imageUrl = data?.image_url || data?.photo_url || data?.thumbnail || null;
-  
-  // Reset error state ketika URL berubah
+  const isUrgent = data?.is_urgent;
+
   useEffect(() => {
     setImgError(false);
     setImgLoading(true);
   }, [imageUrl]);
-  
-  // Format waktu
+
   const formatTime = (dateStr) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
     const now = new Date();
     const diffMins = Math.floor((now - date) / 60000);
-    
+
     if (diffMins < 1) return "Baru saja";
-    if (diffMins < 60) return `${diffMins} menit lalu`;
+    if (diffMins < 60) return `${diffMins} mnt lalu`;
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)} jam lalu`;
     return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
   };
-  
+
   const timeText = formatTime(data?.created_at);
-  
-  // Debug log (hapus di production)
-  if (imageUrl && !imgError) {
-    console.log('🎯 BreakCard loading image:', imageUrl);
-  }
-  
+
   return (
-    <div className="px-4 w-full max-w-md mx-auto my-4">
+    <div className="px-4 w-full max-w-md mx-auto my-3 select-none">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -4 }}
-        transition={{ duration: 0.3 }}
+        whileHover={{ y: -2 }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
         onClick={onClick}
         className={`
-          rounded-2xl overflow-hidden cursor-pointer
+          rounded-t-2xl rounded-b-none overflow-hidden cursor-pointer
           ${isMalam ? config.bgDark : config.bgLight}
-          ${isMalam ? 'border border-white/10' : 'border border-gray-200'}
-          shadow-lg hover:shadow-xl transition-all duration-300
+          ${isUrgent
+            ? 'border-t-2 border-x border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.07)] animate-[pulse_3s_infinite]'
+            : isMalam ? `border-t border-x border-white/5 ${config.borderDark}` : 'border-t border-x border-gray-100 shadow-sm'
+          }
+          hover:shadow-md transition-all duration-200
         `}
       >
         {/* ==================== BAGIAN FOTO ==================== */}
-        <div className="relative w-full bg-gray-800 overflow-hidden" style={{ minHeight: '200px', height: 'auto' }}>
-          
-          {/* ✅ FOTO UTAMA - PAKAI img BIASA, TANPA next/image */}
+        {/* Menggunakan aspect-video (16:9) konsisten untuk mencegah pergeseran layout saat dimuat */}
+        <div className="relative w-full aspect-[16/10] bg-zinc-950 overflow-hidden rounded-t-2xl">
+
           {imageUrl && !imgError ? (
             <>
-              {/* Skeleton loading */}
               {imgLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                  <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+                  <div className="w-5 h-5 border-2 border-zinc-700 border-t-white/60 rounded-full animate-spin" />
                 </div>
               )}
-              
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
+
+              <img
                 src={imageUrl}
-                alt={data?.title || "Thumbnail"}
-                className={`w-full object-cover transition-opacity duration-300 ${imgLoading ? 'opacity-0' : 'opacity-100'}`}
-                style={{ maxHeight: '240px', minHeight: '200px' }}
-                onLoad={() => {
-                  console.log('✅ Image loaded successfully:', imageUrl);
-                  setImgLoading(false);
-                }}
-                onError={(e) => {
-                  console.error('❌ Image failed to load:', imageUrl);
+                alt={data?.title || "Pantauan"}
+                className={`w-full h-full object-cover transition-all duration-500 ${imgLoading ? 'opacity-0 scale-102' : 'opacity-100 scale-100'}`}
+                loading="lazy"
+                onLoad={() => setImgLoading(false)}
+                onError={() => {
                   setImgError(true);
                   setImgLoading(false);
                 }}
               />
             </>
           ) : (
-            // ✅ FALLBACK - TAMPILAN TANPA FOTO
-            <div className="flex flex-col items-center justify-center" style={{ minHeight: '200px' }}>
-              <div className="text-center">
-                <ImageIcon size={48} className={`mx-auto mb-2 ${isMalam ? 'text-white/20' : 'text-gray-300'}`} />
-                <span className={`text-xs ${isMalam ? 'text-white/30' : 'text-gray-400'}`}>
-                  Tidak ada gambar
-                </span>
-              </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-zinc-900 to-zinc-950">
+              <ImageIcon size={32} className={isMalam ? 'text-white/10' : 'text-gray-300/60'} />
+              <span className={`text-[9px] mt-1 tracking-wider uppercase font-medium ${isMalam ? 'text-white/20' : 'text-gray-400'}`}>
+                Kondisi Lokasi
+              </span>
             </div>
           )}
-          
-          {/* Badge di atas foto */}
+
+          {/* Tag Kategori Glassmorphism */}
           <div className="absolute top-3 left-3 z-10">
-            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-md bg-black/60 text-white text-[10px] font-bold`}>
-              {config.icon}
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-md bg-black/40 border border-white/10 text-white text-[9px] font-bold tracking-wide">
+              <span className={config.accent}>{config.icon}</span>
               <span>{config.label}</span>
             </div>
           </div>
-          
-          {/* Urgency badge di pojok kanan atas */}
+
+          {/* Urgency Badge */}
           <div className="absolute top-3 right-3 z-10">
-            <UrgencyBadge isUrgent={data?.is_urgent} urgency={data?.urgency} />
+            <UrgencyBadge isUrgent={isUrgent} urgency={data?.urgency} />
           </div>
-          
-          {/* Overlay gradient di bagian bawah foto */}
-          <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+
+          {/* Proteksi Gradasi Halus Bawah Foto */}
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/50 via-black/10 to-transparent pointer-events-none" />
         </div>
-        
+
         {/* ==================== BAGIAN KONTEN ==================== */}
         <div className="p-4">
-          {/* Title */}
-          <h3 className={`text-lg font-black leading-tight ${isMalam ? 'text-white' : 'text-gray-900'} line-clamp-2`}>
-            {data?.title || data?.text || "Update Penting"}
+          <h3 className={`text-base font-black leading-snug tracking-tight ${isMalam ? 'text-zinc-100' : 'text-gray-900'} line-clamp-2`}>
+            {data?.title || data?.text || "Update Warga"}
           </h3>
-          
-          {/* Content preview */}
+
           {data?.content && (
-            <p className={`text-[13px] mt-2 line-clamp-2 ${isMalam ? 'text-gray-300' : 'text-gray-600'}`}>
+            <p className={`text-[12px] mt-1.5 line-clamp-2 leading-relaxed font-medium ${isMalam ? 'text-zinc-400' : 'text-gray-600'}`}>
               {data.content}
             </p>
           )}
-          
-          {/* Footer info */}
-          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200/20">
-            <div className="flex items-center gap-3 text-[11px] flex-wrap">
+
+          {/* Footer Card */}
+          <div className="flex items-center justify-between mt-3.5 pt-2.5 border-t border-zinc-500/10">
+            <div className="flex items-center gap-2.5 text-[10px] text-zinc-500 font-medium truncate max-w-[75%]">
               {(data?.target_desa || data?.location) && (
-                <div className="flex items-center gap-1 opacity-60">
-                  <MapPin size={12} />
-                  <span>{data.target_desa || data.location}</span>
+                <div className="flex items-center gap-1 opacity-80 shrink-0">
+                  <MapPin size={11} className={config.accent} />
+                  <span className={isMalam ? 'text-zinc-300' : 'text-gray-700'}>
+                    {data.target_desa || data.location}
+                  </span>
                 </div>
               )}
-              
+
               {timeText && (
-                <div className="flex items-center gap-1 opacity-40">
+                <div className="flex items-center gap-1 opacity-60">
                   <Clock size={10} />
                   <span>{timeText}</span>
                 </div>
               )}
             </div>
-            
-            {/* Tombol aksi */}
+
+            {/* Navigasi Aksi */}
             <motion.div
-              whileHover={{ x: 3 }}
-              className="flex items-center gap-1 text-emerald-500 text-[11px] font-bold"
+              whileHover={{ x: 2 }}
+              className="flex items-center gap-0.5 text-emerald-500 text-[10px] font-black tracking-wider uppercase shrink-0"
             >
-              <span>Baca</span>
-              <ChevronRight size={14} />
+              <span>Buka</span>
+              <ChevronRight size={12} strokeWidth={3} />
             </motion.div>
           </div>
         </div>

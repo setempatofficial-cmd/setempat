@@ -111,7 +111,6 @@ const safeArray = (value) => {
 };
 
 // ==================== PREMIUM COMPONENTS ====================
-
 const ViralBadge = memo(() => {
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -343,6 +342,8 @@ function FeedCardV2Premium({
   item = DEFAULT_ITEM,
   isDetail = false,
   showAIButton = true,
+  showStatusIsland = true,
+  showLiveInsight = true,
   locationReady,
   location,
   displayLocation,
@@ -524,14 +525,11 @@ function FeedCardV2Premium({
     const photos = safeItem.photos;
     if (!photos || typeof photos !== 'object') return null;
 
-    // Cek apakah photos memiliki struktur { pagi, siang, sore, malam }
     if (photos.pagi || photos.siang || photos.sore || photos.malam) {
-      return photos; // Kirim full object ke PhotoSlider
+      return photos;
     }
 
-    // Fallback: ubah array biasa ke format time-based
     if (Array.isArray(photos)) {
-      // Semua foto masuk ke semua waktu (atau sesuaikan)
       return {
         pagi: photos,
         siang: photos,
@@ -639,8 +637,6 @@ function FeedCardV2Premium({
   const hoverShadowAnimation = prefersReducedMotion ? {} : { whileHover: HOVER_SHADOW };
   const pulseAnimation = prefersReducedMotion ? {} : PULSE_ANIMATION;
 
-
-  // Logika menentukan teks ajakan yang luwes
   const getPinarakText = () => {
     const category = safeItem?.category?.toLowerCase() || '';
     const name = safeItem?.name || 'lokasi ini';
@@ -658,8 +654,7 @@ function FeedCardV2Premium({
       return `Delok pemandangan di ${name}`;
     }
 
-    // Default kalau kategori tidak spesifik
-    return `Pinarak, intip kondisi terkini di ${name}`;
+    return `Monggo pinarak, pirsani kondisi terkini wonten ${name}`;
   };
 
   return (
@@ -720,13 +715,11 @@ function FeedCardV2Premium({
             onPhotoClick={handlePhotoClick}
           />
 
-          {/* GRADIENT OVERLAY untuk teks */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
 
-          {/* ==================== FLOATING HEADER (DI ATAS FOTO) ==================== */}
+          {/* ==================== FLOATING HEADER ==================== */}
           <div className="absolute top-0 left-0 right-0 p-5 z-20">
             <div className="flex justify-between items-start gap-2">
-              {/* Kiri: Kategori & Nama Tempat */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className="text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg">
@@ -735,20 +728,18 @@ function FeedCardV2Premium({
                   {safeItem.isViral && <ViralBadge />}
                 </div>
 
-                {/* NAMA TEMPAT SAJA (tanpa alamat) */}
                 <h3 className="text-xl sm:text-2xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
                   <span className="text-cyan-400 mr-2">●</span>{safeItem.name}
                 </h3>
               </div>
 
-              {/* Kanan: DISTANCE BADGE */}
               <div className="flex-shrink-0">
                 <DistanceBadge distance={distanceText} theme={{ ...theme, isMalam: true }} />
               </div>
             </div>
           </div>
 
-          {/* ==================== STORY CIRCLE (KIRI BAWAH FOTO) ==================== */}
+          {/* ==================== STORY CIRCLE ==================== */}
           <motion.div
             className="absolute bottom-4 left-4 z-50"
             whileHover={!prefersReducedMotion ? { scale: 1.1 } : {}}
@@ -765,7 +756,8 @@ function FeedCardV2Premium({
           </motion.div>
         </div>
 
-        {/* ==================== STATUS ISLAND (DI BAWAH FOTO) ==================== */}
+        {/* ==================== STATUS ISLAND ==================== */}
+        {!isDetail && showStatusIsland && (
         <div className={`${paddingX} pt-4 pb-2`}>
           <StatusIsland
             item={safeItem}
@@ -776,9 +768,10 @@ function FeedCardV2Premium({
             jumlahWarga={totalSaksi}
           />
         </div>
-
+        )}
         {/* ==================== LIVE INSIGHT & ACTIONS ==================== */}
         <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
+          {!isDetail && showLiveInsight && (
           <motion.div
             className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
             whileHover={!prefersReducedMotion ? { y: -2 } : {}}
@@ -797,10 +790,8 @@ function FeedCardV2Premium({
               tempatId={safeItem.id}
             />
           </motion.div>
-
+         )}
           <div className="flex flex-col gap-3">
-
-
             {!isDetail && (
               <div className="flex gap-2">
                 <PremiumLikeButton
@@ -826,7 +817,6 @@ function FeedCardV2Premium({
 
             {!isDetail && (
               <div className="flex flex-col gap-2">
-                {/* Teks Ajakan Dinamis */}
                 <p className={`text-[9px] font-medium italic opacity-50 px-1 ${theme.isMalam ? 'text-white' : 'text-black'}`}>
                   "{getPinarakText()}"
                 </p>
@@ -835,15 +825,15 @@ function FeedCardV2Premium({
                   onClick={handleGoToDetail}
                   whileTap={{ scale: 0.97 }}
                   className={`
-        w-full py-4 rounded-xl
-        flex items-center justify-center gap-3
-        text-[10px] sm:text-[11px] font-black uppercase tracking-[0.25em]
-        transition-all duration-200
-        ${theme.isMalam
+                    w-full py-4 rounded-xl
+                    flex items-center justify-center gap-3
+                    text-[10px] sm:text-[11px] font-black uppercase tracking-[0.25em]
+                    transition-all duration-200
+                    ${theme.isMalam
                       ? "bg-white text-black hover:bg-gray-100"
                       : "bg-black text-white hover:bg-zinc-800"
                     }
-      `}
+                  `}
                 >
                   <span>PINARAK</span>
                   <motion.div
@@ -891,14 +881,19 @@ function FeedCardV2Premium({
   );
 }
 
+// ==================== FIX: OPTIMIZED RE-RENDER MATRIX ====================
 const areEqual = (prevProps, nextProps) => {
   return (
     prevProps.item?.id === nextProps.item?.id &&
     prevProps.item?.vibe_count === nextProps.item?.vibe_count &&
+    prevProps.item?.status === nextProps.item?.status &&
     prevProps.item?.photos?.length === nextProps.item?.photos?.length &&
     prevProps.selectedPhotoIndex?.[prevProps.item?.id] === nextProps.selectedPhotoIndex?.[nextProps.item?.id] &&
     prevProps.isDetail === nextProps.isDetail &&
-    prevProps.showAIButton === nextProps.showAIButton
+    prevProps.showAIButton === nextProps.showAIButton &&
+    JSON.stringify(prevProps.comments?.[prevProps.item?.id]) === JSON.stringify(nextProps.comments?.[nextProps.item?.id]) &&
+    prevProps.location?.latitude === nextProps.location?.latitude &&
+    prevProps.location?.longitude === nextProps.location?.longitude
   );
 };
 

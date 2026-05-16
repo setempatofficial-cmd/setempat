@@ -19,6 +19,7 @@
   }
 }
 
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -29,6 +30,7 @@ body {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -46,18 +48,19 @@ body {
 
 /* Touch targets untuk mobile */
 @media (max-width: 380px) {
-  button, 
+
+  button,
   [role="button"],
   .clickable {
     min-height: 44px;
     min-width: 44px;
   }
-  
+
   .feed-card .absolute {
     transform: scale(0.95);
     transform-origin: top left;
   }
-  
+
   .feed-card {
     overflow-x: hidden;
   }
@@ -68,7 +71,7 @@ body {
   .feed-card .absolute {
     transform: scale(0.9);
   }
-  
+
   .feed-card h3 {
     font-size: 12px !important;
   }
@@ -88,6 +91,8 @@ body {
 
 /* Sembunyikan scrollbar untuk IE, Edge dan Firefox */
 .hide-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
 }

@@ -1,84 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/app/context/AuthContext';
+// Import hasil pisahan dari file config 
+import { CATEGORY_CONFIG, getButtonStyle } from '@/config/citizenSignals';
 
-
-// ==================== KONFIGURASI PER KATEGORI ====================
-const CATEGORY_CONFIG = {
-  kuliner: {
-    icon: '☕',
-    label: 'Kuliner',
-    actions: [
-      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Kosong' },
-      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Nyaris Penuh' },
-      { id: 'antri', icon: '🚶‍♂️', label: 'ANTRI', tipe: 'Antri', desc: 'Mengular' },
-      { id: 'penuh', icon: '🚫', label: 'PENUH', tipe: 'Penuh', desc: 'No Table' },
-    ]
-  },
-  wisata: {
-    icon: '🏞️',
-    label: 'Wisata',
-    actions: [
-      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Leluasa' },
-      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Cukup Banyak' },
-      { id: 'padat', icon: '🚶‍♂️🚶‍♀️', label: 'PADAT', tipe: 'Padat', desc: 'Sangat Ramai' },
-      { id: 'tutup', icon: '🔒', label: 'TUTUP', tipe: 'Tutup', desc: 'Gerbang Tutup' },
-    ]
-  },
-  jalan: {
-    icon: '🛣️',
-    label: 'Lalu Lintas',
-    actions: [
-      { id: 'lancar', icon: '✅', label: 'LANCAR', tipe: 'Lancar', desc: 'Gaspol' },
-      { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Merayap' },
-      { id: 'macet_total', icon: '🚫🚗', label: 'STUCK', tipe: 'MacetTotal', desc: 'Macet Total' },
-      { id: 'hujan', icon: '🌧️', label: 'HUJAN', tipe: 'Hujan', desc: 'Sedia Payung' },
-    ]
-  },
-  parkir: {
-    icon: '🅿️',
-    label: 'Parkiran',
-    actions: [
-      { id: 'kosong', icon: '🟢', label: 'KOSONG', tipe: 'Kosong', desc: 'Bebas Pilih' },
-      { id: 'tersedia', icon: '🟡', label: 'ADA', tipe: 'Tersedia', desc: 'Sisa Sedikit' },
-      { id: 'hampir_penuh', icon: '🟠', label: 'TIPIS', tipe: 'HampirPenuh', desc: 'Cari Celah' },
-      { id: 'penuh', icon: '🔴', label: 'PENUH', tipe: 'Penuh', desc: 'Cari Lain' },
-    ]
-  },
-  default: {
-    icon: '📍',
-    label: 'Update',
-    actions: [
-      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Sepi' },
-      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Ramai' },
-      { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Macet' },
-      { id: 'hujan', icon: '🌧️', label: 'HUJAN', tipe: 'Hujan', desc: 'Hujan' },
-    ]
-  }
-};
-
-// ==================== HELPER STYLE ====================
-const getButtonStyle = (id) => {
-  const base = "border-b-4 backdrop-blur-md ";
-  const styles = {
-    sepi: base + 'bg-blue-500/10 text-blue-400 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]',
-    lancar: base + 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
-    kosong: base + 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
-    ramai: base + 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]',
-    tersedia: base + 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]',
-    antri: base + 'bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.1)]',
-    macet: base + 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.1)]',
-    penuh: base + 'bg-red-600/10 text-red-500 border-red-600/30 shadow-[0_0_15px_rgba(220,38,38,0.1)]',
-    macet_total: base + 'bg-red-700/20 text-red-400 border-red-700/50 shadow-[0_0_15px_rgba(185,28,28,0.2)]',
-    hujan: base + 'bg-sky-500/10 text-sky-400 border-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.1)]',
-  };
-  return styles[id] || base + 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30';
-};
-
-// ==================== MAIN COMPONENT ====================
 export default function SmartCitizenButton({
   tempatId,
   tempatName,
@@ -93,7 +21,37 @@ export default function SmartCitizenButton({
   const [cooldown, setCooldown] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const config = CATEGORY_CONFIG[kategori] || CATEGORY_CONFIG.default;
+  const dapatkanGrupKategori = (kat) => {
+  if (!kat) return 'default';
+  
+  const k = kat.toLowerCase();
+  
+  // Mapping kelompok kuliner
+  if (k.includes('cafe') || k.includes('restoran') || k.includes('kuliner') || k.includes('warung')) {
+    return 'kuliner';
+  }
+  
+  // Mapping kelompok wisata & ruang publik
+  if (k.includes('wisata') || k.includes('terjun') || k.includes('taman') || k.includes('alun') || k.includes('stadion')) {
+    return 'wisata';
+  }
+  
+  // Mapping kelompok pelayanan masyarakat
+  if (k.includes('desa') || k.includes('puskesmas') || k.includes('sakit') || k.includes('bank') || k.includes('layanan')) {
+    return 'layanan';
+  }
+  
+  // Mapping kelompok jalan & transportasi
+  if (k.includes('stasiun') || k.includes('pantura') || k.includes('jalan')) {
+    return 'transportasi';
+  }
+  
+  return 'default';
+};
+
+// Ambil config yang sudah dikelompokkan dengan aman!
+const grupTerpilih = dapatkanGrupKategori(kategori);
+const config = CATEGORY_CONFIG[grupTerpilih] || CATEGORY_CONFIG.default;
 
   // Cek Cooldown
   useEffect(() => {
@@ -154,10 +112,8 @@ export default function SmartCitizenButton({
     }
   };
 
-
   return (
     <div className="relative group p-5 rounded-[32px] bg-zinc-900/40 dark:bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl overflow-hidden">
-      {/* Background Glow Decor */}
       <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
 
       {/* Header Info */}
@@ -218,8 +174,6 @@ export default function SmartCitizenButton({
           )}
         </AnimatePresence>
       </div>
-
-
 
       {/* Footer Instructions */}
       <div className="mt-4 flex items-center justify-between px-1">
