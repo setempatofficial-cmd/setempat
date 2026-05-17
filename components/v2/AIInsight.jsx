@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from "framer-motion";
 import { useAIInsight } from "@/hooks/useAIInsight";
-import { RefreshCw, Volume2, VolumeX, AlertTriangle, Brain, Sparkles } from "lucide-react";
+import { RefreshCw, Volume2, VolumeX, AlertTriangle, Brain, Sparkles, Activity } from "lucide-react";
 
 export default function AIInsight({ activeTempat, theme }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -20,41 +21,24 @@ export default function AIInsight({ activeTempat, theme }) {
   const isMalam = theme?.isMalam || false;
 
   // ============================================
-  // 👇 TARUH FUNGSI INI DI SINI 👇
+  // CLEAN TEXT FOR SPEECH SYSTEM
   // ============================================
   const cleanTextForSpeech = (text) => {
     if (!text) return '';
-
     return text
-      // Hapus markdown bold/italic
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
-      // Hapus emoji dan icon
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticon
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, '') // Simbol & piktograf
-      .replace(/[\u{2600}-\u{27BF}]/gu, '')   // Simbol (⭐, ☀️, dll)
-      // Hapus username mention
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+      .replace(/[\u{2600}-\u{27BF}]/gu, '')
       .replace(/@\w+/g, 'kata warga')
-      // Hapus karakter khusus
       .replace(/[#*_~`>|]/g, '')
-      // New line jadi spasi
       .replace(/\n/g, '. ')
-      // Hapus multiple spaces
       .replace(/\s+/g, ' ')
       .trim();
   };
-  // ============================================
 
   // Deteksi darurat dari story
-  useEffect(() => {
-    const emergencyIndicators = ['kecelakaan', 'darurat', 'peringatan', 'wargaa', 'kejadian serius', '🚨'];
-    const hasEmergencyNow = emergencyIndicators.some(kw =>
-      story?.toLowerCase().includes(kw.toLowerCase())
-    );
-    setHasEmergency(hasEmergencyNow);
-  }, [story]);
-
-  // Deteksi kondisi darurat dari isi narasi
   useEffect(() => {
     if (!story) return;
     const emergencyIndicators = ['kecelakaan', 'darurat', 'peringatan', 'wargaa', 'kejadian serius', '🚨', 'bahaya', 'kebakaran'];
@@ -71,9 +55,7 @@ export default function AIInsight({ activeTempat, theme }) {
       return;
     }
 
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
     setIsTyping(true);
     let index = 0;
@@ -83,7 +65,7 @@ export default function AIInsight({ activeTempat, theme }) {
       if (index < story.length) {
         setDisplayedStory(story.slice(0, index + 1));
         index++;
-        typingTimeoutRef.current = setTimeout(typeNextChar, 12);
+        typingTimeoutRef.current = setTimeout(typeNextChar, 10);
       } else {
         setIsTyping(false);
       }
@@ -100,41 +82,31 @@ export default function AIInsight({ activeTempat, theme }) {
   const modelBadge = useMemo(() => {
     switch (modelUsed) {
       case 'local':
-        return { text: '⚡ Instant', color: 'bg-zinc-500/10 dark:bg-zinc-500/20 text-zinc-600 dark:text-zinc-400 border-zinc-500/20' };
+        return { text: '⚡ Instant', color: 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/30' };
       case 'groq-8b':
-        return { text: '🧠 AI Smart', color: 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
+        return { text: '🧠 AI Smart', color: 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30' };
       case 'groq-70b':
-        return { text: '✨ AI Pro', color: 'bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/20' };
+        return { text: '✨ AI Pro', color: 'bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/30' };
       default:
-        return { text: '⚡ Instant', color: 'bg-zinc-500/10 dark:bg-zinc-500/20 text-zinc-600 dark:text-zinc-400 border-zinc-500/20' };
+        return { text: '⚡ Instant', color: 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/30' };
     }
   }, [modelUsed]);
 
-  // Sistem Sintesis Suara (Text-to-Speech)
-  // ============================================
-  // FUNGSI HANDLESPEAK (pakai cleanTextForSpeech)
-  // ============================================
+  // Sistem Text-to-Speech
   const handleSpeak = () => {
     if (!displayedStory || isSpeaking) return;
 
-    // Hentikan yang sedang berjalan
-    if (speechRef.current) {
-      window.speechSynthesis.cancel();
-    }
+    if (speechRef.current) window.speechSynthesis.cancel();
 
-    // 🔥 BERSIHKAN TEKS SEBELUM DIBACAKAN
     const cleanGreeting = cleanTextForSpeech(greeting);
     const cleanStory = cleanTextForSpeech(displayedStory);
-
     const speechText = `${cleanGreeting}. ${cleanStory}`;
 
     const utterance = new SpeechSynthesisUtterance(speechText);
     utterance.lang = 'id-ID';
-    utterance.rate = 0.85;
+    utterance.rate = 0.88;
     utterance.pitch = 1.0;
-    utterance.volume = 1.0;
 
-    // Cari suara Indonesia
     const voices = window.speechSynthesis.getVoices();
     const indonesianVoice = voices.find(v => v.lang === 'id-ID' && v.name.includes('Google'));
     if (indonesianVoice) utterance.voice = indonesianVoice;
@@ -168,96 +140,98 @@ export default function AIInsight({ activeTempat, theme }) {
     refresh();
   };
 
+  // Cek apakah baris teks memerlukan expander berdasarkan panjang kalimat
+  const textNeedsExpand = displayedStory && (displayedStory.length > 130 || displayedStory.split('\n').length > 2);
+
   if (!activeTempat) return null;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 15 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`mb-5 mx-2 rounded-[32px] overflow-hidden border backdrop-blur-xl shadow-xl transition-all duration-500 relative ${hasEmergency
-        ? isMalam
-          ? 'bg-red-950/20 border-red-500/30 shadow-red-500/5'
-          : 'bg-red-50/60 border-red-200 shadow-red-500/5'
-        : isMalam
-          ? 'bg-zinc-900/40 border-white/5 shadow-black/20'
-          : 'bg-white/80 border-black/5 shadow-zinc-200/50'
+      className={`mb-5 mx-3 rounded-2xl border backdrop-blur-md shadow-sm transition-all duration-500 relative overflow-hidden
+        ${hasEmergency
+          ? isMalam
+            ? 'bg-rose-950/20 border-rose-500/30 ring-1 ring-rose-500/10 shadow-rose-950/10'
+            : 'bg-rose-50/50 border-rose-100 ring-1 ring-rose-500/5 shadow-rose-100/50'
+          : isMalam
+            ? 'bg-slate-900/40 border-slate-800/60 shadow-slate-950/20'
+            : 'bg-white/60 border-slate-100 shadow-slate-100/40'
         }`}
     >
-      {/* Dynamic Ambient Glow Behind Card */}
-      <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl opacity-20 pointer-events-none rounded-full transition-colors duration-500 ${hasEmergency ? 'bg-red-500' : 'bg-emerald-400'
-        }`} />
+      {/* Background Ambient Glow Terkalibrasi */}
+      <div className={`absolute top-0 right-0 w-28 h-28 blur-3xl opacity-15 pointer-events-none rounded-full transition-colors duration-500 
+        ${hasEmergency ? 'bg-rose-500' : 'bg-teal-400'}`}
+      />
 
-      {/* Konten Utama */}
-      <div className="relative p-5">
-        <div className="flex items-start gap-4">
+      {/* Wadah Atas / Header */}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3 mb-3.5">
 
-          {/* Avatar AI Melingkar */}
-          <div className="relative flex-shrink-0">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-md transition-all duration-300 relative overflow-hidden ${hasEmergency
-              ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white animate-bounce'
-              : 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white'
-              }`}>
+          {/* Sisi Kiri: Avatar + Info Judul */}
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            {/* Lingkaran Avatar AI */}
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-sm shrink-0 transition-all duration-300 relative mt-0.5
+              ${hasEmergency
+                ? 'bg-gradient-to-br from-rose-500 to-red-600 text-white'
+                : 'bg-slate-50 text-slate-600 border border-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700/60'
+              }`}
+            >
               {hasEmergency ? (
-                <AlertTriangle size={20} className="animate-[pulse_1s_infinite]" />
+                <AlertTriangle size={15} />
               ) : isSpeaking ? (
-                <Sparkles size={20} className="animate-spin" style={{ animationDuration: '3s' }} />
+                <Sparkles size={14} className="animate-spin text-emerald-500 dark:text-emerald-400" style={{ animationDuration: '4s' }} />
               ) : (
-                <Brain size={20} />
+                <Brain size={15} className="text-slate-500 dark:text-slate-400" />
               )}
+
+              {/* Ring Status */}
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 
+                ${isMalam ? 'border-slate-900' : 'border-white'} 
+                ${hasEmergency ? 'bg-rose-500' : 'bg-emerald-500'} 
+                ${!isLoading ? 'animate-pulse' : ''}`}
+              />
             </div>
 
-            {/* Indikator Status Aktif */}
-            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 ${isMalam ? 'border-zinc-900' : 'border-white'
-              } ${hasEmergency ? 'bg-red-500' : 'bg-emerald-400'} ${!isLoading ? 'animate-pulse' : ''}`} />
-          </div>
-
-          {/* Kolom Informasi Status Header */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h4 className={`text-[10px] font-black uppercase tracking-widest ${hasEmergency ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
-                }`}>
-                {hasEmergency ? '🚨 Peringatan Setempat' : 'Warga AI Insight'}
-              </h4>
-
-              <span className={`text-[8px] font-bold px-2 py-0.5 rounded-md border ${modelBadge.color}`}>
-                {modelBadge.text}
-              </span>
-
-              {isTyping && !isLoading && (
-                <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-500 dark:text-sky-400 animate-pulse tracking-wide">
-                  MEMBACA SITUASI...
+            {/* Teks Header & Sapaan */}
+            <div className="flex flex-col min-w-0 pt-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h4 className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${hasEmergency ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'
+                  }`}>
+                  {hasEmergency ? '🚨 Kabar Krusial' : 'Warga AI Rangkuman'}
+                </h4>
+                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border shrink-0 tracking-wide ${modelBadge.color}`}>
+                  {modelBadge.text}
                 </span>
-              )}
-            </div>
+              </div>
 
-            {/* Kalimat Sapaan */}
-            <AnimatePresence mode="wait">
-              {isLoading ? (
-                <motion.div key="loading-greet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-1.5">
-                  <div className="h-4 w-40 bg-zinc-200 dark:bg-white/10 rounded-lg animate-pulse" />
-                </motion.div>
-              ) : (
-                <motion.p
-                  key="greeting-text"
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`text-xs font-bold mt-1 tracking-tight ${hasEmergency ? 'text-red-700 dark:text-red-300' : 'opacity-80'
-                    }`}
-                >
-                  {greeting}
-                </motion.p>
-              )}
-            </AnimatePresence>
+              {/* Kalimat Sapaan */}
+              <AnimatePresence mode="wait">
+                {isLoading ? (
+                  <div className="h-3 w-28 bg-slate-200 dark:bg-slate-800 rounded mt-1.5 animate-pulse" />
+                ) : (
+                  <motion.p
+                    key="greet"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 0.8 }}
+                    className={`text-[11.5px] font-bold tracking-tight mt-1 leading-tight break-words text-balance ${hasEmergency ? 'text-rose-700 dark:text-rose-300 !opacity-100' : 'text-slate-800 dark:text-slate-200'
+                      }`}
+                  >
+                    {greeting}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
-          {/* Tombol Aksi Kanan Atas */}
-          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-white/5 p-1 rounded-xl border border-black/5 dark:border-white/5">
+          {/* Sisi Kanan: Tombol Kontrol */}
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-1 rounded-xl border border-slate-100 dark:border-slate-700/40 shrink-0 shadow-inner">
             <button
               onClick={handleRefresh}
               disabled={isLoading || isTyping}
-              className="p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all disabled:opacity-40"
-              title="Refresh pantauan berita"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800 active:scale-90 transition-all disabled:opacity-40 shrink-0"
+              title="Perbarui situasi"
             >
               <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
             </button>
@@ -265,33 +239,36 @@ export default function AIInsight({ activeTempat, theme }) {
             {!isLoading && displayedStory && (
               <button
                 onClick={isSpeaking ? handleStopSpeaking : handleSpeak}
-                className={`p-1.5 rounded-lg active:scale-95 transition-all ${isSpeaking
-                  ? 'bg-emerald-500 text-white'
-                  : 'text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5'
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 shrink-0 ${isSpeaking
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800'
                   }`}
               >
                 {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
               </button>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Lapisan Teks Narasi Berita */}
-      <AnimatePresence mode="wait">
-        {!isLoading && displayedStory && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-            className="px-5 pb-4"
-          >
-            {/* Kotak Konten Utama */}
-            <div className="relative">
-              {/* Animasi Gelombang Audio saat Berbicara */}
+        </div>
+
+        {/* Tempat Tombol 'NYARI DATA TERBARU' */}
+        {isTyping && !isLoading && (
+          <div className="text-[9px] font-bold text-sky-600 bg-sky-50 dark:bg-sky-950/20 dark:text-sky-400 px-2 py-0.5 rounded border border-sky-100 dark:border-sky-900/30 w-max mb-3 animate-pulse tracking-wide ml-10">
+            🤖 NYARI DATA TERBARU...
+          </div>
+        )}
+
+        {/* Teks Deskripsi Hasil Olahan AI dengan MODIFIKASI MARKDOWN */}
+        <AnimatePresence mode="wait">
+          {!isLoading && displayedStory && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="relative pl-0.5"
+            >
               {isSpeaking && (
-                <div className="flex items-center gap-0.5 mb-2 h-3 opacity-70">
+                <div className="flex items-center gap-0.5 mb-2 h-2.5 opacity-80">
                   <span className="w-0.5 h-full bg-emerald-500 rounded-full animate-[bounce_0.5s_infinite]" style={{ animationDelay: '0ms' }} />
                   <span className="w-0.5 h-3/4 bg-emerald-500 rounded-full animate-[bounce_0.5s_infinite]" style={{ animationDelay: '150ms' }} />
                   <span className="w-0.5 h-1/2 bg-emerald-500 rounded-full animate-[bounce_0.5s_infinite]" style={{ animationDelay: '300ms' }} />
@@ -299,69 +276,87 @@ export default function AIInsight({ activeTempat, theme }) {
                 </div>
               )}
 
+              {/* ⚡ DISINI PERUBAHAN UTAMANYA LUUR ⚡ */}
               <div
-                className={`text-xs leading-relaxed font-medium tracking-wide ${isExpanded ? '' : 'line-clamp-3'
-                  } ${hasEmergency ? 'text-zinc-900 dark:text-zinc-100' : 'opacity-70 dark:opacity-90'}`}
-                style={{ whiteSpace: 'pre-line' }}
+                className={`text-[12.5px] leading-relaxed font-medium transition-all duration-300 ${isExpanded ? '' : 'line-clamp-3'
+                  } ${hasEmergency ? 'text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
               >
-                {displayedStory}
+                <ReactMarkdown
+
+                  components={{
+                    // Merender pembungkus paragraf agar tetap inline & support spasi \n asli
+                    p: ({ children }) => <span style={{ whiteSpace: 'pre-line' }}>{children}</span>,
+                    // Kasih style tebal kustom biar mencolok di dark/light mode
+                    strong: ({ children }) => (
+                      <strong className={`font-extrabold ${hasEmergency ? 'text-red-600 dark:text-rose-400' : 'text-slate-950 dark:text-white'}`}>
+                        {children}
+                      </strong>
+                    )
+                  }}
+                >
+                  {displayedStory}
+                </ReactMarkdown>
+
                 {isTyping && (
-                  <span className="inline-block w-1 h-3.5 bg-emerald-500 animate-[pulse_0.6s_infinite] ml-1 align-middle rounded-full" />
+                  <span className="inline-block w-1 h-3 bg-emerald-500 animate-[pulse_0.6s_infinite] ml-1 rounded-full align-middle" />
                 )}
               </div>
-            </div>
 
-            {/* Tombol Ekspansi Selengkapnya */}
-            {displayedStory.split('\n').length > 3 && !isTyping && (
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className={`text-[9px] font-black uppercase tracking-wider mt-3 flex items-center gap-0.5 hover:opacity-80 transition-all ${hasEmergency ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
-                  }`}
-              >
-                {isExpanded ? 'Ringkas Informasi ↑' : 'Baca Selengkapnya ↓'}
-              </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              {/* Tombol Expand/Collapse Teks */}
+              {textNeedsExpand && !isTyping && (
+                <button
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className={`text-[10px] font-bold mt-2.5 inline-flex items-center gap-1 transition-all ${hasEmergency ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                >
+                  <span>{isExpanded ? 'Ringkas Rangkuman' : 'Baca Selengkapnya'}</span>
+                  <svg
+                    className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* Loading State Skeleton */}
-      {isLoading && (
-        <div className="px-5 pb-5 pt-1">
-          <div className="space-y-2.5">
-            <div className="h-2.5 bg-zinc-200 dark:bg-white/5 rounded-full w-full" />
-            <div className="h-2.5 bg-zinc-200 dark:bg-white/5 rounded-full w-11/12" />
-            <div className="h-2.5 bg-zinc-200 dark:bg-white/5 rounded-full w-8/12" />
-            <div className="flex gap-1.5 mt-3 pt-1">
-              <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '0.6s' }} />
-              <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce" style={{ animationDelay: '150ms', animationDuration: '0.6s' }} />
-              <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce" style={{ animationDelay: '300ms', animationDuration: '0.6s' }} />
-            </div>
+        {/* Skeleton saat Loading */}
+        {isLoading && (
+          <div className="space-y-2.5 mt-1">
+            <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full w-full animate-pulse" />
+            <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full w-11/12 animate-pulse" />
+            <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full w-8/12 animate-pulse" />
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Bar Statistik Laporan Interaktif */}
+      {/* Bar Statistik Data / Footer */}
       {!isLoading && insightStats && insightStats.total_laporan > 0 && (
-        <div className={`px-5 py-2.5 border-t flex items-center justify-between gap-4 ${isMalam ? 'border-white/5 bg-black/10' : 'border-black/5 bg-zinc-50/50'
-          }`}>
-          <div className="flex items-center gap-3">
-            <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-40 flex items-center gap-1">
-              📊 {insightStats.total_laporan} Kontribusi Warga
+        <div className={`px-4 py-2 border-t border-dashed flex items-center justify-between gap-4 transition-colors duration-300
+          ${isMalam
+            ? 'border-slate-800/80 bg-slate-950/20 text-slate-400'
+            : 'border-slate-100 bg-slate-50/40 text-slate-500'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1 shrink-0">
+              <Activity size={10} className="text-slate-400" /> {insightStats.total_laporan} Kabar Warga
             </span>
-            <div className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${hasEmergency ? 'bg-red-500 animate-ping' :
+            <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0" />
+            <div className="flex items-center gap-1 min-w-0">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasEmergency ? 'bg-rose-500 animate-ping' :
                 insightStats?.avg_confidence > 0.7 ? 'bg-emerald-500' :
                   insightStats?.avg_confidence > 0.4 ? 'bg-amber-500' : 'bg-rose-400'
                 }`} />
-              <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-50">
-                {hasEmergency ? 'VALIDASI KRUSIAL' : `Akurasi Data ${Math.round((insightStats?.avg_confidence || 0) * 100)}%`}
+              <span className="text-[9px] font-black uppercase tracking-wider opacity-60 truncate">
+                {hasEmergency ? 'Validasi Darurat' : `Akurasi ${Math.round((insightStats?.avg_confidence || 0) * 100)}%`}
               </span>
             </div>
           </div>
-          <span className="text-[8px] opacity-30 font-bold">
-            Pukul {new Date(insightStats.last_update).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+          <span className="text-[8px] font-bold opacity-40 shrink-0">
+            {new Date(insightStats.last_update).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
       )}

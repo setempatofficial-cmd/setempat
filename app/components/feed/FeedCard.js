@@ -699,7 +699,8 @@ function FeedCardV2Premium({
         {/* ==================== MEDIA SECTION (FOTO) ==================== */}
         <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
           <PhotoSlider
-            photos={officialPhotosByTime}
+            photos={localLaporanWarga}
+            officialPhotosData={safeItem.photos}
             tempatId={safeItem.id}
             namaTempat={safeItem.name}
             isHujan={safeItem.status === "hujan"}

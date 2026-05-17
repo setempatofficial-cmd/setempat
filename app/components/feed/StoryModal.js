@@ -454,7 +454,7 @@ export default function StoryModalFullscreen({
                 className="w-full h-full object-cover"
                 autoPlay={isActive}
                 muted={!isActive}
-                loop={false}
+                loop={isActive}
                 playsInline
               />
               {!story.video_url && (

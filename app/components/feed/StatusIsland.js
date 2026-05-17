@@ -6,7 +6,6 @@ import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusTe
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
 
-// Helper function untuk cek fresh report
 const getFreshReports = (reports, maxHours = 12) => {
   const now = new Date();
   return reports.filter(report => {
@@ -30,53 +29,47 @@ const getHoursSinceLastReport = (reports) => {
   return Math.floor(hoursDiff);
 };
 
-export default function StatusIsland({ 
-  item, 
-  tempatId = null, 
+export default function StatusIsland({
+  item,
+  tempatId = null,
   allReports = [],
   isExpanded: externalExpanded,
   setIsExpanded: externalSetIsExpanded,
-  jumlahWarga 
+  jumlahWarga
 }) {
   const { getAIContext } = useDataContext();
   const [internalExpanded, setInternalExpanded] = useState(false);
   const [passiveSignal, setPassiveSignal] = useState(null);
   const [isLoadingPassive, setIsLoadingPassive] = useState(false);
-  
+
   const isExpanded = externalExpanded !== undefined ? externalExpanded : internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
-  
-  // ============================================
-  // DATA FETCHING dengan FILTER FRESH
-  // ============================================
+
   const realtimeData = useMemo(() => {
     const targetId = item?.id || tempatId;
     if (!targetId) return null;
     return getAIContext(targetId);
   }, [item?.id, tempatId, getAIContext]);
-  
+
   const allReportsRaw = useMemo(() => {
     if (allReports && allReports.length > 0) return allReports;
     return realtimeData?.recentReports || item?.laporan_terbaru || [];
   }, [allReports, realtimeData, item]);
-  
+
   const freshReports = useMemo(() => getFreshReports(allReportsRaw, 12), [allReportsRaw]);
   const latestFreshReport = useMemo(() => getLatestFreshReport(allReportsRaw, 12), [allReportsRaw]);
   const hoursSinceLastReport = useMemo(() => getHoursSinceLastReport(allReportsRaw), [allReportsRaw]);
   const hasFreshData = useMemo(() => freshReports.length > 0, [freshReports]);
-  
-  // ============================================
-  // FETCH PASSIVE SIGNAL (hanya jika tidak ada laporan fresh)
-  // ============================================
+
   useEffect(() => {
     const targetId = item?.id || tempatId;
     if (!targetId) return;
-    
+
     if (hasFreshData) {
       setPassiveSignal(null);
       return;
     }
-    
+
     const fetchSignals = async () => {
       setIsLoadingPassive(true);
       try {
@@ -89,33 +82,26 @@ export default function StatusIsland({
         setIsLoadingPassive(false);
       }
     };
-    
+
     fetchSignals();
   }, [item?.id, tempatId, hasFreshData]);
-  
-  // ============================================
-  // SEED & DEFAULT TEXT
-  // ============================================
+
   const seed = useMemo(() => String(item?.id || tempatId || "default"), [item?.id, tempatId]);
-  
+
   const defaultSuasana = useMemo(() => {
     const category = item?.category || "general";
     return getDefaultTextByTime(seed, category);
   }, [seed, item?.category]);
-  
-  // ============================================
-  // GENERATE STATUS TEXT
-  // ============================================
+
   const status = useMemo(() => {
-    // PRIORITAS 1: Ada laporan fresh dari warga
     if (hasFreshData) {
       const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
       const trafficCondition = latestFreshReport?.traffic_condition;
       const total = freshReports.length;
-      const isRecent = latestFreshReport?.created_at 
+      const isRecent = latestFreshReport?.created_at
         ? (new Date() - new Date(latestFreshReport.created_at)) < (2 * 60 * 60 * 1000)
         : false;
-      
+
       return generateStatusText({
         kondisi,
         trafficCondition,
@@ -128,30 +114,25 @@ export default function StatusIsland({
         seed,
       });
     }
-    
-    // PRIORITAS 2: Tidak ada laporan, tapi ada passive signal
+
     if (passiveSignal && passiveSignal.total > 0) {
       const passiveStatus = getPassiveStatusText(passiveSignal);
       if (passiveStatus) return passiveStatus;
     }
-    
-    // PRIORITAS 3: Default
+
     return {
       text: defaultSuasana,
-      color: "text-gray-500",
-      bgColor: "bg-gray-500",
+      color: "text-slate-500",
+      bgColor: "bg-slate-500",
       icon: "📍",
       badge: "NORMAL",
-      vibe: hoursSinceLastReport 
+      vibe: hoursSinceLastReport
         ? `Belum ada laporan dalam ${hoursSinceLastReport} jam`
         : "Belum ada laporan",
       level: 1,
     };
   }, [hasFreshData, freshReports, latestFreshReport, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
-  
-  // ============================================
-  // RINGKASAN MULTI-USER (EXPAND)
-  // ============================================
+
   const ringkasanMultiUser = useMemo(() => {
     if (hasFreshData) {
       return generateRingkasanMultiUser(freshReports, item?.category || "general");
@@ -161,280 +142,172 @@ export default function StatusIsland({
     }
     return "Belum ada laporan terbaru dari warga sekitar.";
   }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal]);
-  
-  // ============================================
-  // JARAK (FORMATTED)
-  // ============================================
+
   const jarakFix = useMemo(() => {
     const dist = item?.distance;
     if (!dist) return null;
     const num = parseFloat(dist);
     return num < 1 ? `${Math.round(num * 1000)} m` : `${num.toFixed(1)} km`;
   }, [item?.distance]);
-  
-  // ============================================
-  // WAKTU UPDATE
-  // ============================================
+
   const waktuUpdate = useMemo(() => {
     if (!latestFreshReport?.created_at) return null;
     const diffMin = Math.floor((new Date() - new Date(latestFreshReport.created_at)) / 60000);
     if (diffMin < 1) return "Baru saja";
-    if (diffMin < 60) return `${diffMin} menit lalu`;
-    if (diffMin < 1440) return `${Math.floor(diffMin / 60)} jam lalu`;
-    return `${Math.floor(diffMin / 1440)} hari lalu`;
+    if (diffMin < 60) return `${diffMin}m lalu`;
+    if (diffMin < 1440) return `${Math.floor(diffMin / 60)}j lalu`;
+    return `${Math.floor(diffMin / 1440)}hari lalu`;
   }, [latestFreshReport]);
-  
-  // ============================================
-  // LEVEL & EXPAND
-  // ============================================
+
   const canExpand = (status.level >= 2 && hasFreshData) || (passiveSignal && passiveSignal.total > 0);
-  
+
   // ============================================
-  // RENDER: TIDAK ADA DATA FRESH
+  // RENDER DYNAMIC STYLE UTILITIES
   // ============================================
-  if (!hasFreshData) {
-    if (isLoadingPassive && !passiveSignal) {
-      return (
-        <div className="h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm">
-          <div className="flex items-center gap-3 w-full">
-            <div className="h-2 w-2 rounded-full shrink-0 bg-gray-300 animate-pulse" />
-            <p className="text-[14px] font-black uppercase tracking-tight truncate flex-1 text-gray-400">
-              Memuat...
-            </p>
-          </div>
-        </div>
-      );
-    }
-    
+  const getGlowStyle = () => {
+    if (hasFreshData && status.level >= 2) return 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20';
+    if (passiveSignal && passiveSignal.total > 0) return 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20';
+    return 'border-slate-100/80 shadow-sm';
+  };
+
+  if (!hasFreshData && isLoadingPassive && !passiveSignal) {
     return (
-      <div className="relative">
-        <div 
-          onClick={() => canExpand && setIsExpanded(!isExpanded)}
-          className={`h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm transition-all duration-200
-            ${canExpand ? 'cursor-pointer hover:bg-gray-50' : ''}
-            ${isExpanded ? 'rounded-b-none' : ''}
-          `}
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-3 w-full">
-              <div className={`h-2 w-2 rounded-full shrink-0 ${status.color?.replace('text', 'bg') || 'bg-gray-400'}`} />
-              <p className={`text-[14px] font-black uppercase tracking-tight truncate flex-1 ${status.color || 'text-gray-500'}`}>
-                {status.icon} {status.text}
+      <div className="mx-3 -mt-4 relative z-10 backdrop-blur-md bg-white/80 rounded-2xl border border-slate-100 p-3.5 flex items-center gap-3">
+        <div className="h-2 w-2 rounded-full bg-slate-300 animate-ping" />
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 animate-pulse">Menyelidiki Suasana...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-3 -mt-5 relative z-10 transition-all duration-300">
+      {/* Main Island Card */}
+      <div
+        onClick={() => canExpand && setIsExpanded(!isExpanded)}
+        className={`backdrop-blur-md bg-white/90 p-3.5 flex flex-col rounded-2xl border transition-all duration-300
+          ${getGlowStyle()}
+          ${canExpand ? 'cursor-pointer hover:bg-white active:scale-[0.99]' : ''}
+          ${isExpanded ? 'rounded-b-none pb-2' : ''}
+        `}
+      >
+        <div className="flex items-center justify-between gap-2">
+          {/* Status Left Info */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <span className="text-base shrink-0">{status.icon}</span>
+            <div className="flex flex-col min-w-0">
+              <p className={`text-xs font-black tracking-wide uppercase truncate ${hasFreshData && status.level >= 2 ? 'text-amber-700' : 'text-slate-800'}`}>
+                {status.text}
               </p>
-              {passiveSignal ? (
-                <span className="text-[9px] text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-                  📊 {passiveSignal.total} interaksi
-                </span>
-              ) : hoursSinceLastReport && (
-                <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-                  {hoursSinceLastReport} jam lalu
-                </span>
+              {hasFreshData && (
+                <span className="text-[10px] text-slate-400 font-medium">Laporan Aktif Warga</span>
               )}
             </div>
-            
+          </div>
+
+          {/* Badges Right Info */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Hanya munculkan badge ungu jika passiveSignal ADA dan totalnya DI ATAS 0 */}
+            {passiveSignal && !hasFreshData && Number(passiveSignal.total) > 0 ? (
+              <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100 animate-pulse-subtle">
+                ⚡ {passiveSignal.total} Aktivitas
+              </span>
+            ) : waktuUpdate ? (
+              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                {waktuUpdate}
+              </span>
+            ) : (
+              /* Fallback kalau benar-benar sepi/0 aktivitas agar layout tetep manis */
+              <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                🟢 Aman
+              </span>
+            )}
+
             {canExpand && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 ml-2">
-                <span className="text-[9px] font-black uppercase text-gray-500">
-                  {isExpanded ? 'Tutup' : 'Detail'}
-                </span>
-                <svg 
-                  className={`w-3 h-3 transition-transform duration-200 text-gray-500 ${isExpanded ? 'rotate-180' : ''}`}
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24"
+              <div className={`p-1 rounded-lg transition-colors ${isExpanded ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
+                <svg
+                  className={`w-3.5 h-3.5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
                 >
-                  <path strokeLinecap="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
               </div>
             )}
           </div>
         </div>
-
-        {isExpanded && canExpand && (
-          <div className="bg-white border border-t-0 border-gray-100 rounded-b-[28px] px-5 pb-5 pt-3 shadow-sm">
-            <div className="space-y-3">
-              <div className={`p-3 rounded-xl ${passiveSignal?.isCrowded ? 'bg-orange-50/80 border border-orange-100' : 'bg-purple-50/80 border border-purple-100'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[9px] font-bold uppercase tracking-wider ${passiveSignal?.isCrowded ? 'text-orange-600' : 'text-purple-600'}`}>
-                    {passiveSignal?.isCrowded ? '📊 AKTIVITAS PENGGUNA' : '👀 MINAT PENGGUNA'}
-                  </span>
-                  <span className="text-[9px] text-gray-400">4 jam terakhir</span>
-                </div>
-                
-                <p className="text-[13px] leading-relaxed text-gray-700 whitespace-pre-line">
-                  {ringkasanMultiUser}
-                </p>
-
-                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-purple-200/50">
-                  <div className="flex -space-x-2">
-                    {[...Array(Math.min(passiveSignal?.total || 0, 5))].map((_, idx) => (
-                      <div key={idx} className="w-6 h-6 rounded-full bg-purple-200 border-2 border-white shadow-sm flex items-center justify-center">
-                        <span className="text-[8px] font-bold text-purple-600">👤</span>
-                      </div>
-                    ))}
-                  </div>
-                  <span className="text-[9px] text-gray-500">
-                    {passiveSignal?.total || 0} interaksi dalam 4 jam
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between px-1">
-                <div className="flex gap-3">
-                  <div>
-                    <span className="text-[8px] font-bold text-gray-400 uppercase">Status</span>
-                    <p className="text-[10px] font-bold text-gray-600">{status.badge || status.text}</p>
-                  </div>
-                  <div className="border-l border-gray-200 pl-3">
-                    <span className="text-[8px] font-bold text-gray-400 uppercase">Saksi</span>
-                    <p className="text-[10px] font-bold text-gray-600">🗃️ {jumlahWarga || 0}</p>
-                  </div>
-                  <div className="border-l border-gray-200 pl-3">
-                    <span className="text-[8px] font-bold text-gray-400 uppercase">Interaksi</span>
-                    <p className="text-[10px] font-bold text-gray-600">👥 {passiveSignal?.total || 0}</p>
-                  </div>
-                </div>
-                {jarakFix && (
-                  <div className="text-right">
-                    <span className="text-[8px] font-bold text-gray-400 uppercase">Jarak</span>
-                    <p className="text-[10px] font-bold text-gray-500">{jarakFix}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // ============================================
-  // RENDER: ADA DATA FRESH LEVEL 1
-  // ============================================
-  if (status.level === 1 && !isExpanded) {
-    return (
-      <div className="h-14 px-5 flex items-center rounded-[28px] border bg-white border-gray-100 shadow-sm">
-        <div className="flex items-center gap-3 w-full">
-          <div className={`h-2 w-2 rounded-full shrink-0 ${status.color?.replace('text', 'bg') || 'bg-emerald-500'}`} />
-          <p className={`text-[14px] font-black uppercase tracking-tight truncate flex-1 ${status.color || 'text-emerald-600'}`}>
-            {status.icon} {status.text}
-          </p>
-          {waktuUpdate && (
-            <span className="text-[9px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-              {waktuUpdate}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-  
-  // ============================================
-  // RENDER: ADA DATA FRESH LEVEL 2 & 3
-  // ============================================
-  return (
-    <div className="relative">
-      <div 
-        onClick={() => canExpand && setIsExpanded(!isExpanded)}
-        className={`rounded-[28px] h-14 px-5 flex items-center shadow-sm cursor-pointer transition-all duration-200
-          ${status.bgColor || 'bg-gradient-to-r from-emerald-500 to-teal-600'}
-          ${isExpanded ? 'rounded-b-none' : ''}
-        `}
-      >
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-3 overflow-hidden flex-1">
-            <div className="h-2.5 w-2.5 rounded-full shrink-0 bg-white" />
-            <p className="text-[14px] font-black uppercase tracking-tight truncate text-white">
-              {status.icon} {status.text}
-            </p>
-          </div>
-          
-          {canExpand && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20">
-              <span className="text-[9px] font-black uppercase text-white">
-                {isExpanded ? 'Tutup' : 'Detail'}
-              </span>
-              <svg 
-                className={`w-3 h-3 transition-transform duration-200 text-white ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-          )}
-        </div>
       </div>
 
-      {isExpanded && canExpand && (
-        <div className="bg-white border border-t-0 border-gray-100 rounded-b-[28px] px-5 pb-5 pt-3 shadow-sm">
-          <div className="space-y-3">
-            <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-100">
+      {/* Expandable Detail Section */}
+      <div className={`grid transition-all duration-300 ease-in-out bg-white/95 backdrop-blur-md rounded-b-2xl border-x border-b border-slate-100/80 shadow-lg shadow-slate-100/50 overflow-hidden
+        ${isExpanded && canExpand ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 border-none'}
+      `}>
+        <div className="overflow-hidden">
+          <div className="p-4 pt-1 space-y-4">
+            {/* Context Summary Box */}
+            <div className={`p-3 rounded-xl border text-[13px] leading-relaxed shadow-inner
+              ${hasFreshData
+                ? 'bg-amber-50/40 border-amber-100 text-slate-700'
+                : 'bg-purple-50/40 border-purple-100 text-slate-700'}
+            `}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[9px] font-bold text-amber-600 uppercase tracking-wider">
-                  Cerita Warga ({freshReports.length} laporan)
+                <span className={`text-[9px] font-extrabold uppercase tracking-widest ${hasFreshData ? 'text-amber-600' : 'text-purple-600'}`}>
+                  {hasFreshData ? `💬 Ringkasan ${freshReports.length} Warga` : '👀 Analisis Pantauan'}
                 </span>
-                {waktuUpdate && (
-                  <span className="text-[9px] text-amber-400">
-                    {waktuUpdate}
-                  </span>
-                )}
+                {!hasFreshData && <span className="text-[9px] text-slate-400 font-medium">4 jam terakhir</span>}
               </div>
-              
-              <p className="text-[13px] leading-relaxed text-gray-700 italic whitespace-pre-line">
-                "{ringkasanMultiUser}"
+
+              <p className={hasFreshData ? "italic font-medium text-slate-600" : "font-medium text-slate-600"}>
+                {hasFreshData ? `"${ringkasanMultiUser}"` : ringkasanMultiUser}
               </p>
 
-              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-amber-200/50">
-                <div className="flex -space-x-2">
-                  {freshReports.slice(0, 5).map((report, idx) => (
-                    <div 
-                      key={idx} 
-                      className="w-6 h-6 rounded-full bg-amber-200 border-2 border-white shadow-sm overflow-hidden flex items-center justify-center"
-                      title={report.user_name}
-                    >
-                      {report.user_avatar ? (
-                        <img src={report.user_avatar} className="h-full w-full object-cover" alt={report.user_name} />
-                      ) : (
-                        <span className="text-[8px] font-bold text-amber-600">
-                          {report.user_name?.charAt(0).toUpperCase() || "W"}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+              {/* Avatar Pile */}
+              <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-100">
+                <div className="flex -space-x-1.5 overflow-hidden">
+                  {hasFreshData ? (
+                    freshReports.slice(0, 4).map((report, idx) => (
+                      <div key={idx} className="w-5 h-5 rounded-full bg-amber-100 border border-white flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">
+                        {report.user_avatar ? (
+                          <img src={report.user_avatar} className="h-full w-full object-cover rounded-full" alt="" />
+                        ) : report.user_name?.charAt(0).toUpperCase() || "W"}
+                      </div>
+                    ))
+                  ) : (
+                    [...Array(Math.min(passiveSignal?.total || 0, 4))].map((_, idx) => (
+                      <div key={idx} className="w-5 h-5 rounded-full bg-purple-100 border border-white flex items-center justify-center text-[9px] shrink-0">
+                        👤
+                      </div>
+                    ))
+                  )}
                 </div>
-                <span className="text-[9px] text-gray-500">
-                  +{freshReports.length} warga melaporkan
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {hasFreshData ? `${freshReports.length} warga ikut bersuara` : `${passiveSignal?.total || 0} interaksi lokal`}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center justify-between px-1">
-              <div className="flex gap-3">
-                <div>
-                  <span className="text-[8px] font-bold text-gray-400 uppercase">Status</span>
-                  <p className="text-[10px] font-bold text-gray-600">{status.badge || status.text}</p>
+            {/* Footer Mini Stats */}
+            <div className="flex items-center justify-between px-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <div className="flex gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium text-[9px] text-slate-400">Saksi</span>
+                  <span className="text-slate-700 font-extrabold text-[11px]">🗃️ {jumlahWarga || 0}</span>
                 </div>
-                <div className="border-l border-gray-200 pl-3">
-                  <span className="text-[8px] font-bold text-gray-400 uppercase">Saksi</span>
-                  <p className="text-[10px] font-bold text-gray-600">🗃️ {jumlahWarga || 0}</p>
-                </div>
-                <div className="border-l border-gray-200 pl-3">
-                  <span className="text-[8px] font-bold text-gray-400 uppercase">Laporan</span>
-                  <p className="text-[10px] font-bold text-gray-600">👥 {freshReports.length}</p>
+                <div className="border-l border-slate-100 pl-4 flex flex-col gap-0.5">
+                  <span className="font-medium text-[9px] text-slate-400">{hasFreshData ? 'Laporan' : 'Interaksi'}</span>
+                  <span className="text-slate-700 font-extrabold text-[11px]">
+                    {hasFreshData ? `👥 ${freshReports.length}` : `👥 ${passiveSignal?.total || 0}`}
+                  </span>
                 </div>
               </div>
               {jarakFix && (
-                <div className="text-right">
-                  <span className="text-[8px] font-bold text-gray-400 uppercase">Jarak</span>
-                  <p className="text-[10px] font-bold text-gray-500">{jarakFix}</p>
+                <div className="flex flex-col gap-0.5 items-end">
+                  <span className="font-medium text-[9px] text-slate-400">Jarak Anda</span>
+                  <span className="text-indigo-600 font-black text-[11px] bg-indigo-50 px-1.5 py-0.5 rounded">📍 {jarakFix}</span>
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

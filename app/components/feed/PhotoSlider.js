@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { MapPin, ChevronLeft, ChevronRight, CloudRain } from "lucide-react";
+import { MapPin, CloudRain, Users, Building2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getIndonesianTimeLabel } from "@/utils/timeUtils";
 import OptimizedMedia from "@/components/OptimizedMedia";
@@ -26,15 +26,22 @@ const normalizeOfficialPhotos = (photos) => {
   return result;
 };
 
+// Format waktu upload
+const formatUploadTime = (createdAt) => {
+  if (!createdAt) return '';
+  const date = new Date(createdAt);
+  return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+};
+
 // Cache dengan TTL lebih panjang
 const officialPhotosCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
-// Preload image helper
-const preloadImage = (url) => {
-  if (!url || typeof window === 'undefined') return;
-  const img = new Image();
-  img.src = url;
+// Helper deteksi video
+const isVideoUrl = (url) => {
+  if (!url) return false;
+  const videoExtensions = /\.(mp4|mov|avi|mkv|webm|m3u8|mpeg)$/i;
+  return videoExtensions.test(url) || url.includes('video') || url.includes('stream');
 };
 
 // ========== HOOK UNTUK TIME KEY ==========
@@ -84,7 +91,8 @@ const useTimeKey = () => {
 };
 
 export default function PhotoSlider({
-  photos = [],
+  photos = [],              // STORY WARGA (foto/video dari laporan_warga)
+  officialPhotosData = null, // FOTO OFFICIAL dari parent (fallback)
   tempatId,
   namaTempat = "",
   isHujan = false,
@@ -96,7 +104,7 @@ export default function PhotoSlider({
 }) {
   const currentTimeKey = useTimeKey();
 
-  const [officialPhotos, setOfficialPhotos] = useState(() => {
+  const [officialPhotosState, setOfficialPhotosState] = useState(() => {
     const cached = officialPhotosCache.get(tempatId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       return cached.data;
@@ -106,16 +114,14 @@ export default function PhotoSlider({
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(() => selectedPhotoIndex || 0);
   const [shouldLoad, setShouldLoad] = useState(priority);
   const sliderRef = useRef(null);
   const channelRef = useRef(null);
-  const preloadedRef = useRef(new Set());
   const fetchAttemptedRef = useRef(false);
   const retryCountRef = useRef(0);
   const maxRetries = 3;
 
-  // Helper untuk menentukan warna tema dinamis agar background selaras dengan waktu
+  // Helper untuk menentukan warna tema dinamis
   const themeClasses = useMemo(() => {
     if (isHujan) return "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-indigo-200";
     switch (currentTimeKey) {
@@ -129,20 +135,10 @@ export default function PhotoSlider({
 
   // Sync with parent
   useEffect(() => {
-    if (selectedPhotoIndex !== undefined && selectedPhotoIndex !== currentPhotoIndex) {
-      setCurrentPhotoIndex(selectedPhotoIndex);
+    if (setSelectedPhotoIndex && selectedPhotoIndex !== undefined) {
+      setSelectedPhotoIndex(0);
     }
-  }, [selectedPhotoIndex]);
-
-  useEffect(() => {
-    if (setSelectedPhotoIndex) {
-      setSelectedPhotoIndex(currentPhotoIndex);
-    }
-  }, [currentPhotoIndex, setSelectedPhotoIndex]);
-
-  useEffect(() => {
-    setCurrentPhotoIndex(0);
-  }, [currentTimeKey]);
+  }, [selectedPhotoIndex, setSelectedPhotoIndex]);
 
   // Intersection Observer
   useEffect(() => {
@@ -171,14 +167,14 @@ export default function PhotoSlider({
     };
   }, [priority, shouldLoad]);
 
-  // Fetch official photos
+  // Fetch official photos dari database
   const fetchOfficialPhotos = useCallback(async () => {
     if (!tempatId || tempatId === 0 || tempatId === undefined || isNaN(tempatId)) return;
     if (!shouldLoad) return;
 
     const cached = officialPhotosCache.get(tempatId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      setOfficialPhotos(cached.data);
+      setOfficialPhotosState(cached.data);
       setError(null);
       return;
     }
@@ -200,10 +196,10 @@ export default function PhotoSlider({
 
       if (data?.photos) {
         const normalized = normalizeOfficialPhotos(data.photos);
-        setOfficialPhotos(normalized);
+        setOfficialPhotosState(normalized);
         officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
       } else {
-        setOfficialPhotos({ pagi: [], siang: [], sore: [], malam: [] });
+        setOfficialPhotosState({ pagi: [], siang: [], sore: [], malam: [] });
       }
       retryCountRef.current = 0;
     } catch (error) {
@@ -215,7 +211,7 @@ export default function PhotoSlider({
           if (shouldLoad && !fetchAttemptedRef.current) fetchOfficialPhotos();
         }, 2000 * retryCountRef.current);
       }
-      if (cached) setOfficialPhotos(cached.data);
+      if (cached) setOfficialPhotosState(cached.data);
     } finally {
       setIsLoading(false);
       fetchAttemptedRef.current = false;
@@ -251,7 +247,7 @@ export default function PhotoSlider({
         }, (payload) => {
           if (payload.new?.photos) {
             const normalized = normalizeOfficialPhotos(payload.new.photos);
-            setOfficialPhotos(normalized);
+            setOfficialPhotosState(normalized);
             officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
           }
         });
@@ -265,73 +261,80 @@ export default function PhotoSlider({
     return () => { cleanup(); };
   }, [tempatId, shouldLoad]);
 
-  // Process current photos
-  const currentPhotos = useMemo(() => {
-    if (photos.length > 0) {
-      const freshWargaPhotos = photos.filter(p => {
+  // ========== MAIN LOGIC: HANYA 1 MEDIA TERBARU YANG SESUAI WAKTU ==========
+  const currentPhoto = useMemo(() => {
+    // PRIORITAS 1: Story warga terbaru yang sesuai waktu
+    if (photos && photos.length > 0) {
+      // Filter story berdasarkan waktu yang sama
+      const matchedWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
-        if (!createdAt) return true;
-        return (Date.now() - new Date(createdAt)) < 24 * 60 * 60 * 1000;
+        if (!createdAt) return false;
+        const uploadTimeLabel = getIndonesianTimeLabel(new Date(createdAt)).toLowerCase();
+        return uploadTimeLabel === currentTimeKey;
       });
 
-      if (freshWargaPhotos.length > 0) {
-        return [...freshWargaPhotos].sort((a, b) =>
+      if (matchedWargaPhotos.length > 0) {
+        // Urutkan dari terbaru, ambil yang PALING BARU (index 0)
+        const latest = [...matchedWargaPhotos].sort((a, b) =>
           new Date(b.created_at || b.timestamp) - new Date(a.created_at || a.timestamp)
-        ).map(p => ({
-          url: p.url || p.photo_url, type: 'warga', caption: p.caption
-        }));
+        )[0];
+
+        const videoUrl = latest.video_url || latest.url;
+        const photoUrl = latest.photo_url || latest.url;
+        const isVideo = latest.is_video || isVideoUrl(videoUrl);
+        const finalUrl = isVideo ? videoUrl : photoUrl;
+
+        return {
+          url: finalUrl,
+          type: 'warga',
+          isVideo: isVideo,
+          caption: latest.deskripsi || latest.caption,
+          created_at: latest.created_at || latest.timestamp,
+          user_name: latest.user_name || latest.nama_warga || 'Warga',
+        };
       }
     }
 
-    const timePhotos = officialPhotos[currentTimeKey];
-    if (timePhotos?.length > 0) {
-      return [...timePhotos].map(p => ({
-        url: p.url || p, type: 'official', caption: p.caption
-      }));
-    }
-    return [];
-  }, [photos, officialPhotos, currentTimeKey]);
-
-  // Preload adjacent images
-  useEffect(() => {
-    if (!shouldLoad || currentPhotos.length === 0) return;
-
-    const nextIndex = (currentPhotoIndex + 1) % currentPhotos.length;
-    if (currentPhotos[nextIndex]?.url && !preloadedRef.current.has(currentPhotos[nextIndex].url)) {
-      preloadImage(currentPhotos[nextIndex].url);
-      preloadedRef.current.add(currentPhotos[nextIndex].url);
+    // PRIORITAS 2: Official photos (ambil foto pertama saja)
+    if (officialPhotosData) {
+      const timePhotos = officialPhotosData[currentTimeKey];
+      if (timePhotos && timePhotos.length > 0) {
+        const firstPhoto = timePhotos[0];
+        return {
+          url: firstPhoto.url || firstPhoto,
+          type: 'official',
+          isVideo: false,
+          caption: firstPhoto.caption,
+          created_at: null,
+        };
+      }
     }
 
-    const prevIndex = (currentPhotoIndex - 1 + currentPhotos.length) % currentPhotos.length;
-    if (currentPhotos[prevIndex]?.url && !preloadedRef.current.has(currentPhotos[prevIndex].url)) {
-      preloadImage(currentPhotos[prevIndex].url);
-      preloadedRef.current.add(currentPhotos[prevIndex].url);
+    // PRIORITAS 3: Official photos dari DATABASE
+    const timePhotosFromDb = officialPhotosState[currentTimeKey];
+    if (timePhotosFromDb && timePhotosFromDb.length > 0) {
+      const firstPhoto = timePhotosFromDb[0];
+      return {
+        url: firstPhoto.url || firstPhoto,
+        type: 'official',
+        isVideo: false,
+        caption: firstPhoto.caption,
+        created_at: null,
+      };
     }
-  }, [currentPhotoIndex, currentPhotos, shouldLoad]);
 
-  const nextPhoto = useCallback(() => {
-    if (currentPhotos.length <= 1) return;
-    setCurrentPhotoIndex((prev) => (prev + 1) % currentPhotos.length);
-  }, [currentPhotos.length]);
-
-  const prevPhoto = useCallback(() => {
-    if (currentPhotos.length <= 1) return;
-    setCurrentPhotoIndex((prev) => (prev - 1 + currentPhotos.length) % currentPhotos.length);
-  }, [currentPhotos.length]);
-
-  const currentPhoto = currentPhotos[currentPhotoIndex];
-  const hasMultiplePhotos = currentPhotos.length > 1;
+    return null;
+  }, [photos, officialPhotosData, officialPhotosState, currentTimeKey]);
 
   const handlePhotoClick = useCallback(() => {
-    if (onPhotoClick && currentPhotos.length > 0) {
-      onPhotoClick(currentPhotos, currentPhotoIndex);
+    if (onPhotoClick && currentPhoto) {
+      onPhotoClick([currentPhoto], 0);
     }
-  }, [onPhotoClick, currentPhotos, currentPhotoIndex]);
+  }, [onPhotoClick, currentPhoto]);
 
   // MAIN RENDER (FOTO TERSEDIA)
-  if (currentPhotos.length > 0) {
+  if (currentPhoto?.url) {
     return (
-      /* PERUBAHAN DI SINI: rounded-t-[30px] rounded-b-none agar bagian bawah lurus */
       <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-t-[30px] rounded-b-none shadow-2xl border border-white/5 group select-none">
         <div className="absolute inset-0 z-0 cursor-pointer" onClick={handlePhotoClick}>
           <OptimizedMedia
@@ -345,69 +348,45 @@ export default function PhotoSlider({
             loading={priority ? "eager" : "lazy"}
             priority={priority}
           />
-          {/* Overlay gradasi ganda (atas untuk proteksi status bar/teks, bawah untuk dots/caption) */}
-          {/* PERUBAHAN DI SINI: Gradasi bawah disesuaikan agar terlihat bagus dengan sudut lurus */}
-          <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/40 via-black/10 to-transparent pointer-events-none rounded-t-[30px]" />
-          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 via-black/30 to-transparent pointer-events-none rounded-b-none" />
+          <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none rounded-t-[30px]" />
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none rounded-b-none" />
         </div>
 
-        {/* Caption - Glassmorphic di pojok kanan bawah */}
-        {currentPhoto.caption && (
-          <div className="absolute bottom-4 right-4 z-10 max-w-[50%] animate-fade-in">
-            <div className="flex items-center gap-1.5 bg-zinc-900/60 backdrop-blur-md border border-white/10 px-2.5 py-1.5 rounded-xl shadow-lg">
-              <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-              <p className="text-[9px] font-medium tracking-tight text-white/90 leading-none truncate">
-                {currentPhoto.caption}
-              </p>
+        {/* BADGE SUMBER FOTO - Pojok Kanan Bawah */}
+        <div className="absolute bottom-4 right-4 z-10 max-w-[60%] animate-fade-in text-[10px] tracking-wide text-white">
+          {currentPhoto.type === 'warga' ? (
+            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
+              <Users size={11} className="opacity-80" />
+              <span className="font-medium">
+                {currentPhoto.user_name}
+              </span>
+              <span className="opacity-60 font-light text-[9px]">
+                {formatUploadTime(currentPhoto.created_at)}
+              </span>
             </div>
-          </div>
-        )}
-
-        {hasMultiplePhotos && (
-          <>
-            {/* Tombol Navigasi Kiri & Kanan (Tampil tipis, membesar halus saat hover di desktop/tap mobile) */}
-            <button
-              onClick={prevPhoto}
-              className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all active:scale-90 shadow-md"
-              aria-label="Previous photo"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              onClick={nextPhoto}
-              className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all active:scale-90 shadow-md"
-              aria-label="Next photo"
-            >
-              <ChevronRight size={16} />
-            </button>
-
-            {/* Indikator Titik (Dots) */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 px-2 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/5">
-              {currentPhotos.map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCurrentPhotoIndex(idx)}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentPhotoIndex ? 'bg-white w-3.5 shadow-sm' : 'bg-white/40 w-1.5 hover:bg-white/60'}`}
-                  aria-label={`Go to photo ${idx + 1}`}
-                />
-              ))}
+          ) : (
+            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
+              <Building2 size={11} className="opacity-80" />
+              <span className="font-medium opacity-90">
+                Suasana • {currentTimeKey}
+              </span>
             </div>
-          </>
-        )}
+          )}
+        </div>
 
-        {/* Efek Atmosfer Cuaca Hujan */}
+        {/* Efek Hujan */}
         {isHujan && (
-          /* PERUBAHAN DI SINI: rounded-t-[30px] rounded-b-none */
-          <div className="absolute inset-0 pointer-events-none z-[5] bg-indigo-500/ mix-blend-color-burn animate-pulse rounded-t-[30px] rounded-b-none" />
+          <div className="absolute inset-0 pointer-events-none z-[5] bg-indigo-500/5 mix-blend-overlay rounded-t-[30px] rounded-b-none">
+            <div className="absolute inset-0 bg-[linear-gradient(0deg,transparent_80%,#6366f105_90%)] animate-pulse" />
+          </div>
         )}
       </div>
     );
   }
 
-  // LOADING STATE (Sesuai tema waktu & cuaca)
-  if (!shouldLoad || (isLoading && currentPhotos.length === 0)) {
+  // LOADING STATE
+  if (!shouldLoad || (isLoading && !currentPhoto)) {
     return (
-      /* PERUBAHAN DI SINI: rounded-t-[30px] rounded-b-none */
       <div ref={sliderRef} className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center transition-all duration-500 ${themeClasses}`}>
         <div className="relative flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-white/10 border-t-white/60 rounded-full animate-spin" />
@@ -416,28 +395,16 @@ export default function PhotoSlider({
     );
   }
 
-  // EMPTY STATE (Tampilan minimalis futuristik modern dengan branding rapi)
+  // EMPTY STATE
   return (
-    /* PERUBAHAN DI SINI: rounded-t-[30px] rounded-b-none */
     <div ref={sliderRef} className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center p-6 text-center overflow-hidden transition-all duration-500 ${themeClasses}`}>
-      {/* Dekorasi Grid Halus di Background untuk kesan Tech/AI */}
-      {/* PERUBAHAN DI SINI: rounded-t-[30px] rounded-b-none */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:16px_16px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] rounded-t-[30px] rounded-b-none" />
-
       <div className="relative flex flex-col items-center max-w-[80%] animate-fade-in">
         <div className="p-3 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 mb-3 shadow-xl">
-          {isHujan ? (
-            <CloudRain className="opacity-60 text-indigo-400" size={20} />
-          ) : (
-            <MapPin className="opacity-60" size={20} />
-          )}
+          {isHujan ? <CloudRain className="opacity-60 text-indigo-400" size={20} /> : <MapPin className="opacity-60" size={20} />}
         </div>
-        <p className="text-[10px] uppercase tracking-[0.25em] font-semibold opacity-70">
-          Hasil Pantauan AI Setempat
-        </p>
-        <span className="text-[9px] opacity-40 mt-1 font-mono lowercase">
-          {namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey} {isHujan ? "• hujan" : ""}
-        </span>
+        <p className="text-[10px] uppercase tracking-[0.25em] font-semibold opacity-70">Hasil Pantauan AI Setempat</p>
+        <span className="text-[9px] opacity-40 mt-1 font-mono lowercase">{namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey} {isHujan ? "• hujan" : ""}</span>
       </div>
     </div>
   );

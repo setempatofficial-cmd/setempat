@@ -1,14 +1,6 @@
 // hooks/useWeather.js
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-// Mapping kode wilayah ke lokasi (contoh)
-const LOCATION_CODES = {
-  'Pasuruan': '35.14.01.1001',
-  'Alun-Alun Pasuruan': '35.14.01.1002',
-  'Pasar Besar': '35.14.01.1003',
-  'default': '35.14.01.1001'
-};
-
 // Mapping icon cuaca
 const WEATHER_ICONS = {
   'Cerah': '☀️',
@@ -22,7 +14,6 @@ const WEATHER_ICONS = {
   'Kabut': '🌫️',
 };
 
-// Mapping deskripsi cuaca singkat
 const WEATHER_SHORT = {
   'Cerah': 'Cerah',
   'Cerah Berawan': 'Berawan',
@@ -35,7 +26,6 @@ const WEATHER_SHORT = {
   'Kabut': 'Kabut',
 };
 
-// 🔥 Data fallback yang lebih variatif
 const FALLBACK_WEATHER = {
   temp: 28,
   condition: 'Cerah Berawan',
@@ -45,27 +35,35 @@ const FALLBACK_WEATHER = {
   short: 'Berawan'
 };
 
-// 🔥 Cache untuk menghindari request berulang
 const weatherCache = new Map();
+const wilayahCache = new Map();
+
+// 🔥 Daftar keyword yang tidak valid
+const INVALID_LOCATIONS = ['', 'pilih lokasi', 'select location', 'null', 'undefined', 'none'];
+
+// 🔥 Cek apakah lokasi valid
+const isValidLocation = (location) => {
+  if (!location || typeof location !== 'string') return false;
+  const normalized = location.toLowerCase().trim();
+  return !INVALID_LOCATIONS.includes(normalized) && normalized.length > 2;
+};
 
 export function useWeather(locationName) {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [wilayahInfo, setWilayahInfo] = useState(null);
   
-  // 🔥 Gunakan ref untuk tracking mounted state
   const isMounted = useRef(true);
   const abortControllerRef = useRef(null);
   const timeoutIdRef = useRef(null);
   const intervalIdRef = useRef(null);
 
-  // 🔥 Bersihkan semua saat unmount
   useEffect(() => {
     isMounted.current = true;
     
     return () => {
       isMounted.current = false;
-      // Bersihkan semua pending requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -78,122 +76,142 @@ export function useWeather(locationName) {
     };
   }, []);
 
-  // 🔥 Fungsi fetch dengan cache dan retry logic
-  const fetchWeather = useCallback(async () => {
-    if (!locationName || !isMounted.current) return;
+  // 🔥 Fungsi getKodeWilayah dengan validasi
+  const getKodeWilayah = useCallback(async (namaWilayah) => {
+    // 🔥 VALIDASI: Cek apakah lokasi valid
+    if (!isValidLocation(namaWilayah)) {
+      console.log("⚠️ Location name invalid, skipping search:", namaWilayah);
+      return null;
+    }
+
+    // Cek cache
+    const cacheKey = `wilayah_${namaWilayah.toLowerCase()}`;
+    const cached = wilayahCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 60 * 60 * 1000) {
+      console.log("📦 Using cached wilayah:", cached.data.nama);
+      return cached.data;
+    }
+
+    try {
+      console.log("🔍 Searching wilayah:", namaWilayah);
+      
+      const response = await fetch(`/api/wilayah/search?nama=${encodeURIComponent(namaWilayah)}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        wilayahCache.set(cacheKey, {
+          data: data.data,
+          timestamp: Date.now()
+        });
+        
+        if (isMounted.current) {
+          setWilayahInfo({
+            kode: data.data.kode,
+            nama: data.data.nama,
+            kecamatan: data.data.kecamatan,
+            kabupaten: data.data.kabupaten,
+            provinsi: data.data.provinsi,
+            lat: data.data.lat,
+            lon: data.data.lon,
+          });
+        }
+        
+        console.log("✅ Wilayah found:", data.data.nama);
+        return data.data;
+      }
+      
+      return null;
+      
+    } catch (err) {
+      console.error("❌ Error searching wilayah:", err.message);
+      return null; // Return null, jangan throw error
+    }
+  }, []);
+
+  // 🔥 Fetch weather langsung (tanpa perlu kode wilayah)
+  const fetchWeatherDirect = useCallback(async () => {
+    // 🔥 VALIDASI: Cek apakah lokasi valid
+    if (!isValidLocation(locationName)) {
+      console.log("⚠️ Skipping weather fetch - invalid location:", locationName);
+      setWeather(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
-    // Cek cache dulu
-    const cacheKey = `weather_${locationName}`;
-    const cached = weatherCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-      setWeather(cached.data);
-      setLoading(false);
-      return;
-    }
-
     try {
-      // Dapatkan kode wilayah
-      const kodeWilayah = LOCATION_CODES[locationName] || LOCATION_CODES.default;
-
-      // 🔥 Setup AbortController baru
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      const cacheKey = `weather_${locationName.toLowerCase()}`;
+      const cached = weatherCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+        console.log("📦 Using cached weather data");
+        setWeather(cached.data);
+        setLoading(false);
+        return;
       }
-      abortControllerRef.current = new AbortController();
 
       // 🔥 Setup timeout
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-      }
-      timeoutIdRef.current = setTimeout(() => {
-        if (abortControllerRef.current && isMounted.current) {
-          abortControllerRef.current.abort();
-          console.warn('Weather request timeout');
-        }
-      }, 5000);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      // 🔥 Fetch dengan retry logic
-      let retryCount = 0;
-      const maxRetries = 2;
+      console.log("🌤️ Fetching weather for:", locationName);
       
-      while (retryCount <= maxRetries) {
-        try {
-          const response = await fetch(`/api/weather?kode=${kodeWilayah}`, {
-            signal: abortControllerRef.current.signal,
-            headers: {
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache'
-            }
-          });
+      // 🔥 Panggil API weather dengan parameter location
+      const response = await fetch(
+        `/api/weather?location=${encodeURIComponent(locationName)}`,
+        { signal: controller.signal }
+      );
+      
+      clearTimeout(timeoutId);
 
-          clearTimeout(timeoutIdRef.current);
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          if (!isMounted.current) return;
-
-          // Proses data
-          let weatherData;
-          if (data.error) {
-            console.warn('Weather API error:', data.error);
-            weatherData = { ...FALLBACK_WEATHER };
-          } else if (data.weather) {
-            weatherData = {
-              temp: data.weather.t || data.weather.temperature || 28,
-              condition: data.weather.weather_desc || data.weather.condition || 'Cerah Berawan',
-              humidity: data.weather.hu || data.weather.humidity || 75,
-              windSpeed: data.weather.ws || data.weather.windSpeed || 12,
-              icon: WEATHER_ICONS[data.weather.weather_desc] || '⛅',
-              short: WEATHER_SHORT[data.weather.weather_desc] || 'Berawan',
-            };
-          } else {
-            console.warn('Weather data format unexpected:', data);
-            weatherData = { ...FALLBACK_WEATHER };
-          }
-
-          // Simpan ke cache
-          weatherCache.set(cacheKey, {
-            data: weatherData,
-            timestamp: Date.now()
-          });
-
-          setWeather(weatherData);
-          setError(null);
-          return; // Success, keluar dari loop
-
-        } catch (retryError) {
-          retryCount++;
-          if (retryCount > maxRetries) throw retryError;
-          // Tunggu sebentar sebelum retry
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.weather) {
+        const weatherData = {
+          temp: data.weather.t,
+          condition: data.weather.weather_desc,
+          humidity: data.weather.hu,
+          windSpeed: data.weather.ws,
+          icon: WEATHER_ICONS[data.weather.weather_desc] || '⛅',
+          short: WEATHER_SHORT[data.weather.weather_desc] || 'Berawan',
+          location_name: data.weather.location_name
+        };
+        
+        weatherCache.set(cacheKey, {
+          data: weatherData,
+          timestamp: Date.now()
+        });
+        
+        setWeather(weatherData);
+        setError(null);
+      } else {
+        throw new Error('Invalid weather data format');
       }
       
     } catch (err) {
-      if (!isMounted.current) return;
-      
       if (err.name === 'AbortError') {
-        console.warn('Weather request cancelled');
-        return;
-      }
-      
-      console.error('Weather fetch error:', err.message);
-      
-      // 🔥 Gunakan cached data jika ada, baru fallback
-      const cached = weatherCache.get(`weather_${locationName}`);
-      if (cached) {
-        setWeather(cached.data);
+        console.warn('Weather request timeout');
+        setError('Request timeout, menggunakan data default');
       } else {
-        setWeather(FALLBACK_WEATHER);
+        console.error("Weather fetch error:", err.message);
+        setError(err.message);
       }
-      setError(err.message);
+      
+      // 🔥 Set fallback weather
+      setWeather(FALLBACK_WEATHER);
+      
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -201,32 +219,39 @@ export function useWeather(locationName) {
     }
   }, [locationName]);
 
-  // 🔥 Effect utama
+  // 🔥 Main effect
   useEffect(() => {
-    if (!locationName) return;
+    if (!isValidLocation(locationName)) {
+      console.log("⏸️ Waiting for valid location... Current:", locationName);
+      setWeather(null);
+      setLoading(false);
+      return;
+    }
 
-    fetchWeather();
+    fetchWeatherDirect();
 
     // Refresh setiap 30 menit
-    intervalIdRef.current = setInterval(fetchWeather, 30 * 60 * 1000);
+    intervalIdRef.current = setInterval(fetchWeatherDirect, 30 * 60 * 1000);
     
     return () => {
       if (intervalIdRef.current) {
         clearInterval(intervalIdRef.current);
       }
     };
-  }, [locationName, fetchWeather]);
+  }, [locationName, fetchWeatherDirect]);
 
-  // 🔥 Fungsi manual refresh
   const refreshWeather = useCallback(() => {
-    weatherCache.delete(`weather_${locationName}`);
-    fetchWeather();
-  }, [locationName, fetchWeather]);
+    if (!isValidLocation(locationName)) return;
+    weatherCache.delete(`weather_${locationName.toLowerCase()}`);
+    fetchWeatherDirect();
+  }, [locationName, fetchWeatherDirect]);
 
   return { 
     weather, 
     loading, 
     error,
-    refreshWeather  // 🔥 Ekspos fungsi refresh
+    wilayahInfo,
+    refreshWeather,
+    isValid: isValidLocation(locationName) // 🔥 Ekspos status validasi
   };
 }
