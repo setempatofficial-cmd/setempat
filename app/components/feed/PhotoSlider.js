@@ -227,38 +227,42 @@ export default function PhotoSlider({
   useEffect(() => {
     if (!tempatId || !shouldLoad) return;
 
-    const cleanup = async () => {
+    let isMounted = true;
+
+    const channelName = `tempat_photos_${tempatId}_${Date.now()}`;
+    const channel = supabase.channel(channelName);
+
+    // ✅ Tambahkan callback SEBELUM subscribe
+    channel.on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'tempat',
+      filter: `id=eq.${tempatId}`,
+    }, (payload) => {
+      if (payload.new?.photos && isMounted) {
+        const normalized = normalizeOfficialPhotos(payload.new.photos);
+        setOfficialPhotosState(normalized);
+        officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
+      }
+    });
+
+    // ✅ Subscribe di akhir
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED' && isMounted) {
+        console.log(`✅ PhotoSlider realtime aktif untuk tempat ${tempatId}`);
+      }
+    });
+
+    channelRef.current = channel;
+
+    // Cleanup
+    return () => {
+      isMounted = false;
       if (channelRef.current) {
-        try { await supabase.removeChannel(channelRef.current); } catch (err) { console.warn(err); }
+        supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-
-    const setupChannel = async () => {
-      await cleanup();
-      try {
-        if (!supabase || !supabase.channel) return;
-
-        const channelName = `tempat_photos_${tempatId}_${Date.now()}`;
-        const channel = supabase.channel(channelName);
-
-        channel.on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'tempat', filter: `id=eq.${tempatId}`,
-        }, (payload) => {
-          if (payload.new?.photos) {
-            const normalized = normalizeOfficialPhotos(payload.new.photos);
-            setOfficialPhotosState(normalized);
-            officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
-          }
-        });
-
-        channel.subscribe();
-        channelRef.current = channel;
-      } catch (err) { console.error(err); }
-    };
-
-    setupChannel();
-    return () => { cleanup(); };
   }, [tempatId, shouldLoad]);
 
   // ========== MAIN LOGIC: HANYA 1 MEDIA TERBARU YANG SESUAI WAKTU ==========
@@ -384,12 +388,16 @@ export default function PhotoSlider({
     );
   }
 
-  // LOADING STATE
+  // LOADING STATE - SUPER RINGAN
   if (!shouldLoad || (isLoading && !currentPhoto)) {
     return (
-      <div ref={sliderRef} className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center transition-all duration-500 ${themeClasses}`}>
-        <div className="relative flex items-center justify-center">
-          <div className="w-6 h-6 border-2 border-white/10 border-t-white/60 rounded-full animate-spin" />
+      <div className={`relative h-full w-full rounded-t-[30px] rounded-b-none overflow-hidden ${themeClasses} transform-gpu`}>
+        {/* Shimmer Effect - GPU Accelerated */}
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[shimmer_1.5s_infinite] will-change-transform" />
+
+        {/* Konten minimal - tanpa backdrop blur jika perlu lebih ringan */}
+        <div className="absolute bottom-4 right-4">
+          <div className="w-16 h-4 bg-white/10 rounded animate-pulse" />
         </div>
       </div>
     );
@@ -397,14 +405,38 @@ export default function PhotoSlider({
 
   // EMPTY STATE
   return (
-    <div ref={sliderRef} className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center p-6 text-center overflow-hidden transition-all duration-500 ${themeClasses}`}>
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:16px_16px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] rounded-t-[30px] rounded-b-none" />
-      <div className="relative flex flex-col items-center max-w-[80%] animate-fade-in">
-        <div className="p-3 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 mb-3 shadow-xl">
-          {isHujan ? <CloudRain className="opacity-60 text-indigo-400" size={20} /> : <MapPin className="opacity-60" size={20} />}
+    <div
+      ref={sliderRef}
+      className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center p-6 text-center overflow-hidden transition-opacity duration-500 ${themeClasses} transform-gpu`}
+    >
+      {/* Background pattern - SUPER RINGAN (GPU) */}
+      <div className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-t-[30px]"
+        style={{
+          backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+          backgroundSize: '16px 16px',
+        }}
+      />
+
+      {/* Gradient overlay - ringan */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.01] to-transparent [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] rounded-t-[30px]" />
+
+      <div className="relative flex flex-col items-center max-w-[80%]">
+        {/* Icon Capsule - tanpa backdrop blur untuk HP entry-level */}
+        <div className="p-3 rounded-2xl bg-black/20 border border-white/10 mb-3">
+          {isHujan ? (
+            <CloudRain className="opacity-60 text-indigo-400" size={20} />
+          ) : (
+            <MapPin className="opacity-60 text-[#E3655B]" size={20} />
+          )}
         </div>
-        <p className="text-[10px] uppercase tracking-[0.25em] font-semibold opacity-70">Hasil Pantauan AI Setempat</p>
-        <span className="text-[9px] opacity-40 mt-1 font-mono lowercase">{namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey} {isHujan ? "• hujan" : ""}</span>
+
+        <p className="text-[10px] uppercase tracking-[0.25em] font-semibold opacity-70">
+          Hasil Pantauan AI Setempat
+        </p>
+
+        <span className="text-[9px] opacity-40 mt-1 font-mono lowercase">
+          {namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey} {isHujan ? "• hujan" : ""}
+        </span>
       </div>
     </div>
   );

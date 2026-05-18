@@ -26,8 +26,31 @@ export function useAIInsight(activeTempat) {
     externalSignals: []
   });
 
+  // ✅ State untuk menyimpan user & nama depan
+  const [user, setUser] = useState(null);
+
   const isMountedRef = useRef(true);
   const fetchingRef = useRef(false);
+
+  // ============================================
+  // AMBIL DATA USER & NAMA DEPAN
+  // ============================================
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Ambil nama depan dari metadata atau email
+        const namaDepan = user.user_metadata?.full_name?.split(' ')[0] ||
+          user.user_metadata?.name?.split(' ')[0] ||
+          user.email?.split('@')[0] ||
+          'Warga';
+        setUser({ ...user, namaDepan });
+      } else {
+        setUser(null);
+      }
+    };
+    getUser();
+  }, []);
 
   // ============================================
   // UTILS & FORMATTERS
@@ -72,7 +95,6 @@ export function useAIInsight(activeTempat) {
     const todayStr = new Date().toISOString().split('T')[0];
     const nowStr = new Date().toISOString();
 
-    // Jalankan ke-12 query secara serentak (Paralel)
     const [
       metadataRes,
       aktivitasBerkalaRes,
@@ -118,9 +140,9 @@ export function useAIInsight(activeTempat) {
   }, []);
 
   // ============================================
-  // GENERATE SMART INSIGHT (MENGEMBALIKAN DATA NYATA)
+  // GENERATE SMART INSIGHT (DENGAN NAMA USER)
   // ============================================
-  const generateSmartInsight = useCallback((context, version = 0) => {
+  const generateSmartInsight = useCallback((context, version = 0, userName = 'Warga') => {
     const tempatName = activeTempat?.name || 'tempat ini';
     const emergency = isEmergency(context);
     let fullStory = '';
@@ -149,9 +171,11 @@ export function useAIInsight(activeTempat) {
     }
 
     const { text: timeGreeting, icon: timeIcon } = getTimeGreeting();
+
+    // ✅ GREETING DENGAN NAMA USER (PERSONALISASI)
     const finalGreeting = emergency
-      ? `🚨 ${timeGreeting} Warga! Kejadian serius di ${tempatName}!`
-      : `${timeGreeting} Warga! ${timeIcon} ${selectedStyle.name} — ${tempatName}`;
+      ? `🚨 ${timeGreeting} ${userName}! Kejadian serius di ${tempatName}!`
+      : `${timeGreeting} ${userName}! ${timeIcon} ${selectedStyle.name} — ${tempatName}`;
 
     const totalLaporan = (context.laporanWarga?.length || 0) + (context.externalSignals?.length || 0);
     const finalStats = {
@@ -162,18 +186,20 @@ export function useAIInsight(activeTempat) {
       story_style: selectedStyle?.name
     };
 
-    // Return data mentah agar bisa langsung dilahap oleh Cache System tanpa delay state
     return { finalGreeting, fullStory, finalStats };
   }, [activeTempat?.name, getTimeGreeting]);
 
   // ============================================
-  // CORE FETCH INSIGHT (FIXED CACHE & LOOP DEPENDENCY)
+  // CORE FETCH INSIGHT (DENGAN PERSONALISASI)
   // ============================================
   const fetchInsight = useCallback(async () => {
     if (fetchingRef.current || !activeTempat?.id) return;
 
     const cacheKey = `insight_rich_${activeTempat.id}_v${storyVersion}`;
     const cached = aiInsightCache.get(cacheKey);
+
+    // ✅ Ambil nama user (fallback ke 'Warga')
+    const userName = user?.namaDepan || 'Warga';
 
     if (cached) {
       setGreeting(cached.greeting);
@@ -192,17 +218,15 @@ export function useAIInsight(activeTempat) {
       const richData = await fetchRichContext(activeTempat.id);
       if (!isMountedRef.current) return;
 
-      // Ambil objek langsung dari fungsi generator
-      const { finalGreeting, fullStory, finalStats } = generateSmartInsight(richData, storyVersion);
+      // ✅ Panggil dengan userName
+      const { finalGreeting, fullStory, finalStats } = generateSmartInsight(richData, storyVersion, userName);
 
-      // Set State aplikasi secara berurutan
       setGreeting(finalGreeting);
       setStory(fullStory);
       setRichContext(richData);
       setModelUsed('local');
       setInsightStats(finalStats);
 
-      // Tulis ke Cache menggunakan data mentah yang valid terkalibrasi
       aiInsightCache.set(cacheKey, {
         greeting: finalGreeting,
         story: fullStory,
@@ -221,8 +245,7 @@ export function useAIInsight(activeTempat) {
       if (isMountedRef.current) setIsLoading(false);
       fetchingRef.current = false;
     }
-    // Clean dependency: hapus state dinamis agar tidak memicu infinite loop
-  }, [activeTempat?.id, storyVersion, fetchRichContext, generateSmartInsight]);
+  }, [activeTempat?.id, storyVersion, fetchRichContext, generateSmartInsight, user?.namaDepan]);
 
   const refresh = useCallback(() => {
     setStoryVersion(prev => prev + 1);
@@ -247,23 +270,37 @@ export function useAIInsight(activeTempat) {
 const STORY_STYLES = [
   {
     id: 'laporan',
-    name: '📢 Fokus Laporan Warga',
+    name: '📢 Hasil Laporan Warga',
     build: (ctx, tempatName, formatTimeAgo) => {
-      let story = '';
+      let story = `📢 **Cerita Laporan Warga ${tempatName}**\n\n`;
+
       if (ctx.laporanWarga?.length > 0) {
-        story += `📢 **Cerita dari Warga ${tempatName}**\n\n`;
-        ctx.laporanWarga.slice(0, 3).forEach(l => {
-          story += `💬 "${l.deskripsi?.substring(0, 120)}"\n   — @${l.username || 'warga'}, ${formatTimeAgo(l.created_at)}\n\n`;
+        const recentReports = ctx.laporanWarga.slice(0, 3);
+        const conditions = recentReports.map(l => l.deskripsi?.toLowerCase() || '');
+        const hasMacet = conditions.some(c => c.includes('macet') || c.includes('padat'));
+        const hasLancar = conditions.some(c => c.includes('lancar'));
+        const hasPengamen = conditions.some(c => c.includes('pengamen'));
+
+        let summary = `Dari laporan warga dalam ${recentReports.length} hari terakhir, `;
+        if (hasMacet && hasLancar) summary += `kondisi lalu lintas berfluktuasi antara macet dan lancar. `;
+        else if (hasMacet) summary += `kondisi cenderung padat/macet. `;
+        else if (hasLancar) summary += `kondisi cenderung lancar. `;
+        if (hasPengamen) summary += `Pengamen mulai terlihat mangkal di area. `;
+
+        story += summary + `\n\n📋 **Detail laporan:**\n`;
+        recentReports.forEach(l => {
+          story += `   • "${l.deskripsi?.substring(0, 100)}" (${formatTimeAgo(l.created_at)})\n`;
         });
       } else {
-        story += `📢 **Belum ada laporan**\n\nAyo jadi yang pertama laporin kondisi di ${tempatName}! 📝\n\n`;
+        story += `Belum ada laporan warga untuk ${tempatName}. Ayo jadi yang pertama! 📝\n\n`;
       }
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+
+      return story + `\n✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
     }
   },
   {
     id: 'konteks',
-    name: '🔗 Fokus Konteks Sekitar',
+    name: '🔗 Kondisi Sekitar Lokasi',
     build: (ctx, tempatName) => {
       let story = `🔗 **${tempatName} & Sekitarnya**\n\n`;
       const tempatPengaruh = ctx.tempatTerhubung?.filter(t => ['MACET', 'RAMAI'].includes(t.tempat_terkait?.latest_condition));
@@ -279,7 +316,7 @@ const STORY_STYLES = [
   },
   {
     id: 'layanan',
-    name: '🤝 Fokus Layanan & UMKM',
+    name: '🤝 Pantauan Layanan & UMKM',
     build: (ctx, tempatName) => {
       let story = `🤝 **Layanan di ${tempatName}**\n\n`;
       const rewang = ctx.layananWarga?.find(l => l.kategori_layanan === 'rewang');
@@ -298,7 +335,7 @@ const STORY_STYLES = [
   },
   {
     id: 'prediksi',
-    name: '🔮 Fokus Prediksi AI',
+    name: '🔮 Hasil Prediksi AI AKAMSI',
     build: (ctx, tempatName) => {
       let story = `🔮 **Ramalan Kondisi ${tempatName}**\n\n`;
       if (ctx.prediksi?.length > 0) {
@@ -315,7 +352,7 @@ const STORY_STYLES = [
   },
   {
     id: 'riwayat',
-    name: '📜 Fokus Riwayat & Pola',
+    name: '📜 Hasil Riwayat & Kejadian',
     build: (ctx, tempatName) => {
       let story = `📜 **Yang Pernah Terjadi di ${tempatName}**\n\n`;
       if (ctx.insidenHistoris?.length > 0) {
@@ -331,7 +368,7 @@ const STORY_STYLES = [
   },
   {
     id: 'aktivitas',
-    name: '👥 Fokus Aktivitas Warga',
+    name: '👥 Pantauan Aktivitas Warga',
     build: (ctx, tempatName) => {
       let story = `👥 **Kegiatan Warga di ${tempatName}**\n\n`;
       const todayStr = new Date().toISOString().split('T')[0];
@@ -352,7 +389,7 @@ const STORY_STYLES = [
   },
   {
     id: 'karakter',
-    name: '📍 Fokus Karakter Tempat',
+    name: '📍 Hasil Pengamatan Karakter Tempat',
     build: (ctx, tempatName) => {
       let story = `📍 **Mengenal ${tempatName}**\n\n`;
       if (ctx.metadata) {

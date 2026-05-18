@@ -1,23 +1,84 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/app/context/AuthContext';
-import { CATEGORY_CONFIG, getButtonStyle } from '@/config/citizenSignals';
-import dynamic from 'next/dynamic';
 
-// ============ DYNAMIC IMPORTS (LAZY LOADING) ============
-const LaporPanel = dynamic(() => import('@/app/components/ai/LaporPanel'), {
-  ssr: false,
-  loading: () => <div className="fixed inset-0 bg-black/50 z-[999999] flex items-center justify-center text-white text-xs">Memuat...</div>
-});
-const LaporJalanPanel = dynamic(() => import('./LaporJalanPanel'), {
-  ssr: false,
-  loading: () => <div className="fixed inset-0 bg-black/50 z-[999999] flex items-center justify-center text-white text-xs">Memuat...</div>
-});
 
+// ==================== KONFIGURASI PER KATEGORI ====================
+const CATEGORY_CONFIG = {
+  kuliner: {
+    icon: '☕',
+    label: 'Kuliner',
+    actions: [
+      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Kosong' },
+      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Nyaris Penuh' },
+      { id: 'antri', icon: '🚶‍♂️', label: 'ANTRI', tipe: 'Antri', desc: 'Mengular' },
+      { id: 'penuh', icon: '🚫', label: 'PENUH', tipe: 'Penuh', desc: 'No Table' },
+    ]
+  },
+  wisata: {
+    icon: '🏞️',
+    label: 'Wisata',
+    actions: [
+      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Leluasa' },
+      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Cukup Banyak' },
+      { id: 'padat', icon: '🚶‍♂️🚶‍♀️', label: 'PADAT', tipe: 'Padat', desc: 'Sangat Ramai' },
+      { id: 'tutup', icon: '🔒', label: 'TUTUP', tipe: 'Tutup', desc: 'Gerbang Tutup' },
+    ]
+  },
+  jalan: {
+    icon: '🛣️',
+    label: 'Lalu Lintas',
+    actions: [
+      { id: 'lancar', icon: '✅', label: 'LANCAR', tipe: 'Lancar', desc: 'Gaspol' },
+      { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Merayap' },
+      { id: 'macet_total', icon: '🚫🚗', label: 'STUCK', tipe: 'MacetTotal', desc: 'Macet Total' },
+      { id: 'hujan', icon: '🌧️', label: 'HUJAN', tipe: 'Hujan', desc: 'Sedia Payung' },
+    ]
+  },
+  parkir: {
+    icon: '🅿️',
+    label: 'Parkiran',
+    actions: [
+      { id: 'kosong', icon: '🟢', label: 'KOSONG', tipe: 'Kosong', desc: 'Bebas Pilih' },
+      { id: 'tersedia', icon: '🟡', label: 'ADA', tipe: 'Tersedia', desc: 'Sisa Sedikit' },
+      { id: 'hampir_penuh', icon: '🟠', label: 'TIPIS', tipe: 'HampirPenuh', desc: 'Cari Celah' },
+      { id: 'penuh', icon: '🔴', label: 'PENUH', tipe: 'Penuh', desc: 'Cari Lain' },
+    ]
+  },
+  default: {
+    icon: '📍',
+    label: 'Update',
+    actions: [
+      { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Sepi' },
+      { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Ramai' },
+      { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Macet' },
+      { id: 'hujan', icon: '🌧️', label: 'HUJAN', tipe: 'Hujan', desc: 'Hujan' },
+    ]
+  }
+};
+
+// ==================== HELPER STYLE ====================
+const getButtonStyle = (id) => {
+  const base = "border-b-4 backdrop-blur-md ";
+  const styles = {
+    sepi: base + 'bg-blue-500/10 text-blue-400 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]',
+    lancar: base + 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
+    kosong: base + 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]',
+    ramai: base + 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]',
+    tersedia: base + 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]',
+    antri: base + 'bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.1)]',
+    macet: base + 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.1)]',
+    penuh: base + 'bg-red-600/10 text-red-500 border-red-600/30 shadow-[0_0_15px_rgba(220,38,38,0.1)]',
+    macet_total: base + 'bg-red-700/20 text-red-400 border-red-700/50 shadow-[0_0_15px_rgba(185,28,28,0.2)]',
+    hujan: base + 'bg-sky-500/10 text-sky-400 border-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.1)]',
+  };
+  return styles[id] || base + 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30';
+};
+
+// ==================== MAIN COMPONENT ====================
 export default function SmartCitizenButton({
   tempatId,
   tempatName,
@@ -31,27 +92,8 @@ export default function SmartCitizenButton({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [showPilihanModal, setShowPilihanModal] = useState(false);
-  const [openLaporPanel, setOpenLaporPanel] = useState(false);
-  const [laporMode, setLaporMode] = useState(null);
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const dapatkanGrupKategori = (kat) => {
-    if (!kat) return 'default';
-    const k = kat.toLowerCase();
-    if (k.includes('cafe') || k.includes('restoran') || k.includes('kuliner') || k.includes('warung')) return 'kuliner';
-    if (k.includes('wisata') || k.includes('terjun') || k.includes('taman') || k.includes('alun') || k.includes('stadion')) return 'wisata';
-    if (k.includes('desa') || k.includes('puskesmas') || k.includes('sakit') || k.includes('bank') || k.includes('layanan')) return 'layanan';
-    if (k.includes('stasiun') || k.includes('pantura') || k.includes('jalan')) return 'transportasi';
-    return 'default';
-  };
-
-  const grupTerpilih = dapatkanGrupKategori(kategori);
-  const config = CATEGORY_CONFIG[grupTerpilih] || CATEGORY_CONFIG.default;
+  const config = CATEGORY_CONFIG[kategori] || CATEGORY_CONFIG.default;
 
   // Cek Cooldown
   useEffect(() => {
@@ -75,10 +117,7 @@ export default function SmartCitizenButton({
     }
   }, [user, tempatId]);
 
-  const handleQuickSignalClick = async (action, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
+  const handleClick = async (action) => {
     if (!user) {
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
       return;
@@ -87,6 +126,8 @@ export default function SmartCitizenButton({
     if (cooldown > 0 || isSubmitting) return;
 
     setIsSubmitting(true);
+    if (window.navigator.vibrate) window.navigator.vibrate([50, 30, 50]);
+
     try {
       const { error } = await supabase.from('laporan_warga').insert({
         tempat_id: tempatId,
@@ -113,226 +154,92 @@ export default function SmartCitizenButton({
     }
   };
 
-  const handleTombolPlus = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!user) {
-      window.dispatchEvent(new CustomEvent('open-auth-modal'));
-      return;
-    }
-
-    setShowPilihanModal(true);
-  };
-
-  const handlePilihTempat = () => {
-    setLaporMode('tempat');
-    setOpenLaporPanel(true);
-    setShowPilihanModal(false);
-  };
-
-  const handlePilihJalan = () => {
-    setLaporMode('jalan');
-    setOpenLaporPanel(true);
-    setShowPilihanModal(false);
-  };
-
-  // Modal Pilihan (render ke portal)
-  const PilihanModal = () => {
-    if (!showPilihanModal || !mounted) return null;
-
-    return createPortal(
-      <div
-        className="fixed inset-0 z-[999999] flex items-end justify-center bg-black/70 backdrop-blur-sm"
-        onClick={() => setShowPilihanModal(false)}
-      >
-        <div
-          className="w-full max-w-md bg-zinc-950 rounded-t-3xl border-t border-white/10 overflow-hidden pb-8 animate-slide-up"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="p-5">
-            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-6" />
-
-            <h3 className="text-lg font-black text-white mb-2 text-center">Pilih Jenis Laporan</h3>
-            <p className="text-[11px] text-white/40 text-center mb-6">
-              Mau lapor kejadian di tempat ini atau fasilitas umum/jalan?
-            </p>
-
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={handlePilihTempat}
-                className="w-full p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-4 active:scale-95 transition-all text-left hover:bg-emerald-500/20"
-              >
-                <span className="text-3xl">📍</span>
-                <div>
-                  <p className="font-black text-white text-sm">Lapor di Tempat</p>
-                  <p className="text-[10px] text-white/50">Warung, Pasar, Wisata, Kantor, dll</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePilihJalan}
-                className="w-full p-4 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center gap-4 active:scale-95 transition-all text-left hover:bg-sky-500/20"
-              >
-                <span className="text-3xl">🛣️</span>
-                <div>
-                  <p className="font-black text-white text-sm">Lapor di Jalan / Umum</p>
-                  <p className="text-[10px] text-white/50">Kemacetan, Kecelakaan, Jalan Rusak, dll</p>
-                </div>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowPilihanModal(false)}
-              className="w-full mt-5 py-3.5 rounded-xl bg-white/5 text-white/60 text-xs font-bold hover:bg-white/10 transition-all"
-            >
-              Batal
-            </button>
-          </div>
-        </div>
-      </div>,
-      document.body
-    );
-  };
 
   return (
-    <>
-      <div className="relative p-5 rounded-[32px] bg-zinc-900/40 dark:bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl">
-        <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
+    <div className="relative group p-5 rounded-[32px] bg-zinc-900/40 dark:bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl overflow-hidden">
+      {/* Background Glow Decor */}
+      <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
 
-        {/* Header Info */}
-        <div className="flex items-center justify-between mb-5 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-xl shadow-inner">
-              {config.icon}
-            </div>
-            <div>
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 leading-none mb-1">
-                Smart Signal • {config.label}
-              </h4>
-              <p className="text-[9px] opacity-40 font-bold italic tracking-tight">Real-time kondisi lokasi</p>
-            </div>
+      {/* Header Info */}
+      <div className="flex items-center justify-between mb-5 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-xl shadow-inner">
+            {config.icon}
           </div>
-
-          {/* TOMBOL + */}
-          <button
-            type="button"
-            onClick={handleTombolPlus}
-            className="relative z-50 w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center text-xl font-bold shadow-lg cursor-pointer hover:scale-105 active:scale-95 transition-all"
-          >
-            +
-          </button>
+          <div>
+            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 leading-none mb-1">
+              Smart Signal • {config.label}
+            </h4>
+            <p className="text-[9px] opacity-40 font-bold italic tracking-tight">Real-time kondisi lokasi</p>
+          </div>
         </div>
 
-        {/* Grid Buttons (Quick Signal) */}
-        <div className="grid grid-cols-4 gap-2 relative z-10">
-          <AnimatePresence mode="wait">
-            {showSuccess ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="col-span-4 py-8 flex flex-col items-center justify-center bg-emerald-500/10 rounded-2xl border border-emerald-500/20"
-              >
-                <motion.span animate={{ y: [0, -5, 0] }} transition={{ repeat: Infinity }} className="text-3xl mb-2">✨</motion.span>
-                <p className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Laporan Diterima!</p>
-              </motion.div>
-            ) : (
-              config.actions.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={(e) => handleQuickSignalClick(action, e)}
-                  disabled={!isInRadius || cooldown > 0 || isSubmitting}
-                  className={`
-                    relative py-4 px-1 rounded-2xl flex flex-col items-center gap-1.5
-                    transition-all duration-300 group/btn
-                    ${getButtonStyle(action.id)}
-                    disabled:opacity-20 disabled:grayscale disabled:cursor-not-allowed
-                  `}
-                >
-                  <span className="text-2xl drop-shadow-lg group-hover/btn:scale-110 transition-transform">{action.icon}</span>
-                  <span className="text-[8px] font-[1000] tracking-tighter uppercase leading-none">{action.label}</span>
-                  <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl" />
-                </button>
-              ))
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Footer Instructions */}
-        <div className="mt-4 flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            {cooldown > 0 ? (
-              <div className="flex items-center gap-1.5 text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-full">
-                <span className="text-[10px] animate-pulse">⏳</span>
-                <span className="text-[8px] font-[1000]">TUNGGU {cooldown} MENIT</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-emerald-500/50">
-                <div className="w-1 h-1 rounded-full bg-current animate-ping" />
-                <span className="text-[8px] font-black uppercase tracking-widest">Sinyal Aktif</span>
-              </div>
-            )}
+        <div className="flex flex-col items-end gap-1">
+          <div className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5 backdrop-blur-md border ${isInRadius ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+            }`}>
+            <div className={`w-1 h-1 rounded-full animate-pulse ${isInRadius ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+            {isInRadius ? 'Area' : 'Luar Area'}
           </div>
-          <p className="text-[7px] font-bold opacity-30 italic tracking-wide">
-            {!isInRadius ? 'Dekati lokasi untuk lapor' : 'Satu klikmu bantu warga'}
-          </p>
         </div>
       </div>
 
-      {/* MODAL PORTAL */}
-      <PilihanModal />
+      {/* Grid Buttons */}
+      <div className="grid grid-cols-4 gap-2 relative z-10">
+        <AnimatePresence mode="wait">
+          {showSuccess ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="col-span-4 py-8 flex flex-col items-center justify-center bg-emerald-500/10 rounded-2xl border border-emerald-500/20"
+            >
+              <motion.span animate={{ y: [0, -5, 0] }} transition={{ repeat: Infinity }} className="text-3xl mb-2">✨</motion.span>
+              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Laporan Diterima!</p>
+            </motion.div>
+          ) : (
+            config.actions.map((action) => (
+              <motion.button
+                key={action.id}
+                whileHover={isInRadius && cooldown === 0 ? { y: -3, scale: 1.02 } : {}}
+                whileTap={isInRadius && cooldown === 0 ? { scale: 0.95 } : {}}
+                onClick={() => handleClick(action)}
+                disabled={!isInRadius || cooldown > 0 || isSubmitting}
+                className={`
+                  relative py-4 px-1 rounded-2xl flex flex-col items-center gap-1.5
+                  transition-all duration-300 group/btn
+                  ${getButtonStyle(action.id)}
+                  disabled:opacity-20 disabled:grayscale disabled:cursor-not-allowed
+                `}
+              >
+                <span className="text-2xl drop-shadow-lg group-hover/btn:scale-110 transition-transform">{action.icon}</span>
+                <span className="text-[8px] font-[1000] tracking-tighter uppercase leading-none">{action.label}</span>
+                <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl" />
+              </motion.button>
+            ))
+          )}
+        </AnimatePresence>
+      </div>
 
-      {/* LAPOR PANEL (TEMPAT) */}
-      {openLaporPanel && laporMode === 'tempat' && (
-        <LaporPanel
-          tempat={tempatId ? { id: tempatId, name: tempatName, category: kategori } : null}
-          onClose={() => {
-            setOpenLaporPanel(false);
-            setLaporMode(null);
-          }}
-          onSuccess={() => {
-            setOpenLaporPanel(false);
-            setLaporMode(null);
-            onUpdate?.();
-          }}
-          theme={{ isMalam: true }}
-        />
-      )}
 
-      {/* LAPOR PANEL (JALAN/UMUM) */}
-      {openLaporPanel && laporMode === 'jalan' && (
-        <LaporJalanPanel
-          onClose={() => {
-            setOpenLaporPanel(false);
-            setLaporMode(null);
-          }}
-          onSuccess={() => {
-            setOpenLaporPanel(false);
-            setLaporMode(null);
-            onUpdate?.();
-          }}
-          theme={{ isMalam: true }}
-        />
-      )}
 
-      <style jsx global>{`
-        @keyframes slideUp {
-          from {
-            transform: translateY(100%);
-          }
-          to {
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-slide-up {
-          animation: slideUp 0.3s ease-out;
-        }
-      `}</style>
-    </>
+      {/* Footer Instructions */}
+      <div className="mt-4 flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          {cooldown > 0 ? (
+            <div className="flex items-center gap-1.5 text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] animate-pulse">⏳</span>
+              <span className="text-[8px] font-[1000]">TUNGGU {cooldown} MENIT</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-emerald-500/50">
+              <div className="w-1 h-1 rounded-full bg-current animate-ping" />
+              <span className="text-[8px] font-black uppercase tracking-widest">Sinyal Aktif</span>
+            </div>
+          )}
+        </div>
+        <p className="text-[7px] font-bold opacity-30 italic tracking-wide">
+          {!isInRadius ? 'Dekati lokasi untuk lapor' : 'Satu klikmu bantu warga'}
+        </p>
+      </div>
+    </div>
   );
 }

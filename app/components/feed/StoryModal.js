@@ -683,7 +683,7 @@ export default function StoryModalFullscreen({
 
             {/* Index Indicator */}
             {storyCount > 1 && (
-              <div className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">
+              <div className="absolute bottom-4 right-4 z-30 pointer-events-none">
                 <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full">
                   <span className="text-[10px] font-medium text-white/80">
                     {currentIndex + 1} / {storyCount}

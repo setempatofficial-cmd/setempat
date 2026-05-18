@@ -7,10 +7,10 @@ import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function SmartBottomNav({ 
-  onOpenLaporanForm, 
-  onOpenNotification, 
-  onOpenProfile, 
+export default function SmartBottomNav({
+  onOpenLaporanForm,
+  onOpenNotification,
+  onOpenProfile,
   onOpenUpload,
   onRefreshFeed,  // Props untuk refresh feed
 }) {
@@ -35,7 +35,7 @@ export default function SmartBottomNav({
           .select("*", { count: 'exact', head: true })
           .eq("user_id", user.id)
           .eq("is_read", false);
-        
+
         if (error) throw error;
         setUnreadCount(count || 0);
       } catch (err) {
@@ -48,22 +48,22 @@ export default function SmartBottomNav({
 
     const channel = supabase
       .channel(`unread_count_${user.id}`)
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
         table: 'warung_info',
         filter: `user_id=eq.${user.id}`
       }, () => fetchUnreadCount())
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
         table: 'warung_info',
         filter: `user_id=eq.${user.id}`
       }, () => fetchUnreadCount())
       .subscribe();
 
-    return () => { 
-      supabase.removeChannel(channel); 
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, [user?.id]);
 
@@ -101,16 +101,16 @@ export default function SmartBottomNav({
     // Jika sudah di halaman home, lakukan refresh
     if (pathname === "/") {
       if (isRefreshing) return; // Cegah double refresh
-      
+
       setIsRefreshing(true);
-      
+
       // Trigger refresh
       if (onRefreshFeed) {
         await onRefreshFeed();
       } else {
         window.dispatchEvent(new CustomEvent("refresh-feed"));
       }
-      
+
       // Animasi refresh selesai setelah 1 detik
       setTimeout(() => setIsRefreshing(false), 1000);
     } else {
@@ -122,23 +122,23 @@ export default function SmartBottomNav({
   // ✅ HANDLE NAVIGASI DENGAN FEEDBACK SENTUHAN
   const handleNavigation = async (tabId) => {
     setActiveTab(tabId);
-    
+
     // Feedback sentuhan: scale effect
     setIsPressing(true);
     setTimeout(() => setIsPressing(false), 150);
-    
+
     switch (tabId) {
-      case "Home": 
+      case "Home":
         await handleHomePress();
         break;
-      case "Sekitar": 
-        router.push("/explore"); 
+      case "Sekitar":
+        router.push("/explore");
         break;
-      case "Woro": 
+      case "Woro":
         if (onOpenNotification) onOpenNotification();
         else router.push("/woro");
         break;
-      case "Peken": 
+      case "Peken":
         router.push("/peken");
         break;
     }
@@ -150,7 +150,7 @@ export default function SmartBottomNav({
       if (isSuperAdmin || isAdmin) {
         // Kamu bisa menggunakan CustomEvent untuk memicu Modal Pilihan di Layout Utama
         window.dispatchEvent(new CustomEvent("open-admin-upload-options"));
-      } 
+      }
       // Jika bukan admin (fallback)
       else {
         onOpenLaporanForm?.() || window.dispatchEvent(new CustomEvent("open-laporan-form"));
@@ -176,8 +176,8 @@ export default function SmartBottomNav({
           h-[70px] px-2 pointer-events-auto
           backdrop-blur-2xl border-t transition-all duration-300
           rounded-none 
-          ${isMalam 
-            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]" 
+          ${isMalam
+            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]"
             : "bg-white/95 border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]"}
         `}
       >
@@ -213,8 +213,8 @@ export default function SmartBottomNav({
             >
               <div
                 className={`relative transition-all duration-300
-                  ${isActive 
-                    ? "text-orange-500 -translate-y-0.5" 
+                  ${isActive
+                    ? "text-orange-500 -translate-y-0.5"
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
                 {/* ✅ Tampilkan icon refresh berputar saat proses refresh di home */}
@@ -223,7 +223,7 @@ export default function SmartBottomNav({
                 ) : (
                   tab.icon
                 )}
-                
+
                 {/* BADGE NOTIFIKASI */}
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
@@ -234,7 +234,7 @@ export default function SmartBottomNav({
                   </span>
                 )}
               </div>
-              
+
               <span className={`text-[9px] font-bold mt-1 transition-all duration-300
                   ${isActive ? "text-orange-500 opacity-100" : "opacity-0"}`}
               >

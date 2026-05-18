@@ -5,9 +5,9 @@ import { useRouter, usePathname } from "next/navigation";
 import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 
-export default function SmartBottomNavWarga({ 
+export default function SmartBottomNavWarga({
   onOpenLaporanForm,  // untuk warga buka form laporan
-  onOpenNotification, 
+  onOpenNotification,
   onRefreshFeed,
 }) {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function SmartBottomNavWarga({
   const handleWargaLapor = () => {
     setIsPressing(true);
     setTimeout(() => setIsPressing(false), 150);
-    
+
     // Langsung buka form laporan untuk warga
     if (onOpenLaporanForm) {
       onOpenLaporanForm();
@@ -63,19 +63,19 @@ export default function SmartBottomNavWarga({
     setActiveTab(tabId);
     setIsPressing(true);
     setTimeout(() => setIsPressing(false), 150);
-    
+
     switch (tabId) {
-      case "Home": 
+      case "Home":
         await handleHomePress();
         break;
-      case "Sekitar": 
-        router.push("/explore"); 
+      case "Sekitar":
+        router.push("/explore");
         break;
-      case "Woro": 
+      case "Woro":
         if (onOpenNotification) onOpenNotification();
         else router.push("/woro");
         break;
-      case "Peken": 
+      case "Peken":
         router.push("/peken");
         break;
     }
@@ -99,8 +99,8 @@ export default function SmartBottomNavWarga({
           h-[70px] px-2 pointer-events-auto
           backdrop-blur-2xl border-t transition-all duration-300
           rounded-none 
-          ${isMalam 
-            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]" 
+          ${isMalam
+            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]"
             : "bg-white/95 border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]"}
         `}
       >
@@ -137,8 +137,8 @@ export default function SmartBottomNavWarga({
             >
               <div
                 className={`relative transition-all duration-300
-                  ${isActive 
-                    ? "text-orange-500 -translate-y-0.5" 
+                  ${isActive
+                    ? "text-orange-500 -translate-y-0.5"
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
                 {isHomeRefreshing ? (
@@ -146,7 +146,7 @@ export default function SmartBottomNavWarga({
                 ) : (
                   tab.icon
                 )}
-                
+
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
                     rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
@@ -156,7 +156,7 @@ export default function SmartBottomNavWarga({
                   </span>
                 )}
               </div>
-              
+
               <span className={`text-[9px] font-bold mt-1 transition-all duration-300
                   ${isActive ? "text-orange-500 opacity-100" : "opacity-0"}`}
               >

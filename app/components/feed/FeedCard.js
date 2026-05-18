@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Heart, Share2, MessageCircle } from "lucide-react";
@@ -10,7 +10,6 @@ import LiveInsight from "./LiveInsight";
 import StatusIsland from "./StatusIsland";
 import StoryCircle from "@/app/components/feed/StoryCircle";
 import StoryModal from "@/app/components/feed/StoryModal";
-import AIButton from "@/components/AIButton";
 import ImmersiveLightbox from "@/components/ImmersiveLightbox";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useTheme } from "@/app/hooks/useTheme";
@@ -110,6 +109,36 @@ const safeArray = (value) => {
   return [];
 };
 
+// ==================== TIME CONTEXT (OPTIMIZATION: prevent all cards re-render every minute) ====================
+const TimeContext = React.createContext({ hour: '00', minute: '00' });
+
+export const TimeProvider = ({ children }) => {
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return {
+      hour: now.getHours().toString().padStart(2, '0'),
+      minute: now.getMinutes().toString().padStart(2, '0')
+    };
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      setCurrentTime({
+        hour: now.getHours().toString().padStart(2, '0'),
+        minute: now.getMinutes().toString().padStart(2, '0')
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <TimeContext.Provider value={currentTime}>
+      {children}
+    </TimeContext.Provider>
+  );
+};
+
 // ==================== PREMIUM COMPONENTS ====================
 const ViralBadge = memo(() => {
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -194,6 +223,7 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const isMounted = useRef(true);
+  const isSubmitting = useRef(false);
 
   useEffect(() => {
     isMounted.current = true;
@@ -223,20 +253,24 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
     checkLikeStatus();
   }, [user?.id, tempatId]);
 
-  const handleLike = async () => {
+  const handleLike = useCallback(async () => {
     if (!user?.id) {
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
       return;
     }
 
-    if (isLoading) return;
+    if (isLoading || isSubmitting.current) return;
 
     setError(null);
     setIsLoading(true);
+    isSubmitting.current = true;
 
     const newIsLiked = !isLiked;
     const newCount = newIsLiked ? likeCount + 1 : likeCount - 1;
+    const previousLikeCount = likeCount;
+    const previousIsLiked = isLiked;
 
+    // Optimistic update
     setIsLiked(newIsLiked);
     setLikeCount(newCount);
     if (onLikeChange) onLikeChange(newIsLiked, newCount);
@@ -264,18 +298,20 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
       console.error('Error toggling like:', error);
       setError('Gagal menyukai. Coba lagi nanti.');
 
+      // Rollback on error
       if (isMounted.current) {
-        setIsLiked(!newIsLiked);
-        setLikeCount(newIsLiked ? likeCount : likeCount + 1);
-        if (onLikeChange) onLikeChange(!newIsLiked, newIsLiked ? likeCount : likeCount + 1);
+        setIsLiked(previousIsLiked);
+        setLikeCount(previousLikeCount);
+        if (onLikeChange) onLikeChange(previousIsLiked, previousLikeCount);
       }
     } finally {
       if (isMounted.current) {
         setIsLoading(false);
+        isSubmitting.current = false;
         setTimeout(() => setError(null), 3000);
       }
     }
-  };
+  }, [user?.id, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
 
   return (
     <div className="relative flex-1">
@@ -324,6 +360,13 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
 
 PremiumLikeButton.displayName = 'PremiumLikeButton';
 
+// ==================== SKELETON FOR PHOTO SLIDER ====================
+const PhotoSliderSkeleton = memo(() => (
+  <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 animate-pulse" />
+));
+
+PhotoSliderSkeleton.displayName = 'PhotoSliderSkeleton';
+
 // ==================== MAIN COMPONENT ====================
 const DEFAULT_ITEM = {
   id: 0,
@@ -336,6 +379,49 @@ const DEFAULT_ITEM = {
   status: "",
   isViral: false,
   isRamai: false,
+};
+
+// Gabungkan state untuk mengurangi re-render
+const useOptimizedState = () => {
+  const [uiState, setUiState] = useState({
+    isHovered: false,
+    isLightboxOpen: false,
+    isExpanded: false,
+    isStoryModalOpen: false,
+    isVisible: false,
+  });
+
+  const [lightboxData, setLightboxData] = useState({
+    items: [],
+    index: 0,
+  });
+
+  const [localData, setLocalData] = useState({
+    validationCount: 0,
+    laporanWarga: [],
+    activeStories: [],
+  });
+
+  const setUiStateOptimized = useCallback((updates) => {
+    setUiState(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const setLightboxDataOptimized = useCallback((updates) => {
+    setLightboxData(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const setLocalDataOptimized = useCallback((updates) => {
+    setLocalData(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  return {
+    uiState,
+    setUiState: setUiStateOptimized,
+    lightboxData,
+    setLightboxData: setLightboxDataOptimized,
+    localData,
+    setLocalData: setLocalDataOptimized,
+  };
 };
 
 function FeedCardV2Premium({
@@ -375,44 +461,46 @@ function FeedCardV2Premium({
   const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
   const prefersReducedMotion = usePrefersReducedMotion();
-
   const { width: windowWidth } = useWindowSize();
   const isNarrow = windowWidth < 380;
+  const { hour: currentHour, minute: currentMinute } = React.useContext(TimeContext);
 
-  const [isHovered, setIsHovered] = useState(false);
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [lightboxItems, setLightboxItems] = useState([]);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [localValidationCount, setLocalValidationCount] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
-  const [activeStories, setActiveStories] = useState([]);
-  const [isVisible, setIsVisible] = useState(false);
-  const [localLaporanWarga, setLocalLaporanWarga] = useState([]);
+  // Optimized state management
+  const {
+    uiState,
+    setUiState,
+    lightboxData,
+    setLightboxData,
+    localData,
+    setLocalData,
+  } = useOptimizedState();
 
-  const laporanTerbaru = localLaporanWarga[0];
-  const kondisi = laporanTerbaru?.tipe || item?.latest_condition || "Normal";
+  const {
+    isHovered,
+    isLightboxOpen,
+    isExpanded,
+    isStoryModalOpen,
+    isVisible,
+  } = uiState;
 
-  const [currentTime, setCurrentTime] = useState(() => {
-    const now = new Date();
-    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-  });
+  const {
+    items: lightboxItems,
+    index: lightboxIndex,
+  } = lightboxData;
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
+  const {
+    validationCount: localValidationCount,
+    laporanWarga: localLaporanWarga,
+    activeStories,
+  } = localData;
 
-  const [currentHour, currentMinute] = currentTime.split(':');
-
+  // Refs
   const cardRef = useRef(null);
   const observerRef = useRef(null);
   const channelRef = useRef(null);
   const isMounted = useRef(true);
   const timeoutRef = useRef(null);
+  const hasFetchedData = useRef(false);
 
   const { externalSignals } = useExternalSignals(tempatId, {
     limit: 10,
@@ -424,6 +512,7 @@ function FeedCardV2Premium({
     router.refresh();
   }, [onRefreshNeeded, router]);
 
+  // Cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -434,6 +523,7 @@ function FeedCardV2Premium({
     };
   }, []);
 
+  // Intersection Observer for lazy loading
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
@@ -442,11 +532,11 @@ function FeedCardV2Premium({
       observerRef.current = new IntersectionObserver(
         ([entry]) => {
           if (entry.isIntersecting && isMounted.current) {
-            setIsVisible(true);
+            setUiState({ isVisible: true });
             observerRef.current?.disconnect();
           }
         },
-        { threshold: 0.05, rootMargin: "1000px" }
+        { threshold: 0.05, rootMargin: "500px" } // Reduced from 1000px to save memory
       );
       observerRef.current.observe(currentCard);
     };
@@ -456,10 +546,13 @@ function FeedCardV2Premium({
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, []);
+  }, [setUiState]);
 
+  // Fetch laporan warga (only once when visible)
   useEffect(() => {
-    if (!tempatId || !isVisible) return;
+    if (!tempatId || !isVisible || hasFetchedData.current) return;
+
+    hasFetchedData.current = true;
 
     const fetchLaporanWarga = async () => {
       try {
@@ -472,7 +565,7 @@ function FeedCardV2Premium({
           .limit(20);
 
         if (data && !error && isMounted.current) {
-          setLocalLaporanWarga(data);
+          setLocalData({ laporanWarga: data });
         }
       } catch (error) {
         console.error('Error fetching laporan warga:', error);
@@ -495,7 +588,10 @@ function FeedCardV2Premium({
         },
         (payload) => {
           if (isMounted.current && payload.new) {
-            setLocalLaporanWarga(prev => [payload.new, ...prev].slice(0, 50));
+            setLocalData(prev => ({
+              ...prev,
+              laporanWarga: [payload.new, ...prev.laporanWarga].slice(0, 50)
+            }));
           }
         }
       )
@@ -508,8 +604,9 @@ function FeedCardV2Premium({
         supabase.removeChannel(channel);
       }
     };
-  }, [tempatId, isVisible]);
+  }, [tempatId, isVisible, setLocalData]);
 
+  // Memoized values
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
   const feed = useMemo(() => {
@@ -521,31 +618,12 @@ function FeedCardV2Premium({
     }
   }, [safeItem.id, safeItem.vibe_count, safeItem.status, safeItem.isViral, safeItem.isRamai, comments, locationReady, location?.latitude, location?.longitude]);
 
-  const officialPhotosByTime = useMemo(() => {
-    const photos = safeItem.photos;
-    if (!photos || typeof photos !== 'object') return null;
-
-    if (photos.pagi || photos.siang || photos.sore || photos.malam) {
-      return photos;
-    }
-
-    if (Array.isArray(photos)) {
-      return {
-        pagi: photos,
-        siang: photos,
-        sore: photos,
-        malam: photos
-      };
-    }
-
-    return null;
-  }, [safeItem.photos]);
-
   const allSignals = useMemo(() => {
     const combined = [...(localLaporanWarga || []), ...(externalSignals || [])];
     return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [localLaporanWarga, externalSignals]);
 
+  // Handlers
   const handlePhotoClick = useCallback((photos, currentIndex) => {
     if (!photos || !Array.isArray(photos)) return;
     const items = photos.map(p => ({
@@ -553,44 +631,52 @@ function FeedCardV2Premium({
       caption: p.caption,
       created_at: p.created_at,
     }));
-    setLightboxItems(items);
-    setLightboxIndex(currentIndex);
-    setIsLightboxOpen(true);
-  }, []);
+    setLightboxData({ items, index: currentIndex });
+    setUiState({ isLightboxOpen: true });
+  }, [setLightboxData, setUiState]);
 
   const handleSesuai = useCallback(async () => {
     if (!safeItem.id) return;
-    setLocalValidationCount((v) => v + 1);
+    const previousCount = localValidationCount;
+    setLocalData({ validationCount: localValidationCount + 1 });
     try {
       await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
     } catch (e) {
+      // Rollback on error
+      setLocalData({ validationCount: previousCount });
       console.error(e);
     }
-  }, [safeItem.id]);
+  }, [safeItem.id, localValidationCount, setLocalData]);
 
   const handleOpenStoryModal = useCallback((id, stories) => {
     const safeStories = (stories || []).map((s) => ({
       ...s,
       url: s.url || s.photo_url || s.image_url
     }));
-    setActiveStories(safeStories);
-    setIsStoryModalOpen(true);
-  }, []);
+    setLocalData({ activeStories: safeStories });
+    setUiState({ isStoryModalOpen: true });
+  }, [setLocalData, setUiState]);
 
   const handleUploadSuccess = useCallback((newLaporan) => {
     if (!newLaporan) return;
-    setLocalLaporanWarga((prev) =>
-      prev.some((l) => l.id === newLaporan.id) ? prev : [newLaporan, ...prev].slice(0, 50)
-    );
+    setLocalData(prev => ({
+      ...prev,
+      laporanWarga: prev.laporanWarga.some((l) => l.id === newLaporan.id)
+        ? prev.laporanWarga
+        : [newLaporan, ...prev.laporanWarga].slice(0, 50)
+    }));
     requestAnimationFrame(() => {
-      setActiveStories((prev) => [newLaporan, ...prev].map((s) => ({
-        ...s,
-        url: s.url || s.photo_url || s.image_url
-      })));
-      setIsStoryModalOpen(true);
+      setLocalData(prev => ({
+        ...prev,
+        activeStories: [newLaporan, ...prev.activeStories].map((s) => ({
+          ...s,
+          url: s.url || s.photo_url || s.image_url
+        }))
+      }));
+      setUiState({ isStoryModalOpen: true });
     });
     handleLocalRefresh();
-  }, [handleLocalRefresh]);
+  }, [handleLocalRefresh, setLocalData, setUiState]);
 
   const handleOpenAIModal = useCallback(() => {
     if (openAIModal) {
@@ -598,7 +684,10 @@ function FeedCardV2Premium({
     }
   }, [openAIModal, safeItem, handleUploadSuccess]);
 
-  const handleCloseStoryModal = useCallback(() => setIsStoryModalOpen(false), []);
+  const handleCloseStoryModal = useCallback(() => setUiState({ isStoryModalOpen: false }), [setUiState]);
+  const handleCloseLightbox = useCallback(() => setUiState({ isLightboxOpen: false }), [setUiState]);
+  const handleHoverStart = useCallback(() => setUiState({ isHovered: true }), [setUiState]);
+  const handleHoverEnd = useCallback(() => setUiState({ isHovered: false }), [setUiState]);
 
   const handleGoToDetail = useCallback(() => {
     if (isDetail) return;
@@ -609,13 +698,14 @@ function FeedCardV2Premium({
   }, [router, safeItem.id, safeItem.category, isDetail]);
 
   const handleLikeChange = useCallback((isLiked, newCount) => {
-    console.log(`Like status changed for ${safeItem.name}: ${isLiked}, count: ${newCount}`);
-  }, [safeItem.name]);
+    // Optional: log or update parent state if needed
+  }, []);
 
+  // Early return if no item
   if (!item?.id && safeItem.id === 0) return null;
 
+  // Computed values
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
-  const alamatText = safeItem.alamat || "AREA SETEMPAT";
   const itemStatusClass = safeItem.isViral ? "viral" : safeItem.isRamai ? "ramai" : "biasa";
 
   const statusDisplay = useMemo(() => {
@@ -664,8 +754,8 @@ function FeedCardV2Premium({
       layout={!prefersReducedMotion}
       {...cardAnimation}
       {...hoverAnimation}
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
+      onHoverStart={handleHoverStart}
+      onHoverEnd={handleHoverEnd}
       className="relative mb-4 sm:mb-5 w-full will-change-transform"
       style={{ isolation: "isolate" }}
     >
@@ -698,23 +788,27 @@ function FeedCardV2Premium({
 
         {/* ==================== MEDIA SECTION (FOTO) ==================== */}
         <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
-          <PhotoSlider
-            photos={localLaporanWarga}
-            officialPhotosData={safeItem.photos}
-            tempatId={safeItem.id}
-            namaTempat={safeItem.name}
-            isHujan={safeItem.status === "hujan"}
-            priority={priority}
-            className="w-full h-full object-cover"
-            selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
-            setSelectedPhotoIndex={(idx) => {
-              if (setSelectedPhotoIndex) {
-                setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
-              }
-            }}
-            onUploadSuccess={handleUploadSuccess}
-            onPhotoClick={handlePhotoClick}
-          />
+          {isVisible ? (
+            <PhotoSlider
+              photos={localLaporanWarga}
+              officialPhotosData={safeItem.photos}
+              tempatId={safeItem.id}
+              namaTempat={safeItem.name}
+              isHujan={safeItem.status === "hujan"}
+              priority={priority}
+              className="w-full h-full object-cover"
+              selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
+              setSelectedPhotoIndex={(idx) => {
+                if (setSelectedPhotoIndex) {
+                  setSelectedPhotoIndex(prev => ({ ...prev, [safeItem.id]: idx }));
+                }
+              }}
+              onUploadSuccess={handleUploadSuccess}
+              onPhotoClick={handlePhotoClick}
+            />
+          ) : (
+            <PhotoSliderSkeleton />
+          )}
 
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
 
@@ -759,39 +853,41 @@ function FeedCardV2Premium({
 
         {/* ==================== STATUS ISLAND ==================== */}
         {!isDetail && showStatusIsland && (
-        <div className={`${paddingX} pt-4 pb-2`}>
-          <StatusIsland
-            item={safeItem}
-            theme={theme}
-            allReports={allSignals}
-            isExpanded={isExpanded}
-            setIsExpanded={setIsExpanded}
-            jumlahWarga={totalSaksi}
-          />
-        </div>
+          <div className={`${paddingX} pt-4 pb-2`}>
+            <StatusIsland
+              item={safeItem}
+              theme={theme}
+              allReports={allSignals}
+              isExpanded={isExpanded}
+              setIsExpanded={(value) => setUiState({ isExpanded: value })}
+              jumlahWarga={totalSaksi}
+            />
+          </div>
         )}
+
         {/* ==================== LIVE INSIGHT & ACTIONS ==================== */}
         <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
-          {!isDetail && showLiveInsight && (
-          <motion.div
-            className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
-            whileHover={!prefersReducedMotion ? { y: -2 } : {}}
-            transition={{ type: "spring", stiffness: 400 }}
-          >
-            <LiveInsight
-              signals={allSignals}
-              theme={theme}
-              isCompact={isNarrow}
-              currentUser={user}
-              userProfile={userProfile}
-              userAvatar={userAvatar}
-              tempatCategory={safeItem?.category}
-              tempatDescription={safeItem?.description || item?.description || null}
-              tempatData={safeItem}
-              tempatId={safeItem.id}
-            />
-          </motion.div>
-         )}
+          {!isDetail && showLiveInsight && isVisible && (
+            <motion.div
+              className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
+              whileHover={!prefersReducedMotion ? { y: -2 } : {}}
+              transition={{ type: "spring", stiffness: 400 }}
+            >
+              <LiveInsight
+                signals={allSignals}
+                theme={theme}
+                isCompact={isNarrow}
+                currentUser={user}
+                userProfile={userProfile}
+                userAvatar={userAvatar}
+                tempatCategory={safeItem?.category}
+                tempatDescription={safeItem?.description || item?.description || null}
+                tempatData={safeItem}
+                tempatId={safeItem.id}
+              />
+            </motion.div>
+          )}
+
           <div className="flex flex-col gap-3">
             {!isDetail && (
               <div className="flex gap-2">
@@ -862,7 +958,7 @@ function FeedCardV2Premium({
         items={lightboxItems}
         initialIndex={lightboxIndex}
         isOpen={isLightboxOpen}
-        onClose={() => setIsLightboxOpen(false)}
+        onClose={handleCloseLightbox}
         tempatId={safeItem.id}
         namaTempat={safeItem.name}
         comments={comments}
@@ -882,7 +978,7 @@ function FeedCardV2Premium({
   );
 }
 
-// ==================== FIX: OPTIMIZED RE-RENDER MATRIX ====================
+// ==================== OPTIMIZED RE-RENDER MATRIX ====================
 const areEqual = (prevProps, nextProps) => {
   return (
     prevProps.item?.id === nextProps.item?.id &&
@@ -899,3 +995,6 @@ const areEqual = (prevProps, nextProps) => {
 };
 
 export default memo(FeedCardV2Premium, areEqual);
+
+// ==================== EXPORT TIME PROVIDER ====================
+export { TimeProvider };

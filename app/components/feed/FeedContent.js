@@ -12,7 +12,6 @@ import { getGreeting } from "../../../lib/greeting";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useLocation } from "@/components/LocationProvider";
 
-
 import FeedCard from "./FeedCard";
 import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
@@ -23,7 +22,6 @@ import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import UploadModal from "@/components/UploadModal";
 import BreakCard from "@/components/BreakCard";
 import { getKentonganForFeed } from "@/lib/kentongan";
-
 
 // Lazy load heavy modals
 const AIModal = React.lazy(() => import("../ai/AIModal"));
@@ -36,7 +34,7 @@ const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.3;
 const DISTANCE_WEIGHT = 0.7;
-const SESSION_CACHE_KEY = 'feed_backup';  // TAMBAHKAN INI
+const SESSION_CACHE_KEY = 'feed_backup';
 const SESSION_CACHE_DURATION = 30 * 60 * 1000;
 
 // Helper Functions
@@ -122,11 +120,33 @@ const cachedProcessFeedItem = (item, locationReady, location) => {
   return result;
 };
 
-// Memoized Components - OPTIMIZED (tanpa animate-pulse)
+// ========== UPDATED SKELETON LOADER (MIRIP KONTEN ASLI) ==========
 const SkeletonLoader = memo(() => (
   <div className="space-y-6 px-4">
     {[1, 2, 3].map(i => (
-      <div key={i} className="h-[400px] w-full rounded-[40px] bg-white/5 border border-white/5" />
+      <div key={i} className="bg-white/5 rounded-[40px] border border-white/5 overflow-hidden">
+        {/* Header skeleton */}
+        <div className="p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-white/10 animate-pulse" />
+          <div className="flex-1">
+            <div className="h-4 w-32 bg-white/10 rounded animate-pulse mb-2" />
+            <div className="h-3 w-24 bg-white/10 rounded animate-pulse" />
+          </div>
+        </div>
+
+        {/* Image skeleton */}
+        <div className="aspect-video bg-white/10 animate-pulse" />
+
+        {/* Content skeleton */}
+        <div className="p-4 space-y-3">
+          <div className="h-4 w-full bg-white/10 rounded animate-pulse" />
+          <div className="h-4 w-3/4 bg-white/10 rounded animate-pulse" />
+          <div className="flex gap-2 mt-2">
+            <div className="h-8 w-16 bg-white/10 rounded-full animate-pulse" />
+            <div className="h-8 w-16 bg-white/10 rounded-full animate-pulse" />
+          </div>
+        </div>
+      </div>
     ))}
   </div>
 ));
@@ -149,18 +169,9 @@ const EmptyState = memo(({ radius, locationName, onExpandRadius }) => (
   </motion.div>
 ));
 
-const LoadingMore = memo(() => (
-  <div className="flex justify-center py-8">
-    <div className="flex flex-col items-center gap-3">
-      {/* SPINNER BARU */}
-      <div className="relative flex items-center justify-center">
-        <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
-        <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
-        <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
-      </div>
-      <p className="text-white/40 text-xs">Memuat lebih banyak...</p>
-    </div>
-  </div>
+// ========== INVISIBLE LOADING COMPONENT (TIDAK KELIHATAN) ==========
+const InvisibleLoading = memo(() => (
+  <div className="h-20 w-full opacity-0 pointer-events-none" />
 ));
 
 const EndOfFeed = memo(() => (
@@ -179,7 +190,6 @@ const PullToRefreshIndicator = memo(({ refreshing }) => (
         className="fixed top-0 left-0 right-0 bg-black/80 backdrop-blur-md py-3 text-center text-white/70 text-sm z-50 shadow-lg"
       >
         <div className="flex items-center justify-center gap-3">
-          {/* SPINNER BARU */}
           <div className="relative flex items-center justify-center">
             <div className="absolute animate-ping h-8 w-8 rounded-full bg-[#E3655B] opacity-20"></div>
             <div className="absolute animate-ping h-8 w-8 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
@@ -237,7 +247,6 @@ export default function FeedContent() {
   const [feedOpacity, setFeedOpacity] = useState(1);
   const [isActivatingLocation, setIsActivatingLocation] = useState(false);
 
-
   // ========== DETEKSI ARAH SCROLL ==========
   const [scrollDirection, setScrollDirection] = useState('down');
 
@@ -274,6 +283,7 @@ export default function FeedContent() {
   const existingIdsRef = useRef(new Set());
   const initialLoadDoneRef = useRef(false);
   const isFetchingRef = useRef(false);
+  const hasInitializedRef = useRef(false); // ✅ NEW: Cegah double fetch
 
   // ========== MEMOIZED VALUES ==========
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
@@ -292,10 +302,8 @@ export default function FeedContent() {
   useEffect(() => {
     if (orderedIds.length === 0 || itemsMap.size === 0 || initialLoad) return;
 
-    // Debounce: Tunggu 1 detik setelah perubahan terakhir
     const timeoutId = setTimeout(() => {
       try {
-        // ✅ Hanya backup 20 item pertama
         const itemsToBackup = orderedIds.slice(0, 20);
         const itemsArray = itemsToBackup.map(id => [id, itemsMap.get(id)]).filter(([, item]) => item);
 
@@ -304,7 +312,7 @@ export default function FeedContent() {
           orderedIds: itemsToBackup,
           searchRadius: searchRadius,
           timestamp: Date.now(),
-          version: '2.0' // Update version
+          version: '2.0'
         };
 
         sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(backupData));
@@ -312,10 +320,10 @@ export default function FeedContent() {
       } catch (e) {
         console.warn('Failed to save feed backup:', e);
       }
-    }, 1000); // ✅ Tunggu 1 detik
+    }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [itemsMap, orderedIds, searchRadius, initialLoad]); // Dependensi tetap, tapi ada debounce
+  }, [itemsMap, orderedIds, searchRadius, initialLoad]);
 
   // ========== FUNGSI UNTUK BUKA AI MODAL DENGAN KENTONGAN ==========
   const openAIModalWithKentongan = useCallback((kentongan) => {
@@ -332,10 +340,8 @@ export default function FeedContent() {
     setKentonganForFeed(data);
   }, [user?.id]);
 
-
   // ========== BREAK CARD GENERATOR ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
-    // ✅ URGENT: selalu tampilkan yang pertama
     const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
     if (urgentKentongan.length > 0 && scrollIndex >= 1) {
       const k = urgentKentongan[0];
@@ -350,16 +356,13 @@ export default function FeedContent() {
           is_global: k.is_global,
           content: k.content,
           image_url: k.image_url,
-
         },
         onClick: () => openAIModalWithKentongan(k),
       };
     }
 
-    // ✅ BIASA: ROTASI berdasarkan scrollIndex
     const normalKentongan = kentonganForFeed.filter(k => !k.is_urgent);
     if (normalKentongan.length > 0 && scrollIndex >= 2) {
-      // Hitung index berdasarkan scrollIndex (berganti setiap 5 scroll)
       const idx = Math.floor(scrollIndex / 5) % normalKentongan.length;
       const k = normalKentongan[idx];
       return {
@@ -464,19 +467,17 @@ export default function FeedContent() {
     };
   }, [kentonganForFeed, openAIModalWithKentongan]);
 
-  // ========== GABUNGKAN FEED CARD DAN BREAK CARD (OPTIMIZED) ==========
+  // ========== GABUNGKAN FEED CARD DAN BREAK CARD ==========
   const LIMIT_VISIBLE = 10;
   const feedItemsWithBreaks = useMemo(() => {
     if (!tempat.length) return [];
 
-    // 1. Batasi hanya 50 item pertama yang disisipi Break Card
     const itemsToProcess = tempat.slice(0, LIMIT_VISIBLE);
     const remainingItems = tempat.slice(LIMIT_VISIBLE);
 
     const result = [];
     let cardsSinceLastBreak = 0;
 
-    // 2. Loop hanya pada itemsToProcess
     for (let i = 0; i < itemsToProcess.length; i++) {
       result.push(itemsToProcess[i]);
       cardsSinceLastBreak++;
@@ -514,9 +515,7 @@ export default function FeedContent() {
       }
     }
 
-    // 3. Gabungkan langsung sisanya tanpa proses logika tambahan
     return [...result, ...remainingItems];
-
   }, [tempat, generateBreakCard]);
 
   // ========== CACHE MANAGER ==========
@@ -562,12 +561,10 @@ export default function FeedContent() {
   // ========== RESET FEED ==========
   const resetFeed = useCallback((soft = false) => {
     if (soft) {
-      // Soft reset: hanya clear flag, data tetap ada
       setHasMore(true);
       setInitialLoad(false);
       setError(null);
     } else {
-      // Hard reset: bersihkan semua (hanya untuk ganti lokasi)
       setOrderedIds([]);
       setItemsMap(new Map());
       setHasMore(true);
@@ -577,6 +574,18 @@ export default function FeedContent() {
       existingIdsRef.current.clear();
     }
   }, []);
+
+  // ========== PRELOAD GAMBAR UNTUK CARD PERTAMA ==========
+  const preloadImages = useCallback((items) => {
+    const firstThreeIds = items.slice(0, 3);
+    firstThreeIds.forEach(id => {
+      const item = itemsMap.get(id);
+      if (item?.photos?.[0]) {
+        const img = new Image();
+        img.src = item.photos[0];
+      }
+    });
+  }, [itemsMap]);
 
   // ========== LOAD PLACES ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
@@ -616,6 +625,7 @@ export default function FeedContent() {
           if (cached.orderedIds.length > 0) {
             lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
           }
+          preloadImages(cached.orderedIds);
         }
       }
 
@@ -741,7 +751,6 @@ export default function FeedContent() {
         }
         cacheManager.set(cacheKey, finalMap, finalIds);
 
-        // ✅ SAVE KE SESSION STORAGE - HANYA 20 ITEM PERTAMA
         try {
           const itemsToBackup = finalIds.slice(0, 20);
           const itemsArray = itemsToBackup.map(id => [id, finalMap.get(id)]);
@@ -756,6 +765,8 @@ export default function FeedContent() {
         } catch (e) {
           console.warn('Failed to save to sessionStorage:', e);
         }
+
+        preloadImages(finalIds);
 
         if (isLocationChange) {
           setFeedOpacity(1);
@@ -783,7 +794,26 @@ export default function FeedContent() {
         isFetchingRef.current = false;
       }
     }
-  }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager]);
+  }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager, preloadImages]);
+
+  // ========== PREFETCH NEXT PAGE (INVISIBLE) ==========
+  const prefetchNextPage = useCallback(async () => {
+    if (!hasMore || loading || !lastLoadedIdRef.current) return;
+
+    try {
+      const { data } = await supabase
+        .from("feed_view")
+        .select("id")
+        .lt('id', lastLoadedIdRef.current)
+        .limit(dynamicLimit);
+
+      if (data && data.length > 0) {
+        console.log('🔥 Prefetched next page:', data.length, 'items');
+      }
+    } catch (err) {
+      console.warn('Prefetch error:', err);
+    }
+  }, [hasMore, loading, dynamicLimit]);
 
   // ========== EFFECTS ==========
 
@@ -792,7 +822,6 @@ export default function FeedContent() {
 
     const getUser = async () => {
       try {
-        // Ganti dari getUser() ke getSession()
         const { data: { session }, error } = await supabase.auth.getSession();
 
         if (error) {
@@ -805,17 +834,16 @@ export default function FeedContent() {
         if (authUser && isMounted) {
           setUserId(authUser.id);
 
-          // Gunakan maybeSingle() biar tidak error jika profile tidak ada
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('role')
             .eq('id', authUser.id)
-            .maybeSingle(); // ✅ Ganti .single() dengan .maybeSingle()
+            .maybeSingle();
 
           if (!profileError && profile) {
             setUserRole(profile?.role || 'warga');
           } else {
-            setUserRole('warga'); // Default role
+            setUserRole('warga');
           }
         }
       } catch (err) {
@@ -830,7 +858,6 @@ export default function FeedContent() {
     };
   }, []);
 
-
   useEffect(() => {
     let lastScrollY = window.scrollY;
     let ticking = false;
@@ -840,15 +867,12 @@ export default function FeedContent() {
         requestAnimationFrame(() => {
           const currentScrollY = window.scrollY;
 
-          // Update scroll direction
           if (currentScrollY > lastScrollY) {
             setScrollDirection('down');
           } else if (currentScrollY < lastScrollY) {
             setScrollDirection('up');
           }
           lastScrollY = currentScrollY;
-
-          // Update scrolled state
           setIsScrolled(currentScrollY > 50);
 
           ticking = false;
@@ -858,7 +882,7 @@ export default function FeedContent() {
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll(); // Initial call
+    handleScroll();
 
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -903,8 +927,6 @@ export default function FeedContent() {
 
         if (data && data.length > 0) {
           loadPlaces(true);
-          setToast({ show: true, message: "📢 Ada konten baru! Feed diperbarui." });
-          setTimeout(() => setToast({ show: false, message: "" }), 2000);
         }
       } catch (err) {
         console.warn("Polling error:", err);
@@ -915,7 +937,7 @@ export default function FeedContent() {
     return () => clearInterval(interval);
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection, locationReady, hasMore]);
 
-  // Realtime subscription
+  // Realtime subscription (tanpa toast)
   useEffect(() => {
     if (!useRealtime) {
       const cleanup = pollForUpdates();
@@ -966,14 +988,14 @@ export default function FeedContent() {
             return newMap;
           });
 
+          // ✅ INSERT DI AWAL (seperti Instagram)
           setOrderedIds(prevIds => {
             if (prevIds.includes(newItem.id)) return prevIds;
-            return [...prevIds, newItem.id];
+            return [newItem.id, ...prevIds];
           });
 
           setComments(prev => ({ ...prev, [newItem.id]: [] }));
-          setToast({ show: true, message: `📢 ${newItem.name} menambahkan update baru!` });
-          setTimeout(() => setToast({ show: false, message: "" }), 2000);
+          // HAPUS TOAST - tidak menampilkan notifikasi
         }
       })
       .subscribe();
@@ -984,25 +1006,30 @@ export default function FeedContent() {
     };
   }, [searchRadius, useRealtime, locationReady, location, pollForUpdates]);
 
-  // Infinite scroll observer
+  // ========== UPDATED INFINITE SCROLL OBSERVER (rootMargin 400px) ==========
   useEffect(() => {
     if (!lastCardRef.current || !hasMore || loading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loading) {
-          loadPlaces(false);
+          const timer = setTimeout(() => {
+            loadPlaces(false);
+            // Prefetch setelah load
+            setTimeout(() => prefetchNextPage(), 100);
+          }, 100);
+
+          return () => clearTimeout(timer);
         }
       },
-      { threshold: 0.1, rootMargin: "200px" }
+      { threshold: 0.1, rootMargin: "400px" } // ✅ TINGKATKAN DARI 200px KE 400px
     );
 
     observer.observe(lastCardRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length]);
+  }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length, prefetchNextPage]);
 
   // Pull to refresh
-
   useEffect(() => {
     let startY = 0;
     let isPulling = false;
@@ -1041,8 +1068,10 @@ export default function FeedContent() {
     };
   }, [refreshing, loading, cacheManager, loadPlaces]);
 
-  // ========== RESTORE FROM SESSION STORAGE ==========
+  // ========== RESTORE FROM SESSION STORAGE (dengan flag cegah double fetch) ==========
   useEffect(() => {
+    if (hasInitializedRef.current) return; // ✅ CEK DOUBLE FETCH
+
     const backup = sessionStorage.getItem(SESSION_CACHE_KEY);
 
     if (backup && !initialLoadDoneRef.current) {
@@ -1050,9 +1079,7 @@ export default function FeedContent() {
         const data = JSON.parse(backup);
         const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
 
-        // ✅ Validasi data dan batasi jumlah
         if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
-          // ✅ Hanya restore maksimal 20 item
           const maxRestore = Math.min(data.orderedIds.length, 20);
           const limitedIds = data.orderedIds.slice(0, maxRestore);
           const limitedMap = new Map(data.itemsMap.slice(0, maxRestore));
@@ -1062,6 +1089,8 @@ export default function FeedContent() {
           setInitialLoad(false);
           setLoading(false);
           initialLoadDoneRef.current = true;
+          hasInitializedRef.current = true; // ✅ SET FLAG
+          preloadImages(limitedIds);
           console.log(`✅ Restored ${limitedIds.length} items from cache`);
           return;
         } else if (data.version !== '2.0') {
@@ -1076,22 +1105,22 @@ export default function FeedContent() {
 
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
+      hasInitializedRef.current = true; // ✅ SET FLAG
       loadPlaces(true, false);
     }
-  }, []);
+  }, [preloadImages, loadPlaces]);
 
-  // RESPON PERUBAHAN LOKASI (AKTIF)
+  // RESPON PERUBAHAN LOKASI
   useEffect(() => {
     if (!initialLoadDoneRef.current) return;
     if (!locationReady) return;
 
     const currentCacheKey = getCacheKey();
 
-    // ✅ TAMBAHKAN INI: Jika lastLocationCacheKeyRef masih null (baru mount), skip
     if (lastLocationCacheKeyRef.current === null) {
       lastLocationCacheKeyRef.current = currentCacheKey;
       sessionStorage.setItem('last_location_key', currentCacheKey);
-      return; // ✅ LANGSUNG RETURN, TIDAK FETCH
+      return;
     }
 
     if (lastLocationCacheKeyRef.current === currentCacheKey) return;
@@ -1112,7 +1141,6 @@ export default function FeedContent() {
 
     setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi: ${villageLocation}` });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
-
   }, [getCacheKey, locationReady, cacheManager, villageLocation]);
 
   // Fetch kentongan
@@ -1120,18 +1148,16 @@ export default function FeedContent() {
     fetchKentonganForFeed();
   }, [fetchKentonganForFeed]);
 
-  // ========== LISTENER UNTUK REFRESH DARI BOTTOM NAV ==========
+  // Listener untuk refresh dari bottom nav
   useEffect(() => {
     const handleRefreshFeed = async () => {
       console.log('♻️ Refresh feed triggered from bottom nav');
-      setIsActivatingLocation(true); // Tampilkan loading overlay
+      setIsActivatingLocation(true);
 
       try {
         cacheManager.invalidate();
         sessionStorage.removeItem(SESSION_CACHE_KEY);
         await loadPlaces(true, false);
-        setToast({ show: true, message: "♻️ Kondisi Update!" });
-        setTimeout(() => setToast({ show: false, message: "" }), 1500);
       } finally {
         setIsActivatingLocation(false);
       }
@@ -1147,7 +1173,6 @@ export default function FeedContent() {
   // ========== HANDLERS ==========
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
-
 
     setManualLocation(selectedLocation);
     cacheManager.invalidate();
@@ -1165,7 +1190,6 @@ export default function FeedContent() {
   const handleGPSActivation = useCallback(async (mode = 'gps') => {
     console.log(`📍 Aktifkan GPS location mode: ${mode}...`);
 
-
     await requestLocation(mode);
     await new Promise(resolve => setTimeout(resolve, 800));
     cacheManager.invalidate();
@@ -1179,7 +1203,6 @@ export default function FeedContent() {
   }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
 
   const handleRadiusChange = useCallback((newRadius) => {
-
     cacheManager.invalidate();
     loadPlaces(true);
     setToast({ show: true, message: `🔍 Radius ${newRadius}km` });
@@ -1324,7 +1347,6 @@ export default function FeedContent() {
           <EmptyState radius={searchRadius} locationName={villageLocation} onExpandRadius={handleExpandRadius} />
         ) : (
           <Suspense fallback={<SkeletonLoader />}>
-
             <motion.div layout className="space-y-2">
               <AnimatePresence initial={false}>
                 {feedItemsWithBreaks.map((item, index) => {
@@ -1343,8 +1365,7 @@ export default function FeedContent() {
 
                   const isLast = index === feedItemsWithBreaks.length - 1;
                   const isPriority = index < 3;
-                  const isNearby = index < 10;
-                  const isNearViewport = index < 15;
+
                   return (
                     <motion.div
                       key={item.id}
@@ -1376,11 +1397,12 @@ export default function FeedContent() {
                 })}
               </AnimatePresence>
             </motion.div>
-
           </Suspense>
         )}
 
-        {loading && !initialLoad && !error && <LoadingMore />}
+        {/* ✅ INVISIBLE LOADING - TIDAK KELIHATAN */}
+        {loading && !initialLoad && !error && <InvisibleLoading />}
+
         {!hasMore && feedItemsWithBreaks.length > 0 && !error && <EndOfFeed />}
 
         {isTransitioningLocation && (

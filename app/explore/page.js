@@ -390,7 +390,13 @@ export default function CitizenHub({ userId, userRole }) {
     <motion.div
       key={report.id}
       whileTap={{ scale: 0.98 }}
-      onClick={() => openModal(index)}
+      onClick={() => {
+  // Laporan jalan/umum tidak buka modal
+  if (report.report_type === 'general_location' || !report.tempat_id) {
+    return; // Tidak melakukan apa-apa
+  }
+  openModal(index);
+}}
       className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"
     >
       {report.photo_url || report.video_url ? (
