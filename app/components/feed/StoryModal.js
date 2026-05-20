@@ -27,7 +27,6 @@ export default function StoryModalFullscreen({
   isOpen,
   onClose,
   stories = [],
-  theme,
   namaTempat,
   currentUserId,
   isAdmin,
@@ -44,11 +43,15 @@ export default function StoryModalFullscreen({
   const isAutoScrollingRef = useRef(false);
   const viewsLoadedRef = useRef(false);
 
+  // Mencegah klik kanan pada area video/media
+  const handleContextMenu = useCallback((e) => {
+    e.preventDefault();
+  }, []);
+
   // ==================== TAMBAH CTA DI AKHIR ====================
   const storiesWithCTA = useMemo(() => {
     if (!stories.length) return [];
 
-    // CTA Explore
     const exploreCTA = {
       id: 'explore-cta',
       isExploreCTA: true,
@@ -58,7 +61,6 @@ export default function StoryModalFullscreen({
       icon: '🔍'
     };
 
-    // CTA Lapor (jika user sudah login)
     const laporCTA = currentUserId ? {
       id: 'lapor-cta',
       isLaporCTA: true,
@@ -138,14 +140,13 @@ export default function StoryModalFullscreen({
     }
   }, [currentUserId, recordedViews]);
 
-  // Record view saat story berubah
   useEffect(() => {
     if (isOpen && currentStory?.id && !currentStory?.isExploreCTA && !currentStory?.isLaporCTA) {
       recordView(currentStory.id);
     }
-  }, [isOpen, currentStory?.id, currentStory?.isExploreCTA, currentStory?.isLaporCTA, recordView]);
+  }, [isOpen, currentStory, recordView]);
 
-  // ==================== SCROLL HANDLER (SNAP SCROLL) ====================
+  // ==================== SCROLL HANDLER ====================
   const handleScroll = useCallback((e) => {
     if (isAutoScrollingRef.current) return;
 
@@ -159,7 +160,6 @@ export default function StoryModalFullscreen({
     }
   }, [currentIndex, storyCount]);
 
-  // Scroll to specific index
   const scrollToIndex = useCallback((index) => {
     if (!modalScrollRef.current) return;
 
@@ -173,7 +173,6 @@ export default function StoryModalFullscreen({
     }, 500);
   }, []);
 
-  // Reset saat modal dibuka
   useEffect(() => {
     if (isOpen) {
       setCurrentIndex(0);
@@ -204,7 +203,7 @@ export default function StoryModalFullscreen({
     };
   }, [isOpen, onClose]);
 
-  // ==================== DELETE STORY ====================
+  // ==================== ACTIONS ====================
   const handleDelete = async () => {
     if (!currentStory?.id || isDeleting || currentStory?.isExploreCTA || currentStory?.isLaporCTA) return;
 
@@ -217,7 +216,6 @@ export default function StoryModalFullscreen({
 
       if (error) throw error;
 
-      // Remove from stories array
       const newStories = stories.filter(s => s.id !== currentStory.id);
 
       if (newStories.length === 0) {
@@ -238,7 +236,6 @@ export default function StoryModalFullscreen({
     }
   };
 
-  // ==================== SHARE STORY ====================
   const handleShare = async () => {
     if (currentStory?.isExploreCTA || currentStory?.isLaporCTA) return;
 
@@ -259,7 +256,6 @@ export default function StoryModalFullscreen({
     setShowMenu(false);
   };
 
-  // ==================== NAVIGASI CTA ====================
   const handleGoToExplore = () => {
     onClose();
     router.push('/explore');
@@ -267,11 +263,9 @@ export default function StoryModalFullscreen({
 
   const handleGoToLapor = () => {
     onClose();
-    // Trigger open lapor panel
     window.dispatchEvent(new CustomEvent('open-lapor-panel'));
   };
 
-  // ==================== CHECK IF USER CAN DELETE ====================
   const canDelete = useMemo(() => {
     if (!currentStory || currentStory?.isExploreCTA || currentStory?.isLaporCTA) return false;
     const isOwner = currentUserId && currentStory.user_id === currentUserId;
@@ -280,20 +274,13 @@ export default function StoryModalFullscreen({
 
   // ==================== RENDER CTA EXPLORE ====================
   const renderExploreCTA = (story) => (
-    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col items-center justify-center overflow-hidden">
-      {/* Background Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#E3655B] to-[#25F4EE]">
-        <div className="absolute inset-0 bg-black/20" />
-      </div>
-
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden">
+    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-[#E3655B] to-[#25F4EE]">
+      <div className="absolute inset-0 bg-black/20 z-0" />
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full blur-3xl animate-pulse" />
         <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-white/10 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 bg-white/5 rounded-full blur-2xl" />
       </div>
 
-      {/* Content */}
       <button
         onClick={handleGoToExplore}
         className="relative z-10 text-center px-6 py-8 max-w-sm mx-auto group cursor-pointer"
@@ -302,11 +289,9 @@ export default function StoryModalFullscreen({
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", duration: 0.6 }}
-          className="mb-6"
+          className="mb-6 flex justify-center"
         >
-          <div className="text-8xl mb-4 group-hover:scale-110 transition-transform duration-300">
-            <Compass size={80} className="text-white drop-shadow-lg" />
-          </div>
+          <Compass size={80} className="text-white drop-shadow-lg group-hover:scale-110 transition-transform duration-300" />
         </motion.div>
 
         <motion.h2
@@ -344,13 +329,11 @@ export default function StoryModalFullscreen({
         </motion.div>
       </button>
 
-      {/* Decorative dots */}
-      <div className="absolute bottom-10 left-0 right-0 flex justify-center gap-2">
+      <div className="absolute bottom-10 left-0 right-0 flex justify-center gap-2 z-10">
         {[0, 1, 2, 3, 4].map(i => (
           <div
             key={i}
-            className={`w-1 h-1 rounded-full bg-white/40 transition-all duration-300 ${i === 2 ? 'w-2 bg-white/80' : ''
-              }`}
+            className={`w-1.5 h-1.5 rounded-full bg-white/40 transition-all duration-300 ${i === 2 ? 'w-3 bg-white/90' : ''}`}
           />
         ))}
       </div>
@@ -359,18 +342,10 @@ export default function StoryModalFullscreen({
 
   // ==================== RENDER CTA LAPOR ====================
   const renderLaporCTA = (story) => (
-    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col items-center justify-center overflow-hidden">
-      {/* Background Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900">
-        <div className="absolute inset-0 bg-black/30" />
-      </div>
+    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900">
+      <div className="absolute inset-0 bg-black/30 z-0" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full blur-3xl pointer-events-none z-0" />
 
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full blur-3xl" />
-      </div>
-
-      {/* Content */}
       <button
         onClick={handleGoToLapor}
         className="relative z-10 text-center px-6 py-8 max-w-sm mx-auto group cursor-pointer"
@@ -379,11 +354,9 @@ export default function StoryModalFullscreen({
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", duration: 0.6 }}
-          className="mb-6"
+          className="mb-6 flex justify-center"
         >
-          <div className="text-8xl mb-4 group-hover:scale-110 transition-transform duration-300 drop-shadow-lg">
-            <Plus size={80} className="text-white" />
-          </div>
+          <Plus size={80} className="text-white drop-shadow-lg group-hover:scale-110 transition-transform duration-300" />
         </motion.div>
 
         <motion.h2
@@ -425,28 +398,20 @@ export default function StoryModalFullscreen({
 
   // ==================== RENDER STORY ITEM ====================
   const renderStoryItem = (story, idx) => {
-    // Handle CTA Explore
-    if (story.isExploreCTA) {
-      return renderExploreCTA(story);
-    }
+    if (story.isExploreCTA) return renderExploreCTA(story);
+    if (story.isLaporCTA) return renderLaporCTA(story);
 
-    // Handle CTA Lapor
-    if (story.isLaporCTA) {
-      return renderLaporCTA(story);
-    }
-
-    // Normal story render
     const hasMedia = story.photo_url || story.video_url;
     const isActive = idx === currentIndex;
     const viewCount = viewCounts[story.id] || 0;
 
     return (
       <div
-        key={story.id}
-        className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden"
+        className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden select-none"
+        onContextMenu={handleContextMenu}
       >
         {/* Media Background */}
-        <div className="absolute inset-0 w-full h-full overflow-hidden">
+        <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
           {hasMedia ? (
             <>
               <MediaRenderer
@@ -462,54 +427,50 @@ export default function StoryModalFullscreen({
               )}
             </>
           ) : (
-            // No Media - Text Only
-            <div className="relative h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
-              <div className="text-center px-6 py-8 max-w-sm mx-auto">
-                <div className="text-7xl mb-6 opacity-60">
-                  {story.tipe === "Ramai" ? "🏃‍♂️" : story.tipe === "Antri" ? "⏰" : "📢"}
-                </div>
-                {story.tipe && (
-                  <div className="mb-4 flex justify-center">
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${story.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" :
+            <div className="relative h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900 px-6 text-center">
+              <div className="text-7xl mb-6 opacity-60">
+                {story.tipe === "Ramai" ? "🏃‍♂️" : story.tipe === "Antri" ? "⏰" : "📢"}
+              </div>
+              {story.tipe && (
+                <div className="mb-4 flex justify-center">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${story.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" :
                       story.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" :
                         "bg-emerald-500/20 text-emerald-300"
-                      }`}>
-                      {story.tipe === "Ramai" ? "🏃" : story.tipe === "Antri" ? "⏳" : "🍃"}
-                      <span>{story.tipe}</span>
-                    </span>
-                  </div>
-                )}
-                <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed tracking-tight italic mb-6">
-                  "{story.deskripsi || "Tidak ada deskripsi kondisi"}"
-                </p>
-                <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
-                  <MapPin size={14} className="text-[#E3655B]" />
-                  <span>{story.tempat?.name || namaTempat || "Lokasi"}</span>
-                </div>
-                <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10">
-                  <img
-                    src={getAvatarUrl(story)}
-                    className="w-8 h-8 rounded-full border border-white/30 object-cover"
-                    alt="avatar"
-                  />
-                  <span className="text-white/80 text-sm font-medium">
-                    @{story.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                    }`}>
+                    <span>{story.tipe === "Ramai" ? "🏃" : story.tipe === "Antri" ? "⏳" : "🍃"}</span>
+                    <span>{story.tipe}</span>
                   </span>
-                  <span className="text-white/40 text-xs">•</span>
-                  <span className="text-white/40 text-xs">{formatTimeAgo(story.created_at)}</span>
                 </div>
+              )}
+              <p className="text-white font-black text-2xl sm:text-3xl leading-relaxed tracking-tight italic mb-6 max-w-sm mx-auto">
+                "{story.deskripsi || "Tidak ada deskripsi kondisi"}"
+              </p>
+              <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
+                <MapPin size={14} className="text-[#E3655B]" />
+                <span>{story.tempat?.name || namaTempat || "Lokasi"}</span>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10 w-full max-w-xs mx-auto">
+                <img
+                  src={getAvatarUrl(story)}
+                  className="w-8 h-8 rounded-full border border-white/30 object-cover"
+                  alt="avatar"
+                />
+                <span className="text-white/80 text-sm font-medium">
+                  @{story.user_name?.replace(/\s+/g, '').toLowerCase() || "warga"}
+                </span>
+                <span className="text-white/40 text-xs">•</span>
+                <span className="text-white/40 text-xs">{formatTimeAgo(story.created_at)}</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Content Overlay (hanya untuk yang punya media) */}
+        {/* Content Overlay (Untuk post bermedia) */}
         {hasMedia && (
-          <div className="absolute inset-0 flex flex-col justify-end pointer-events-none">
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+          <div className="absolute inset-0 flex flex-col justify-end z-10 pointer-events-none">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
 
             <div className="relative p-5 pb-6 w-full pointer-events-auto">
-              {/* Header Info */}
               <div className="flex flex-col gap-2 mb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -534,21 +495,19 @@ export default function StoryModalFullscreen({
                     </div>
                   </div>
 
-                  {/* Menu Button */}
                   <button
-                    onClick={() => setShowMenu(prev => prev ? false : currentIndex === idx)}
+                    onClick={() => setShowMenu(prev => !prev)}
                     className="w-8 h-8 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center hover:bg-black/50 transition-all"
                   >
                     <MoreVertical size={18} className="text-white" />
                   </button>
                 </div>
 
-                {/* Badges */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {story.tipe && (
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${story.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" :
-                      story.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" :
-                        "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                        story.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" :
+                          "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
                       }`}>
                       <span>{story.tipe === "Ramai" ? "🏃" : story.tipe === "Antri" ? "⏳" : "🍃"}</span>
                       <span>{story.tipe}</span>
@@ -561,12 +520,10 @@ export default function StoryModalFullscreen({
                 </div>
               </div>
 
-              {/* Description */}
               <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
                 {story.deskripsi || "Tidak ada deskripsi kondisi terkini."}
               </p>
 
-              {/* View Count */}
               <div className="flex items-center gap-1.5 mt-3">
                 <Eye size={12} className="text-white/40" />
                 <span className="text-[10px] font-medium text-white/40">
@@ -577,9 +534,9 @@ export default function StoryModalFullscreen({
           </div>
         )}
 
-        {/* View Count untuk yang tanpa media */}
+        {/* View Count (Untuk post tanpa media) */}
         {!hasMedia && (
-          <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-auto">
+          <div className="absolute bottom-6 left-0 right-0 flex justify-center z-10 pointer-events-none">
             <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-full">
               <Eye size={12} className="text-white/50" />
               <span className="text-[10px] font-medium text-white/50">
@@ -592,108 +549,98 @@ export default function StoryModalFullscreen({
     );
   };
 
-  // ==================== MENU DROPDOWN ====================
-  const renderMenu = () => {
-    if (!showMenu) return null;
-
-    return (
-      <>
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowMenu(false)}
-        />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -10 }}
-          className="absolute top-20 right-4 z-50 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl min-w-[180px]"
-        >
-          <button
-            onClick={handleShare}
-            className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors"
-          >
-            <Share2 size={16} className="text-white/70" />
-            <span className="text-[13px] font-medium text-white">Bagikan Cerita</span>
-          </button>
-
-          {canDelete && (
-            <>
-              <div className="h-px bg-white/10 mx-3" />
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-rose-500/10 transition-colors"
-              >
-                {isDeleting ? (
-                  <div className="w-4 h-4 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Trash2 size={16} className="text-rose-400" />
-                )}
-                <span className="text-[13px] font-medium text-rose-400">
-                  {isDeleting ? "Menghapus..." : "Hapus Cerita"}
-                </span>
-              </button>
-            </>
-          )}
-        </motion.div>
-      </>
-    );
-  };
-
   // ==================== MAIN RENDER ====================
   if (!isOpen || storyCount === 0) return null;
 
   return createPortal(
     <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[99999] bg-black flex items-center justify-center"
-        >
-          <div className="relative w-full max-w-[450px] h-[100dvh] bg-black overflow-hidden">
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 z-50 w-9 h-9 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-all"
-            >
-              <X size={20} />
-            </button>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-sm flex items-center justify-center"
+      >
+        <div className="relative w-full max-w-[450px] h-[100dvh] bg-black overflow-hidden shadow-2xl">
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 z-50 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 hover:bg-black/60 active:scale-95 transition-all"
+          >
+            <X size={20} />
+          </button>
 
-            {/* Menu Dropdown */}
-            {renderMenu()}
+          {/* Menu Dropdown */}
+          <AnimatePresence>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowMenu(false)} />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  className="absolute top-16 right-4 z-50 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl min-w-[180px]"
+                >
+                  <button
+                    onClick={handleShare}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 text-white active:bg-white/10 transition-colors"
+                  >
+                    <Share2 size={16} className="text-white/70" />
+                    <span className="text-[13px] font-medium">Bagikan Cerita</span>
+                  </button>
 
-            {/* Scrollable Stories Container */}
-            <div
-              ref={modalScrollRef}
-              onScroll={handleScroll}
-              className="h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth touch-pan-y no-scrollbar"
-              style={{
-                WebkitOverflowScrolling: 'touch',
-                scrollSnapStop: 'always'
-              }}
-            >
-              {storiesWithCTA.map((story, idx) => (
-                <div key={story.id}>
-                  {renderStoryItem(story, idx)}
-                </div>
-              ))}
-            </div>
-
-            {/* Index Indicator */}
-            {storyCount > 1 && (
-              <div className="absolute bottom-4 right-4 z-30 pointer-events-none">
-                <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full">
-                  <span className="text-[10px] font-medium text-white/80">
-                    {currentIndex + 1} / {storyCount}
-                  </span>
-                </div>
-              </div>
+                  {canDelete && (
+                    <>
+                      <div className="h-px bg-white/10 mx-3" />
+                      <button
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-rose-500/10 text-rose-400 active:bg-rose-500/20 transition-colors disabled:opacity-50"
+                      >
+                        {isDeleting ? (
+                          <div className="w-4 h-4 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 size={16} />
+                        )}
+                        <span className="text-[13px] font-medium">
+                          {isDeleting ? "Menghapus..." : "Hapus Cerita"}
+                        </span>
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              </>
             )}
+          </AnimatePresence>
+
+          {/* Scrollable Stories Container */}
+          <div
+            ref={modalScrollRef}
+            onScroll={handleScroll}
+            className="h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth touch-pan-y no-scrollbar relative z-0"
+            style={{
+              WebkitOverflowScrolling: 'touch',
+              scrollSnapStop: 'always'
+            }}
+          >
+            {storiesWithCTA.map((story, idx) => (
+              <div key={story.id || `cta-${idx}`}>
+                {renderStoryItem(story, idx)}
+              </div>
+            ))}
           </div>
-        </motion.div>
-      )}
+
+          {/* Index Indicator */}
+          {storyCount > 1 && (
+            <div className="absolute bottom-4 right-4 z-30 pointer-events-none">
+              <div className="bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/5">
+                <span className="text-[10px] font-medium text-white/90">
+                  {currentIndex + 1} / {storyCount}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
     </AnimatePresence>,
     document.body
   );

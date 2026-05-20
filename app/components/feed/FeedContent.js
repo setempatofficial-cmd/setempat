@@ -225,8 +225,8 @@ export default function FeedContent() {
     saveData: false,
     isSlowConnection: false
   });
-  const [dynamicLimit, setDynamicLimit] = useState(() => getDynamicLimit());
-  const [useRealtime, setUseRealtime] = useState(true);
+  const [dynamicLimit, setDynamicLimit] = useState(20);
+  const [useRealtime, setUseRealtime] = useState(false); // ← MATIKAN DULU
 
   // ========== FEED DATA STATE ==========
   const [itemsMap, setItemsMap] = useState(new Map());
@@ -342,6 +342,7 @@ export default function FeedContent() {
 
   // ========== BREAK CARD GENERATOR ==========
   const generateBreakCard = useCallback((scrollIndex, displayedPlaces, allPlaces) => {
+
     const urgentKentongan = kentonganForFeed.filter(k => k.is_urgent === true);
     if (urgentKentongan.length > 0 && scrollIndex >= 1) {
       const k = urgentKentongan[0];

@@ -1,307 +1,289 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// 🔥 CACHE SINGLETON
+// 🔥 CACHE SINGLETON - lebih agresif
+let cachedUser = null;
 let cachedRole = null;
 let cachedIsAdmin = false;
 let cachedIsSuperAdmin = false;
 let cachedProfile = null;
 let cachedTimestamp = null;
 let cachePromise = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 menit
+const CACHE_DURATION = 10 * 60 * 1000; // 10 menit (ditingkatkan dari 5 menit)
 
+// 🔥 SUBSCRIBER SYSTEM - semua komponen share state yang sama
+let subscribers = new Set();
+let globalAuthState = {
+  user: null,
+  role: 'warga',
+  isAdmin: false,
+  isSuperAdmin: false,
+  profile: null,
+  loading: true,
+  authError: null
+};
+
+let isInitialized = false;
+let initPromise = null;
+
+// Notifikasi ke semua subscriber
+const notifySubscribers = () => {
+  subscribers.forEach(callback => callback(globalAuthState));
+};
+
+// Fetch permissions (hanya sekali)
+const fetchPermissions = async (userObj) => {
+  if (!userObj) {
+    return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
+  }
+
+  // Check cache
+  if (cachedRole !== null && cachedProfile !== null && cachedTimestamp) {
+    const isExpired = Date.now() - cachedTimestamp > CACHE_DURATION;
+    if (!isExpired) {
+      return {
+        role: cachedRole,
+        isAdmin: cachedIsAdmin,
+        isSuperAdmin: cachedIsSuperAdmin,
+        profile: cachedProfile
+      };
+    }
+  }
+
+  // Prevent multiple simultaneous fetches
+  if (cachePromise) {
+    return await cachePromise;
+  }
+
+  cachePromise = (async () => {
+    try {
+      const [profileRes, adminRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userObj.id).maybeSingle(),
+        supabase.from('admins').select('id').eq('user_id', userObj.id).maybeSingle()
+      ]);
+
+      const profileData = profileRes.data;
+      const currentRole = profileData?.role?.toLowerCase() || "warga";
+      const isAdminTable = !!adminRes.data;
+      const superCheck = currentRole === 'superadmin';
+      const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
+
+      cachedRole = currentRole;
+      cachedIsAdmin = adminCheck;
+      cachedIsSuperAdmin = superCheck;
+      cachedProfile = profileData;
+      cachedTimestamp = Date.now();
+      cachedUser = userObj;
+
+      return {
+        role: currentRole,
+        isAdmin: adminCheck,
+        isSuperAdmin: superCheck,
+        profile: profileData
+      };
+    } catch (error) {
+      console.error("Auth Check Error:", error);
+      return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
+    } finally {
+      cachePromise = null;
+    }
+  })();
+
+  return await cachePromise;
+};
+
+// Inisialisasi auth (hanya sekali)
+const initAuth = async () => {
+  if (isInitialized) return;
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUser = session?.user ?? null;
+
+      if (currentUser) {
+        const perms = await fetchPermissions(currentUser);
+        globalAuthState = {
+          user: currentUser,
+          role: perms.role,
+          isAdmin: perms.isAdmin,
+          isSuperAdmin: perms.isSuperAdmin,
+          profile: perms.profile,
+          loading: false,
+          authError: null
+        };
+      } else {
+        globalAuthState = {
+          user: null,
+          role: "warga",
+          isAdmin: false,
+          isSuperAdmin: false,
+          profile: null,
+          loading: false,
+          authError: null
+        };
+      }
+
+      isInitialized = true;
+      notifySubscribers();
+    } catch (err) {
+      globalAuthState = {
+        ...globalAuthState,
+        loading: false,
+        authError: err.message
+      };
+      notifySubscribers();
+    }
+  })();
+
+  return initPromise;
+};
+
+// Subscribe ke auth changes (hanya sekali)
+let authSubscriptionInitialized = false;
+const initAuthSubscription = () => {
+  if (authSubscriptionInitialized) return;
+  authSubscriptionInitialized = true;
+
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    const currentUser = session?.user ?? null;
+
+    if (currentUser) {
+      const perms = await fetchPermissions(currentUser);
+      globalAuthState = {
+        user: currentUser,
+        role: perms.role,
+        isAdmin: perms.isAdmin,
+        isSuperAdmin: perms.isSuperAdmin,
+        profile: perms.profile,
+        loading: false,
+        authError: null
+      };
+    } else {
+      // Reset cache on logout
+      cachedRole = null;
+      cachedIsAdmin = false;
+      cachedIsSuperAdmin = false;
+      cachedProfile = null;
+      cachedTimestamp = null;
+      cachedUser = null;
+
+      globalAuthState = {
+        user: null,
+        role: "warga",
+        isAdmin: false,
+        isSuperAdmin: false,
+        profile: null,
+        loading: false,
+        authError: null
+      };
+    }
+
+    notifySubscribers();
+  });
+};
+
+// ========== HOOK YANG DIOPTIMASI ==========
 export function useAuth() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [profile, setProfile] = useState(null);
-  const [authError, setAuthError] = useState(null);
+  const [localState, setLocalState] = useState(globalAuthState);
 
-  const extractName = (userParam = null, profileParam = null) => {
-    const targetUser = userParam || user;
-    const targetProfile = profileParam || profile;
-    
+  // Subscribe ke perubahan global
+  useEffect(() => {
+    // Mulai inisialisasi
+    initAuth();
+    initAuthSubscription();
+
+    // Subscribe ke perubahan
+    const callback = (newState) => {
+      setLocalState(newState);
+    };
+
+    subscribers.add(callback);
+
+    // Cleanup
+    return () => {
+      subscribers.delete(callback);
+    };
+  }, []);
+
+  // Extract name helper
+  const extractName = useCallback((userParam = null, profileParam = null) => {
+    const targetUser = userParam || localState.user;
+    const targetProfile = profileParam || localState.profile;
+
     if (!targetUser && !targetProfile) return "Warga";
-    
     if (targetProfile?.full_name) return targetProfile.full_name;
     if (targetProfile?.name) return targetProfile.name;
-    
+
     const meta = targetUser?.user_metadata || {};
-    return (
-      meta.full_name ||
-      meta.name ||
-      meta.preferred_username ||
-      targetUser?.email?.split("@")[0] ||
-      "Warga"
-    );
-  };
+    return meta.full_name || meta.name || meta.preferred_username ||
+      targetUser?.email?.split("@")[0] || "Warga";
+  }, [localState.user, localState.profile]);
 
-  const checkPermissions = async (userObj) => {
-    if (!userObj) {
-      return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
-    }
+  const refreshProfile = useCallback(async () => {
+    if (!localState.user?.id) return null;
 
-    if (cachedRole !== null && cachedProfile !== null && cachedTimestamp) {
-      const isExpired = Date.now() - cachedTimestamp > CACHE_DURATION;
-      if (!isExpired) {
-        console.log("📦 Using cached role:", cachedRole);
-        return {
-          role: cachedRole,
-          isAdmin: cachedIsAdmin,
-          isSuperAdmin: cachedIsSuperAdmin,
-          profile: cachedProfile
-        };
-      }
-    }
-
-    if (cachePromise) {
-      console.log("⏳ Waiting for existing fetch...");
-      return await cachePromise;
-    }
-
-    cachePromise = (async () => {
-      try {
-        console.log("🔄 Fetching permissions for user:", userObj.id);
-        
-        const [profileRes, adminRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', userObj.id).maybeSingle(),
-          supabase.from('admins').select('id').eq('user_id', userObj.id).maybeSingle()
-        ]);
-
-        if (profileRes.error) {
-          console.error("Profile fetch error:", profileRes.error);
-          throw profileRes.error;
-        }
-
-        const profileData = profileRes.data;
-        const currentRole = profileData?.role?.toLowerCase() || "warga";
-        const isAdminTable = !!adminRes.data;
-
-        const superCheck = currentRole === 'superadmin';
-        const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
-
-        cachedRole = currentRole;
-        cachedIsAdmin = adminCheck;
-        cachedIsSuperAdmin = superCheck;
-        cachedProfile = profileData;
-        cachedTimestamp = Date.now();
-
-        console.log("✅ Permissions cached:", { currentRole, adminCheck, superCheck });
-        
-        return {
-          role: currentRole,
-          isAdmin: adminCheck,
-          isSuperAdmin: superCheck,
-          profile: profileData
-        };
-      } catch (error) {
-        console.error("Auth Check Error:", error);
-        return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
-      } finally {
-        cachePromise = null;
-      }
-    })();
-
-    return await cachePromise;
-  };
-
-  const refreshProfile = async () => {
-    if (!user?.id) return null;
-    
-    setLoading(true);
+    // Clear cache
     cachedRole = null;
     cachedIsAdmin = false;
     cachedIsSuperAdmin = false;
     cachedProfile = null;
     cachedTimestamp = null;
-    cachePromise = null;
-    
-    const perms = await checkPermissions(user);
-    setRole(perms.role);
-    setIsAdmin(perms.isAdmin);
-    setIsSuperAdmin(perms.isSuperAdmin);
-    setProfile(perms.profile);
-    setLoading(false);
-    
+
+    const perms = await fetchPermissions(localState.user);
+
+    globalAuthState = {
+      ...globalAuthState,
+      role: perms.role,
+      isAdmin: perms.isAdmin,
+      isSuperAdmin: perms.isSuperAdmin,
+      profile: perms.profile
+    };
+
+    notifySubscribers();
     return perms.profile;
-  };
+  }, [localState.user]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut({ scope: 'local' });
+    // Reset akan di-handle oleh onAuthStateChange
+  }, []);
 
-    const initAuth = async () => {
-      try {
-        setAuthError(null);
-        const { data: { session } } = await supabase.auth.getSession();
-        const currentUser = session?.user ?? null;
-        
-        if (isMounted) setUser(currentUser);
-        
-        if (currentUser) {
-          const perms = await checkPermissions(currentUser);
-          if (isMounted) {
-            setRole(perms.role);
-            setIsAdmin(perms.isAdmin);
-            setIsSuperAdmin(perms.isSuperAdmin);
-            setProfile(perms.profile);
-          }
-        } else if (isMounted) {
-          setRole("warga");
-          setIsAdmin(false);
-          setIsSuperAdmin(false);
-          setProfile(null);
-        }
-      } catch (err) {
-        console.error("Init Auth Error:", err);
-        setAuthError(err.message);
-        if (isMounted) {
-          setRole("warga");
-          setProfile(null);
-        }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
+  const login = useCallback(async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { data: null, error };
 
-    initAuth();
+    // Clear cache
+    cachedRole = null;
+    cachedIsAdmin = false;
+    cachedIsSuperAdmin = false;
+    cachedProfile = null;
+    cachedTimestamp = null;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const currentUser = session?.user ?? null;
-        
-        if (isMounted) setUser(currentUser);
-        
-        if (currentUser) {
-          const perms = await checkPermissions(currentUser);
-          if (isMounted) {
-            setRole(perms.role);
-            setIsAdmin(perms.isAdmin);
-            setIsSuperAdmin(perms.isSuperAdmin);
-            setProfile(perms.profile);
-          }
-        } else if (isMounted) {
-          cachedRole = null;
-          cachedIsAdmin = false;
-          cachedIsSuperAdmin = false;
-          cachedProfile = null;
-          cachedTimestamp = null;
-          setRole("warga");
-          setIsAdmin(false);
-          setIsSuperAdmin(false);
-          setProfile(null);
-        }
-        
-        if (isMounted) setLoading(false);
-      }
-    );
+    return { data, error: null };
+  }, []);
 
-    // Subscribe ke perubahan profile
-    if (user?.id) {
-      const profileSubscription = supabase
-        .channel('profile_changes')
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'profiles',
-            filter: `id=eq.${user.id}`,
-          },
-          () => {
-            console.log('🔄 Profile updated, refreshing...');
-            refreshProfile();
-          }
-        )
-        .subscribe();
+  const register = useCallback(async (email, password, metadata = {}) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: metadata },
+    });
+    return { data, error };
+  }, []);
 
-      return () => {
-        isMounted = false;
-        subscription.unsubscribe();
-        profileSubscription.unsubscribe();
-      };
-    }
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, [user?.id]);
-
-  const logout = async () => {
-    try {
-      setLoading(true);
-      await supabase.auth.signOut({ scope: 'local' });
-      
-      cachedRole = null;
-      cachedIsAdmin = false;
-      cachedIsSuperAdmin = false;
-      cachedProfile = null;
-      cachedTimestamp = null;
-      cachePromise = null;
-      
-      setUser(null);
-      setRole("warga");
-      setIsAdmin(false);
-      setIsSuperAdmin(false);
-      setProfile(null);
-      setAuthError(null);
-    } catch (error) {
-      console.error("Logout error:", error);
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const login = async (email, password) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      
-      cachedRole = null;
-      cachedIsAdmin = false;
-      cachedIsSuperAdmin = false;
-      cachedProfile = null;
-      cachedTimestamp = null;
-      
-      setUser(data.user);
-      const perms = await checkPermissions(data.user);
-      setRole(perms.role);
-      setIsAdmin(perms.isAdmin);
-      setIsSuperAdmin(perms.isSuperAdmin);
-      setProfile(perms.profile);
-      return { data, error: null };
-    } catch (error) {
-      return { data: null, error };
-    }
-  };
-
-  const register = async (email, password, metadata = {}) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: metadata },
-      });
-      return { data, error };
-    } catch (error) {
-      return { data: null, error };
-    }
-  };
-
-  const getUserName = () => extractName();
+  const getUserName = useCallback(() => extractName(), [extractName]);
 
   return {
-    user,
-    loading,
-    role,
-    userRole: role,  // Untuk kompatibilitas
-    isAdmin,
-    isSuperAdmin,
-    profile,
-    authError,
+    user: localState.user,
+    loading: localState.loading,
+    role: localState.role,
+    userRole: localState.role,
+    isAdmin: localState.isAdmin,
+    isSuperAdmin: localState.isSuperAdmin,
+    profile: localState.profile,
+    authError: localState.authError,
     refreshProfile,
     logout,
     login,

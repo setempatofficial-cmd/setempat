@@ -5,7 +5,7 @@ import { formatRelativeTime } from "@/lib/feedEngine";
 import { supabase } from "@/lib/supabaseClient";
 
 // ============================================
-// 🎯 FUNGSI AVATAR - DIPERBAIKI
+// 🎯 FUNGSI AVATAR - TETAP SEDERHANA & CEPAT
 // ============================================
 const getAvatarUrl = (report, isMe, currentUserAvatar) => {
   if (isMe && currentUserAvatar) return currentUserAvatar;
@@ -23,7 +23,7 @@ const AvatarImage = ({ report, isDark, isMe, currentUserAvatar }) => {
   return (
     <img
       src={avatarUrl}
-      className={`w-7 h-7 rounded-full object-cover ring-2 flex-shrink-0 transition-transform duration-300 hover:scale-105 ${isDark ? 'ring-slate-800' : 'ring-white shadow-sm'
+      className={`w-6 h-6 rounded-full object-cover ring-1 flex-shrink-0 transition-transform duration-300 hover:scale-105 ${isDark ? 'ring-slate-800' : 'ring-white shadow-sm'
         }`}
       alt={report?.user_name || "avatar"}
       referrerPolicy="no-referrer"
@@ -103,7 +103,7 @@ export default function LiveInsight({
           author: authorName,
           reportData: s,
           time: formatRelativeTime(s.created_at),
-          sourceLabel: isMe ? "Laporan Anda" : "Kabar Warga",
+          sourceLabel: isMe ? "Laporan" : "Kabar",
           isUrgent: /(macet|kecelakaan|banjir|ramai|antri)/i.test((s.deskripsi || "").toLowerCase()),
           tipe: s.tipe || "Pantauan",
           isMe
@@ -119,7 +119,7 @@ export default function LiveInsight({
         author: descriptionFromDB.name || locationName,
         reportData: null,
         time: "Terkini",
-        sourceLabel: "Profil Tempat",
+        sourceLabel: "Profil",
         fromDescription: true,
         isUrgent: false,
         tipe: "Informasi",
@@ -220,40 +220,39 @@ export default function LiveInsight({
   const current = insights[index] || insights[0];
   if (!current || insightsLength === 0) return null;
 
+  // Batasan text lebih ketat untuk micro-widget (potong jika > 75 karakter)
   const needsExpand = current?.text && (
-    current.text.length > 100 ||
-    (current.text.match(/\n/g) || []).length > 1 ||
-    current.text.includes('. ') && current.text.split('. ').length > 2
+    current.text.length > 75 ||
+    (current.text.match(/\n/g) || []).length > 0
   );
 
   const isExpanded = expandedTextId === current.id;
 
-  // Utility untuk warna dinamis sesuai status keaktifan/kegentingan insight
   const getBadgeClass = () => {
-    if (current?.isMe) return 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/30';
-    if (current?.isUrgent) return 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/30';
-    return 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:border-slate-700/50';
+    if (current?.isMe) return 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-900/20';
+    if (current?.isUrgent) return 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/20';
+    return 'bg-slate-50 text-slate-500 border-slate-100 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/30';
   };
 
   return (
     <div
       ref={containerRef}
-      className="px-3 py-2 w-full max-w-full overflow-hidden"
+      className="p-1 w-full max-w-full overflow-hidden select-none"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <div className={`relative rounded-2xl border transition-all duration-300 p-3.5 backdrop-blur-md shadow-sm
+      <div className={`relative rounded-xl border transition-all duration-300 p-2.5 backdrop-blur-md shadow-sm
         ${isDark
-          ? "bg-slate-900/40 border-slate-800/60 text-slate-200 shadow-slate-950/20"
-          : "bg-white/60 border-slate-100 text-slate-800 shadow-slate-100/40"
+          ? "bg-slate-900/30 border-slate-800/50 text-slate-200"
+          : "bg-white/50 border-slate-100/80 text-slate-800"
         }
         ${current?.isUrgent ? 'ring-1 ring-rose-500/10' : ''}
       `}>
 
-        {/* Header Section */}
-        <div className="flex items-center justify-between gap-2 mb-2.5">
-          <div className="flex items-center gap-2 min-w-0">
+        {/* Header Section - Dibuat Lebih Rapat */}
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             {current.reportData ? (
               <AvatarImage
                 report={current.reportData}
@@ -262,29 +261,29 @@ export default function LiveInsight({
                 currentUserAvatar={userAvatar}
               />
             ) : (
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shadow-sm shrink-0 ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600 border border-slate-100'
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] shadow-sm shrink-0 ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500 border border-slate-200/60'
                 }`}>
                 🏠
               </div>
             )}
-            <div className="flex flex-col min-w-0">
-              <span className={`text-xs font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`text-[11px] font-bold truncate ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
                 {current?.author}
               </span>
-              <span className="text-[9px] text-slate-400 font-medium tracking-wide">{current?.time}</span>
+              <span className="text-[9px] text-slate-400/80 shrink-0">• {current?.time}</span>
             </div>
           </div>
 
-          {/* Source Badge Tag */}
-          <span className={`text-[9px] font-black tracking-wider uppercase px-2 py-0.5 rounded-md border shrink-0 ${getBadgeClass()}`}>
+          {/* Badge Mengecil */}
+          <span className={`text-[8px] font-black tracking-wider uppercase px-1.5 py-0.5 rounded border shrink-0 ${getBadgeClass()}`}>
             {current?.sourceLabel}
           </span>
         </div>
 
-        {/* Content Section */}
-        <div className="relative pl-1">
-          <p className={`text-[12.5px] leading-relaxed transition-all duration-300 font-medium ${!isExpanded ? 'line-clamp-2' : ''
-            } ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+        {/* Content Section - Line clamp diubah jadi 1 baris saat default agar super tipis */}
+        <div className="relative px-0.5">
+          <p className={`text-[12px] leading-normal transition-all duration-300 ${!isExpanded ? 'line-clamp-1' : 'line-clamp-none'
+            } ${isDark ? "text-slate-300/90" : "text-slate-600"}`}>
             “{current?.text}”
           </p>
 
@@ -292,13 +291,13 @@ export default function LiveInsight({
           {needsExpand && (
             <button
               onClick={(e) => handleToggleExpand(current.id, e)}
-              className={`text-[10px] font-bold mt-1.5 transition-colors inline-flex items-center gap-1.5 ${isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-700'
+              className={`text-[9px] font-bold mt-1 transition-colors inline-flex items-center gap-1 ${isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-700'
                 }`}
             >
-              <span>{isExpanded ? 'Tutup Detail' : 'Baca Selengkapnya'}</span>
+              <span>{isExpanded ? 'Tutup' : 'Selengkapnya'}</span>
               <svg
-                className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+                className={`w-2.5 h-2.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
@@ -306,31 +305,29 @@ export default function LiveInsight({
           )}
         </div>
 
-        {/* Bottom Section Indicators */}
-        <div className="mt-3 pt-2.5 border-t border-dashed flex justify-between items-center ${
-          isDark ? 'border-slate-800' : 'border-slate-100'
-        }">
-          <div className="flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full relative flex ${current?.isUrgent ? 'bg-rose-500' : 'bg-emerald-500'}`}>
+        {/* Bottom Section - Tipis & Minimalis */}
+        <div className="mt-2 pt-1.5 border-t border-dashed flex justify-between items-center border-slate-200/40 dark:border-slate-800/50">
+          <div className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full relative flex ${current?.isUrgent ? 'bg-rose-500' : 'bg-emerald-500'}`}>
               {current?.isUrgent && (
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
               )}
             </span>
-            <span className="text-[9px] font-extrabold opacity-70 uppercase tracking-widest text-slate-400">
+            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400/80">
               {current?.tipe}
             </span>
           </div>
 
-          {/* Animated Sliders Dots */}
+          {/* Indicator Dots Mini */}
           {insightsLength > 1 && (
-            <div className="flex gap-1">
+            <div className="flex gap-0.5">
               {insights.map((_, i) => (
                 <button
                   key={i}
                   onClick={() => setIndex(i)}
-                  className={`h-1 rounded-full transition-all duration-300 ${index === i
-                      ? 'w-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 shadow-sm'
-                      : 'w-1 bg-slate-300/60 dark:bg-slate-700'
+                  className={`h-0.5 rounded-full transition-all duration-300 ${index === i
+                      ? 'w-2.5 bg-gradient-to-r from-emerald-500 to-teal-500'
+                      : 'w-0.5 bg-slate-300/50 dark:bg-slate-700'
                     }`}
                   aria-label={`Go to slide ${i + 1}`}
                 />

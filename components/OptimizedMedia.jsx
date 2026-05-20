@@ -4,49 +4,51 @@ import { useState, useMemo, useRef, useEffect } from "react";
 // Deteksi tipe media dari URL
 const getMediaType = (url) => {
   if (!url) return 'unknown';
-  
+
   const urlLower = url.toLowerCase();
-  
+
   // CCTV / HLS Stream
   if (urlLower.includes('.m3u8') || urlLower.includes('cctv') || urlLower.includes('stream')) {
     return 'cctv';
   }
-  
+
   // YouTube
   if (urlLower.includes('youtube.com/watch') || urlLower.includes('youtu.be/')) {
     return 'youtube';
   }
-  
+
   // YouTube Shorts
   if (urlLower.includes('youtube.com/shorts/')) {
     return 'youtube_shorts';
   }
-  
+
   // Vimeo
   if (urlLower.includes('vimeo.com/')) {
     return 'vimeo';
   }
-  
+
   // File video langsung
   const videoExtensions = ['.mp4', '.webm', '.mov', '.ogg', '.m3u8', '.mkv'];
   if (videoExtensions.some(ext => urlLower.includes(ext))) {
     return 'video_file';
   }
-  
+
   // Gambar
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'];
   if (imageExtensions.some(ext => urlLower.includes(ext))) {
     return 'image';
   }
-  
+
   return 'image';
 };
 
 // Extract YouTube ID
 const getYouTubeId = (url) => {
+  if (!url || typeof url !== 'string') return null; // TAMBAHKAN INI
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([^&?#]+)/,
-    /youtube\.com\/embed\/([^/?]+)/
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?#]+)/,
+    /youtube\.com\/embed\/([^/?]+)/,
+    /youtube\.com\/v\/([^/?]+)/
   ];
   for (const pattern of patterns) {
     const match = url.match(pattern);
@@ -55,9 +57,9 @@ const getYouTubeId = (url) => {
   return null;
 };
 
-export default function OptimizedMedia({ 
-  src, 
-  alt = "", 
+export default function OptimizedMedia({
+  src,
+  alt = "",
   className = "",
   autoPlay = true,
   muted = true,
@@ -69,24 +71,24 @@ export default function OptimizedMedia({
   const [isError, setIsError] = useState(false);
   const [isCCTVConnected, setIsCCTVConnected] = useState(true);
   const videoRef = useRef(null);
-  
+
   const mediaInfo = useMemo(() => {
     const type = getMediaType(src);
     const youtubeId = getYouTubeId(src);
     return { type, youtubeId };
   }, [src]);
-  
+
   const handleLoad = () => {
     setIsLoaded(true);
     onLoad?.();
   };
-  
+
   // CCTV Error handler
   const handleCCTVError = () => {
     setIsCCTVConnected(false);
     setIsError(true);
   };
-  
+
   // Jika error atau tidak ada src
   if (!src || isError) {
     return (
@@ -100,7 +102,7 @@ export default function OptimizedMedia({
       </div>
     );
   }
-  
+
   // ──────────────────── CCTV / HLS STREAM ────────────────────
   if (mediaInfo.type === 'cctv') {
     return (
@@ -113,7 +115,7 @@ export default function OptimizedMedia({
             </div>
           </div>
         )}
-        
+
         {/* LIVE Badge */}
         {isCCTVConnected && isLoaded && (
           <div className="absolute top-3 left-3 z-20 bg-black/60 backdrop-blur-sm rounded-full px-2 py-1">
@@ -123,7 +125,7 @@ export default function OptimizedMedia({
             </div>
           </div>
         )}
-        
+
         <video
           ref={videoRef}
           src={src}
@@ -143,14 +145,14 @@ export default function OptimizedMedia({
       </div>
     );
   }
-  
+
   // ──────────────────── YOUTUBE ────────────────────
   if (mediaInfo.type === 'youtube' || mediaInfo.type === 'youtube_shorts') {
     const videoId = mediaInfo.youtubeId;
     if (!videoId) return <div className={className} />;
-    
+
     const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=${autoPlay ? 1 : 0}&mute=${muted ? 1 : 0}&loop=${loop ? 1 : 0}&controls=${controls ? 1 : 0}&playlist=${videoId}&modestbranding=1&rel=0`;
-    
+
     return (
       <div className="relative w-full h-full overflow-hidden">
         {!isLoaded && <div className="absolute inset-0 bg-zinc-800 animate-pulse" />}
@@ -166,7 +168,7 @@ export default function OptimizedMedia({
       </div>
     );
   }
-  
+
   // ──────────────────── VIDEO FILE ────────────────────
   if (mediaInfo.type === 'video_file') {
     return (
@@ -187,7 +189,7 @@ export default function OptimizedMedia({
       </div>
     );
   }
-  
+
   // ──────────────────── IMAGE ────────────────────
   return (
     <div className="relative w-full h-full overflow-hidden">

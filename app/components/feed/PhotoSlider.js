@@ -1,284 +1,175 @@
 "use client";
+
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { MapPin, CloudRain, Users, Building2 } from "lucide-react";
+import { Users, Building2, Video } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getIndonesianTimeLabel } from "@/utils/timeUtils";
 import OptimizedMedia from "@/components/OptimizedMedia";
+import { useRouter } from "next/navigation";
 
-// Normalisasi foto official
 const normalizeOfficialPhotos = (photos) => {
   if (!photos) return { pagi: [], siang: [], sore: [], malam: [] };
-
   const result = { pagi: [], siang: [], sore: [], malam: [] };
-  const timeKeys = ['pagi', 'siang', 'sore', 'malam'];
 
-  timeKeys.forEach(key => {
+  for (const key of ['pagi', 'siang', 'sore', 'malam']) {
     const data = photos[key];
     if (data) {
-      if (Array.isArray(data)) {
-        result[key] = data;
-      } else if (typeof data === 'object' && data.url) {
-        result[key] = [data];
-      }
+      result[key] = Array.isArray(data) ? data : (data.url ? [data] : []);
     }
-  });
-
+  }
   return result;
 };
 
-// Format waktu upload
 const formatUploadTime = (createdAt) => {
   if (!createdAt) return '';
   const date = new Date(createdAt);
   return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 };
 
-// Cache dengan TTL lebih panjang
-const officialPhotosCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 menit
-
-// Helper deteksi video
 const isVideoUrl = (url) => {
   if (!url) return false;
-  const videoExtensions = /\.(mp4|mov|avi|mkv|webm|m3u8|mpeg)$/i;
-  return videoExtensions.test(url) || url.includes('video') || url.includes('stream');
+  return /\.(mp4|mov|avi|mkv|webm|m3u8|mpeg)$/i.test(url) || url.includes('video') || url.includes('stream');
 };
 
-// ========== HOOK UNTUK TIME KEY ==========
 const useTimeKey = () => {
-  const [timeKey, setTimeKey] = useState(() => {
-    const label = getIndonesianTimeLabel();
-    return label.toLowerCase();
-  });
+  const [timeKey, setTimeKey] = useState(() => getIndonesianTimeLabel().toLowerCase());
 
   useEffect(() => {
-    let timeoutId = null;
-
-    const scheduleNextCheck = () => {
-      const now = new Date();
-      const hour = now.getHours();
-
-      let nextChangeHour = 10;
-
-      if (hour < 10) nextChangeHour = 10;
-      else if (hour < 15) nextChangeHour = 15;
-      else if (hour < 18) nextChangeHour = 18;
-      else nextChangeHour = 4;
-
-      const nextChange = new Date(now);
-      if (nextChangeHour < hour) {
-        nextChange.setDate(nextChange.getDate() + 1);
-      }
-      nextChange.setHours(nextChangeHour, 0, 0, 0);
-
-      const delay = nextChange.getTime() - now.getTime();
-
-      timeoutId = setTimeout(() => {
-        const newLabel = getIndonesianTimeLabel().toLowerCase();
-        setTimeKey(prev => prev !== newLabel ? newLabel : prev);
-        scheduleNextCheck();
-      }, delay);
+    const checkTime = () => {
+      const newLabel = getIndonesianTimeLabel().toLowerCase();
+      setTimeKey(prev => prev !== newLabel ? newLabel : prev);
     };
-
-    scheduleNextCheck();
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    const intervalId = setInterval(checkTime, 60000);
+    return () => clearInterval(intervalId);
   }, []);
 
   return timeKey;
 };
 
 export default function PhotoSlider({
-  photos = [],              // STORY WARGA (foto/video dari laporan_warga)
-  officialPhotosData = null, // FOTO OFFICIAL dari parent (fallback)
+  photos = [],
+  officialPhotosData = null,
   tempatId,
+  deskripsiTempat = "",
   namaTempat = "",
   isHujan = false,
-  onUploadSuccess,
   priority = false,
   setSelectedPhotoIndex,
   selectedPhotoIndex,
   onPhotoClick,
+  isDetail = false,
 }) {
+
+  const router = useRouter();
   const currentTimeKey = useTimeKey();
 
-  const [officialPhotosState, setOfficialPhotosState] = useState(() => {
-    const cached = officialPhotosCache.get(tempatId);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      return cached.data;
-    }
-    return { pagi: [], siang: [], sore: [], malam: [] };
-  });
+  const [officialPhotosState, setOfficialPhotosState] = useState({ pagi: [], siang: [], sore: [], malam: [] });
+  const [cctvUrlState, setCctvUrlState] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [shouldLoad, setShouldLoad] = useState(priority);
   const sliderRef = useRef(null);
   const channelRef = useRef(null);
-  const fetchAttemptedRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const maxRetries = 3;
 
-  // Helper untuk menentukan warna tema dinamis
   const themeClasses = useMemo(() => {
     if (isHujan) return "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-indigo-200";
     switch (currentTimeKey) {
       case "pagi": return "bg-gradient-to-br from-amber-950/40 via-orange-900/20 to-zinc-950 text-amber-200/70";
       case "siang": return "bg-gradient-to-br from-sky-950/30 via-zinc-900 to-zinc-950 text-sky-200/70";
       case "sore": return "bg-gradient-to-br from-orange-950/40 via-red-950/20 to-zinc-950 text-orange-200/70";
-      case "malam":
       default: return "bg-gradient-to-br from-zinc-950 via-purple-950/10 to-black text-purple-200/50";
     }
   }, [currentTimeKey, isHujan]);
 
-  // Sync with parent
+  // FIX: Reset index foto hanya saat user berganti lokasi (tempatId berubah)
   useEffect(() => {
-    if (setSelectedPhotoIndex && selectedPhotoIndex !== undefined) {
+    if (setSelectedPhotoIndex) {
       setSelectedPhotoIndex(0);
     }
-  }, [selectedPhotoIndex, setSelectedPhotoIndex]);
+  }, [tempatId, setSelectedPhotoIndex]);
 
-  // Intersection Observer
+  // Ambil data dari Supabase
   useEffect(() => {
-    if (priority) {
-      setShouldLoad(true);
-      return;
-    }
-    if (shouldLoad) return;
+    if (!tempatId || isNaN(tempatId)) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !shouldLoad) {
-          setShouldLoad(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.05, rootMargin: "300px" }
-    );
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('tempat')
+          .select('photos, image_url')
+          .eq('id', tempatId)
+          .single();
 
-    const currentRef = sliderRef.current;
-    if (currentRef) observer.observe(currentRef);
+        if (error) throw error;
 
-    return () => {
-      if (currentRef) observer.unobserve(currentRef);
-      observer.disconnect();
+        setOfficialPhotosState(normalizeOfficialPhotos(data?.photos));
+        setCctvUrlState(data?.image_url || null);
+      } catch (error) {
+        console.error('Error fetching data:', error.message);
+      } finally {
+        setIsLoading(false);
+      }
     };
-  }, [priority, shouldLoad]);
 
-  // Fetch official photos dari database
-  const fetchOfficialPhotos = useCallback(async () => {
-    if (!tempatId || tempatId === 0 || tempatId === undefined || isNaN(tempatId)) return;
-    if (!shouldLoad) return;
-
-    const cached = officialPhotosCache.get(tempatId);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      setOfficialPhotosState(cached.data);
-      setError(null);
-      return;
-    }
-
-    if (fetchAttemptedRef.current) return;
-
-    fetchAttemptedRef.current = true;
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const { data, error } = await supabase
-        .from('tempat')
-        .select('photos')
-        .eq('id', tempatId)
-        .single();
-
-      if (error) throw error;
-
-      if (data?.photos) {
-        const normalized = normalizeOfficialPhotos(data.photos);
-        setOfficialPhotosState(normalized);
-        officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
-      } else {
-        setOfficialPhotosState({ pagi: [], siang: [], sore: [], malam: [] });
-      }
-      retryCountRef.current = 0;
-    } catch (error) {
-      console.error('Error fetching official photos:', error);
-      setError(error.message);
-      if (retryCountRef.current < maxRetries) {
-        retryCountRef.current++;
-        setTimeout(() => {
-          if (shouldLoad && !fetchAttemptedRef.current) fetchOfficialPhotos();
-        }, 2000 * retryCountRef.current);
-      }
-      if (cached) setOfficialPhotosState(cached.data);
-    } finally {
-      setIsLoading(false);
-      fetchAttemptedRef.current = false;
-    }
-  }, [tempatId, shouldLoad]);
-
-  useEffect(() => {
-    if (!shouldLoad) return;
-    fetchOfficialPhotos();
-  }, [fetchOfficialPhotos, shouldLoad]);
+    fetchData();
+  }, [tempatId]);
 
   // Realtime subscription
   useEffect(() => {
-    if (!tempatId || !shouldLoad) return;
+    if (!tempatId || !supabase) return;
 
-    let isMounted = true;
-
-    const channelName = `tempat_photos_${tempatId}_${Date.now()}`;
-    const channel = supabase.channel(channelName);
-
-    // ✅ Tambahkan callback SEBELUM subscribe
-    channel.on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'tempat',
-      filter: `id=eq.${tempatId}`,
-    }, (payload) => {
-      if (payload.new?.photos && isMounted) {
-        const normalized = normalizeOfficialPhotos(payload.new.photos);
-        setOfficialPhotosState(normalized);
-        officialPhotosCache.set(tempatId, { data: normalized, timestamp: Date.now() });
-      }
-    });
-
-    // ✅ Subscribe di akhir
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED' && isMounted) {
-        console.log(`✅ PhotoSlider realtime aktif untuk tempat ${tempatId}`);
-      }
-    });
+    const channel = supabase
+      .channel(`realtime_photos_${tempatId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'tempat',
+        filter: `id=eq.${tempatId}`,
+      }, (payload) => {
+        setOfficialPhotosState(normalizeOfficialPhotos(payload.new?.photos));
+        setCctvUrlState(payload.new?.image_url || null);
+      })
+      .subscribe();
 
     channelRef.current = channel;
 
-    // Cleanup
     return () => {
-      isMounted = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
       }
     };
-  }, [tempatId, shouldLoad]);
+  }, [tempatId]);
 
-  // ========== MAIN LOGIC: HANYA 1 MEDIA TERBARU YANG SESUAI WAKTU ==========
+  // Logic filter media
   const currentPhoto = useMemo(() => {
-    // PRIORITAS 1: Story warga terbaru yang sesuai waktu
+    // CCTV
+    if (cctvUrlState && typeof cctvUrlState === 'string' && cctvUrlState.trim() !== "") {
+      const isEmbed = cctvUrlState.includes('pasuruankota.go.id') ||
+        cctvUrlState.includes('cam') ||
+        cctvUrlState.includes('cctv');
+
+      if (isEmbed) {
+        return {
+          url: cctvUrlState.trim(),
+          type: 'official',
+          isVideo: false,
+          caption: 'Live Streaming',
+          created_at: null,
+          isCctv: true,
+          isEmbed: true
+        };
+      }
+    }
+
+    // Foto Warga
     if (photos && photos.length > 0) {
-      // Filter story berdasarkan waktu yang sama
       const matchedWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
         if (!createdAt) return false;
-        const uploadTimeLabel = getIndonesianTimeLabel(new Date(createdAt)).toLowerCase();
-        return uploadTimeLabel === currentTimeKey;
+        return getIndonesianTimeLabel(new Date(createdAt)).toLowerCase() === currentTimeKey;
       });
 
       if (matchedWargaPhotos.length > 0) {
-        // Urutkan dari terbaru, ambil yang PALING BARU (index 0)
         const latest = [...matchedWargaPhotos].sort((a, b) =>
           new Date(b.created_at || b.timestamp) - new Date(a.created_at || a.timestamp)
         )[0];
@@ -286,10 +177,9 @@ export default function PhotoSlider({
         const videoUrl = latest.video_url || latest.url;
         const photoUrl = latest.photo_url || latest.url;
         const isVideo = latest.is_video || isVideoUrl(videoUrl);
-        const finalUrl = isVideo ? videoUrl : photoUrl;
 
         return {
-          url: finalUrl,
+          url: isVideo ? videoUrl : photoUrl,
           type: 'warga',
           isVideo: isVideo,
           caption: latest.deskripsi || latest.caption,
@@ -299,36 +189,30 @@ export default function PhotoSlider({
       }
     }
 
-    // PRIORITAS 2: Official photos (ambil foto pertama saja)
+    // Foto Official dari props
     if (officialPhotosData) {
       const timePhotos = officialPhotosData[currentTimeKey];
       if (timePhotos && timePhotos.length > 0) {
-        const firstPhoto = timePhotos[0];
-        return {
-          url: firstPhoto.url || firstPhoto,
-          type: 'official',
-          isVideo: false,
-          caption: firstPhoto.caption,
-          created_at: null,
-        };
+        const singlePhoto = timePhotos[0];
+        const targetUrl = singlePhoto?.url || singlePhoto;
+        if (targetUrl) {
+          return { url: targetUrl, type: 'official', isVideo: isVideoUrl(targetUrl), caption: singlePhoto?.caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
+        }
       }
     }
 
-    // PRIORITAS 3: Official photos dari DATABASE
+    // Foto Official dari database
     const timePhotosFromDb = officialPhotosState[currentTimeKey];
     if (timePhotosFromDb && timePhotosFromDb.length > 0) {
-      const firstPhoto = timePhotosFromDb[0];
-      return {
-        url: firstPhoto.url || firstPhoto,
-        type: 'official',
-        isVideo: false,
-        caption: firstPhoto.caption,
-        created_at: null,
-      };
+      const singlePhoto = timePhotosFromDb[0];
+      const targetUrl = singlePhoto?.url || singlePhoto;
+      if (targetUrl) {
+        return { url: targetUrl, type: 'official', isVideo: isVideoUrl(targetUrl), caption: timePhotosFromDb[0].caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
+      }
     }
 
     return null;
-  }, [photos, officialPhotosData, officialPhotosState, currentTimeKey]);
+  }, [cctvUrlState, photos, officialPhotosData, officialPhotosState, currentTimeKey]);
 
   const handlePhotoClick = useCallback(() => {
     if (onPhotoClick && currentPhoto) {
@@ -336,108 +220,126 @@ export default function PhotoSlider({
     }
   }, [onPhotoClick, currentPhoto]);
 
-  // MAIN RENDER (FOTO TERSEDIA)
-  if (currentPhoto?.url) {
-    return (
-      <div ref={sliderRef} className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-t-[30px] rounded-b-none shadow-2xl border border-white/5 group select-none">
-        <div className="absolute inset-0 z-0 cursor-pointer" onClick={handlePhotoClick}>
-          <OptimizedMedia
-            src={currentPhoto.url}
-            className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-            alt={namaTempat}
-            autoPlay={true}
-            muted={true}
-            loop={true}
-            fetchPriority={priority ? "high" : "auto"}
-            loading={priority ? "eager" : "lazy"}
-            priority={priority}
-          />
-          <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none rounded-t-[30px]" />
-          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none rounded-b-none" />
-        </div>
+  const handleContextMenu = useCallback((e) => {
+    e.preventDefault();
+  }, []);
 
-        {/* BADGE SUMBER FOTO - Pojok Kanan Bawah */}
-        <div className="absolute bottom-4 right-4 z-10 max-w-[60%] animate-fade-in text-[10px] tracking-wide text-white">
-          {currentPhoto.type === 'warga' ? (
-            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
-              <Users size={11} className="opacity-80" />
-              <span className="font-medium">
-                {currentPhoto.user_name}
-              </span>
-              <span className="opacity-60 font-light text-[9px]">
-                {formatUploadTime(currentPhoto.created_at)}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
-              <Building2 size={11} className="opacity-80" />
-              <span className="font-medium opacity-90">
-                Suasana • {currentTimeKey}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Efek Hujan */}
-        {isHujan && (
-          <div className="absolute inset-0 pointer-events-none z-[5] bg-indigo-500/5 mix-blend-overlay rounded-t-[30px] rounded-b-none">
-            <div className="absolute inset-0 bg-[linear-gradient(0deg,transparent_80%,#6366f105_90%)] animate-pulse" />
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // LOADING STATE - SUPER RINGAN
-  if (!shouldLoad || (isLoading && !currentPhoto)) {
-    return (
-      <div className={`relative h-full w-full rounded-t-[30px] rounded-b-none overflow-hidden ${themeClasses} transform-gpu`}>
-        {/* Shimmer Effect - GPU Accelerated */}
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[shimmer_1.5s_infinite] will-change-transform" />
-
-        {/* Konten minimal - tanpa backdrop blur jika perlu lebih ringan */}
-        <div className="absolute bottom-4 right-4">
-          <div className="w-16 h-4 bg-white/10 rounded animate-pulse" />
-        </div>
-      </div>
-    );
-  }
-
-  // EMPTY STATE
   return (
     <div
       ref={sliderRef}
-      className={`relative h-full w-full rounded-t-[30px] rounded-b-none flex items-center justify-center p-6 text-center overflow-hidden transition-opacity duration-500 ${themeClasses} transform-gpu`}
+      onContextMenu={handleContextMenu}
+      className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-t-[30px] rounded-b-none shadow-2xl border border-white/5 group select-none transform-gpu"
     >
-      {/* Background pattern - SUPER RINGAN (GPU) */}
-      <div className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-t-[30px]"
-        style={{
-          backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
-          backgroundSize: '16px 16px',
-        }}
-      />
+      {currentPhoto?.url ? (
+        <>
+          <div
+            className="absolute inset-0 z-0 cursor-pointer"
+            onClick={handlePhotoClick}
+          >
 
-      {/* Gradient overlay - ringan */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.01] to-transparent [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] rounded-t-[30px]" />
+            {currentPhoto.isEmbed ? (
+              <div className="absolute inset-0 z-0 w-full h-full overflow-hidden rounded-t-[30px] bg-zinc-950">
+                {/* Iframe full width/height, center dengan object-contain */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full">
+                  <iframe
+                    src={currentPhoto.url}
+                    scrolling="no"
+                    className="w-full h-full border-0"
+                    style={{
+                      objectFit: 'contain',
+                      aspectRatio: '9/16'
+                    }}
+                    allow="autoplay; encrypted-media"
+                    allowFullScreen
+                  />
+                </div>
 
-      <div className="relative flex flex-col items-center max-w-[80%]">
-        {/* Icon Capsule - tanpa backdrop blur untuk HP entry-level */}
-        <div className="p-3 rounded-2xl bg-black/20 border border-white/10 mb-3">
-          {isHujan ? (
-            <CloudRain className="opacity-60 text-indigo-400" size={20} />
-          ) : (
-            <MapPin className="opacity-60 text-[#E3655B]" size={20} />
-          )}
+                <div className="absolute inset-0 bg-transparent cursor-pointer" />
+                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+              </div>
+            ) : (
+              <OptimizedMedia
+                src={currentPhoto.url}
+                className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+                alt={namaTempat}
+                autoPlay={true}
+                muted={true}
+                loop={true}
+                controls={false}
+                playsInline={true}
+                fetchPriority={priority ? "high" : "auto"}
+                priority={priority}
+              />
+            )}
+
+            <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none rounded-t-[30px]" />
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none rounded-b-none" />
+          </div>
+
+          <div className="absolute bottom-4 right-4 z-10 max-w-[60%] text-[10px] tracking-wide text-white transform-gpu pointer-events-none">
+            {currentPhoto.type === 'warga' ? (
+              <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
+                <Users size={11} className="opacity-80" />
+                <span className="font-medium">{currentPhoto.user_name}</span>
+                <span className="opacity-60 font-light text-[9px]">{formatUploadTime(currentPhoto.created_at)}</span>
+              </div>
+            ) : currentPhoto.isCctv ? (
+              <div className="flex items-center gap-2 bg-red-600/90 backdrop-blur-sm border border-red-500/20 px-3 py-1 rounded-full shadow-lg">
+                <Video size={11} className="animate-pulse text-white" />
+                <span className="font-semibold tracking-wider text-white uppercase text-[9px]">Live CCTV</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
+                <Building2 size={11} className="opacity-80" />
+                <span className="font-medium opacity-90">Suasana • {currentTimeKey}</span>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className={`absolute inset-0 flex items-center justify-center p-6 text-center overflow-hidden ${themeClasses}`}>
+          <div className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-t-[30px]"
+            style={{
+              backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+              backgroundSize: '16px 16px',
+            }}
+          />
+          <div className="relative flex flex-col items-center max-w-[80%] p-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-xl shadow-xl">
+            <div className="flex items-center gap-1.5 mb-2.5 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+              <span className="text-[8px] uppercase tracking-[0.2em] font-bold text-cyan-400 font-mono">
+                Kondisi Terkini
+              </span>
+            </div>
+
+            <p className="text-[11px] text-white/80 text-center font-mono leading-relaxed tracking-wide max-w-[90%]">
+              {deskripsiTempat || "Menampilkan rekaman visual dan pembaruan aktivitas area sekitar secara real-time."}
+              <span className="inline-block w-1 h-3 bg-cyan-400 ml-1 animate-pulse" />
+            </p>
+
+            {!isDetail && (
+              <button
+                onClick={() => {
+                  if (tempatId) {
+                    router.push(`/post/${tempatId}`);
+                  }
+                }}
+                className="mt-3 px-4 py-1 bg-cyan-500 text-black font-extrabold text-[9px] uppercase tracking-widest rounded shadow-md hover:bg-cyan-400 active:scale-95 transition-all"
+              >
+                Lihat Foto & Video
+              </button>
+            )}
+
+            <div className="w-full h-[1px] bg-white/10 my-2.5" />
+
+            <span className="text-[9px] opacity-40 font-mono lowercase tracking-wide">
+              {namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey}
+            </span>
+          </div>
         </div>
+      )}
 
-        <p className="text-[10px] uppercase tracking-[0.25em] font-semibold opacity-70">
-          Hasil Pantauan AI Setempat
-        </p>
-
-        <span className="text-[9px] opacity-40 mt-1 font-mono lowercase">
-          {namaTempat ? `${namaTempat} • ` : ""}{currentTimeKey} {isHujan ? "• hujan" : ""}
-        </span>
-      </div>
+      {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-indigo-500/5 mix-blend-overlay rounded-t-[30px] rounded-b-none" />}
     </div>
   );
 }

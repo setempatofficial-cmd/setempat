@@ -13,7 +13,6 @@ import StoryModal from "@/app/components/feed/StoryModal";
 import ImmersiveLightbox from "@/components/ImmersiveLightbox";
 import { processFeedItem } from "../../../lib/feedEngine";
 import { useTheme } from "@/app/hooks/useTheme";
-import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useExternalSignals } from '@/hooks/useExternalSignals';
 import { getCategoryStyle } from "@/lib/feedStyles";
@@ -109,7 +108,7 @@ const safeArray = (value) => {
   return [];
 };
 
-// ==================== TIME CONTEXT (OPTIMIZATION: prevent all cards re-render every minute) ====================
+// ==================== TIME CONTEXT ====================
 const TimeContext = React.createContext({ hour: '00', minute: '00' });
 
 export const TimeProvider = ({ children }) => {
@@ -139,7 +138,7 @@ export const TimeProvider = ({ children }) => {
   );
 };
 
-// ==================== PREMIUM COMPONENTS ====================
+// ==================== VIRAL BADGE ====================
 const ViralBadge = memo(() => {
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -164,6 +163,7 @@ const ViralBadge = memo(() => {
 
 ViralBadge.displayName = 'ViralBadge';
 
+// ==================== DISTANCE BADGE ====================
 const DistanceBadge = memo(({ distance, theme }) => {
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -187,6 +187,7 @@ const DistanceBadge = memo(({ distance, theme }) => {
 
 DistanceBadge.displayName = 'DistanceBadge';
 
+// ==================== PREMIUM ACTION BUTTON ====================
 const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
   const handleClick = (e) => {
     e.preventDefault();
@@ -216,8 +217,14 @@ const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
 
 PremiumActionButton.displayName = 'PremiumActionButton';
 
-const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChange }) => {
-  const { user } = useAuth();
+// ==================== PREMIUM LIKE BUTTON (Tanpa useAuth) ====================
+const PremiumLikeButton = memo(({
+  tempatId,
+  initialLikeCount,
+  theme,
+  onLikeChange,
+  userId,
+}) => {
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(initialLikeCount || 0);
   const [isLoading, setIsLoading] = useState(false);
@@ -232,14 +239,14 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
 
   useEffect(() => {
     const checkLikeStatus = async () => {
-      if (!user?.id || !tempatId) return;
+      if (!userId || !tempatId) return;
 
       try {
         const { data, error } = await supabase
           .from('likes')
           .select('id')
           .eq('tempat_id', tempatId)
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .maybeSingle();
 
         if (!error && data && isMounted.current) {
@@ -251,10 +258,10 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
     };
 
     checkLikeStatus();
-  }, [user?.id, tempatId]);
+  }, [userId, tempatId]);
 
   const handleLike = useCallback(async () => {
-    if (!user?.id) {
+    if (!userId) {
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
       return;
     }
@@ -270,7 +277,6 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
     const previousLikeCount = likeCount;
     const previousIsLiked = isLiked;
 
-    // Optimistic update
     setIsLiked(newIsLiked);
     setLikeCount(newCount);
     if (onLikeChange) onLikeChange(newIsLiked, newCount);
@@ -279,7 +285,7 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
       if (newIsLiked) {
         const { error } = await supabase.from('likes').insert({
           tempat_id: tempatId,
-          user_id: user.id,
+          user_id: userId,
           created_at: new Date().toISOString()
         });
         if (error) throw error;
@@ -289,7 +295,7 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
         const { error } = await supabase.from('likes')
           .delete()
           .eq('tempat_id', tempatId)
-          .eq('user_id', user.id);
+          .eq('user_id', userId);
         if (error) throw error;
 
         await supabase.rpc('decrement_vibe_count', { place_id: tempatId });
@@ -298,7 +304,6 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
       console.error('Error toggling like:', error);
       setError('Gagal menyukai. Coba lagi nanti.');
 
-      // Rollback on error
       if (isMounted.current) {
         setIsLiked(previousIsLiked);
         setLikeCount(previousLikeCount);
@@ -311,7 +316,7 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
         setTimeout(() => setError(null), 3000);
       }
     }
-  }, [user?.id, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
+  }, [userId, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
 
   return (
     <div className="relative flex-1">
@@ -360,14 +365,14 @@ const PremiumLikeButton = memo(({ tempatId, initialLikeCount, theme, onLikeChang
 
 PremiumLikeButton.displayName = 'PremiumLikeButton';
 
-// ==================== SKELETON FOR PHOTO SLIDER ====================
+// ==================== SKELETON ====================
 const PhotoSliderSkeleton = memo(() => (
   <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 animate-pulse" />
 ));
 
 PhotoSliderSkeleton.displayName = 'PhotoSliderSkeleton';
 
-// ==================== MAIN COMPONENT ====================
+// ==================== DEFAULT ITEM ====================
 const DEFAULT_ITEM = {
   id: 0,
   name: "",
@@ -381,7 +386,7 @@ const DEFAULT_ITEM = {
   isRamai: false,
 };
 
-// Gabungkan state untuk mengurangi re-render
+// ==================== OPTIMIZED STATE HOOK ====================
 const useOptimizedState = () => {
   const [uiState, setUiState] = useState({
     isHovered: false,
@@ -424,6 +429,7 @@ const useOptimizedState = () => {
   };
 };
 
+// ==================== MAIN FEED CARD COMPONENT ====================
 function FeedCardV2Premium({
   item = DEFAULT_ITEM,
   isDetail = false,
@@ -456,7 +462,7 @@ function FeedCardV2Premium({
   }, [item]);
 
   const tempatId = safeItem.id;
-  const { user } = useAuth();
+  const userId = userProfile?.id; // ← DARI PROPS, BUKAN useAuth()
   const theme = useTheme();
   const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
@@ -465,7 +471,6 @@ function FeedCardV2Premium({
   const isNarrow = windowWidth < 380;
   const { hour: currentHour, minute: currentMinute } = React.useContext(TimeContext);
 
-  // Optimized state management
   const {
     uiState,
     setUiState,
@@ -494,7 +499,6 @@ function FeedCardV2Premium({
     activeStories,
   } = localData;
 
-  // Refs
   const cardRef = useRef(null);
   const observerRef = useRef(null);
   const channelRef = useRef(null);
@@ -512,7 +516,6 @@ function FeedCardV2Premium({
     router.refresh();
   }, [onRefreshNeeded, router]);
 
-  // Cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -523,7 +526,7 @@ function FeedCardV2Premium({
     };
   }, []);
 
-  // Intersection Observer for lazy loading
+  // Intersection Observer
   useEffect(() => {
     const currentCard = cardRef.current;
     if (!currentCard) return;
@@ -536,7 +539,7 @@ function FeedCardV2Premium({
             observerRef.current?.disconnect();
           }
         },
-        { threshold: 0.05, rootMargin: "500px" } // Reduced from 1000px to save memory
+        { threshold: 0.05, rootMargin: "500px" }
       );
       observerRef.current.observe(currentCard);
     };
@@ -548,7 +551,7 @@ function FeedCardV2Premium({
     };
   }, [setUiState]);
 
-  // Fetch laporan warga (only once when visible)
+  // Fetch laporan warga
   useEffect(() => {
     if (!tempatId || !isVisible || hasFetchedData.current) return;
 
@@ -606,7 +609,6 @@ function FeedCardV2Premium({
     };
   }, [tempatId, isVisible, setLocalData]);
 
-  // Memoized values
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
   const feed = useMemo(() => {
@@ -623,7 +625,6 @@ function FeedCardV2Premium({
     return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [localLaporanWarga, externalSignals]);
 
-  // Handlers
   const handlePhotoClick = useCallback((photos, currentIndex) => {
     if (!photos || !Array.isArray(photos)) return;
     const items = photos.map(p => ({
@@ -642,7 +643,6 @@ function FeedCardV2Premium({
     try {
       await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
     } catch (e) {
-      // Rollback on error
       setLocalData({ validationCount: previousCount });
       console.error(e);
     }
@@ -697,14 +697,10 @@ function FeedCardV2Premium({
     router.push(`/post/${safeItem.id}`);
   }, [router, safeItem.id, safeItem.category, isDetail]);
 
-  const handleLikeChange = useCallback((isLiked, newCount) => {
-    // Optional: log or update parent state if needed
-  }, []);
+  const handleLikeChange = useCallback((isLiked, newCount) => { }, []);
 
-  // Early return if no item
   if (!item?.id && safeItem.id === 0) return null;
 
-  // Computed values
   const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
   const itemStatusClass = safeItem.isViral ? "viral" : safeItem.isRamai ? "ramai" : "biasa";
 
@@ -786,7 +782,7 @@ function FeedCardV2Premium({
           )}
         </AnimatePresence>
 
-        {/* ==================== MEDIA SECTION (FOTO) ==================== */}
+        {/* MEDIA SECTION */}
         <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
           {isVisible ? (
             <PhotoSlider
@@ -796,6 +792,7 @@ function FeedCardV2Premium({
               namaTempat={safeItem.name}
               isHujan={safeItem.status === "hujan"}
               priority={priority}
+              isDetail={isDetail}
               className="w-full h-full object-cover"
               selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
               setSelectedPhotoIndex={(idx) => {
@@ -812,7 +809,7 @@ function FeedCardV2Premium({
 
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
 
-          {/* ==================== FLOATING HEADER ==================== */}
+          {/* FLOATING HEADER */}
           <div className="absolute top-0 left-0 right-0 p-5 z-20">
             <div className="flex justify-between items-start gap-2">
               <div className="flex-1 min-w-0">
@@ -834,7 +831,7 @@ function FeedCardV2Premium({
             </div>
           </div>
 
-          {/* ==================== STORY CIRCLE ==================== */}
+          {/* STORY CIRCLE */}
           <motion.div
             className="absolute bottom-4 left-4 z-50"
             whileHover={!prefersReducedMotion ? { scale: 1.1 } : {}}
@@ -851,7 +848,7 @@ function FeedCardV2Premium({
           </motion.div>
         </div>
 
-        {/* ==================== STATUS ISLAND ==================== */}
+        {/* STATUS ISLAND */}
         {!isDetail && showStatusIsland && (
           <div className={`${paddingX} pt-4 pb-2`}>
             <StatusIsland
@@ -865,7 +862,7 @@ function FeedCardV2Premium({
           </div>
         )}
 
-        {/* ==================== LIVE INSIGHT & ACTIONS ==================== */}
+        {/* LIVE INSIGHT & ACTIONS */}
         <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
           {!isDetail && showLiveInsight && isVisible && (
             <motion.div
@@ -877,7 +874,7 @@ function FeedCardV2Premium({
                 signals={allSignals}
                 theme={theme}
                 isCompact={isNarrow}
-                currentUser={user}
+                currentUser={userProfile}
                 userProfile={userProfile}
                 userAvatar={userAvatar}
                 tempatCategory={safeItem?.category}
@@ -896,6 +893,7 @@ function FeedCardV2Premium({
                   initialLikeCount={safeItem.vibe_count || 0}
                   theme={theme}
                   onLikeChange={handleLikeChange}
+                  userId={userId}
                 />
                 <PremiumActionButton
                   onClick={() => openKomentarModal?.(safeItem)}
@@ -978,7 +976,7 @@ function FeedCardV2Premium({
   );
 }
 
-// ==================== OPTIMIZED RE-RENDER MATRIX ====================
+// ==================== MEMO COMPARISON ====================
 const areEqual = (prevProps, nextProps) => {
   return (
     prevProps.item?.id === nextProps.item?.id &&
@@ -990,7 +988,8 @@ const areEqual = (prevProps, nextProps) => {
     prevProps.showAIButton === nextProps.showAIButton &&
     JSON.stringify(prevProps.comments?.[prevProps.item?.id]) === JSON.stringify(nextProps.comments?.[nextProps.item?.id]) &&
     prevProps.location?.latitude === nextProps.location?.latitude &&
-    prevProps.location?.longitude === nextProps.location?.longitude
+    prevProps.location?.longitude === nextProps.location?.longitude &&
+    prevProps.userProfile?.id === nextProps.userProfile?.id
   );
 };
 

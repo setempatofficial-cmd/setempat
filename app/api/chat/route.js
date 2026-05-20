@@ -1,8 +1,8 @@
-// app/api/chat/route.js (FINAL - Support Feed View + AI Cerdas)
+// app/api/chat/route.js (REVISI - Support RichContext dari useAIInsight)
 import { createClient } from '@supabase/supabase-js';
 
 // ============================================
-// RATE LIMITING
+// RATE LIMITING (SAMA SEPERTI SEBELUMNYA)
 // ============================================
 const rateLimitMap = new Map();
 const LIMIT_PER_MINUTE = 10;
@@ -43,7 +43,7 @@ setInterval(() => {
 }, 3600000);
 
 // ============================================
-// WEATHER API
+// WEATHER API (SAMA)
 // ============================================
 async function getWeatherFromAPI(kodeWilayah) {
   if (!kodeWilayah) return null;
@@ -61,7 +61,7 @@ async function getWeatherFromAPI(kodeWilayah) {
 }
 
 // ============================================
-// FORMAT JAM BUKA
+// FORMAT JAM BUKA (SAMA)
 // ============================================
 function formatJamBuka(jamBuka, tempatName) {
   if (!jamBuka) return null;
@@ -102,7 +102,7 @@ function formatJamBuka(jamBuka, tempatName) {
 }
 
 // ============================================
-// FORMAT KENTONGAN MESSAGE
+// FORMAT KENTONGAN MESSAGE (SAMA)
 // ============================================
 function formatKentonganMessage(kentongan) {
   if (!kentongan) return null;
@@ -167,7 +167,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const now = new Date().toISOString();
 
-    // 🔥 QUERY FEED_VIEW (DATA LENGKAP)
     let feedViewQuery = null;
     if (tempatId) {
       feedViewQuery = supabase
@@ -177,7 +176,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
         .single();
     }
 
-    // Query laporan warga
     let recentQuery = supabase
       .from('laporan_warga')
       .select('id, user_name, tipe, deskripsi, content, estimated_people, estimated_wait_time, created_at, time_tag')
@@ -190,7 +188,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
       .gte('created_at', today.toISOString())
       .limit(50);
 
-    // Query tempat (fallback)
     let tempatQuery = null;
     if (tempatId && !feedViewQuery) {
       tempatQuery = supabase
@@ -200,7 +197,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
         .single();
     }
 
-    // Query kentongan
     let kentonganQuery = null;
     if (kentonganId) {
       kentonganQuery = supabase
@@ -274,7 +270,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
 
     const latest = recentReports.find(r => new Date(r.created_at) >= twoHoursAgo) || recentReports[0];
 
-    // 🔥 PRIORITASKAN DATA DARI FEED_VIEW
     let jamBuka = null;
     let cctvUrl = null;
     let tempatName = null;
@@ -316,7 +311,6 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
         kodeWilayah: kodeWilayah,
         kentongan: kentongan,
         kentonganMessage: kentonganMessage,
-        // DATA CERDAS DARI FEED_VIEW
         daftarProduk: daftarProduk || [],
         personilSekitar: personilSekitar || [],
         infoPemilik: infoPemilik || null
@@ -329,16 +323,64 @@ async function getDataFromSupabase(tempatId, kentonganId = null, modalType = nul
 }
 
 // ============================================
-// QUICK RESPONSE UNTUK TEMPAT (DENGAN PRODUK & PERSONIL)
+// EKSTRAK INFORMASI DARI DESKRIPSI (BARU!)
 // ============================================
-function getQuickResponseForTempat(message, weatherData, supabaseData, tempatName) {
+function extractInfoFromDeskripsi(deskripsi) {
+  if (!deskripsi) return {};
+
+  const info = {};
+
+  // Ekstrak Kepala Desa/Lurah
+  const kepalaDesaMatch = deskripsi.match(/kepala desa[:\s]+([^,\n.]+)/i) ||
+    deskripsi.match(/lurah[:\s]+([^,\n.]+)/i);
+  if (kepalaDesaMatch) info.kepalaDesa = kepalaDesaMatch[1].trim();
+
+  // Ekstrak Kontak
+  const kontakMatch = deskripsi.match(/(kontak|telp|wa|whatsapp)[:\s]+([0-9\s\-+]+)/i);
+  if (kontakMatch) info.kontak = kontakMatch[2].trim();
+
+  // Ekstrak Website
+  const websiteMatch = deskripsi.match(/(website|web)[:\s]+(https?:\/\/[^\s]+)/i);
+  if (websiteMatch) info.website = websiteMatch[2].trim();
+
+  // Ekstrak Alamat lengkap (jika ada pola)
+  const alamatMatch = deskripsi.match(/alamat[:\s]+([^,\n.]+)/i);
+  if (alamatMatch) info.alamat = alamatMatch[1].trim();
+
+  return info;
+}
+
+// ============================================
+// QUICK RESPONSE UNTUK TEMPAT (DENGAN RICH CONTEXT)
+// ============================================
+function getQuickResponseForTempat(message, weatherData, supabaseData, richContext, tempatName) {
   const lowerMsg = message.toLowerCase();
+  const extractedInfo = richContext?.metadata?.deskripsi ? extractInfoFromDeskripsi(richContext.metadata.deskripsi) : {};
 
+  // 🔥 KEPALA DESA / LURAH (dari deskripsi)
+  if (lowerMsg.includes('kepala desa') || lowerMsg.includes('lurah') || lowerMsg.includes('kepala kelurahan')) {
+    if (extractedInfo.kepalaDesa) {
+      return `👨‍💼 *Kepala Desa/Lurah*: ${extractedInfo.kepalaDesa}\n\nKalau ada keperluan, bisa datang ke kantor desa ya, Lur! 📋`;
+    }
+    // Cek juga dari info_pemilik jika ada
+    if (supabaseData?.infoPemilik?.deskripsi?.toLowerCase().includes('kepala')) {
+      return `👨‍💼 Informasi: ${supabaseData.infoPemilik.deskripsi.substring(0, 150)}`;
+    }
+    return `Maaf, belum ada info kepala desa untuk ${tempatName}. Coba tanya langsung ke kantor desa ya, Lur! 📍`;
+  }
+
+  // 🔥 WEBSITE / WEB
+  if (lowerMsg.includes('website') || lowerMsg.includes('web')) {
+    if (extractedInfo.website) {
+      return `🌐 *Website ${tempatName}*: ${extractedInfo.website}`;
+    }
+    return `Maaf, belum ada info website untuk ${tempatName}.`;
+  }
+
+  // 🔥 SURAT / KTP / PENGANTAR
   if (lowerMsg.includes('surat') || lowerMsg.includes('ktp') || lowerMsg.includes('pengantar') ||
-    lowerMsg.includes('kk') || lowerMsg.includes('akta') || lowerMsg.includes('domisili') ||
-    lowerMsg.includes('cara membuat') && (lowerMsg.includes('surat') || lowerMsg.includes('ktp'))) {
+    lowerMsg.includes('kk') || lowerMsg.includes('akta') || lowerMsg.includes('domisili')) {
 
-    // Cek apakah ini kantor/balai desa
     const isKantor = tempatName.toLowerCase().includes('kantor') ||
       tempatName.toLowerCase().includes('balai') ||
       tempatName.toLowerCase().includes('desa') ||
@@ -352,21 +394,14 @@ function getQuickResponseForTempat(message, weatherData, supabaseData, tempatNam
 3️⃣ Isi formulir permohonan
 4️⃣ Tunggu proses sekitar 15-30 menit
 
-⏰ *Waktu terbaik:* Pagi jam 08.00-10.00 (lebih sepi)
-
-📋 *Yang perlu disiapkan:*
-• Fotokopi KTP (2 lembar)
-• Fotokopi KK (2 lembar)
-• Pas foto 3x4 (2 lembar)
+⏰ *Waktu terbaik:* Pagi jam 08.00-10.00
 
 Ada yang mau ditanyakan lagi, Lur?`;
     }
-
-    return `📝 Untuk membuat surat pengantar KTP, silakan datang ke kantor desa/kelurahan terdekat dengan membawa KTP asli dan KK. Prosesnya biasanya cepat kok, Lur!`;
   }
 
-  // 🔥 TAMBAHKAN JUGA UNTUK PROGRAM BANTUAN
-  if (lowerMsg.includes('program') || lowerMsg.includes('bantuan') || lowerMsg.includes('bansos')) {
+  // 🔥 PROGRAM BANTUAN
+  if (lowerMsg.includes('program') || lowerMsg.includes('bantuan') || lowerMsg.includes('bansos') || lowerMsg.includes('bantuan sosial')) {
     return `📋 *Program Bantuan yang tersedia:*
 
 • 🍚 *PKH* - Bantuan keluarga harapan
@@ -377,28 +412,63 @@ Ada yang mau ditanyakan lagi, Lur?`;
 💡 Cara daftar: Datang ke kantor desa bawa KTP & KK.`;
   }
 
-  // 🔥 TAMBAHKAN UNTUK JAM PELAYANAN
+  // 🔥 JAM PELAYANAN KANTOR
   if (lowerMsg.includes('jam pelayanan') || (lowerMsg.includes('jam') && lowerMsg.includes('kantor'))) {
     return `⏰ *Jam Pelayanan Kantor:*
 Senin - Kamis: 08.00 - 14.00
-Jumat: 08.00 - 11.00 (khusus Jumat)
+Jumat: 08.00 - 11.00
 Sabtu - Minggu: TUTUP
 
-💡 Waktu terbaik datang: Pagi jam 08.00-09.00`;
+💡 Waktu terbaik: Pagi jam 08.00-09.00`;
   }
 
-  // 🔥 TAMBAHKAN UNTUK KONTAK
-  if (lowerMsg.includes('kontak') || lowerMsg.includes('wa') || lowerMsg.includes('whatsapp')) {
-    const kontak = supabaseData?.infoPemilik?.kontak;
-    if (kontak) {
-      return `📱 *Kontak ${tempatName}:* ${kontak}\n\n💡 Bisa chat WA untuk info lebih lanjut, Lur!`;
+  // 🔥 KONTAK / WA
+  if (lowerMsg.includes('kontak') || lowerMsg.includes('wa') || lowerMsg.includes('whatsapp') || lowerMsg.includes('nomor')) {
+    if (extractedInfo.kontak) {
+      return `📱 *Kontak ${tempatName}:* ${extractedInfo.kontak}\n\n💡 Bisa chat WA untuk info lebih lanjut, Lur!`;
+    }
+    if (supabaseData?.infoPemilik?.kontak) {
+      return `📱 *Kontak ${tempatName}:* ${supabaseData.infoPemilik.kontak}`;
     }
     return `📱 Maaf, belum ada nomor kontak untuk ${tempatName}. Coba cek Google Maps atau datang langsung ya, Lur!`;
   }
-  const { todayStats, latest, trending, avgEstimasi, hasLaporan, jamBuka, daftarProduk, personilSekitar, infoPemilik } = supabaseData || {};
+
+  // 🔥 AKTIVITAS / ACARA (dari richContext)
+  if (lowerMsg.includes('acara') || lowerMsg.includes('kegiatan') || lowerMsg.includes('event') || lowerMsg.includes('aktivitas')) {
+    const aktivitas = richContext?.aktivitasWarga || [];
+    const aktivitasBerkala = richContext?.aktivitasBerkala || [];
+
+    if (aktivitas.length > 0 || aktivitasBerkala.length > 0) {
+      let response = `📅 *Kegiatan di sekitar ${tempatName}:*\n\n`;
+      if (aktivitas.length > 0) {
+        response += `🎯 *Kegiatan Terjadwal:*\n`;
+        aktivitas.slice(0, 3).forEach(a => {
+          response += `• ${a.judul_aktivitas} - ${new Date(a.tanggal_mulai).toLocaleDateString('id-ID')}\n`;
+        });
+        response += `\n`;
+      }
+      if (aktivitasBerkala.length > 0) {
+        response += `🔄 *Kegiatan Rutin:*\n`;
+        aktivitasBerkala.slice(0, 3).forEach(a => {
+          response += `• ${a.nama_aktivitas} (${a.hari}, ${a.jam_mulai?.slice(0, 5)} - ${a.jam_selesai?.slice(0, 5)})\n`;
+        });
+      }
+      return response;
+    }
+    return `Belum ada info kegiatan di ${tempatName} saat ini. Pantau terus ya, Lur! 📅`;
+  }
+
+  // 🔥 DESKRIPSI TEMPAT (dari richContext)
+  if (lowerMsg.includes('deskripsi') || lowerMsg.includes('tentang') && lowerMsg.includes('tempat')) {
+    if (richContext?.metadata?.deskripsi) {
+      return `📌 *Tentang ${tempatName}:*\n\n${richContext.metadata.deskripsi.substring(0, 300)}${richContext.metadata.deskripsi.length > 300 ? '...' : ''}`;
+    }
+  }
+
+  const { todayStats, latest, trending, hasLaporan, jamBuka, daftarProduk, personilSekitar, infoPemilik } = supabaseData || {};
   const latestReport = latest;
 
-  // Menu/Produk
+  // MENU/PRODUK
   if (lowerMsg.includes('menu') || lowerMsg.includes('produk') || lowerMsg.includes('jualan') || lowerMsg.includes('makanan') || lowerMsg.includes('minuman')) {
     if (daftarProduk && daftarProduk.length > 0) {
       const produkList = daftarProduk.slice(0, 5).map(p =>
@@ -409,8 +479,8 @@ Sabtu - Minggu: TUTUP
     return `Maaf, belum ada info menu untuk ${tempatName}. Coba tanya langsung ke tempatnya ya! 📍`;
   }
 
-  // Personil/Driver/Rewang
-  if (lowerMsg.includes('driver') || lowerMsg.includes('rewang') || lowerMsg.includes('ojek') || lowerMsg.includes('kurir') || lowerMsg.includes('bantuan')) {
+  // DRIVER/REWANG
+  if (lowerMsg.includes('driver') || lowerMsg.includes('rewang') || lowerMsg.includes('ojek') || lowerMsg.includes('kurir') || lowerMsg.includes('bantuan orang')) {
     if (personilSekitar && personilSekitar.length > 0) {
       const driverList = personilSekitar.filter(p => p.is_driver).slice(0, 3);
       const rewangList = personilSekitar.filter(p => p.is_rewang).slice(0, 3);
@@ -428,15 +498,15 @@ Sabtu - Minggu: TUTUP
     return `Belum ada driver/rewang yang online di sekitar ${tempatName} nih. Coba lagi nanti ya! 🙏`;
   }
 
-  // Pemilik/Kontak
-  if (lowerMsg.includes('pemilik') || lowerMsg.includes('owner') || lowerMsg.includes('kontak') || lowerMsg.includes('wa') || lowerMsg.includes('whatsapp')) {
+  // PEMILIK/KONTAK
+  if (lowerMsg.includes('pemilik') || lowerMsg.includes('owner')) {
     if (infoPemilik) {
       return `🏪 *Info Pemilik ${tempatName}:*\nNama: ${infoPemilik.nama}\nKontak: ${infoPemilik.kontak || 'Tidak tersedia'}\n${infoPemilik.is_verified ? '✅ Terverifikasi' : '⏳ Belum diverifikasi'}`;
     }
     return `Maaf, belum ada info kontak pemilik ${tempatName}.`;
   }
 
-  // Jam buka
+  // JAM BUKA
   if (lowerMsg.includes('jam buka') || lowerMsg.includes('buka jam') || lowerMsg.includes('jam operasional')) {
     const jamBukaText = formatJamBuka(jamBuka, tempatName);
     if (jamBukaText) return jamBukaText;
@@ -450,7 +520,7 @@ Sabtu - Minggu: TUTUP
     return `Maaf, belum ada tautan CCTV untuk ${tempatName}. 📸`;
   }
 
-  // Cuaca
+  // CUACA
   if (lowerMsg.includes('cuaca') || lowerMsg.includes('hujan') || lowerMsg.includes('panas')) {
     if (weatherData) {
       return `🌤️ Cuaca: ${weatherData.weather_desc}, ${weatherData.t}°C ${weatherData.t > 30 ? '🔥 Panas nih!' : '🌡️ Sejuk'}`;
@@ -458,7 +528,7 @@ Sabtu - Minggu: TUTUP
     return "Cuaca cerah 🌤️ enak buat jalan!";
   }
 
-  // Antrian
+  // ANTRIAN
   if (lowerMsg.includes('antri') || lowerMsg.includes('ngantre') || lowerMsg.includes('queue')) {
     if (latestReport?.tipe === 'Antri') {
       return `⏰ Antrian ${latestReport.estimated_wait_time ? `${latestReport.estimated_wait_time} menit` : 'ada'} di ${tempatName}. ${latestReport.deskripsi ? `Detail: ${latestReport.deskripsi.substring(0, 100)}` : ''}`;
@@ -466,7 +536,7 @@ Sabtu - Minggu: TUTUP
     return `✅ Nggak ada laporan antrian di ${tempatName}. Tenang aja!`;
   }
 
-  // Kondisi/Suasana
+  // KONDISI
   if (lowerMsg.includes('ramai') || lowerMsg.includes('sepi') || lowerMsg.includes('kondisi') || lowerMsg.includes('suasana')) {
     if (!hasLaporan) return `📝 Belum ada laporan untuk ${tempatName}. Kamu bisa jadi yang pertama dengan klik "Lapor"! 📸`;
     if (trending === 'ramai') return `🔥 Lagi RAMAI banget di ${tempatName}! ${todayStats.ramai} laporan, siap-siap antri ya!`;
@@ -475,14 +545,14 @@ Sabtu - Minggu: TUTUP
     return `😊 Kondisi normal di ${tempatName}. Nyaman buat dikunjungi!`;
   }
 
-  // Default
+  // DEFAULT
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 18 ? "Sore" : "Malam";
-  return `${greeting}, Lur! 👋 Ada yang bisa dibantu tentang ${tempatName}?\n\n💡 Saya bisa kasih info:\n• Menu & harga 🍽️\n• Driver/Rewang 🚗\n• Kondisi terkini 📊\n• Jam buka ⏰\n• Cuaca 🌤️\n\nCoba tanya aja!`;
+  return `${greeting}, Lur! 👋 Ada yang bisa dibantu tentang ${tempatName}?\n\n💡 Saya bisa kasih info:\n• Menu & harga 🍽️\n• Driver/Rewang 🚗\n• Kondisi terkini 📊\n• Jam buka ⏰\n• Cuaca 🌤️\n• Kepala desa 👨‍💼\n• Kegiatan/acara 📅\n\nCoba tanya aja!`;
 }
 
 // ============================================
-// QUICK RESPONSE UNTUK KENTONGAN
+// QUICK RESPONSE UNTUK KENTONGAN (SAMA)
 // ============================================
 function getQuickResponseForKentongan(message, supabaseData) {
   const lowerMsg = message.toLowerCase();
@@ -525,9 +595,9 @@ function getQuickResponseForKentongan(message, supabaseData) {
 }
 
 // ============================================
-// AI PROMPT BUILDER (SUPER CERDAS DENGAN FEED_VIEW)
+// AI PROMPT BUILDER (DENGAN RICH CONTEXT)
 // ============================================
-function buildAIPrompt(message, supabaseData, weatherData, tempatName, modalType) {
+function buildAIPrompt(message, supabaseData, weatherData, richContext, tempatName, modalType) {
   const {
     todayStats, trending, latest, avgEstimasi, hasLaporan, jamBuka,
     daftarProduk, personilSekitar, infoPemilik, kentongan
@@ -551,13 +621,12 @@ Pertanyaan user: "${message}"
 INSTRUKSI:
 - Jawab RAMAH & SINGKAT (max 3 kalimat)
 - Prioritaskan informasi dari pengumuman di atas
-- Tambahkan emoji yang relevan (🚨⚠️📢📰)
-- JANGAN mengada-ada atau membuat informasi fiktif`;
+- Tambahkan emoji yang relevan
+- JANGAN mengada-ada`;
   } else {
-    // PROMPT CERDAS UNTUK TEMPAT (dengan semua data feed_view)
     prompt = `Kamu asisten VIRTUAL untuk tempat: ${tempatName || 'Wisata/Kuliner'}
 
-=== DATA TERKINI ===
+=== DATA LAPORAN WARGA ===
 `;
 
     if (hasLaporan) {
@@ -579,31 +648,28 @@ ${latest.estimated_wait_time ? `Estimasi antri: ${latest.estimated_wait_time} me
     }
 
     if (weatherData) {
-      prompt += `\n🌤️ CUACA (REALTIME):
-${weatherData.weather_desc}, ${weatherData.t}°C, Kelembaban: ${weatherData.humidity || 'N/A'}%
+      prompt += `\n🌤️ CUACA:
+${weatherData.weather_desc}, ${weatherData.t}°C
 `;
     }
 
     if (jamBuka) {
       const formattedJam = typeof jamBuka === 'object' ? JSON.stringify(jamBuka) : jamBuka;
-      prompt += `\n⏰ JAM OPERASIONAL:
-${formattedJam}
-`;
+      prompt += `\n⏰ JAM OPERASIONAL: ${formattedJam}\n`;
     }
 
     if (daftarProduk && daftarProduk.length > 0) {
       prompt += `\n🍽️ MENU/PRODUK (${daftarProduk.length} item):
-${daftarProduk.slice(0, 5).map(p => `- ${p.nama_barang}: Rp${p.harga?.toLocaleString() || '?'} ${p.satuan || ''} (Stok: ${p.stok_ready ? '✅ Tersedia' : '❌ Habis'})`).join('\n')}
-${daftarProduk.length > 5 ? `...dan ${daftarProduk.length - 5} menu lainnya` : ''}
+${daftarProduk.slice(0, 5).map(p => `- ${p.nama_barang}: Rp${p.harga?.toLocaleString() || '?'}`).join('\n')}
 `;
     }
 
     if (personilSekitar && personilSekitar.length > 0) {
       const drivers = personilSekitar.filter(p => p.is_driver);
       const rewang = personilSekitar.filter(p => p.is_rewang);
-      prompt += `\n🚗 WARGA SETEMPAT AKTIF DI SEKITAR:
-${drivers.length > 0 ? `Driver: ${drivers.map(d => d.nama_panggilan).join(', ')}` : 'Tidak ada driver online'}
-${rewang.length > 0 ? `Rewang: ${rewang.map(r => r.nama_panggilan).join(', ')}` : 'Tidak ada rewang tersedia'}
+      prompt += `\n🚗 PERSONIL AKTIF:
+Driver online: ${drivers.map(d => d.nama_panggilan).join(', ') || 'Tidak ada'}
+Rewang online: ${rewang.map(r => r.nama_panggilan).join(', ') || 'Tidak ada'}
 `;
     }
 
@@ -611,8 +677,26 @@ ${rewang.length > 0 ? `Rewang: ${rewang.map(r => r.nama_panggilan).join(', ')}` 
       prompt += `\n🏪 INFO PEMILIK:
 Nama: ${infoPemilik.nama}
 Kontak: ${infoPemilik.kontak || 'Tidak tersedia'}
-Verifikasi: ${infoPemilik.is_verified ? '✅ Terverifikasi' : '⏳ Belum diverifikasi'}
 `;
+    }
+
+    // 🔥 DATA DARI RICH CONTEXT (BARU!)
+    if (richContext?.metadata?.deskripsi) {
+      prompt += `\n📌 DESKRIPSI LENGKAP TEMPAT:\n${richContext.metadata.deskripsi.substring(0, 500)}\n`;
+    }
+
+    if (richContext?.aktivitasWarga?.length > 0) {
+      prompt += `\n📅 KEGIATAN TERJADWAL:\n`;
+      richContext.aktivitasWarga.slice(0, 3).forEach(a => {
+        prompt += `- ${a.judul_aktivitas} (${new Date(a.tanggal_mulai).toLocaleDateString('id-ID')})\n`;
+      });
+    }
+
+    if (richContext?.aktivitasBerkala?.length > 0) {
+      prompt += `\n🔄 KEGIATAN RUTIN:\n`;
+      richContext.aktivitasBerkala.slice(0, 3).forEach(a => {
+        prompt += `- ${a.nama_aktivitas} (${a.hari}, ${a.jam_mulai?.slice(0, 5)})\n`;
+      });
     }
 
     prompt += `
@@ -620,20 +704,19 @@ Verifikasi: ${infoPemilik.is_verified ? '✅ Terverifikasi' : '⏳ Belum diverif
 "${message}"
 
 === INSTRUKSI ===
-1. Jawab dengan RAMAH, SINGKAT (max 3 kalimat), dan PAKAI EMOJI
-2. Jika ditanya menu/produk, sebutkan harga & ketersediaan
-3. Jika ditanya driver/rewang, sebutkan siapa yang online
-4. Jika ditanya kondisi, gunakan data laporan terkini
-5. Jika ditanya kontak/pemilik, berikan info yang tersedia
-6. JANGAN mengada-ada informasi yang tidak ada di data
-7. Gunakan gaya bahasa santai kayak ngobrol sama teman`;
+1. Jawab RAMAH, SINGKAT (max 3 kalimat), PAKAI EMOJI
+2. Prioritaskan jawaban dari DATA yang tersedia di atas
+3. Jika ditanya Kepala Desa/Lurah, cek di DESKRIPSI LENGKAP TEMPAT
+4. Jika ditanya menu/produk, sebutkan harga & ketersediaan
+5. JANGAN mengada-ada informasi yang tidak ada di data
+6. Gunakan gaya bahasa santai kayak ngobrol sama teman`;
   }
 
   return prompt;
 }
 
 // ============================================
-// MAIN HANDLER (SUPER CERDAS DENGAN FEED_VIEW)
+// MAIN HANDLER (REVISI - TERIMA RICH CONTEXT)
 // ============================================
 export async function POST(req) {
   try {
@@ -642,7 +725,9 @@ export async function POST(req) {
     if (limited === "minute") return Response.json({ text: "Pelan-pelan, Lur! 😅" });
     if (limited === "day") return Response.json({ text: "Kuota habis, besok lagi ya! 🙏" });
 
-    const { message, tempat, kentonganId, modalType } = await req.json();
+    // 🔥 TERIMA RICH CONTEXT DARI FRONTEND
+    const { message, tempat, kentonganId, modalType, richContext } = await req.json();
+
     if (!message?.trim()) return Response.json({ error: "Pesan kosong" }, { status: 400 });
 
     const safeMsg = message.trim().slice(0, 200);
@@ -661,82 +746,17 @@ export async function POST(req) {
 
     const supabaseData = supabaseResult?.success ? supabaseResult.data : null;
 
-    // Deteksi pertanyaan spesifik
-    const isSpecificQuestion = safeMsg.toLowerCase().match(/^(kapan|jam berapa|tanggal|waktu|detail|isi|apa|siapa|dimana|bagaimana|kenapa|jelaskan|ceritakan|menu|produk|driver|rewang|pemilik|kontak)/);
+    // 🔥 QUICK RESPONSE DENGAN RICH CONTEXT
+    const quickResponse = getQuickResponseForTempat(safeMsg, weatherData, supabaseData, richContext, tempatName);
 
-    // MODAL KENTONGAN
-    if (detectedModalType === 'kentongan' && supabaseData?.kentongan) {
-      const kentonganResponse = getQuickResponseForKentongan(safeMsg, supabaseData);
-
-      if (isSpecificQuestion && !kentonganResponse.includes('📢') && kentonganResponse.length < 200) {
-        return Response.json({ text: kentonganResponse });
-      }
-
-      if (!isSpecificQuestion && kentonganResponse.length < 100) {
-        return Response.json({ text: kentonganResponse });
-      }
-
-      const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'kentongan');
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-
-      try {
-        const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            max_tokens: 250,
-            temperature: 0.6,
-            messages: [
-              { role: "system", content: "Asisten RAMAH untuk kentongan digital. Jawab SINGKAT, INFORMATIF, penuh EMOJI." },
-              { role: "user", content: prompt },
-            ],
-          }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeout);
-
-        if (!aiResponse.ok) {
-          return Response.json({ text: kentonganResponse });
-        }
-
-        const data = await aiResponse.json();
-        let aiText = data.choices?.[0]?.message?.content?.trim();
-
-        if (!aiText || aiText.length < 5) {
-          return Response.json({ text: kentonganResponse });
-        }
-
-        return Response.json({ text: aiText });
-
-      } catch (aiError) {
-        clearTimeout(timeout);
-        console.error("AI error:", aiError.message);
-        return Response.json({ text: kentonganResponse });
-      }
-    }
-
-    // MODAL TEMPAT (dengan fitur cerdas)
-    const quickResponse = getQuickResponseForTempat(safeMsg, weatherData, supabaseData, tempatName);
-
-    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau|menu|produk|jualan|makanan|minuman|driver|rewang|ojek|kurir|bantuan|pemilik|owner|kontak|wa|whatsapp)$/);
+    const isQuickIntent = safeMsg.toLowerCase().match(/^(cuaca|hujan|panas|cerah|mendung|angin|antri|ngantre|queue|ramai|rame|sepi|kondisi|suasana|gimana|cerita|warga|laporan|jam buka|buka jam|jam operasional|cctv|live|pantau|menu|produk|jualan|makanan|minuman|driver|rewang|ojek|kurir|bantuan orang|pemilik|owner|kontak|wa|whatsapp|kepala desa|lurah|kepala kelurahan|website|web|acara|kegiatan|event)$/);
 
     if (isQuickIntent) {
       return Response.json({ text: quickResponse });
     }
 
-    if (!supabaseData?.hasLaporan && !isSpecificQuestion) {
-      return Response.json({ text: quickResponse });
-    }
-
     // Panggil AI untuk pertanyaan kompleks
-    const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, tempatName, 'tempat');
+    const prompt = buildAIPrompt(safeMsg, supabaseData, weatherData, richContext, tempatName, detectedModalType);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -750,10 +770,10 @@ export async function POST(req) {
         },
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
-          max_tokens: 250,
+          max_tokens: 350,
           temperature: 0.7,
           messages: [
-            { role: "system", content: "Asisten CERDAS & RAMAH untuk info tempat wisata/kuliner. Jawab SINGKAT, gunakan DATA yang tersedia, penuh EMOJI." },
+            { role: "system", content: "Asisten CERDAS & RAMAH untuk info tempat. Jawab SINGKAT, gunakan DATA yang tersedia, penuh EMOJI." },
             { role: "user", content: prompt },
           ],
         }),

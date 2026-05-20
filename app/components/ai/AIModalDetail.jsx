@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from 'react-markdown';
 import { X, Send, Loader2, Sparkles, Bot, MapPin } from "lucide-react";
 
 export default function AIModalDetail({
@@ -43,15 +44,6 @@ export default function AIModalDetail({
       scrollToBottom();
     }
   }, [isLoading, scrollToBottom]);
-
-  // ==================== AUTO FOCUS INPUT ====================
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 300);
-    }
-  }, [isOpen]);
 
   // ==================== LOAD QUICK PROMPTS DARI API ====================
   useEffect(() => {
@@ -219,10 +211,21 @@ export default function AIModalDetail({
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div className={`max-w-[85%] p-3.5 text-sm leading-relaxed ${msg.role === "user"
-                  ? "bg-[#E3655B] text-white rounded-[20px] rounded-tr-none"
-                  : "bg-white/5 border border-white/10 text-white/90 rounded-[20px] rounded-tl-none"
+                    ? "bg-[#E3655B] text-white rounded-[20px] rounded-tr-none"
+                    : "bg-white/5 border border-white/10 text-white/90 rounded-[20px] rounded-tl-none"
                   }`}>
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  {msg.role === "assistant" ? (
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+                        strong: ({ children }) => <strong className="font-bold text-[#E3655B]">{children}</strong>,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -240,14 +243,14 @@ export default function AIModalDetail({
               </div>
             )}
 
-            {/* QUICK PROMPTS - Gelembung pertanyaan */}
+            {/* QUICK PROMPTS */}
             {!isLoadingPrompts && quickPrompts.length > 0 && messages.length <= 2 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mt-4 space-y-2"
               >
-                <p className="text-[10px] text-white/40 font-medium px-1"></p>
+                <p className="text-[10px] text-white/40 font-medium px-1">✨ Yuk tanya ini dulu:</p>
                 <div className="flex flex-wrap gap-2">
                   {quickPrompts.map((prompt, idx) => (
                     <motion.button
@@ -259,7 +262,7 @@ export default function AIModalDetail({
                       className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all active:scale-95"
                     >
                       <span className="text-sm">{prompt.icon}</span>
-                      <span className="text-[11px] font-medium text-white/80 whitespace-nowrap">
+                      <span className="text-[11px] font-medium text-white/80">
                         {prompt.text}
                       </span>
                     </motion.button>

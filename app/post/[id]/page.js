@@ -377,20 +377,26 @@ function PostDetailContent({ id }) {
       <div className="fixed bottom-24 right-6 z-[99] flex flex-col items-end gap-3.5 select-none">
         <AnimatePresence>
           {isExpanded && (
-            <motion.div initial={{ opacity: 0, y: 15, scale: 0.85 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 15, scale: 0.85 }} transition={{ duration: 0.2, ease: "easeOut" }} className="flex flex-col gap-3 mb-1">
+            <motion.div
+              initial={{ opacity: 0, y: 15, scale: 0.85 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 15, scale: 0.85 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="flex flex-col gap-3 mb-1"
+            >
               <button
                 onClick={() => {
                   handleOpenAIModal(`Halo! Tolong ringkas kondisi ${tempatName} untuk kategori ${kategori}`);
                   setIsExpanded(false);
                 }}
-                className="flex items-center gap-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-xl shadow-xl border border-white/10 active:scale-95 transition-all duration-200"
+                className="flex items-center gap-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-4 py-2.5 rounded-xl shadow-xl border border-white/10 active:scale-95 transition-all duration-200"
               >
                 <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-black uppercase tracking-wider">Takon AI</span>
-                  <span className="text-[7px] opacity-70 font-bold uppercase tracking-tight italic">Smart Info</span>
+                  <span className="text-xs font-black uppercase tracking-wider">Takon AI</span>
+                  <span className="text-[8px] opacity-70 font-bold uppercase tracking-tight italic">Smart Info</span>
                 </div>
                 <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-sm">
-                  <Sparkles size={16} className="text-cyan-200 animate-[pulse_2s_infinite]" />
+                  <Sparkles size={16} className="text-amber-200 animate-[pulse_2s_infinite]" />
                 </div>
               </button>
 
@@ -402,8 +408,8 @@ function PostDetailContent({ id }) {
                 className="flex items-center gap-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-2.5 rounded-xl shadow-xl border border-white/10 active:scale-95 transition-all duration-200"
               >
                 <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-black uppercase tracking-wider">Chat Admin</span>
-                  <span className="text-[7px] opacity-70 font-bold uppercase tracking-tight italic">Wong Pusat</span>
+                  <span className="text-xs font-black uppercase tracking-wider">Chat Admin</span>
+                  <span className="text-[8px] opacity-70 font-bold uppercase tracking-tight italic">Wong Pusat</span>
                 </div>
                 <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-sm">
                   <MessageCircle size={16} className="text-emerald-200" />
@@ -416,20 +422,63 @@ function PostDetailContent({ id }) {
         <motion.button
           onClick={() => setIsExpanded(!isExpanded)}
           whileTap={{ scale: 0.92 }}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all duration-300 relative ${isExpanded ? 'bg-zinc-900 text-white border-zinc-800' : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border-zinc-100 dark:border-zinc-800'
+          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all duration-300 relative ${isExpanded
+              ? 'bg-zinc-900 text-white border-zinc-800'
+              : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border-zinc-100 dark:border-zinc-800'
             }`}
         >
           <div className="relative flex items-center justify-center w-full h-full">
-            <motion.div animate={{ rotate: isExpanded ? 180 : 0, opacity: isExpanded ? 0 : 1 }} transition={{ duration: 0.2 }} className="absolute">
-              <HelpCircle size={24} className="text-cyan-600 dark:text-cyan-400" />
+            {/* 🧑🏽‍💼 CUSTOM ICON AVATAR JAWA - Wajah + Blangkon Jelas */}
+            <motion.div
+              animate={{ rotate: isExpanded ? 180 : 0, opacity: isExpanded ? 0 : 1, scale: isExpanded ? 0.6 : 1 }}
+              transition={{ duration: 0.2 }}
+              className="absolute"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="w-9 h-9 fill-amber-600 dark:fill-amber-400"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                {/* 1. Bentuk Wajah */}
+                <path d="M6 14C6 17.3 8.7 20 12 20C15.3 20 18 17.3 18 14V13H6V14Z" />
+
+                {/* 2. Topi Blangkon (Menutup Kepala Atas) */}
+                <path d="M5.5 12C5.5 8 8 5 12 5C16 5 18.5 8 18.5 12C16.5 11 14.5 10.5 12 10.5C9.5 10.5 7.5 11 5.5 12Z" className="fill-amber-700 dark:fill-amber-500" />
+
+                {/* 3. Mondolan Blangkon (Tonjolan Belakang) */}
+                <circle cx="12" cy="4.5" r="1.8" className="fill-amber-700 dark:fill-amber-500" />
+
+                {/* 4. Garis Lipatan Kain Blangkon */}
+                <path
+                  d="M6.5 9.5L12 11L17.5 9.5"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                  fill="none"
+                  className="text-white/40 dark:text-zinc-900/40"
+                />
+
+                {/* 5. Detail Wajah: Mata (Kiri & Kanan) */}
+                <circle cx="9.5" cy="14.5" r="1" className="text-white dark:text-zinc-900" fill="currentColor" />
+                <circle cx="14.5" cy="14.5" r="1" className="text-white dark:text-zinc-900" fill="currentColor" />
+
+                {/* 6. Detail Wajah: Senyum Ramah */}
+                <path
+                  d="M10 17C10 17 11 18.2 12 18.2C13 18.2 14 17 14 17"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  fill="none"
+                  className="text-white dark:text-zinc-900"
+                />
+              </svg>
             </motion.div>
-            <motion.div initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: isExpanded ? 0 : -90, opacity: isExpanded ? 1 : 0 }} transition={{ duration: 0.2 }} className="absolute">
-              <X size={20} className="text-zinc-400" />
-            </motion.div>
+
+            {/* Jika ditutup, tampilkan badging / ping indicator warna amber */}
             {!isExpanded && (
-              <span className="absolute top-3.5 right-3.5 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
+              <span className="absolute top-4 right-4 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
               </span>
             )}
           </div>

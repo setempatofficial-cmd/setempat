@@ -71,7 +71,6 @@ export default function CitizenHub({ userId, userRole }) {
   const [viewCounts, setViewCounts] = useState({});
   const [activeFilter, setActiveFilter] = useState("semua");
 
-
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
@@ -130,7 +129,7 @@ export default function CitizenHub({ userId, userRole }) {
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       result = result.filter(r =>
-        r.tempat?.name?.toLowerCase().includes(searchLower) ||
+        r.display_location_name?.toLowerCase().includes(searchLower) ||
         r.deskripsi?.toLowerCase().includes(searchLower)
       );
     }
@@ -386,73 +385,70 @@ export default function CitizenHub({ userId, userRole }) {
   };
 
   // ReportCard component
-  const ReportCard = ({ report, index }) => (
-    <motion.div
-      key={report.id}
-      whileTap={{ scale: 0.98 }}
-      onClick={() => {
-  // Laporan jalan/umum tidak buka modal
-  if (report.report_type === 'general_location' || !report.tempat_id) {
-    return; // Tidak melakukan apa-apa
-  }
-  openModal(index);
-}}
-      className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden cursor-pointer border border-white/5 shadow-lg active:opacity-90 transition-all hover:scale-[1.02] duration-200"
-    >
-      {report.photo_url || report.video_url ? (
-        <>
-          <MediaRenderer
-            url={report.video_url || report.photo_url}
-            className="w-full h-full object-cover"
-            thumbnail={true}
-            muted={true}
-            loop={false}
+  const ReportCard = ({ report, index }) => {
+
+    return (
+      <motion.div
+        key={report.id}
+        onClick={() => openModal(index)} // Tidak ada efek tap jika umum
+        className={`relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden border border-white/5 shadow-lg transition-all duration-200 cursor-pointer hover:scale-[1.02] active:opacity-90
+      `}
+      >
+        {report.photo_url || report.video_url ? (
+          <>
+            <MediaRenderer
+              url={report.video_url || report.photo_url}
+              className="w-full h-full object-cover"
+              thumbnail={true}
+              muted={true}
+              loop={false}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+              <p className="text-white text-sm font-bold line-clamp-2 mb-1">
+                {report.deskripsi || "Lihat detail..."}
+              </p>
+              <div className="flex items-center gap-1 text-white/60 text-[10px]">
+                <MapPin size={10} />
+                <span className="truncate">{report.display_location_name || "Lokasi"}</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4 text-center">
+            <div className="bg-white/5 p-4 rounded-2xl w-full">
+              <p className="text-white text-base font-black leading-tight line-clamp-3 mb-2">
+                {report.deskripsi || "Tidak ada deskripsi kondisi"}
+              </p>
+              <div className="flex items-center justify-center gap-1 text-white/40 text-[10px] mt-2">
+                <MapPin size={10} />
+                <span className="truncate">{report.display_location_name || "Lokasi"}</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full">
+          <img
+            src={getAvatarUrl(report)}
+            className="w-4 h-4 rounded-full border border-white/30"
+            alt="avatar"
+            referrerPolicy="no-referrer"
+            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
-            <p className="text-white text-sm font-bold line-clamp-2 mb-1">
-              {report.deskripsi || "Lihat detail..."}
-            </p>
-            <div className="flex items-center gap-1 text-white/60 text-[10px]">
-              <MapPin size={10} />
-              <span className="truncate">{report.tempat?.name}</span>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex flex-col items-center justify-center p-4 text-center">
-          <div className="bg-white/5 p-4 rounded-2xl w-full">
-            <p className="text-white text-base font-black leading-tight line-clamp-3 mb-2">
-              {report.deskripsi || "Tidak ada deskripsi kondisi"}
-            </p>
-            <div className="flex items-center justify-center gap-1 text-white/40 text-[10px] mt-2">
-              <MapPin size={10} />
-              <span className="truncate max-w-[80px]">{report.tempat?.name || "Lokasi"}</span>
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full">
-        <img
-          src={getAvatarUrl(report)}
-          className="w-4 h-4 rounded-full border border-white/30"
-          alt="avatar"
-          referrerPolicy="no-referrer"
-          onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(report.user_name || "Warga")}&background=0D8ABC&color=fff`; }}
-        />
-        <span className="text-[9px] text-white font-medium truncate max-w-[60px]">
-          {report.user_name || "Warga"}
-        </span>
-      </div>
-      {report.tipe && (
-        <div className="absolute top-2 right-2">
-          <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-full backdrop-blur-md ${report.tipe === "Ramai" ? "bg-yellow-500/40 text-white" : report.tipe === "Antri" ? "bg-rose-500/40 text-white" : "bg-emerald-500/40 text-white"}`}>
-            {report.tipe}
+          <span className="text-[9px] text-white font-medium truncate max-w-[60px]">
+            {report.user_name || "Warga"}
           </span>
         </div>
-      )}
-    </motion.div>
-  );
+        {report.tipe && (
+          <div className="absolute top-2 right-2">
+            <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-full backdrop-blur-md ${report.tipe === "Ramai" ? "bg-yellow-500/40 text-white" : report.tipe === "Antri" ? "bg-rose-500/40 text-white" : "bg-emerald-500/40 text-white"}`}>
+              {report.tipe}
+            </span>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
 
 
 
@@ -622,18 +618,29 @@ export default function CitizenHub({ userId, userRole }) {
                     const isActive = idx === currentIndex;
                     const postId = report.id;
 
+                    const isGeneralLocation = report.report_type === 'general_location' || !report.tempat_id;
+
                     return (
                       <div key={report.id} className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden">
 
                         {/* OVERLAY UTAMA - Klik area mana saja (kecuali tombol) akan ke detail tempat */}
                         <div
                           onClick={() => {
+                            // 🔥 CEK APAKAH LAPORAN UMUM
+                            const isGeneralLocation = report.report_type === 'general_location' || !report.tempat_id;
+
+                            if (isGeneralLocation) {
+                              // Laporan umum: TIDAK USAH KE DETAIL, tetap di modal
+                              return;
+                            }
+
+                            // Laporan normal: boleh ke detail
                             if (postId) {
                               closeModal();
                               router.push(`/post/${report.id}`);
                             }
                           }}
-                          className="absolute inset-0 z-10 cursor-pointer"
+                          className={`absolute inset-0 z-10 ${isGeneralLocation ? 'cursor-default' : 'cursor-pointer'}`}
                         />
                         {/* Media Background */}
                         <div className="absolute inset-0 w-full h-full overflow-hidden">
@@ -673,7 +680,7 @@ export default function CitizenHub({ userId, userRole }) {
                                 </p>
                                 <div className="flex items-center justify-center gap-2 text-white/60 text-sm mb-6">
                                   <MapPin size={14} className="text-[#E3655B]" />
-                                  <span>{report.tempat?.name || "Lokasi"}</span>
+                                  <span>{report.display_location_name || "Lokasi"}</span>
                                 </div>
                                 <div className="flex items-center justify-center gap-2 pt-4 border-t border-white/10">
                                   <img src={getAvatarUrl(report)} className="w-8 h-8 rounded-full border border-white/30" alt="avatar" />
@@ -700,7 +707,7 @@ export default function CitizenHub({ userId, userRole }) {
                         {/* FeedActions - SELALU ADA */}
                         <div className="absolute right-3 bottom-28 z-50">
                           <FeedActions
-                            item={{ id: report.tempat_id, name: report.tempat?.name, activePhoto: report.photo_url }}
+                            item={{ id: report.tempat_id, name: report.display_location_name || report.tempat?.name, activePhoto: report.photo_url }}
                             comments={{}}
                             openAIModal={() => openAIChat(report)}
                             openKomentarModal={handleKomentarModal}
@@ -753,7 +760,7 @@ export default function CitizenHub({ userId, userRole }) {
                                   )}
                                   <div className="flex items-center gap-1 bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md text-white/60 text-[10px]">
                                     <MapPin size={10} className="text-[#E3655B]" />
-                                    <span className="truncate max-w-[120px] font-medium">{report.tempat?.name || "Pasuruan"}</span>
+                                    <span className="truncate max-w-[120px] font-medium">{report.display_location_name || "Pasuruan"}</span>
                                   </div>
                                 </div>
                               </div>
