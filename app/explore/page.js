@@ -558,21 +558,12 @@ export default function CitizenHub({ userId, userRole }) {
             main::-webkit-scrollbar { display: none; }
           `}} />
 
-          {isActuallyLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <div className="relative flex items-center justify-center">
-                <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#E3655B] opacity-20"></div>
-                <div className="absolute animate-ping h-12 w-12 rounded-full bg-[#25F4EE] opacity-20 [animation-delay:0.5s]"></div>
-                <div className="relative h-10 w-10 border-4 border-t-[#E3655B] border-r-transparent border-b-[#25F4EE] border-l-transparent rounded-full animate-spin"></div>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              {filteredReports.map((report, index) => (
-                <ReportCard key={report.id} report={report} index={index} />
-              ))}
-            </div>
-          )}
+          {/* ✅ SPINNER TELAH DIHAPUS - LANGSUNG TAMPILKAN GRID */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {filteredReports.map((report, index) => (
+              <ReportCard key={report.id} report={report} index={index} />
+            ))}
+          </div>
         </main>
 
         <SmartBottomNavWarga

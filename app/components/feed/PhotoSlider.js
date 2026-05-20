@@ -239,28 +239,27 @@ export default function PhotoSlider({
 
             {currentPhoto.isEmbed ? (
               <div className="absolute inset-0 z-0 w-full h-full overflow-hidden rounded-t-[30px] bg-zinc-950">
-                {/* Iframe full width/height, center dengan object-contain */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full">
-                  <iframe
-                    src={currentPhoto.url}
-                    scrolling="no"
-                    className="w-full h-full border-0"
-                    style={{
-                      objectFit: 'contain',
-                      aspectRatio: '9/16'
-                    }}
-                    allow="autoplay; encrypted-media"
-                    allowFullScreen
-                  />
-                </div>
+                {/* PERBAIKAN: Singkirkan pembungkus berlebih, biarkan iframe langsung mengisi container 4:3 */}
+                <iframe
+                  src={currentPhoto.url}
+                  scrolling="no"
+                  className="w-full h-full border-0 absolute inset-0"
+                  style={{
+                    objectFit: 'contain',
+                    aspectRatio: 'auto'
+                  }}
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                />
 
+                {/* Lapisan transparan agar klik tembus untuk memicu pop-up Lightbox */}
                 <div className="absolute inset-0 bg-transparent cursor-pointer" />
                 <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
               </div>
             ) : (
               <OptimizedMedia
                 src={currentPhoto.url}
-                className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+                className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105 pointer-events-none"
                 alt={namaTempat}
                 autoPlay={true}
                 muted={true}

@@ -3,11 +3,12 @@
 
 import { isVideoUrl } from '@/utils/mediaUtils';
 import VideoPlayer from './VideoPlayer';
-import { optimizeVideoUrl, optimizeImageUrl } from '@/lib/cloudinary'; // ← TAMBAHKAN
+import { optimizeVideoUrl, optimizeImageUrl } from '@/lib/cloudinary';
 
-export default function MediaRenderer({ 
-  url, 
+export default function MediaRenderer({
+  url,
   className = "w-full h-full object-cover",
+  hideSpinner,  // ✅ Sudah ada
   autoPlay = false,
   muted = true,
   loop = true,
@@ -15,7 +16,7 @@ export default function MediaRenderer({
   showVideoControls = false,
   thumbnail = false,
   onLoad,
-  onError 
+  onError
 }) {
   if (!url) {
     return (
@@ -26,21 +27,18 @@ export default function MediaRenderer({
   }
 
   const isVideo = isVideoUrl(url);
-  
-  // 🔥 OPTIMASI VIDEO
+
   let finalUrl = url;
   if (isVideo && url.includes('cloudinary')) {
     finalUrl = optimizeVideoUrl(url);
   }
-  
-  // 🔥 TAMBAHKAN: OPTIMASI GAMBAR
+
   if (!isVideo && url.includes('cloudinary')) {
-    // Untuk thumbnail, pakai ukuran lebih kecil
     const options = thumbnail ? { width: 320 } : { width: 720 };
     finalUrl = optimizeImageUrl(url, options);
   }
 
-  // Untuk video
+  // ✅ Untuk video - Teruskan hideSpinner
   if (isVideo) {
     return (
       <VideoPlayer
@@ -51,13 +49,14 @@ export default function MediaRenderer({
         loop={thumbnail ? false : loop}
         playsInline={playsInline}
         showControls={showVideoControls}
+        hideSpinner={hideSpinner}  // ✅ TAMBAHKAN INI
         onLoad={onLoad}
         onError={onError}
       />
     );
   }
 
-  // 🔥 Untuk gambar (sudah dioptimasi)
+  // Untuk gambar
   return (
     <img
       src={finalUrl}

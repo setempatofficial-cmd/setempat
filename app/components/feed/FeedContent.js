@@ -1389,8 +1389,10 @@ export default function FeedContent() {
                           openKomentarModal={openKomentarModal}
                           onShare={handleShare}
                           priority={isPriority}
+                          userId={user?.id}
                           userProfile={profile}
                           userAvatar={profile?.avatar_url}
+                          showLiveInsight={false}
                         />
                       </FeedCardWrapper>
                     </motion.div>

@@ -245,7 +245,7 @@ const PremiumLikeButton = memo(({
         const { data, error } = await supabase
           .from('likes')
           .select('id')
-          .eq('tempat_id', tempatId)
+          .eq('tempat_id', Number(tempatId))
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -261,9 +261,13 @@ const PremiumLikeButton = memo(({
   }, [userId, tempatId]);
 
   const handleLike = useCallback(async () => {
-    if (!userId) {
+    console.log('🟢 handleLike dipanggil. ID User:', userId, 'ID Tempat:', tempatId);
+
+    // 1. Validasi awal secara ketat
+    if (!userId || userId.trim() === "") {
+      console.log('⚠️ Gagal: userId tidak ditemukan atau kosong!');
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
-      return;
+      return; // Berhenti di sini, UI tidak akan berubah
     }
 
     if (isLoading || isSubmitting.current) return;
@@ -274,47 +278,59 @@ const PremiumLikeButton = memo(({
 
     const newIsLiked = !isLiked;
     const newCount = newIsLiked ? likeCount + 1 : likeCount - 1;
-    const previousLikeCount = likeCount;
-    const previousIsLiked = isLiked;
-
-    setIsLiked(newIsLiked);
-    setLikeCount(newCount);
-    if (onLikeChange) onLikeChange(newIsLiked, newCount);
 
     try {
+      const targetTempatId = Number(tempatId);
+      if (isNaN(targetTempatId)) throw new Error("ID Tempat harus berupa angka valid.");
+
+      // 2. Jalankan Jalur Optimistic Update DI SINI (Setelah dipastikan userId & tempatId aman)
+      setIsLiked(newIsLiked);
+      setLikeCount(newCount);
+      if (onLikeChange) onLikeChange(newIsLiked, newCount);
+
       if (newIsLiked) {
-        const { error } = await supabase.from('likes').insert({
-          tempat_id: tempatId,
-          user_id: userId,
-          created_at: new Date().toISOString()
-        });
-        if (error) throw error;
+        console.log('🚀 Mengirim data INSERT ke Supabase...');
+        const { data, error } = await supabase
+          .from('likes')
+          .insert({
+            tempat_id: targetTempatId,
+            user_id: userId,
+            created_at: new Date().toISOString()
+          })
+          .select();
 
-        await supabase.rpc('increment_vibe_count', { place_id: tempatId });
+        if (error) throw error;
+        console.log('✅ Berhasil masuk Supabase:', data);
+
+        // Jalankan RPC
+        await supabase.rpc('increment_vibe_count', { place_id: targetTempatId });
+
       } else {
-        const { error } = await supabase.from('likes')
+        console.log('🚀 Mengirim data DELETE ke Supabase...');
+        const { error } = await supabase
+          .from('likes')
           .delete()
-          .eq('tempat_id', tempatId)
+          .eq('tempat_id', targetTempatId)
           .eq('user_id', userId);
+
         if (error) throw error;
+        console.log('✅ Berhasil hapus dari Supabase');
 
-        await supabase.rpc('decrement_vibe_count', { place_id: tempatId });
+        // Jalankan RPC
+        await supabase.rpc('decrement_vibe_count', { place_id: targetTempatId });
       }
+
     } catch (error) {
-      console.error('Error toggling like:', error);
-      setError('Gagal menyukai. Coba lagi nanti.');
+      console.error('❌ Terjadi kesalahan database:', error);
+      setError(`Gagal: ${error.message}`);
 
-      if (isMounted.current) {
-        setIsLiked(previousIsLiked);
-        setLikeCount(previousLikeCount);
-        if (onLikeChange) onLikeChange(previousIsLiked, previousLikeCount);
-      }
+      // Rollback UI jika database menolak
+      setIsLiked(isLiked);
+      setLikeCount(likeCount);
+      if (onLikeChange) onLikeChange(isLiked, likeCount);
     } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-        isSubmitting.current = false;
-        setTimeout(() => setError(null), 3000);
-      }
+      setIsLoading(false);
+      isSubmitting.current = false;
     }
   }, [userId, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
 
@@ -449,9 +465,11 @@ function FeedCardV2Premium({
   onRefreshNeeded,
   priority = false,
   cardIndex = 0,
+  userId,
   userProfile,
   userAvatar,
 }) {
+
   const safeItem = useMemo(() => {
     if (!item || typeof item !== 'object') return DEFAULT_ITEM;
     return {
@@ -462,7 +480,7 @@ function FeedCardV2Premium({
   }, [item]);
 
   const tempatId = safeItem.id;
-  const userId = userProfile?.id; // ← DARI PROPS, BUKAN useAuth()
+
   const theme = useTheme();
   const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
@@ -568,7 +586,7 @@ function FeedCardV2Premium({
           .limit(20);
 
         if (data && !error && isMounted.current) {
-          setLocalData({ laporanWarga: data });
+          setLocalData(prev => ({ ...prev, laporanWarga: data }));
         }
       } catch (error) {
         console.error('Error fetching laporan warga:', error);
@@ -639,11 +657,15 @@ function FeedCardV2Premium({
   const handleSesuai = useCallback(async () => {
     if (!safeItem.id) return;
     const previousCount = localValidationCount;
-    setLocalData({ validationCount: localValidationCount + 1 });
+
+    // Gunakan fungsional update agar laporanWarga & activeStories tetap terjaga
+    setLocalData(prev => ({ ...prev, validationCount: prev.validationCount + 1 }));
+
     try {
       await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
     } catch (e) {
-      setLocalData({ validationCount: previousCount });
+      // Rollback jika error
+      setLocalData(prev => ({ ...prev, validationCount: previousCount }));
       console.error(e);
     }
   }, [safeItem.id, localValidationCount, setLocalData]);
@@ -863,7 +885,7 @@ function FeedCardV2Premium({
         )}
 
         {/* LIVE INSIGHT & ACTIONS */}
-        <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
+        <div className={`${paddingX} pb-4 sm:pb-6 space-y-5 sm:space-y-6`}>
           {!isDetail && showLiveInsight && isVisible && (
             <motion.div
               className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
@@ -885,7 +907,7 @@ function FeedCardV2Premium({
             </motion.div>
           )}
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 mt-2">
             {!isDetail && (
               <div className="flex gap-2">
                 <PremiumLikeButton
