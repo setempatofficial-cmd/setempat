@@ -4,61 +4,77 @@ import { motion } from "framer-motion";
 import { useTheme } from "@/app/hooks/useTheme";
 import {
   Megaphone, MapPin, Clock, ChevronRight,
-  AlertTriangle, Bell, Volume2, Camera, Sparkles, Image as ImageIcon
+  AlertTriangle, Bell, Camera, Sparkles, Image as ImageIcon
 } from "lucide-react";
 
 // ==================== TYPE CONFIG ====================
 const typeConfig = {
   kentongan: {
     label: "INFO DESA",
-    icon: <Megaphone size={14} />,
-    bgLight: "bg-gradient-to-b from-orange-50 to-white",
-    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    icon: <Megaphone size={13} />,
+    bgLight: "bg-white",
+    bgDark: "bg-[#1c1c1e]",
     accent: "text-orange-500",
-    borderDark: "border-orange-500/20"
+    borderLight: "border-orange-100",
+    borderDark: "border-orange-500/10"
   },
   "area-summary": {
     label: "UPDATE AREA",
-    icon: <MapPin size={14} />,
-    bgLight: "bg-gradient-to-b from-blue-50 to-white",
-    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    icon: <MapPin size={13} />,
+    bgLight: "bg-white",
+    bgDark: "bg-[#1c1c1e]",
     accent: "text-blue-500",
-    borderDark: "border-blue-500/20"
+    borderLight: "border-blue-100",
+    borderDark: "border-blue-500/10"
   },
   "trigger-action": {
     label: "AJAKAN",
-    icon: <Camera size={14} />,
-    bgLight: "bg-gradient-to-b from-purple-50 to-white",
-    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    icon: <Camera size={13} />,
+    bgLight: "bg-white",
+    bgDark: "bg-[#1c1c1e]",
     accent: "text-purple-500",
-    borderDark: "border-purple-500/20"
+    borderLight: "border-purple-100",
+    borderDark: "border-purple-500/10"
   },
   "ai-insight": {
     label: "AI INSIGHT",
-    icon: <Sparkles size={14} />,
-    bgLight: "bg-gradient-to-b from-emerald-50 to-white",
-    bgDark: "bg-zinc-900/80 backdrop-blur-md",
+    icon: <Sparkles size={13} />,
+    bgLight: "bg-white",
+    bgDark: "bg-[#1c1c1e]",
     accent: "text-emerald-500",
-    borderDark: "border-emerald-500/20"
+    borderLight: "border-emerald-100",
+    borderDark: "border-emerald-500/10"
   },
 };
+
+// ==================== PREMIUM SHIMMER LOADING ====================
+const ImageShimmer = () => (
+  <div className="absolute inset-0 bg-zinc-900 overflow-hidden">
+    <div className="w-full h-full relative before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_infinite] before:bg-gradient-to-r before:from-transparent before:via-white/[0.06] before:to-transparent" />
+    <style jsx global>{`
+      @keyframes shimmer {
+        100% { transform: translateX(100%); }
+      }
+    `}</style>
+  </div>
+);
 
 // ==================== BADGE URGENCY ====================
 const UrgencyBadge = ({ isUrgent, urgency }) => {
   if (isUrgent) {
     return (
-      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500 text-white shadow-md shadow-red-500/20">
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500 text-white shadow-sm">
         <span className="w-1 h-1 rounded-full bg-white animate-ping" />
-        <span className="text-[8px] font-black tracking-wider uppercase">DARURAT</span>
+        <span className="text-[8px] font-bold tracking-wider uppercase">DARURAT</span>
       </div>
     );
   }
 
   if (urgency === 'high') {
     return (
-      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500 text-white">
+      <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500 text-white">
         <AlertTriangle size={8} />
-        <span className="text-[8px] font-black tracking-wider uppercase">PENTING</span>
+        <span className="text-[8px] font-bold tracking-wider uppercase">PENTING</span>
       </div>
     );
   }
@@ -67,7 +83,7 @@ const UrgencyBadge = ({ isUrgent, urgency }) => {
     return (
       <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500 text-white">
         <Bell size={8} />
-        <span className="text-[8px] font-black tracking-wider uppercase">INFO</span>
+        <span className="text-[8px] font-bold tracking-wider uppercase">INFO</span>
       </div>
     );
   }
@@ -76,7 +92,7 @@ const UrgencyBadge = ({ isUrgent, urgency }) => {
 };
 
 // ==================== MAIN BREAKCARD ====================
-const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" }) => {
+const BreakCard = memo(({ type = "kentongan", data = {}, onClick, isNarrow = false }) => {
   const theme = useTheme();
   const isMalam = theme?.isMalam;
   const [imgError, setImgError] = useState(false);
@@ -104,41 +120,38 @@ const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" })
   };
 
   const timeText = formatTime(data?.created_at);
+  const paddingX = `px-4 ${!isNarrow ? 'sm:px-5' : ''}`;
 
   return (
-    <div className="px-4 w-full max-w-md mx-auto my-3 select-none">
+    <div className="w-full max-w-md mx-auto mb-4 sm:mb-5 select-none">
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -2 }}
-        transition={{ duration: 0.25, ease: "easeOut" }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
         onClick={onClick}
         className={`
-          rounded-t-2xl rounded-b-none overflow-hidden cursor-pointer
+          rounded-2xl overflow-hidden cursor-pointer w-full transform-gpu
           ${isMalam ? config.bgDark : config.bgLight}
           ${isUrgent
-            ? 'border-t-2 border-x border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.07)] animate-[pulse_3s_infinite]'
-            : isMalam ? `border-t border-x border-white/5 ${config.borderDark}` : 'border-t border-x border-gray-100 shadow-sm'
+            ? 'border border-red-500/40 shadow-[0_4px_20px_rgba(239,68,68,0.08)]'
+            : isMalam
+              ? `border border-white/[0.06] ${config.borderDark} shadow-[0_4px_25px_rgba(0,0,0,0.2)]`
+              : `border border-black/[0.04] ${config.borderLight} shadow-[0_4px_20px_rgba(0,0,0,0.02)]`
           }
-          hover:shadow-md transition-all duration-200
+          hover:opacity-95 transition-all duration-200
         `}
       >
-        {/* ==================== BAGIAN FOTO ==================== */}
-        {/* Menggunakan aspect-video (16:9) konsisten untuk mencegah pergeseran layout saat dimuat */}
-        <div className="relative w-full aspect-[16/10] bg-zinc-950 overflow-hidden rounded-t-2xl">
-
+        {/* ==================== BAGIAN FOTO (4:3) ==================== */}
+        <div className="relative w-full aspect-[4/3] bg-zinc-950 overflow-hidden">
           {imageUrl && !imgError ? (
             <>
-              {imgLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
-                  <div className="w-5 h-5 border-2 border-zinc-700 border-t-white/60 rounded-full animate-spin" />
-                </div>
-              )}
+              {imgLoading && <ImageShimmer />}
 
               <img
                 src={imageUrl}
                 alt={data?.title || "Pantauan"}
-                className={`w-full h-full object-cover transition-all duration-500 ${imgLoading ? 'opacity-0 scale-102' : 'opacity-100 scale-100'}`}
+                className={`w-full h-full object-cover transition-opacity duration-500 ease-in-out ${imgLoading ? 'opacity-0' : 'opacity-100'
+                  }`}
                 loading="lazy"
                 onLoad={() => setImgLoading(false)}
                 onError={() => {
@@ -149,16 +162,16 @@ const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" })
             </>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-zinc-900 to-zinc-950">
-              <ImageIcon size={32} className={isMalam ? 'text-white/10' : 'text-gray-300/60'} />
+              <ImageIcon size={28} className={isMalam ? 'text-white/10' : 'text-gray-300/60'} />
               <span className={`text-[9px] mt-1 tracking-wider uppercase font-medium ${isMalam ? 'text-white/20' : 'text-gray-400'}`}>
                 Kondisi Lokasi
               </span>
             </div>
           )}
 
-          {/* Tag Kategori Glassmorphism */}
+          {/* Overlay Kategori Glassmorphism */}
           <div className="absolute top-3 left-3 z-10">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg backdrop-blur-md bg-black/40 border border-white/10 text-white text-[9px] font-bold tracking-wide">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md bg-black/40 border border-white/[0.08] text-white text-[9px] font-semibold tracking-wide">
               <span className={config.accent}>{config.icon}</span>
               <span>{config.label}</span>
             </div>
@@ -169,37 +182,38 @@ const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" })
             <UrgencyBadge isUrgent={isUrgent} urgency={data?.urgency} />
           </div>
 
-          {/* Proteksi Gradasi Halus Bawah Foto */}
-          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/50 via-black/10 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
         </div>
 
         {/* ==================== BAGIAN KONTEN ==================== */}
-        <div className="p-4">
-          <h3 className={`text-base font-black leading-snug tracking-tight ${isMalam ? 'text-zinc-100' : 'text-gray-900'} line-clamp-2`}>
+        <div className={`pt-4 pb-4 sm:pb-5 ${paddingX}`}>
+          <h3 className={`text-[15px] font-bold leading-snug tracking-tight ${isMalam ? 'text-zinc-100' : 'text-zinc-900'
+            } line-clamp-2`}>
             {data?.title || data?.text || "Update Warga"}
           </h3>
 
           {data?.content && (
-            <p className={`text-[12px] mt-1.5 line-clamp-2 leading-relaxed font-medium ${isMalam ? 'text-zinc-400' : 'text-gray-600'}`}>
+            <p className={`text-[12px] mt-1.5 line-clamp-2 leading-relaxed ${isMalam ? 'text-zinc-400' : 'text-zinc-500'
+              }`}>
               {data.content}
             </p>
           )}
 
           {/* Footer Card */}
-          <div className="flex items-center justify-between mt-3.5 pt-2.5 border-t border-zinc-500/10">
-            <div className="flex items-center gap-2.5 text-[10px] text-zinc-500 font-medium truncate max-w-[75%]">
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-black/[0.04] dark:border-white/[0.04]">
+            <div className="flex items-center gap-3 text-[11px] text-zinc-400 font-medium truncate max-w-[75%]">
               {(data?.target_desa || data?.location) && (
-                <div className="flex items-center gap-1 opacity-80 shrink-0">
-                  <MapPin size={11} className={config.accent} />
-                  <span className={isMalam ? 'text-zinc-300' : 'text-gray-700'}>
+                <div className="flex items-center gap-1 shrink-0">
+                  <MapPin size={11} className={`${config.accent} opacity-90`} />
+                  <span className={`${isMalam ? 'text-zinc-300' : 'text-zinc-600'} truncate max-w-[120px]`}>
                     {data.target_desa || data.location}
                   </span>
                 </div>
               )}
 
               {timeText && (
-                <div className="flex items-center gap-1 opacity-60">
-                  <Clock size={10} />
+                <div className="flex items-center gap-1 opacity-70 shrink-0">
+                  <Clock size={11} />
                   <span>{timeText}</span>
                 </div>
               )}
@@ -208,10 +222,10 @@ const BreakCard = memo(({ type = "kentongan", data = {}, onClick, level = "A" })
             {/* Navigasi Aksi */}
             <motion.div
               whileHover={{ x: 2 }}
-              className="flex items-center gap-0.5 text-emerald-500 text-[10px] font-black tracking-wider uppercase shrink-0"
+              className="flex items-center gap-0.5 text-emerald-500 text-[10px] font-bold tracking-wider uppercase shrink-0"
             >
               <span>Buka</span>
-              <ChevronRight size={12} strokeWidth={3} />
+              <ChevronRight size={11} strokeWidth={2.5} />
             </motion.div>
           </div>
         </div>

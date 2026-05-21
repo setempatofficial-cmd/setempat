@@ -29,13 +29,13 @@ const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
 // Constants
-const CACHE_DURATION = 30 * 60 * 1000;
+const CACHE_DURATION = 2 * 60 * 1000;
 const DEFAULT_RADIUS = 10;
 const LOCATION_TRANSITION_DELAY = 300;
 const RANKING_WEIGHT = 0.3;
 const DISTANCE_WEIGHT = 0.7;
 const SESSION_CACHE_KEY = 'feed_backup';
-const SESSION_CACHE_DURATION = 30 * 60 * 1000;
+const SESSION_CACHE_DURATION = 2 * 60 * 1000;
 
 // Helper Functions
 const getDynamicLimit = () => {
@@ -271,6 +271,9 @@ export default function FeedContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [forceShowLaporan, setForceShowLaporan] = useState(false);
   const [showFormLaporan, setShowFormLaporan] = useState(false);
+
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
+
 
   // ========== REFS ==========
   const fetchIdRef = useRef(0);
@@ -606,8 +609,6 @@ export default function FeedContent() {
 
       if (isLocationChange) {
         setIsTransitioningLocation(true);
-        setFeedOpacity(0.5);
-        await new Promise(resolve => setTimeout(resolve, LOCATION_TRANSITION_DELAY / 2));
       }
     }
 
@@ -1078,7 +1079,7 @@ export default function FeedContent() {
     if (backup && !initialLoadDoneRef.current) {
       try {
         const data = JSON.parse(backup);
-        const isFresh = (Date.now() - data.timestamp) < 30 * 60 * 1000;
+        const isFresh = (Date.now() - data.timestamp) < 2 * 60 * 1000;
 
         if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
           const maxRestore = Math.min(data.orderedIds.length, 20);
@@ -1172,36 +1173,55 @@ export default function FeedContent() {
   }, [cacheManager, loadPlaces]);
 
   // ========== HANDLERS ==========
+
+  // 1️⃣ DEKLARASIKAN DULU - handleLocationChanged (fungsi utama)
+  const handleLocationChanged = useCallback(async () => {
+    console.log('📍 Lokasi berubah, refresh feed...');
+
+    // Tampilkan loading state ringan
+    setIsTransitioningLocation(true);
+    setFeedOpacity(0.7);
+
+    // Bersihkan semua cache
+    cacheManager.invalidate();
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
+    sessionStorage.removeItem('last_location_key');
+
+    // Load ulang dengan lokasi baru
+    await loadPlaces(true, true);
+
+    // Sembunyikan loading state
+    setIsTransitioningLocation(false);
+    setFeedOpacity(1);
+
+    // Scroll ke atas (smooth)
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  }, [cacheManager, loadPlaces]);
+
+  // 2️⃣ SEKARANG baru boleh pakai handleLocationChanged
   const handleManualLocationSelect = useCallback(async (selectedLocation) => {
     console.log("📍 User pilih lokasi baru:", selectedLocation);
 
     setManualLocation(selectedLocation);
-    cacheManager.invalidate();
-    sessionStorage.removeItem(SESSION_CACHE_KEY);
-    await resetFeed();
-    setIsTransitioningLocation(true);
-    setFeedOpacity(0.5);
-    await new Promise(resolve => setTimeout(resolve, 200));
-    await loadPlaces(true, true);
+    await handleLocationChanged(); // ✅ Sudah aman karena dideklarasi di atas
+
     const locationName = selectedLocation?.address || selectedLocation?.name || "lokasi baru";
     setToast({ show: true, message: `📍 Feed diperbarui untuk ${locationName}` });
-    setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  }, [cacheManager, loadPlaces, setManualLocation, resetFeed]);
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+
+  }, [setManualLocation, handleLocationChanged]); // ✅ Dependency sudah benar
 
   const handleGPSActivation = useCallback(async (mode = 'gps') => {
     console.log(`📍 Aktifkan GPS location mode: ${mode}...`);
 
     await requestLocation(mode);
-    await new Promise(resolve => setTimeout(resolve, 800));
-    cacheManager.invalidate();
-    sessionStorage.removeItem(SESSION_CACHE_KEY);
-    await resetFeed();
-    setIsTransitioningLocation(true);
-    setFeedOpacity(0.5);
-    await loadPlaces(true, true);
+    await handleLocationChanged(); // ✅ Sudah aman
+
     setToast({ show: true, message: `📍 Feed diperbarui untuk lokasi GPS: ${villageLocation}` });
-    setTimeout(() => setToast({ show: false, message: "" }), 3000);
-  }, [requestLocation, cacheManager, loadPlaces, villageLocation, resetFeed]);
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+
+  }, [requestLocation, handleLocationChanged, villageLocation]);
 
   const handleRadiusChange = useCallback((newRadius) => {
     cacheManager.invalidate();
@@ -1327,11 +1347,9 @@ export default function FeedContent() {
       <LocationModal
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
-        locationReady={locationReady}
-        isMalam={isMalam}
         onActivateGPS={handleGPSActivation}
         onSelectManual={handleManualLocationSelect}
-        currentActiveMode={activeMode}
+        onLocationChanged={handleLocationChanged}
         customLocationName={placeName}
       />
 

@@ -141,7 +141,6 @@ const STORY_STYLES = [
       let story = `📍 **Mengenal ${tempatName}**\n\n`;
 
       if (ctx.metadata) {
-        // Peta tipe tempat
         const tipeMap = {
           masjid: '🕌 Tempat Ibadah',
           industri: '🏭 Kawasan Industri',
@@ -155,23 +154,18 @@ const STORY_STYLES = [
           umum: '📍 Tempat Umum'
         };
 
-        // Tampilkan tipe tempat
         story += `${tipeMap[ctx.metadata.tipe_utama] || '📍'} ${tempatName}\n`;
 
-        // Kapasitas jika ada
         if (ctx.metadata.kapasitas_normal) {
           story += `📏 Kapasitas normal: ~${ctx.metadata.kapasitas_normal.toLocaleString()} orang\n`;
         }
 
-        // Jam operasional jika ada
         if (ctx.metadata.jam_buka && ctx.metadata.jam_tutup) {
           story += `⏰ Jam operasional: ${ctx.metadata.jam_buka} - ${ctx.metadata.jam_tutup}`;
           if (ctx.metadata.is_24_jam) story += ` (24 Jam)`;
           story += `\n`;
         }
 
-        // ⭐ INI YANG PALING PENTING: DESKRIPSI BEBAS
-        // AI akan membaca apapun yang ditulis SuperAdmin di sini
         if (ctx.metadata.deskripsi) {
           story += `\n📌 **Informasi:**\n${ctx.metadata.deskripsi}\n`;
         }
@@ -179,7 +173,6 @@ const STORY_STYLES = [
         story += `\n`;
       }
 
-      // Fasilitas yang tersedia
       if (ctx.layananTersedia?.length > 0) {
         story += `🏢 **Fasilitas tersedia:**\n`;
         ctx.layananTersedia.slice(0, 4).forEach(l => {
@@ -201,7 +194,6 @@ export function useAIInsight(activeTempat) {
   const [modelUsed, setModelUsed] = useState('local');
   const [storyVersion, setStoryVersion] = useState(0);
 
-  // Mencegah Race Condition nama user
   const [user, setUser] = useState({ loading: true, namaDepan: null });
 
   const [richContext, setRichContext] = useState({
@@ -221,6 +213,7 @@ export function useAIInsight(activeTempat) {
 
   const isMountedRef = useRef(true);
   const fetchingRef = useRef(false);
+  const realtimeChannelRef = useRef(null);
 
   // ============================================
   // AMBIL DATA USER & NAMA DEPAN
@@ -284,6 +277,7 @@ export function useAIInsight(activeTempat) {
 
   // ============================================
   // FETCH RICH CONTEXT (PARALEL PROMISE)
+  // 🔥 PERBAIKAN: Ganti laporan_warga → laporan_with_location
   // ============================================
   const fetchRichContext = useCallback(async (tempatId) => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -300,7 +294,8 @@ export function useAIInsight(activeTempat) {
       supabase.from('tempat_koneksi').select('*, tempat_terkait:tempat_id_2 (id, name, latest_condition)').eq('tempat_id_1', tempatId),
       supabase.from('tempat_layanan_terkait').select('*').eq('tempat_id', tempatId).eq('is_tersedia', true),
       supabase.from('tempat_prediksi').select('*').eq('tempat_id', tempatId).eq('hari_prediksi', todayStr).gte('expires_at', nowStr).order('jam_prediksi', { ascending: true }),
-      supabase.from('laporan_warga').select('*, profiles(username)').eq('tempat_id', tempatId).eq('status', 'approved').order('created_at', { ascending: false }).limit(30),
+      // 🔥 PERUBAHAN: dari 'laporan_warga' → 'laporan_with_location'
+      supabase.from('laporan_with_location').select('*, profiles(username)').eq('tempat_id', tempatId).eq('status', 'approved').order('created_at', { ascending: false }).limit(30),
       supabase.from('external_signals').select('*').eq('tempat_id', tempatId).eq('verified', true).order('created_at', { ascending: false }).limit(20),
       supabase.from('tempat_layanan_warga').select('*').eq('tempat_id', tempatId).eq('is_active', true),
       supabase.from('tempat_bantuan_tersedia').select('*').eq('tempat_id', tempatId).eq('is_aktif', true).gte('kadaluarsa', nowStr),
@@ -411,6 +406,48 @@ export function useAIInsight(activeTempat) {
   const refresh = useCallback(() => {
     setStoryVersion(prev => prev + 1);
   }, []);
+
+  // ============================================
+  // 🔥 REALTIME SUBSCRIPTION (BARU!)
+  // Mendengar laporan baru dari laporan_with_location
+  // ============================================
+  useEffect(() => {
+    if (!activeTempat?.id) return;
+
+    // Bersihkan channel lama jika ada
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+    }
+
+    console.log(`🔄 AI Insight subscribe ke tempat: ${activeTempat.id}`);
+
+    // Buat channel baru
+    realtimeChannelRef.current = supabase
+      .channel(`ai_insight_${activeTempat.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'laporan_with_location',  // ← Pakai VIEW!
+          filter: `tempat_id=eq.${activeTempat.id}`
+        },
+        (payload) => {
+          console.log("🆕 AI Insight mendengar laporan baru:", payload.new);
+          // Refresh otomatis saat ada laporan baru
+          refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeChannelRef.current) {
+        console.log(`🔌 AI Insight unsubscribe dari tempat: ${activeTempat.id}`);
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+    };
+  }, [activeTempat?.id, refresh]);
 
   // ============================================
   // EFFECT UTAMA (KUNCI SINKRONISASI USER)

@@ -14,7 +14,10 @@ export default function AIInsight({ activeTempat, theme }) {
   const [hasEmergency, setHasEmergency] = useState(false);
   const typingTimeoutRef = useRef(null);
   const speechRef = useRef(null);
+  const [audioPlayer, setAudioPlayer] = useState(null);
   const voicesLoadedRef = useRef(false);
+
+
 
   const { greeting, story, insightStats, isLoading, modelUsed, refresh } =
     useAIInsight(activeTempat);
@@ -40,12 +43,12 @@ export default function AIInsight({ activeTempat, theme }) {
   };
 
   const handleStopSpeaking = useCallback(() => {
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    if (audioPlayer) {
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
     }
     setIsSpeaking(false);
-    speechRef.current = null;
-  }, []);
+  }, [audioPlayer]);
 
   // Deteksi darurat dari story
   useEffect(() => {
@@ -122,63 +125,59 @@ export default function AIInsight({ activeTempat, theme }) {
   }, [modelUsed]);
 
   // Sistem Text-to-Speech
-  const handleSpeak = useCallback(() => {
+  const handleSpeak = useCallback(async () => {
+    // Kalau cerita kosong atau sedang bicara, abaikan
     if (!displayedStory || isSpeaking) return;
 
+    // Stop audio lama jika ada yang sedang berjalan
     handleStopSpeaking();
 
     const cleanGreeting = cleanTextForSpeech(greeting);
     const cleanStory = cleanTextForSpeech(displayedStory);
     const speechText = `${cleanGreeting}. ${cleanStory}`;
 
-    const speakWithVoices = () => {
-      const utterance = new SpeechSynthesisUtterance(speechText);
-      utterance.lang = 'id-ID';
-      utterance.rate = 0.88;
-      utterance.pitch = 1.08;
-      utterance.volume = 1;
+    setIsSpeaking(true);
 
-      const voices = window.speechSynthesis.getVoices();
-      const bestVoices = [
-        voices.find(v => v.lang === 'id-ID' && v.name.includes('Google')),
-        voices.find(v => v.lang === 'id-ID' && v.name.includes('Samantha')),
-        voices.find(v => v.lang === 'id-ID')
-      ];
+    try {
+      // Panggil backend route yang kita buat di Langkah 3
+      const response = await fetch("/api/text-to-speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: speechText }),
+      });
 
-      const indonesianVoice = bestVoices.find(voice => voice !== undefined);
-      if (indonesianVoice) utterance.voice = indonesianVoice;
+      if (!response.ok) throw new Error("Gagal mengambil audio dari server");
 
-      utterance.onstart = () => {
+      // Mengubah response audio menjadi URL yang bisa diputar browser
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+
+      // Simpan ke state agar bisa di-pause/stop lewat tombol
+      setAudioPlayer(audio);
+
+      audio.onstart = () => {
         setIsSpeaking(true);
-        speechRef.current = utterance;
       };
-      utterance.onend = () => {
+
+      audio.onended = () => {
         setIsSpeaking(false);
-        speechRef.current = null;
+        URL.revokeObjectURL(audioUrl); // Bersihkan memori browser
+        setAudioPlayer(null);
       };
-      utterance.onerror = () => {
+
+      audio.onerror = () => {
         setIsSpeaking(false);
-        speechRef.current = null;
+        setAudioPlayer(null);
       };
 
-      window.speechSynthesis.speak(utterance);
-    };
+      // Putar suaranya!
+      await audio.play();
 
-    if (voicesLoadedRef.current) {
-      speakWithVoices();
-    } else {
-      const checkVoices = setInterval(() => {
-        if (window.speechSynthesis.getVoices().length > 0) {
-          voicesLoadedRef.current = true;
-          clearInterval(checkVoices);
-          speakWithVoices();
-        }
-      }, 100);
-
-      setTimeout(() => {
-        clearInterval(checkVoices);
-        if (!voicesLoadedRef.current) speakWithVoices();
-      }, 2000);
+    } catch (error) {
+      console.error("Error TTS ElevenLabs:", error);
+      setIsSpeaking(false);
+      setAudioPlayer(null);
     }
   }, [displayedStory, isSpeaking, greeting, handleStopSpeaking]);
 
@@ -284,8 +283,8 @@ export default function AIInsight({ activeTempat, theme }) {
               <button
                 onClick={isSpeaking ? handleStopSpeaking : handleSpeak}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all active:scale-90 shrink-0 ${isSpeaking
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20'
-                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800'
                   }`}
               >
                 {isSpeaking ? <VolumeX size={12} /> : <Volume2 size={12} />}
@@ -377,8 +376,8 @@ export default function AIInsight({ activeTempat, theme }) {
       {/* Bar Statistik Data / Footer (Diproteksi dari Screen Overflow di HP) */}
       {!isLoading && insightStats && insightStats.total_laporan > 0 && (
         <div className={`px-4 py-2 border-t border-dashed flex items-center justify-between gap-2 flex-wrap transition-colors duration-300 ${isMalam
-            ? 'border-slate-800/80 bg-slate-950/10 text-slate-400'
-            : 'border-slate-200 bg-slate-50/60 text-slate-600 font-medium'
+          ? 'border-slate-800/80 bg-slate-950/10 text-slate-400'
+          : 'border-slate-200 bg-slate-50/60 text-slate-600 font-medium'
           }`}
         >
           {/* Sisi Kiri: Gabungan Jumlah Kabar + Akurasi dengan flex-wrap */}
@@ -391,8 +390,8 @@ export default function AIInsight({ activeTempat, theme }) {
 
             <div className="flex items-center gap-1 min-w-0">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasEmergency ? 'bg-rose-500 animate-ping' :
-                  insightStats?.avg_confidence > 0.7 ? 'bg-emerald-500' :
-                    insightStats?.avg_confidence > 0.4 ? 'bg-amber-500' : 'bg-rose-500'
+                insightStats?.avg_confidence > 0.7 ? 'bg-emerald-500' :
+                  insightStats?.avg_confidence > 0.4 ? 'bg-amber-500' : 'bg-rose-500'
                 }`} />
               <span className="text-[9px] font-black uppercase tracking-wider opacity-80 truncate">
                 {hasEmergency ? 'Validasi Darurat' : `Akurasi ${Math.round((insightStats?.avg_confidence || 0) * 100)}%`}

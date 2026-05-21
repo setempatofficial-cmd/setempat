@@ -805,7 +805,7 @@ function FeedCardV2Premium({
         </AnimatePresence>
 
         {/* MEDIA SECTION */}
-        <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
+        <div className="relative w-full" style={{ aspectRatio: '4/3' }}>
           {isVisible ? (
             <PhotoSlider
               photos={localLaporanWarga}
@@ -832,24 +832,32 @@ function FeedCardV2Premium({
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
 
           {/* FLOATING HEADER */}
-          <div className="absolute top-0 left-0 right-0 p-5 z-20">
-            <div className="flex justify-between items-start gap-2">
+          <div className="absolute top-0 left-0 right-0 p-4 sm:p-5 z-20">
+            {/* Menggunakan items-start sudah benar, kita optimalkan gap dan layout-nya */}
+            <div className="flex justify-between items-start gap-3 sm:gap-4">
+
+              {/* Kiri: Area Konten Teks */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg">
+                {/* Kategori & Badge Viral */}
+                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                  <span className="text-[9px] sm:text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg truncate">
                     {catStyle.icon} {safeItem.category || 'Update Terkini'}
                   </span>
                   {safeItem.isViral && <ViralBadge />}
                 </div>
 
-                <h3 className="text-xl sm:text-2xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
-                  <span className="text-cyan-400 mr-2">●</span>{safeItem.name}
+                {/* Judul Utama (Font sudah di-scale down sedikit agar pas dengan 4:3) */}
+                <h3 className="text-base sm:text-lg md:text-xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight line-clamp-2 break-words">
+                  <span className="text-cyan-400 mr-1 text-sm sm:text-base align-middle">●</span>
+                  {safeItem.name}
                 </h3>
               </div>
 
-              <div className="flex-shrink-0">
+              {/* Kanan: Badge Jarak (Diberi margin atas sedikit agar sejajar estetika judul) */}
+              <div className="flex-shrink-0 mt-0.5">
                 <DistanceBadge distance={distanceText} theme={{ ...theme, isMalam: true }} />
               </div>
+
             </div>
           </div>
 
@@ -880,6 +888,7 @@ function FeedCardV2Premium({
               isExpanded={isExpanded}
               setIsExpanded={(value) => setUiState({ isExpanded: value })}
               jumlahWarga={totalSaksi}
+              locationName={item?.name || item?.location_name || item?.tempat?.nama || ""}
             />
           </div>
         )}

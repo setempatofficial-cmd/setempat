@@ -48,12 +48,73 @@ const isValidLocation = (location) => {
   return !INVALID_LOCATIONS.includes(normalized) && normalized.length > 2;
 };
 
+export const getWeatherAsSignal = (weatherData) => {
+  if (!weatherData) return null;
+
+  // Mapping kondisi cuaca ke level signal (1-5)
+  const getWeatherLevel = (condition) => {
+    const levelMap = {
+      'Cerah': 1,
+      'Cerah Berawan': 1,
+      'Berawan': 2,
+      'Berawan Tebal': 2,
+      'Kabut': 3,
+      'Hujan Ringan': 3,
+      'Hujan Sedang': 4,
+      'Hujan Lebat': 4,
+      'Hujan Petir': 5
+    };
+    return levelMap[condition] || 1;
+  };
+
+  // Mapping kondisi cuaca ke status text
+  const getWeatherStatusText = (condition, temp) => {
+    const statusMap = {
+      'Cerah': `☀️ Cerah (${temp}°C)`,
+      'Cerah Berawan': `⛅ Cerah Berawan (${temp}°C)`,
+      'Berawan': `☁️ Berawan (${temp}°C)`,
+      'Berawan Tebal': `☁️☁️ Mendung Tebal (${temp}°C)`,
+      'Hujan Ringan': `🌧️ Hujan Ringan (${temp}°C)`,
+      'Hujan Sedang': `🌧️🌧️ Hujan Sedang (${temp}°C)`,
+      'Hujan Lebat': `⛈️ Hujan Lebat (${temp}°C)`,
+      'Hujan Petir': `⚡🌧️ Hujan Petir (${temp}°C)`,
+      'Kabut': `🌫️ Kabut (${temp}°C)`
+    };
+    return statusMap[condition] || `🌡️ ${temp}°C`;
+  };
+
+  const level = getWeatherLevel(weatherData.condition);
+  const isExtreme = level >= 4;
+  const isWarning = level >= 3;
+
+  return {
+    type: 'weather',
+    condition: weatherData.condition,
+    temp: weatherData.temp,
+    humidity: weatherData.humidity,
+    windSpeed: weatherData.windSpeed,
+    icon: weatherData.icon,
+    level: level,
+    total: 1,
+    isExtreme,
+    isWarning,
+    statusText: getWeatherStatusText(weatherData.condition, weatherData.temp),
+    shortText: weatherData.short,
+    vibe: isExtreme ? '⚠️ Cuaca ekstrem, hati-hati beraktivitas!' :
+      isWarning ? '🌧️ Waspada perubahan cuaca' :
+        '☀️ Cuaca mendukung aktivitas',
+    color: isExtreme ? 'text-red-600' : isWarning ? 'text-amber-600' : 'text-blue-600',
+    bgColor: isExtreme ? 'bg-red-50' : isWarning ? 'bg-amber-50' : 'bg-blue-50',
+    borderColor: isExtreme ? 'border-red-200' : isWarning ? 'border-amber-200' : 'border-blue-200'
+  };
+};
+
 export function useWeather(locationName) {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [wilayahInfo, setWilayahInfo] = useState(null);
-  
+
   const isMounted = useRef(true);
   const abortControllerRef = useRef(null);
   const timeoutIdRef = useRef(null);
@@ -61,7 +122,7 @@ export function useWeather(locationName) {
 
   useEffect(() => {
     isMounted.current = true;
-    
+
     return () => {
       isMounted.current = false;
       if (abortControllerRef.current) {
@@ -94,22 +155,22 @@ export function useWeather(locationName) {
 
     try {
       console.log("🔍 Searching wilayah:", namaWilayah);
-      
+
       const response = await fetch(`/api/wilayah/search?nama=${encodeURIComponent(namaWilayah)}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success && data.data) {
         wilayahCache.set(cacheKey, {
           data: data.data,
           timestamp: Date.now()
         });
-        
+
         if (isMounted.current) {
           setWilayahInfo({
             kode: data.data.kode,
@@ -121,13 +182,13 @@ export function useWeather(locationName) {
             lon: data.data.lon,
           });
         }
-        
+
         console.log("✅ Wilayah found:", data.data.nama);
         return data.data;
       }
-      
+
       return null;
-      
+
     } catch (err) {
       console.error("❌ Error searching wilayah:", err.message);
       return null; // Return null, jangan throw error
@@ -163,21 +224,21 @@ export function useWeather(locationName) {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       console.log("🌤️ Fetching weather for:", locationName);
-      
+
       // 🔥 Panggil API weather dengan parameter location
       const response = await fetch(
         `/api/weather?location=${encodeURIComponent(locationName)}`,
         { signal: controller.signal }
       );
-      
+
       clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.weather) {
         const weatherData = {
           temp: data.weather.t,
@@ -188,18 +249,18 @@ export function useWeather(locationName) {
           short: WEATHER_SHORT[data.weather.weather_desc] || 'Berawan',
           location_name: data.weather.location_name
         };
-        
+
         weatherCache.set(cacheKey, {
           data: weatherData,
           timestamp: Date.now()
         });
-        
+
         setWeather(weatherData);
         setError(null);
       } else {
         throw new Error('Invalid weather data format');
       }
-      
+
     } catch (err) {
       if (err.name === 'AbortError') {
         console.warn('Weather request timeout');
@@ -208,10 +269,10 @@ export function useWeather(locationName) {
         console.error("Weather fetch error:", err.message);
         setError(err.message);
       }
-      
+
       // 🔥 Set fallback weather
       setWeather(FALLBACK_WEATHER);
-      
+
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -232,7 +293,7 @@ export function useWeather(locationName) {
 
     // Refresh setiap 30 menit
     intervalIdRef.current = setInterval(fetchWeatherDirect, 30 * 60 * 1000);
-    
+
     return () => {
       if (intervalIdRef.current) {
         clearInterval(intervalIdRef.current);
@@ -246,9 +307,9 @@ export function useWeather(locationName) {
     fetchWeatherDirect();
   }, [locationName, fetchWeatherDirect]);
 
-  return { 
-    weather, 
-    loading, 
+  return {
+    weather,
+    loading,
     error,
     wilayahInfo,
     refreshWeather,

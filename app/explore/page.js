@@ -334,8 +334,7 @@ export default function CitizenHub({ userId, userRole }) {
   };
 
   const handleLaporanSuccess = (newReport) => {
-    const updated = [newReport, ...(displayReports || [])];
-    updateCache(updated);
+    refresh();  // ← CUKUP INI!
     setShowLaporPanel(false);
     sessionStorage.removeItem('citizenhub_reports');
   };

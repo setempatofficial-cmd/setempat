@@ -1,3 +1,5 @@
+// components/StatusIsland.jsx (update)
+
 "use client";
 
 import { useDataContext } from "@/contexts/DataContext";
@@ -5,25 +7,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusText";
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
-
-// Helper functions
-const getFreshReports = (reports, maxHours = 12) => {
-  if (!reports?.length) return [];
-  const now = Date.now();
-  return reports.filter(report => {
-    if (!report?.created_at) return false;
-    const hoursDiff = (now - new Date(report.created_at).getTime()) / (1000 * 60 * 60);
-    return hoursDiff <= maxHours;
-  });
-};
-
-const getHoursSinceLastReport = (reports) => {
-  if (!reports?.length) return null;
-  const latest = reports[0];
-  if (!latest?.created_at) return null;
-  const hoursDiff = (Date.now() - new Date(latest.created_at).getTime()) / (1000 * 60 * 60);
-  return Math.floor(hoursDiff);
-};
+import { useWeather, getWeatherAsSignal } from "@/hooks/useWeather"; // 🔥 Import weather hook
 
 export default function StatusIsland({
   item,
@@ -31,7 +15,8 @@ export default function StatusIsland({
   allReports = [],
   isExpanded: externalExpanded,
   setIsExpanded: externalSetIsExpanded,
-  jumlahWarga
+  jumlahWarga,
+  locationName // 🔥 Tambahkan prop location untuk cuaca
 }) {
   const { getAIContext } = useDataContext();
   const [internalExpanded, setInternalExpanded] = useState(false);
@@ -39,6 +24,9 @@ export default function StatusIsland({
   const [isLoadingPassive, setIsLoadingPassive] = useState(false);
   const passiveCacheRef = useRef(new Map());
   const abortControllerRef = useRef(null);
+
+  // 🔥 Integrasi weather hook
+  const { weather, loading: weatherLoading, error: weatherError, refreshWeather } = useWeather(locationName);
 
   const isExpanded = externalExpanded ?? internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
@@ -67,7 +55,7 @@ export default function StatusIsland({
 
   const { freshReports, latestFreshReport, hoursSinceLastReport, hasFreshData, freshCount } = reportStats;
 
-  // Optimasi useEffect - fetch langsung, dengan cache, tanpa debounce
+  // 🔥 Update passive signal dengan weather data
   useEffect(() => {
     if (!targetId || hasFreshData) {
       setPassiveSignal(null);
@@ -75,7 +63,7 @@ export default function StatusIsland({
     }
 
     // Cek cache dulu
-    const cacheKey = targetId;
+    const cacheKey = `${targetId}_with_weather`;
     const cached = passiveCacheRef.current.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < 60000) { // Cache 1 menit
       setPassiveSignal(cached.data);
@@ -95,18 +83,45 @@ export default function StatusIsland({
 
     const fetchSignals = async () => {
       try {
+        // 🔥 Fetch passive signals
         const result = await getPassiveSignals(targetId, 4);
+
+        // 🔥 Merge dengan weather data jika ada
+        let finalResult = result;
+        if (weather && !hasFreshData) {
+          const weatherSignal = getWeatherAsSignal(weather);
+          finalResult = {
+            ...result,
+            weather: weatherSignal,
+            total: result.total + 1,
+            hasWeatherAlert: weatherSignal.isWarning || weatherSignal.isExtreme,
+            combinedStatus: weatherSignal.isExtreme
+              ? `${weatherSignal.statusText} · ${result.statusText || 'Waspada'}`
+              : result.statusText || weatherSignal.statusText
+          };
+        }
+
         if (isMounted && !abortController.signal.aborted) {
-          setPassiveSignal(result);
+          setPassiveSignal(finalResult);
           // Simpan ke cache
           passiveCacheRef.current.set(cacheKey, {
-            data: result,
+            data: finalResult,
             timestamp: Date.now()
           });
         }
       } catch (err) {
         if (isMounted && !abortController.signal.aborted) {
-          setPassiveSignal(null);
+          // 🔥 Fallback: tetap tampilkan weather jika ada
+          if (weather && !hasFreshData) {
+            const weatherOnly = {
+              weather: getWeatherAsSignal(weather),
+              total: 1,
+              hasWeatherAlert: true
+            };
+            setPassiveSignal(weatherOnly);
+          } else {
+            setPassiveSignal(null);
+          }
         }
       } finally {
         if (isMounted && !abortController.signal.aborted) {
@@ -121,7 +136,7 @@ export default function StatusIsland({
       isMounted = false;
       abortController.abort();
     };
-  }, [targetId, hasFreshData]);
+  }, [targetId, hasFreshData, weather]);
 
   const seed = targetId || "default";
   const defaultSuasana = useMemo(() => {
@@ -129,8 +144,34 @@ export default function StatusIsland({
     return getDefaultTextByTime(seed, category);
   }, [seed, item?.category]);
 
-  // Generate status - dengan fallback instant
+  // 🔥 Update status generation dengan prioritas weather alert
   const status = useMemo(() => {
+    // Prioritas 0: Weather extreme alert (paling penting)
+    if (passiveSignal?.weather?.isExtreme && !hasFreshData) {
+      return {
+        text: passiveSignal.weather.statusText,
+        color: passiveSignal.weather.color,
+        bgColor: passiveSignal.weather.bgColor,
+        icon: passiveSignal.weather.icon,
+        badge: "⚠️ CUACA EKSTREM",
+        vibe: passiveSignal.weather.vibe,
+        level: 5,
+      };
+    }
+
+    // Prioritas 0.5: Weather warning
+    if (passiveSignal?.weather?.isWarning && !hasFreshData) {
+      return {
+        text: passiveSignal.weather.statusText,
+        color: passiveSignal.weather.color,
+        bgColor: passiveSignal.weather.bgColor,
+        icon: passiveSignal.weather.icon,
+        badge: "🌧️ PERUBAHAN CUACA",
+        vibe: passiveSignal.weather.vibe,
+        level: 3,
+      };
+    }
+
     // Prioritas 1: Fresh data (laporan warga)
     if (hasFreshData && latestFreshReport) {
       const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
@@ -152,13 +193,13 @@ export default function StatusIsland({
       });
     }
 
-    // Prioritas 2: Passive signal (sudah jadi atau sedang loading? tetap tampilkan default dulu)
-    if (passiveSignal?.total > 0) {
+    // Prioritas 2: Passive signal (termasuk weather)
+    if (passiveSignal?.total > 0 || passiveSignal?.weather) {
       const passiveStatus = getPassiveStatusText(passiveSignal);
       if (passiveStatus) return passiveStatus;
     }
 
-    // Prioritas 3: Default text (langsung tampil, tidak nunggu loading)
+    // Prioritas 3: Default text
     return {
       text: defaultSuasana,
       color: "text-slate-500",
@@ -172,15 +213,35 @@ export default function StatusIsland({
     };
   }, [hasFreshData, latestFreshReport, freshCount, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
 
+  // 🔥 Update ringkasan dengan informasi cuaca
   const ringkasanMultiUser = useMemo(() => {
     if (hasFreshData && freshReports.length) {
-      return generateRingkasanMultiUser(freshReports, item?.category || "general");
+      let ringkasan = generateRingkasanMultiUser(freshReports, item?.category || "general");
+
+      // Tambahkan info cuaca jika ada dan penting
+      if (weather && (weather.condition.includes('Hujan') || weather.condition === 'Kabut')) {
+        ringkasan += ` ☁️ Cuaca ${weather.short} ${weather.temp}°C, waspada saat bepergian.`;
+      }
+      return ringkasan;
     }
+
+    if (passiveSignal?.weather) {
+      const weatherInfo = passiveSignal.weather;
+      if (weatherInfo.isExtreme) {
+        return `⚠️ PERINGATAN CUACA EKSTREM: ${weatherInfo.statusText}. ${weatherInfo.vibe} Hindari aktivitas luar ruangan jika tidak perlu.`;
+      }
+      if (weatherInfo.isWarning) {
+        return `🌧️ INFO CUACA: ${weatherInfo.statusText}. ${weatherInfo.vibe} Bawa perlengkapan hujan jika berpergian.`;
+      }
+      return `☀️ Cuaca: ${weatherInfo.statusText}. Kondisi mendukung aktivitas normal.`;
+    }
+
     if (passiveSignal?.total > 0) {
       return getPassiveRingkasan(passiveSignal, item?.name);
     }
+
     return "Belum ada laporan terbaru dari warga sekitar.";
-  }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal]);
+  }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal, weather]);
 
   const jarakFix = useMemo(() => {
     const dist = item?.distance;
@@ -198,16 +259,19 @@ export default function StatusIsland({
     return `${Math.floor(diffMin / 1440)}hari lalu`;
   }, [latestFreshReport]);
 
-  const canExpand = (status.level >= 2 && hasFreshData) || (passiveSignal?.total > 0);
+  const canExpand = (status.level >= 2 && (hasFreshData || passiveSignal?.weather)) || (passiveSignal?.total > 0);
 
+  // 🔥 Update glow style berdasarkan weather alert
   const glowStyle = (hasFreshData && status.level >= 2)
     ? 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20'
-    : (passiveSignal?.total > 0)
-      ? 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20'
-      : 'border-slate-100/80 shadow-sm';
+    : (passiveSignal?.weather?.isExtreme)
+      ? 'shadow-[0_0_20px_-3px_rgba(220,38,38,0.2)] border-red-500/30 animate-pulse'
+      : (passiveSignal?.weather?.isWarning)
+        ? 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20'
+        : (passiveSignal?.total > 0)
+          ? 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20'
+          : 'border-slate-100/80 shadow-sm';
 
-  // 🚀 TIDAK ADA LAGI LOADING STATE YANG MENGANGGO!
-  // Langsung tampilkan card dengan default text, fetch berjalan di background
   return (
     <div className="mx-3 -mt-5 relative z-10 transition-all duration-300">
       {/* Main Island Card */}
@@ -224,13 +288,18 @@ export default function StatusIsland({
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <span className="text-base shrink-0">{status.icon}</span>
             <div className="flex flex-col min-w-0">
-              <p className={`text-xs font-black tracking-wide uppercase truncate ${hasFreshData && status.level >= 2 ? 'text-amber-700' : 'text-slate-800'}`}>
+              <p className={`text-xs font-black tracking-wide uppercase truncate ${status.color}`}>
                 {status.text}
               </p>
               {hasFreshData && (
                 <span className="text-[10px] text-slate-400 font-medium">Laporan Aktif Warga</span>
               )}
-              {!hasFreshData && isLoadingPassive && (
+              {!hasFreshData && passiveSignal?.weather && (
+                <span className={`text-[10px] font-medium ${passiveSignal.weather.isExtreme ? 'text-red-500 animate-pulse' : 'text-blue-500'}`}>
+                  {passiveSignal.weather.isExtreme ? '⚠️ Peringatan Cuaca!' : '🌤️ Update Cuaca'}
+                </span>
+              )}
+              {!hasFreshData && !passiveSignal?.weather && isLoadingPassive && (
                 <span className="text-[10px] text-purple-400 font-medium animate-pulse">🔍 Cek Situasi...</span>
               )}
             </div>
@@ -238,13 +307,35 @@ export default function StatusIsland({
 
           {/* Badges Right Info */}
           <div className="flex items-center gap-2 shrink-0">
-            {passiveSignal && !hasFreshData && passiveSignal.total > 0 ? (
+            {/* Weather badge */}
+            {weather && !hasFreshData && (
+              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${weather.condition.includes('Hujan') || weather.condition === 'Kabut'
+                  ? 'text-blue-600 bg-blue-50 border-blue-100'
+                  : 'text-slate-600 bg-slate-50 border-slate-100'
+                }`}>
+                {weather.icon} {weather.temp}°
+              </span>
+            )}
+
+            {passiveSignal?.weather?.isExtreme && !hasFreshData && (
+              <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 animate-pulse">
+                ⚠️ EXTREME
+              </span>
+            )}
+
+            {passiveSignal && !hasFreshData && passiveSignal.total > 0 && !passiveSignal?.weather && (
               <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
                 ⚡ {passiveSignal.total} Aktivitas
               </span>
-            ) : waktuUpdate ? (
+            )}
+
+            {waktuUpdate ? (
               <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                 {waktuUpdate}
+              </span>
+            ) : weather && !hasFreshData ? (
+              <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
               </span>
             ) : (
               <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
@@ -270,23 +361,65 @@ export default function StatusIsland({
       {isExpanded && canExpand && (
         <div className="bg-white/95 backdrop-blur-md rounded-b-2xl border-x border-b border-slate-100/80 shadow-lg shadow-slate-100/50 overflow-hidden animate-in slide-in-from-top-1 duration-200">
           <div className="p-4 pt-1 space-y-4">
+            {/* 🔥 Weather Alert Section (priority) */}
+            {passiveSignal?.weather && !hasFreshData && (
+              <div className={`p-3 rounded-xl border ${passiveSignal.weather.isExtreme ? 'bg-red-50/80 border-red-200' : 'bg-blue-50/80 border-blue-200'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">{passiveSignal.weather.icon}</span>
+                  <span className={`text-xs font-bold uppercase ${passiveSignal.weather.isExtreme ? 'text-red-700' : 'text-blue-700'}`}>
+                    {passiveSignal.weather.isExtreme ? '⚠️ Peringatan Cuaca Ekstrem' : '🌤️ Informasi Cuaca'}
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-slate-700">
+                  {passiveSignal.weather.statusText}
+                </p>
+                <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-200/50">
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Suhu</p>
+                    <p className="text-sm font-bold text-slate-700">{weather?.temp}°C</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Kelembaban</p>
+                    <p className="text-sm font-bold text-slate-700">{weather?.humidity}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500">Angin</p>
+                    <p className="text-sm font-bold text-slate-700">{weather?.windSpeed} km/h</p>
+                  </div>
+                </div>
+                {passiveSignal.weather.isExtreme && (
+                  <div className="mt-2 p-2 bg-red-100/50 rounded-lg text-[11px] text-red-700 font-medium">
+                    ⚠️ {passiveSignal.weather.vibe} Hindari aktivitas di luar ruangan jika tidak mendesak.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Context Summary Box */}
             <div className={`p-3 rounded-xl border text-[13px] leading-relaxed shadow-inner
               ${hasFreshData
                 ? 'bg-amber-50/40 border-amber-100 text-slate-700'
-                : 'bg-purple-50/40 border-purple-100 text-slate-700'}
+                : passiveSignal?.weather?.isExtreme
+                  ? 'bg-red-50/40 border-red-100'
+                  : 'bg-purple-50/40 border-purple-100 text-slate-700'}
             `}>
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-[9px] font-extrabold uppercase tracking-widest ${hasFreshData ? 'text-amber-600' : 'text-purple-600'}`}>
-                  {hasFreshData ? `💬 Ringkasan ${freshCount} Warga` : '👀 Analisis Pantauan'}
+                <span className={`text-[9px] font-extrabold uppercase tracking-widest ${hasFreshData ? 'text-amber-600' :
+                    passiveSignal?.weather?.isExtreme ? 'text-red-600' : 'text-purple-600'
+                  }`}>
+                  {hasFreshData
+                    ? `💬 Ringkasan ${freshCount} Warga`
+                    : passiveSignal?.weather?.isExtreme
+                      ? '⚠️ Peringatan Cuaca'
+                      : '👀 Analisis Situasi'}
                 </span>
                 {!hasFreshData && passiveSignal?.total > 0 && (
                   <span className="text-[9px] text-slate-400 font-medium">4 jam terakhir</span>
                 )}
               </div>
 
-              <p className={hasFreshData ? "italic font-medium text-slate-600" : "font-medium text-slate-600"}>
-                {hasFreshData ? `"${ringkasanMultiUser}"` : ringkasanMultiUser}
+              <p className={`font-medium ${hasFreshData ? "italic text-slate-600" : "text-slate-600"}`}>
+                {ringkasanMultiUser}
               </p>
 
               {/* Avatar Pile */}
@@ -308,7 +441,11 @@ export default function StatusIsland({
                   }
                 </div>
                 <span className="text-[10px] text-slate-400 font-medium">
-                  {hasFreshData ? `${freshCount} warga ikut bersuara` : `${passiveSignal?.total || 0} interaksi lokal`}
+                  {hasFreshData
+                    ? `${freshCount} warga ikut bersuara`
+                    : passiveSignal?.weather?.isExtreme
+                      ? '⚠️ Tetap waspada'
+                      : `${passiveSignal?.total || 0} interaksi lokal`}
                 </span>
               </div>
             </div>
@@ -326,6 +463,14 @@ export default function StatusIsland({
                     {hasFreshData ? `👥 ${freshCount}` : `👥 ${passiveSignal?.total || 0}`}
                   </span>
                 </div>
+                {weather && !hasFreshData && (
+                  <div className="border-l border-slate-100 pl-4 flex flex-col gap-0.5">
+                    <span className="font-medium text-[9px] text-slate-400">Cuaca</span>
+                    <span className="text-blue-600 font-extrabold text-[11px]">
+                      {weather.icon} {weather.temp}°
+                    </span>
+                  </div>
+                )}
               </div>
               {jarakFix && (
                 <div className="flex flex-col gap-0.5 items-end">
@@ -340,3 +485,22 @@ export default function StatusIsland({
     </div>
   );
 }
+
+// Helper functions tetap sama
+const getFreshReports = (reports, maxHours = 12) => {
+  if (!reports?.length) return [];
+  const now = Date.now();
+  return reports.filter(report => {
+    if (!report?.created_at) return false;
+    const hoursDiff = (now - new Date(report.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursDiff <= maxHours;
+  });
+};
+
+const getHoursSinceLastReport = (reports) => {
+  if (!reports?.length) return null;
+  const latest = reports[0];
+  if (!latest?.created_at) return null;
+  const hoursDiff = (Date.now() - new Date(latest.created_at).getTime()) / (1000 * 60 * 60);
+  return Math.floor(hoursDiff);
+};
