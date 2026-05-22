@@ -98,30 +98,53 @@ export default function StoryCircle({
         )}
       </motion.div>
 
-      {/* ── TOMBOL UPLOAD (FLOATING) ── */}
+      {/* ── TOMBOL UPLOAD (FLOATING) DENGAN AREA SENTUH YANG DIPERBESAR ── */}
       <motion.div
         initial={{ opacity: 0, scale: 0.5 }}
         animate={{ opacity: 1, scale: 1 }}
         whileHover={{ scale: 1.2, rotate: 90 }}
-        className="absolute -bottom-0 -right-0 z-30"
-        onClick={(e) => e.stopPropagation()}
+        whileTap={{ scale: 0.9 }}
+        className="absolute -bottom-1 -right-1 z-30"
+        style={{
+          // Memperbesar area sentuh dengan pseudo-element
+          touchAction: "manipulation",
+        }}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          // Biarkan Uploader menangani sentuhan
+        }}
+        onTouchEnd={(e) => {
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
       >
-        <div className="w-7 h-7 flex items-center justify-center rounded-full bg-gradient-to-tr from-cyan-500 to-fuchsia-600 p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
-          <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center overflow-hidden 
-            [&_button]:!w-full [&_button]:!h-full [&_button]:!text-[14px] [&_button]:!bg-transparent 
-            [&_button]:!border-none [&_button]:!flex [&_button]:!items-center [&_button]:!justify-center">
-            <Uploader
-              tempatId={tempatId}
-              namaTempat={namaTempat}
-              tempatKategori={tempatKategori}
-            />
+        {/* Area sentuh yang diperbesar */}
+        <div className="relative">
+          {/* Area sentuh ekstra di sekitar tombol (untuk jempol) */}
+          <div className="absolute -inset-3 rounded-full bg-transparent touch-manipulation" />
+
+          {/* Tombol utama */}
+          <div className="relative w-8 h-8 flex items-center justify-center rounded-full bg-gradient-to-tr from-cyan-500 to-fuchsia-600 p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.5)] touch-manipulation active:scale-95 transition-transform duration-100">
+            <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center overflow-hidden 
+              [&_button]:!w-full [&_button]:!h-full [&_button]:!text-[16px] [&_button]:!bg-transparent 
+              [&_button]:!border-none [&_button]:!flex [&_button]:!items-center [&_button]:!justify-center
+              [&_button]:touch-manipulation [&_button]:active:scale-95">
+              <Uploader
+                tempatId={tempatId}
+                namaTempat={namaTempat}
+                tempatKategori={tempatKategori}
+              />
+            </div>
           </div>
         </div>
       </motion.div>
 
       {/* JUMLAH STORY BADGE (Counter) */}
       {jumlahStory > 1 && (
-        <div className="absolute -top-1 -right-1 z-30 bg-fuchsia-600 text-white text-[8px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-black shadow-lg">
+        <div className="absolute -top-1 -right-1 z-30 bg-fuchsia-600 text-white text-[8px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-black shadow-lg pointer-events-none">
           {jumlahStory}
         </div>
       )}

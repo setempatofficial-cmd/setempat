@@ -752,7 +752,7 @@ function FeedCardV2Premium({
       {...hoverAnimation}
       onHoverStart={handleHoverStart}
       onHoverEnd={handleHoverEnd}
-      className="relative mb-4 sm:mb-5 w-full max-w-[400px] mx-auto will-change-transform"
+      className="relative mb-4 sm:mb-5 w-full will-change-transform"
       style={{ isolation: "isolate" }}
     >
       <motion.div
