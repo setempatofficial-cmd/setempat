@@ -63,7 +63,7 @@ export default function Uploader({
       Antri: { Pagi: 8, Siang: 15, Sore: 12, Malam: 10 },
     };
     return defaults[condition]?.[timeTag] ||
-           (condition === "Sepi" ? 4 : condition === "Ramai" ? 20 : 12);
+      (condition === "Sepi" ? 4 : condition === "Ramai" ? 20 : 12);
   };
 
   const getConditionDescription = (condition, waitTime, traffic) => {
@@ -71,12 +71,12 @@ export default function Uploader({
     if (condition === "Ramai") return `Suasana ramai di ${namaTempat || "sini"}.`;
     if (condition === "Antri") {
       const waitText = waitTime === 5 ? "pendek (<5 menit)" :
-                       waitTime === 15 ? "sedang (5-15 menit)" : "panjang (>15 menit)";
+        waitTime === 15 ? "sedang (5-15 menit)" : "panjang (>15 menit)";
       return `Antrian ${waitText} di ${namaTempat || "sini"}.`;
     }
     if (traffic) {
       const trafficText = traffic === 'Lancar' ? 'lancar' :
-                          traffic === 'Ramai' ? 'ramai' : 'macet';
+        traffic === 'Ramai' ? 'ramai' : 'macet';
       return `Lalu lintas ${trafficText} di ${namaTempat || "sini"}.`;
     }
     return `Update dari ${namaTempat || "sini"}.`;
@@ -389,7 +389,7 @@ export default function Uploader({
                       <span className="text-[8px] font-black text-slate-300 uppercase tracking-wider">atau</span>
                       <div className="h-px flex-1 bg-slate-200" />
                     </div>
-                    
+
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
                       🚦 Kondisi Lalu Lintas
                     </p>
@@ -433,8 +433,8 @@ export default function Uploader({
                 <button
                   onClick={finalizeUpload}
                   disabled={
-                    (!selectedCondition && !selectedTraffic) || 
-                    (selectedCondition === "Antri" && !selectedWaitTime) || 
+                    (!selectedCondition && !selectedTraffic) ||
+                    (selectedCondition === "Antri" && !selectedWaitTime) ||
                     status === "uploading"
                   }
                   className={`w-full py-4 rounded-2xl font-black uppercase text-[12px] tracking-widest transition-all
@@ -445,7 +445,7 @@ export default function Uploader({
                 >
                   {status === "uploading" ? "Mengirim..." : "Posting Sekarang"}
                 </button>
-                
+
                 {selectedCondition === "Antri" && !selectedWaitTime && (
                   <p className="text-[9px] text-amber-600 text-center mt-2">
                     *Pilih estimasi waktu antri untuk melanjutkan

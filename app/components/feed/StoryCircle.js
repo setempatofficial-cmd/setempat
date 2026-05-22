@@ -2,12 +2,12 @@
 import { motion, AnimatePresence } from "framer-motion";
 import Uploader from "@/components/Uploader";
 
-export default function StoryCircle({ 
-  laporanWarga = [], 
-  tempatId, 
-  namaTempat, 
-  tempatKategori, 
-  openStoryModal 
+export default function StoryCircle({
+  laporanWarga = [],
+  tempatId,
+  namaTempat,
+  tempatKategori,
+  openStoryModal
 }) {
   const laporanDenganFoto = laporanWarga.filter(l => l?.photo_url || l?.image_url);
   const laporanTerbaru = laporanDenganFoto[0];
@@ -19,13 +19,13 @@ export default function StoryCircle({
 
   return (
     <div className="relative flex items-center justify-center w-20 h-20 group isolate select-none [-webkit-tap-highlight-color:transparent]">
-      
+
       {/* ── RING ANIMASI RADIANT ── */}
       {jumlahStory > 0 && (
         <>
           {/* Efek Glow di belakang ring */}
           <div className="absolute inset-[-4px] rounded-full bg-cyan-500/20 blur-md animate-pulse z-0" />
-          
+
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
@@ -66,7 +66,7 @@ export default function StoryCircle({
               className="w-full h-full object-cover brightness-[0.8] group-hover:brightness-110 transition-all duration-700 pointer-events-none"
               alt="latest-story"
             />
-            
+
             {/* OVERLAY GRADIENT TEKSTUR */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
@@ -110,10 +110,10 @@ export default function StoryCircle({
           <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center overflow-hidden 
             [&_button]:!w-full [&_button]:!h-full [&_button]:!text-[14px] [&_button]:!bg-transparent 
             [&_button]:!border-none [&_button]:!flex [&_button]:!items-center [&_button]:!justify-center">
-            <Uploader 
-              tempatId={tempatId} 
-              namaTempat={namaTempat} 
-              tempatKategori={tempatKategori} 
+            <Uploader
+              tempatId={tempatId}
+              namaTempat={namaTempat}
+              tempatKategori={tempatKategori}
             />
           </div>
         </div>

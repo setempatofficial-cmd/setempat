@@ -2,17 +2,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getFromCache, saveToCache, generateCacheKey } from '@/lib/cacheUtils';
+import { getFromCache, saveToCache } from '@/lib/cacheUtils';
 
-/**
- * Hook untuk data dengan cache sessionStorage
- * @param {string} cacheKey - Key untuk cache
- * @param {Function} fetchFn - Function untuk fetch data (jika cache expired)
- * @param {object} options - Options { duration, autoFetch, dependencies }
- */
 export function useSessionStorageCache(cacheKey, fetchFn, options = {}) {
   const {
-    duration = 5 * 60 * 1000, // 5 menit default
+    duration = 5 * 60 * 1000,
     autoFetch = true,
     dependencies = []
   } = options;
@@ -26,42 +20,57 @@ export function useSessionStorageCache(cacheKey, fetchFn, options = {}) {
     setLoading(true);
     setError(null);
 
-    // Cek cache dulu (kecuali ignoreCache)
     if (!ignoreCache) {
-      const cached = getFromCache(cacheKey);
-      if (cached) {
-        setData(cached);
-        setLoading(false);
-        hasFetchedRef.current = true;
-        return;
+      try {
+        const cached = getFromCache(cacheKey);
+        if (cached && cached.length !== undefined) {
+          setData(cached);
+          setLoading(false);
+          hasFetchedRef.current = true;
+          return;
+        }
+      } catch (cacheErr) {
+        console.warn("Cache read error, will fetch fresh:", cacheErr);
+        sessionStorage.removeItem(cacheKey);
       }
     }
 
-    // Fetch fresh data
     try {
+      console.log(`🚀 Fetching ${cacheKey}...`);
       const freshData = await fetchFn();
+
+      if (!freshData) {
+        throw new Error("No data received from fetchFn");
+      }
+
       setData(freshData);
       saveToCache(cacheKey, freshData, duration);
+
     } catch (err) {
-      console.error('Fetch error:', err);
-      setError(err.message || 'Failed to fetch data');
+      console.error(`❌ Fetch error for ${cacheKey}:`, err.message);
+      setError(err.message || "Gagal mengambil data");
+
+      // Jangan hapus data lama jika ada
+      // Biarkan data sebelumnya tetap tampil
+
     } finally {
       setLoading(false);
       hasFetchedRef.current = true;
     }
   }, [cacheKey, fetchFn, duration]);
 
-  // Auto fetch on mount
   useEffect(() => {
     if (autoFetch && !hasFetchedRef.current) {
       loadData();
     }
   }, [autoFetch, loadData, ...dependencies]);
 
-  // Manual refresh
-  const refresh = useCallback(() => loadData(true), [loadData]);
+  const refresh = useCallback(() => {
+    // Hapus cache dulu
+    sessionStorage.removeItem(cacheKey);
+    return loadData(true);
+  }, [loadData, cacheKey]);
 
-  // Update cache after mutation (like add new report)
   const updateCache = useCallback((newData) => {
     setData(newData);
     saveToCache(cacheKey, newData, duration);

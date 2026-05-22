@@ -210,7 +210,7 @@ const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
       aria-label={label}
     >
       <Icon size={16} className={theme.text} aria-hidden="true" />
-      <span className="hidden sm:inline">{label}</span>
+      <span className="text-[10px] sm:text-sm whitespace-nowrap">{label}</span>
     </motion.button>
   );
 });
@@ -245,7 +245,7 @@ const PremiumLikeButton = memo(({
         const { data, error } = await supabase
           .from('likes')
           .select('id')
-          .eq('tempat_id', Number(tempatId))
+          .eq('tempat_id', tempatId)
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -261,13 +261,9 @@ const PremiumLikeButton = memo(({
   }, [userId, tempatId]);
 
   const handleLike = useCallback(async () => {
-    console.log('🟢 handleLike dipanggil. ID User:', userId, 'ID Tempat:', tempatId);
-
-    // 1. Validasi awal secara ketat
-    if (!userId || userId.trim() === "") {
-      console.log('⚠️ Gagal: userId tidak ditemukan atau kosong!');
+    if (!userId) {
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
-      return; // Berhenti di sini, UI tidak akan berubah
+      return;
     }
 
     if (isLoading || isSubmitting.current) return;
@@ -278,59 +274,47 @@ const PremiumLikeButton = memo(({
 
     const newIsLiked = !isLiked;
     const newCount = newIsLiked ? likeCount + 1 : likeCount - 1;
+    const previousLikeCount = likeCount;
+    const previousIsLiked = isLiked;
+
+    setIsLiked(newIsLiked);
+    setLikeCount(newCount);
+    if (onLikeChange) onLikeChange(newIsLiked, newCount);
 
     try {
-      const targetTempatId = Number(tempatId);
-      if (isNaN(targetTempatId)) throw new Error("ID Tempat harus berupa angka valid.");
-
-      // 2. Jalankan Jalur Optimistic Update DI SINI (Setelah dipastikan userId & tempatId aman)
-      setIsLiked(newIsLiked);
-      setLikeCount(newCount);
-      if (onLikeChange) onLikeChange(newIsLiked, newCount);
-
       if (newIsLiked) {
-        console.log('🚀 Mengirim data INSERT ke Supabase...');
-        const { data, error } = await supabase
-          .from('likes')
-          .insert({
-            tempat_id: targetTempatId,
-            user_id: userId,
-            created_at: new Date().toISOString()
-          })
-          .select();
-
+        const { error } = await supabase.from('likes').insert({
+          tempat_id: tempatId,
+          user_id: userId,
+          created_at: new Date().toISOString()
+        });
         if (error) throw error;
-        console.log('✅ Berhasil masuk Supabase:', data);
 
-        // Jalankan RPC
-        await supabase.rpc('increment_vibe_count', { place_id: targetTempatId });
-
+        await supabase.rpc('increment_vibe_count', { place_id: tempatId });
       } else {
-        console.log('🚀 Mengirim data DELETE ke Supabase...');
-        const { error } = await supabase
-          .from('likes')
+        const { error } = await supabase.from('likes')
           .delete()
-          .eq('tempat_id', targetTempatId)
+          .eq('tempat_id', tempatId)
           .eq('user_id', userId);
-
         if (error) throw error;
-        console.log('✅ Berhasil hapus dari Supabase');
 
-        // Jalankan RPC
-        await supabase.rpc('decrement_vibe_count', { place_id: targetTempatId });
+        await supabase.rpc('decrement_vibe_count', { place_id: tempatId });
       }
-
     } catch (error) {
-      console.error('❌ Terjadi kesalahan database:', error);
-      setError(`Gagal: ${error.message}`);
+      console.error('Error toggling like:', error);
+      setError('Gagal menyukai. Coba lagi nanti.');
 
-      // Rollback UI jika database menolak
-      setIsLiked(isLiked);
-      setLikeCount(likeCount);
-      if (onLikeChange) onLikeChange(isLiked, likeCount);
+      if (isMounted.current) {
+        setIsLiked(previousIsLiked);
+        setLikeCount(previousLikeCount);
+        if (onLikeChange) onLikeChange(previousIsLiked, previousLikeCount);
+      }
     } finally {
-      setIsLoading(false);
-      isSubmitting.current = false;
+      if (isMounted.current) {
+        setIsLoading(false);
+        isSubmitting.current = false;
+        setTimeout(() => setError(null), 3000);
+      }
     }
   }, [userId, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
 
@@ -364,7 +348,7 @@ const PremiumLikeButton = memo(({
             aria-hidden="true"
           />
         </motion.div>
-        <span className={`hidden sm:inline ${isLiked ? 'text-white' : theme.text}`}>
+        <span className={`text-[10px] sm:text-sm whitespace-nowrap ${isLiked ? 'text-white' : theme.text}`}>
           {`Suka (${likeCount})`}
         </span>
       </motion.button>
@@ -465,11 +449,9 @@ function FeedCardV2Premium({
   onRefreshNeeded,
   priority = false,
   cardIndex = 0,
-  userId,
   userProfile,
   userAvatar,
 }) {
-
   const safeItem = useMemo(() => {
     if (!item || typeof item !== 'object') return DEFAULT_ITEM;
     return {
@@ -480,7 +462,7 @@ function FeedCardV2Premium({
   }, [item]);
 
   const tempatId = safeItem.id;
-
+  const userId = userProfile?.id; // ← DARI PROPS, BUKAN useAuth()
   const theme = useTheme();
   const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
@@ -586,7 +568,7 @@ function FeedCardV2Premium({
           .limit(20);
 
         if (data && !error && isMounted.current) {
-          setLocalData(prev => ({ ...prev, laporanWarga: data }));
+          setLocalData({ laporanWarga: data });
         }
       } catch (error) {
         console.error('Error fetching laporan warga:', error);
@@ -657,15 +639,11 @@ function FeedCardV2Premium({
   const handleSesuai = useCallback(async () => {
     if (!safeItem.id) return;
     const previousCount = localValidationCount;
-
-    // Gunakan fungsional update agar laporanWarga & activeStories tetap terjaga
-    setLocalData(prev => ({ ...prev, validationCount: prev.validationCount + 1 }));
-
+    setLocalData({ validationCount: localValidationCount + 1 });
     try {
       await supabase.from("minat").insert([{ tempat_id: safeItem.id }]);
     } catch (e) {
-      // Rollback jika error
-      setLocalData(prev => ({ ...prev, validationCount: previousCount }));
+      setLocalData({ validationCount: previousCount });
       console.error(e);
     }
   }, [safeItem.id, localValidationCount, setLocalData]);
@@ -774,7 +752,7 @@ function FeedCardV2Premium({
       {...hoverAnimation}
       onHoverStart={handleHoverStart}
       onHoverEnd={handleHoverEnd}
-      className="relative mb-4 sm:mb-5 w-full will-change-transform"
+      className="relative mb-4 sm:mb-5 w-full max-w-[400px] mx-auto will-change-transform"
       style={{ isolation: "isolate" }}
     >
       <motion.div
@@ -805,7 +783,7 @@ function FeedCardV2Premium({
         </AnimatePresence>
 
         {/* MEDIA SECTION */}
-        <div className="relative w-full" style={{ aspectRatio: '4/3' }}>
+        <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
           {isVisible ? (
             <PhotoSlider
               photos={localLaporanWarga}
@@ -832,32 +810,24 @@ function FeedCardV2Premium({
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
 
           {/* FLOATING HEADER */}
-          <div className="absolute top-0 left-0 right-0 p-4 sm:p-5 z-20">
-            {/* Menggunakan items-start sudah benar, kita optimalkan gap dan layout-nya */}
-            <div className="flex justify-between items-start gap-3 sm:gap-4">
-
-              {/* Kiri: Area Konten Teks */}
+          <div className="absolute top-0 left-0 right-0 p-5 z-20">
+            <div className="flex justify-between items-start gap-2">
               <div className="flex-1 min-w-0">
-                {/* Kategori & Badge Viral */}
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  <span className="text-[9px] sm:text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg truncate">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="text-[10px] font-black text-white/90 uppercase tracking-[0.2em] drop-shadow-lg">
                     {catStyle.icon} {safeItem.category || 'Update Terkini'}
                   </span>
                   {safeItem.isViral && <ViralBadge />}
                 </div>
 
-                {/* Judul Utama (Font sudah di-scale down sedikit agar pas dengan 4:3) */}
-                <h3 className="text-base sm:text-lg md:text-xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight line-clamp-2 break-words">
-                  <span className="text-cyan-400 mr-1 text-sm sm:text-base align-middle">●</span>
-                  {safeItem.name}
+                <h3 className="text-xl sm:text-2xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
+                  <span className="text-cyan-400 mr-2">●</span>{safeItem.name}
                 </h3>
               </div>
 
-              {/* Kanan: Badge Jarak (Diberi margin atas sedikit agar sejajar estetika judul) */}
-              <div className="flex-shrink-0 mt-0.5">
+              <div className="flex-shrink-0">
                 <DistanceBadge distance={distanceText} theme={{ ...theme, isMalam: true }} />
               </div>
-
             </div>
           </div>
 
@@ -888,13 +858,12 @@ function FeedCardV2Premium({
               isExpanded={isExpanded}
               setIsExpanded={(value) => setUiState({ isExpanded: value })}
               jumlahWarga={totalSaksi}
-              locationName={item?.name || item?.location_name || item?.tempat?.nama || ""}
             />
           </div>
         )}
 
         {/* LIVE INSIGHT & ACTIONS */}
-        <div className={`${paddingX} pb-4 sm:pb-6 space-y-5 sm:space-y-6`}>
+        <div className={`${paddingX} pb-4 sm:pb-6 space-y-3 sm:space-y-4`}>
           {!isDetail && showLiveInsight && isVisible && (
             <motion.div
               className={`${theme.statusBg} rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border ${theme.border} shadow-inner`}
@@ -916,7 +885,7 @@ function FeedCardV2Premium({
             </motion.div>
           )}
 
-          <div className="flex flex-col gap-3 mt-2">
+          <div className="flex flex-col gap-3">
             {!isDetail && (
               <div className="flex gap-2">
                 <PremiumLikeButton

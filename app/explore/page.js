@@ -334,7 +334,8 @@ export default function CitizenHub({ userId, userRole }) {
   };
 
   const handleLaporanSuccess = (newReport) => {
-    refresh();  // ← CUKUP INI!
+    const updated = [newReport, ...(displayReports || [])];
+    updateCache(updated);
     setShowLaporPanel(false);
     sessionStorage.removeItem('citizenhub_reports');
   };
@@ -557,12 +558,21 @@ export default function CitizenHub({ userId, userRole }) {
             main::-webkit-scrollbar { display: none; }
           `}} />
 
-          {/* ✅ SPINNER TELAH DIHAPUS - LANGSUNG TAMPILKAN GRID */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            {filteredReports.map((report, index) => (
-              <ReportCard key={report.id} report={report} index={index} />
-            ))}
-          </div>
+          {/* ✅ TAMPILKAN SKELETON SAAT LOADING */}
+          {isActuallyLoading ? (
+            // Tampilkan skeleton loading
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="aspect-[3/4] bg-zinc-800 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {filteredReports.map((report, index) => (
+                <ReportCard key={report.id} report={report} index={index} />
+              ))}
+            </div>
+          )}
         </main>
 
         <SmartBottomNavWarga

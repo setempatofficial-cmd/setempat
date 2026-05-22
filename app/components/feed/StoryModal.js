@@ -434,8 +434,8 @@ export default function StoryModalFullscreen({
               {story.tipe && (
                 <div className="mb-4 flex justify-center">
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase ${story.tipe === "Ramai" ? "bg-yellow-500/20 text-yellow-300" :
-                      story.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" :
-                        "bg-emerald-500/20 text-emerald-300"
+                    story.tipe === "Antri" ? "bg-rose-500/20 text-rose-300" :
+                      "bg-emerald-500/20 text-emerald-300"
                     }`}>
                     <span>{story.tipe === "Ramai" ? "🏃" : story.tipe === "Antri" ? "⏳" : "🍃"}</span>
                     <span>{story.tipe}</span>
@@ -506,8 +506,8 @@ export default function StoryModalFullscreen({
                 <div className="flex items-center gap-2 flex-wrap">
                   {story.tipe && (
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${story.tipe === "Ramai" ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300" :
-                        story.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" :
-                          "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                      story.tipe === "Antri" ? "bg-rose-500/20 border-rose-500/40 text-rose-300" :
+                        "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
                       }`}>
                       <span>{story.tipe === "Ramai" ? "🏃" : story.tipe === "Antri" ? "⏳" : "🍃"}</span>
                       <span>{story.tipe}</span>

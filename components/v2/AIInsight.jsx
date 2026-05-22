@@ -12,15 +12,25 @@ export default function AIInsight({ activeTempat, theme }) {
   const [displayedStory, setDisplayedStory] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [hasEmergency, setHasEmergency] = useState(false);
+  const [newReportNotif, setNewReportNotif] = useState(null); // ✅ NOTIF STATE
   const typingTimeoutRef = useRef(null);
   const speechRef = useRef(null);
   const [audioPlayer, setAudioPlayer] = useState(null);
   const voicesLoadedRef = useRef(false);
 
-
-
+  // ✅ SATU KALI SAJA - dengan callback untuk notifikasi
   const { greeting, story, insightStats, isLoading, modelUsed, refresh } =
-    useAIInsight(activeTempat);
+    useAIInsight(activeTempat, (laporanBaru) => {
+      console.log("📢 NOTIF: Laporan baru!", laporanBaru);
+      setNewReportNotif({
+        id: laporanBaru.id,
+        deskripsi: laporanBaru.deskripsi,
+        waktu: new Date()
+      });
+
+      // Hilangkan notifikasi setelah 3 detik
+      setTimeout(() => setNewReportNotif(null), 3000);
+    });
 
   const isMalam = theme?.isMalam || false;
 
@@ -126,10 +136,8 @@ export default function AIInsight({ activeTempat, theme }) {
 
   // Sistem Text-to-Speech
   const handleSpeak = useCallback(async () => {
-    // Kalau cerita kosong atau sedang bicara, abaikan
     if (!displayedStory || isSpeaking) return;
 
-    // Stop audio lama jika ada yang sedang berjalan
     handleStopSpeaking();
 
     const cleanGreeting = cleanTextForSpeech(greeting);
@@ -139,7 +147,6 @@ export default function AIInsight({ activeTempat, theme }) {
     setIsSpeaking(true);
 
     try {
-      // Panggil backend route yang kita buat di Langkah 3
       const response = await fetch("/api/text-to-speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,12 +155,10 @@ export default function AIInsight({ activeTempat, theme }) {
 
       if (!response.ok) throw new Error("Gagal mengambil audio dari server");
 
-      // Mengubah response audio menjadi URL yang bisa diputar browser
       const blob = await response.blob();
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
 
-      // Simpan ke state agar bisa di-pause/stop lewat tombol
       setAudioPlayer(audio);
 
       audio.onstart = () => {
@@ -162,7 +167,7 @@ export default function AIInsight({ activeTempat, theme }) {
 
       audio.onended = () => {
         setIsSpeaking(false);
-        URL.revokeObjectURL(audioUrl); // Bersihkan memori browser
+        URL.revokeObjectURL(audioUrl);
         setAudioPlayer(null);
       };
 
@@ -171,7 +176,6 @@ export default function AIInsight({ activeTempat, theme }) {
         setAudioPlayer(null);
       };
 
-      // Putar suaranya!
       await audio.play();
 
     } catch (error) {
@@ -203,7 +207,21 @@ export default function AIInsight({ activeTempat, theme }) {
           : 'bg-white/90 border-slate-200/80 shadow-slate-200/40 dark:bg-slate-900/40 dark:border-slate-800/60 dark:shadow-slate-950/20'
         }`}
     >
-      {/* Background Ambient Glow Terkalibrasi */}
+      {/* ✅ NOTIFICATION BANNER - DITARUH DI SINI (di dalam return) */}
+      <AnimatePresence>
+        {newReportNotif && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="absolute top-0 left-0 right-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-2 rounded-t-2xl text-xs font-bold text-center z-10 shadow-lg"
+          >
+            📢 Laporan baru: {newReportNotif.deskripsi?.substring(0, 60)}...
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Background Ambient Glow */}
       <div className={`absolute top-0 right-0 w-28 h-28 blur-3xl opacity-15 pointer-events-none rounded-full transition-colors duration-500 
         ${hasEmergency ? 'bg-rose-500' : 'bg-teal-400'}`}
       />
@@ -214,7 +232,6 @@ export default function AIInsight({ activeTempat, theme }) {
 
           {/* Sisi Kiri: Avatar + Info Judul */}
           <div className="flex items-start gap-2.5 min-w-0 flex-1">
-            {/* Lingkaran Avatar AI */}
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-sm shrink-0 transition-all duration-300 relative mt-0.5
               ${hasEmergency
                 ? 'bg-gradient-to-br from-rose-500 to-red-600 text-white'
@@ -229,7 +246,6 @@ export default function AIInsight({ activeTempat, theme }) {
                 <Brain size={14} className="text-slate-600 dark:text-slate-400" />
               )}
 
-              {/* Ring Status Aktif */}
               <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 
                 bg-emerald-500 dark:border-slate-900 border-white
                 ${hasEmergency ? 'bg-rose-500' : 'bg-emerald-500'} 
@@ -237,7 +253,6 @@ export default function AIInsight({ activeTempat, theme }) {
               />
             </div>
 
-            {/* Teks Header & Sapaan */}
             <div className="flex flex-col min-w-0 pt-0.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h4 className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${hasEmergency ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'
@@ -249,7 +264,6 @@ export default function AIInsight({ activeTempat, theme }) {
                 </span>
               </div>
 
-              {/* Kalimat Sapaan */}
               <AnimatePresence mode="wait">
                 {isLoading ? (
                   <div className="h-3.5 w-32 bg-slate-200 dark:bg-slate-800/80 rounded mt-1.5 animate-pulse" />
@@ -268,7 +282,7 @@ export default function AIInsight({ activeTempat, theme }) {
             </div>
           </div>
 
-          {/* Sisi Kanan: Tombol Kontrol */}
+          {/* Tombol Kontrol */}
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/50 shrink-0 shadow-inner">
             <button
               onClick={handleRefresh}
@@ -291,7 +305,6 @@ export default function AIInsight({ activeTempat, theme }) {
               </button>
             )}
           </div>
-
         </div>
 
         {/* Indikator Loading Mesin Tik */}
@@ -301,7 +314,7 @@ export default function AIInsight({ activeTempat, theme }) {
           </div>
         )}
 
-        {/* Teks Deskripsi Hasil Olahan AI */}
+        {/* Teks Deskripsi */}
         <AnimatePresence mode="wait">
           {!isLoading && displayedStory && (
             <motion.div
@@ -319,7 +332,6 @@ export default function AIInsight({ activeTempat, theme }) {
                 </div>
               )}
 
-              {/* Blok Konten Utama */}
               <div
                 className={`text-[12.5px] leading-relaxed font-semibold transition-all duration-300 ${isExpanded ? '' : 'line-clamp-3'
                   } ${hasEmergency ? 'text-slate-900 dark:text-slate-100' : 'text-slate-800 dark:text-slate-300'}`}
@@ -343,7 +355,6 @@ export default function AIInsight({ activeTempat, theme }) {
                 )}
               </div>
 
-              {/* Tombol Expand/Collapse Teks */}
               {textNeedsExpand && !isTyping && (
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
@@ -363,7 +374,6 @@ export default function AIInsight({ activeTempat, theme }) {
           )}
         </AnimatePresence>
 
-        {/* Skeleton Box saat Loading Data */}
         {isLoading && (
           <div className="space-y-2 mt-1.5">
             <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full w-full animate-pulse" />
@@ -373,14 +383,13 @@ export default function AIInsight({ activeTempat, theme }) {
         )}
       </div>
 
-      {/* Bar Statistik Data / Footer (Diproteksi dari Screen Overflow di HP) */}
+      {/* Footer */}
       {!isLoading && insightStats && insightStats.total_laporan > 0 && (
         <div className={`px-4 py-2 border-t border-dashed flex items-center justify-between gap-2 flex-wrap transition-colors duration-300 ${isMalam
           ? 'border-slate-800/80 bg-slate-950/10 text-slate-400'
           : 'border-slate-200 bg-slate-50/60 text-slate-600 font-medium'
           }`}
         >
-          {/* Sisi Kiri: Gabungan Jumlah Kabar + Akurasi dengan flex-wrap */}
           <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
             <span className="text-[9px] font-black uppercase tracking-wider opacity-80 flex items-center gap-1 shrink-0">
               <Activity size={10} className="text-slate-400" /> {insightStats.total_laporan} Kabar Warga
@@ -399,7 +408,6 @@ export default function AIInsight({ activeTempat, theme }) {
             </div>
           </div>
 
-          {/* Sisi Kanan: Jam Terkini */}
           <span className="text-[8px] font-bold opacity-60 shrink-0 ml-auto pt-0.5 xs:pt-0">
             {new Date(insightStats.last_update).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
           </span>

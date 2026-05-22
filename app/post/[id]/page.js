@@ -236,9 +236,9 @@ function PostDetailContent({ id }) {
       </div>
 
       <div className="relative z-10">
-        {/* Header Container */}
+        {/* Header Container - biarkan 400px atau ikutkan 420px */}
         <div className="fixed top-0 left-0 right-0 z-[100] flex justify-center pointer-events-none">
-          <div className="w-full max-w-[400px] pointer-events-auto">
+          <div className="w-full max-w-[420px] pointer-events-auto">
             <Header
               user={user}
               locationReady={locationStatus === "granted"}
@@ -423,8 +423,8 @@ function PostDetailContent({ id }) {
           onClick={() => setIsExpanded(!isExpanded)}
           whileTap={{ scale: 0.92 }}
           className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all duration-300 relative ${isExpanded
-              ? 'bg-zinc-900 text-white border-zinc-800'
-              : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border-zinc-100 dark:border-zinc-800'
+            ? 'bg-zinc-900 text-white border-zinc-800'
+            : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border-zinc-100 dark:border-zinc-800'
             }`}
         >
           <div className="relative flex items-center justify-center w-full h-full">
