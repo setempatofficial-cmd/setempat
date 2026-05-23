@@ -782,8 +782,14 @@ function FeedCardV2Premium({
           )}
         </AnimatePresence>
 
-        {/* MEDIA SECTION */}
-        <div className="relative w-full" style={{ aspectRatio: '1/1' }}>
+        {/* MEDIA SECTION - Otomatis dadi Hero sinematik lek nang halaman detail */}
+        <div
+          className="relative w-full overflow-hidden transition-all duration-500 ease-in-out"
+          style={{
+            aspectRatio: isDetail ? '16/10' : '1/1', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
+            maxHeight: isDetail ? '45vh' : 'none'
+          }}
+        >
           {isVisible ? (
             <PhotoSlider
               photos={localLaporanWarga}
@@ -792,7 +798,7 @@ function FeedCardV2Premium({
               namaTempat={safeItem.name}
               isHujan={safeItem.status === "hujan"}
               priority={priority}
-              isDetail={isDetail}
+              isDetail={isDetail} // Dioper rono gae ditekuk navigasine nang njero PhotoSlider
               className="w-full h-full object-cover"
               selectedPhotoIndex={selectedPhotoIndex?.[safeItem.id]}
               setSelectedPhotoIndex={(idx) => {
@@ -807,8 +813,7 @@ function FeedCardV2Premium({
             <PhotoSliderSkeleton />
           )}
 
-          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/30 pointer-events-none" />
-
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/40 pointer-events-none" />
           {/* FLOATING HEADER */}
           <div className="absolute top-0 left-0 right-0 p-5 z-20">
             <div className="flex justify-between items-start gap-2">

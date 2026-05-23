@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
 import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
 import { createPortal } from "react-dom";
+import DOMPurify from 'dompurify';
 
 // KATEGORI
 const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
@@ -19,7 +19,7 @@ export default function LaporPanel({
   initialMediaUrl = null,
   initialMediaType = null
 }) {
-  // 🚀 OPTIMASI 1: Gabungkan state yang sering berubah bersamaan
+  // STATE
   const [formState, setFormState] = useState(() => ({
     step: (!tempat?.id) ? "pick_tempat" : (mode === "text" ? "form" : (initialMediaUrl ? "form" : "upload")),
     mediaUrl: initialMediaUrl,
@@ -31,26 +31,19 @@ export default function LaporPanel({
     status: "idle",
   }));
 
-  // Pisahkan state yang jarang berubah
   const [pickedTempat, setPickedTempat] = useState(tempat || null);
   const [tempatList, setTempatList] = useState([]);
   const [tempatQuery, setTempatQuery] = useState("");
   const [showNominatim, setShowNominatim] = useState(false);
   const [nominatimResults, setNominatimResults] = useState([]);
 
-  // 🚀 OPTIMASI 2: Cache untuk hasil pencarian
+  // REFS
   const tempatCache = useRef(new Map());
   const nominatimCache = useRef(new Map());
   const debounceTimer = useRef(null);
   const abortController = useRef(null);
 
-  // 🚀 OPTIMASI 3: Hapus animasi yang tidak perlu
-  const MotionDiv = motion.div;
-  const MotionDivSimple = ({ children, ...props }) => (
-    <div {...props}>{children}</div>
-  );
-
-  // 🚀 OPTIMASI 4: Fungsi ringan tanpa useCallback berlebihan
+  // FUNGSI BANTUAN
   const getCurrentTimeTag = () => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 11) return "Pagi";
@@ -59,7 +52,6 @@ export default function LaporPanel({
     return "Malam";
   };
 
-  // 🚀 OPTIMASI 5: Simple object lookup
   const ESTIMATED_PEOPLE = {
     Sepi: { Pagi: 3, Siang: 5, Sore: 4, Malam: 2 },
     Ramai: { Pagi: 12, Siang: 25, Sore: 20, Malam: 15 },
@@ -71,26 +63,36 @@ export default function LaporPanel({
       (condition === "Sepi" ? 4 : condition === "Ramai" ? 20 : 12);
   };
 
-  // 🚀 OPTIMASI 6: Fetch dengan caching dan abort
+  const getConditionDescription = (condition, waitTime, traffic, name) => {
+    if (condition === "Sepi") return `Suasana tenang di ${name || "sini"}.`;
+    if (condition === "Ramai") return `Suasana ramai di ${name || "sini"}.`;
+    if (condition === "Antri") {
+      const waitText = waitTime === 5 ? "pendek" : waitTime === 15 ? "sedang" : "panjang";
+      return `Antrian ${waitText} di ${name || "sini"}.`;
+    }
+    if (traffic) {
+      const text = traffic === 'Lancar' ? 'lancar' : traffic === 'Ramai' ? 'ramai' : 'macet';
+      return `Lalu lintas ${text} di ${name || "sini"}.`;
+    }
+    return `Update dari ${name || "sini"}.`;
+  };
+
+  // FETCH FUNCTIONS
   const fetchTempatList = async (searchQuery = "") => {
-    // Cek cache dulu
     const cacheKey = searchQuery || "all";
     if (tempatCache.current.has(cacheKey)) {
       setTempatList(tempatCache.current.get(cacheKey));
       return;
     }
 
-    // Batalkan request sebelumnya
-    if (abortController.current) {
-      abortController.current.abort();
-    }
+    if (abortController.current) abortController.current.abort();
     abortController.current = new AbortController();
 
     try {
       let query = supabase
         .from("tempat")
         .select("id, name, category, alamat, latitude, longitude")
-        .limit(20); // Kurangi limit dari 30 ke 20
+        .limit(20);
 
       if (searchQuery.trim()) {
         query = query.ilike('name', `%${searchQuery}%`);
@@ -99,7 +101,6 @@ export default function LaporPanel({
       const { data, error } = await query;
       if (error) throw error;
 
-      // Simpan ke cache
       tempatCache.current.set(cacheKey, data || []);
       setTempatList(data || []);
     } catch (err) {
@@ -110,30 +111,9 @@ export default function LaporPanel({
     }
   };
 
-  // 🚀 OPTIMASI 7: Search dengan debounce lebih cepat (300ms)
-  useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-
-    debounceTimer.current = setTimeout(() => {
-      if (tempatQuery.length > 1 || tempatQuery === "") {
-        fetchTempatList(tempatQuery);
-
-        if (tempatQuery.length >= 3 && showNominatim) {
-          searchNominatimFast(tempatQuery);
-        } else {
-          setNominatimResults([]);
-        }
-      }
-    }, 300); // Turun dari 400 ke 300
-
-    return () => clearTimeout(debounceTimer.current);
-  }, [tempatQuery, showNominatim]);
-
-  // 🚀 OPTIMASI 8: Nominatim dengan timeout dan cache
   const searchNominatimFast = async (query) => {
     if (!query.trim() || query.length < 3) return;
 
-    // Cek cache
     if (nominatimCache.current.has(query)) {
       setNominatimResults(nominatimCache.current.get(query));
       return;
@@ -141,7 +121,7 @@ export default function LaporPanel({
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // Timeout 3 detik
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=3&addressdetails=1&countrycodes=id`,
@@ -161,7 +141,6 @@ export default function LaporPanel({
         category: 'jalan'
       }));
 
-      // Simpan ke cache
       nominatimCache.current.set(query, results);
       setNominatimResults(results);
     } catch (error) {
@@ -172,130 +151,28 @@ export default function LaporPanel({
     }
   };
 
-  // 🚀 OPTIMASI 9: Notifikasi lebih ringan
-  const showLoginNotification = () => {
-    const toastNotif = document.createElement('div');
-    toastNotif.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-[1000002] px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2 border bg-amber-950 border-amber-500/50 text-amber-100';
-    toastNotif.innerHTML = `
-      <span>🔐</span>
-      <span class="text-[11px] font-bold">Perlu Login</span>
-      <button class="px-2 py-1 bg-amber-500/20 rounded-lg text-[9px] font-bold">Login</button>
-    `;
-    toastNotif.querySelector('button')?.addEventListener('click', () => {
-      window.location.href = '/login';
-    });
-    document.body.appendChild(toastNotif);
-    setTimeout(() => toastNotif.remove(), 3000);
-  };
+  // EFFECTS
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-  // 🚀 OPTIMASI 10: Finalize upload tanpa state berlebihan
-  const finalizeUpload = async () => {
-    const { condition, trafficCondition, waitTime, caption, mediaUrl, mediaType } = formState;
-    const isNominatimLocation = pickedTempat?.source === 'nominatim';
-    const activeTempat = pickedTempat || tempat;
+    debounceTimer.current = setTimeout(() => {
+      if (tempatQuery.length > 1 || tempatQuery === "") {
+        fetchTempatList(tempatQuery);
+        if (tempatQuery.length >= 3 && showNominatim) {
+          searchNominatimFast(tempatQuery);
+        } else {
+          setNominatimResults([]);
+        }
+      }
+    }, 300);
 
-    // Validasi cepat
-    if (!activeTempat?.id && !isNominatimLocation) {
-      alert("Pilih lokasi dulu");
-      return;
-    }
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (abortController.current) abortController.current.abort();
+    };
+  }, [tempatQuery, showNominatim]);
 
-    if (!isNominatimLocation && !condition && !trafficCondition) {
-      alert("Pilih kondisi");
-      return;
-    }
-
-    if (condition === "Antri" && !waitTime) {
-      alert("Pilih waktu antrian");
-      return;
-    }
-
-    if (formState.status === "uploading") return;
-
-    setFormState(prev => ({ ...prev, status: "uploading" }));
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Login needed");
-
-      const currentTimeTag = getCurrentTimeTag();
-      const estimatedPeople = condition ? getEstimatedPeople(condition, currentTimeTag) : null;
-      const finalDesc = caption.trim() || getConditionDescription(condition, waitTime, trafficCondition, activeTempat?.name);
-
-      const reportData = {
-        tempat_id: !isNominatimLocation && activeTempat?.id ? parseInt(activeTempat.id) : null,
-        user_id: session.user.id,
-        user_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Warga",
-        username: session.user.user_metadata?.username || session.user.email?.split("@")[0],
-        user_avatar: session.user.user_metadata?.avatar_url || null,
-        photo_url: mediaUrl ? (mediaType === "video" ? mediaUrl.replace(/\.[^/.]+$/, ".jpg") : mediaUrl) : null,
-        video_url: mediaType === "video" ? mediaUrl : null,
-        media_type: mediaType || "text",
-        time_tag: currentTimeTag,
-        tipe: condition || (trafficCondition ? "Lalu Lintas" : null),
-        estimated_people: estimatedPeople,
-        estimated_wait_time: condition === "Antri" ? waitTime : null,
-        traffic_condition: trafficCondition,
-        deskripsi: finalDesc,
-        content: caption.trim(),
-        status: "approved",
-        lokasi_name: isNominatimLocation ? activeTempat.name : null,
-        lokasi_lat: isNominatimLocation ? activeTempat.latitude : null,
-        lokasi_lng: isNominatimLocation ? activeTempat.longitude : null,
-        report_type: isNominatimLocation ? 'general_location' : 'place',
-      };
-
-      const { error } = await supabase
-        .from("laporan_warga")
-        .insert([reportData])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Toast success ringan
-      const toast = document.createElement('div');
-      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-4 py-2 rounded-xl bg-emerald-950 border border-emerald-500/50 text-emerald-100 text-[11px] font-bold';
-      toast.textContent = '✅ Laporan Terkirim!';
-      document.body.appendChild(toast);
-
-      setTimeout(() => {
-        toast.remove();
-        onSuccess?.();
-        onClose();
-      }, 1000);
-
-    } catch (err) {
-      console.error(err);
-      alert("Gagal mengirim");
-      setFormState(prev => ({ ...prev, status: "idle" }));
-    }
-  };
-
-  const getConditionDescription = (condition, waitTime, traffic, name) => {
-    if (condition === "Sepi") return `Suasana tenang di ${name || "sini"}.`;
-    if (condition === "Ramai") return `Suasana ramai di ${name || "sini"}.`;
-    if (condition === "Antri") {
-      const waitText = waitTime === 5 ? "pendek" : waitTime === 15 ? "sedang" : "panjang";
-      return `Antrian ${waitText} di ${name || "sini"}.`;
-    }
-    if (traffic) {
-      const text = traffic === 'Lancar' ? 'lancar' : traffic === 'Ramai' ? 'ramai' : 'macet';
-      return `Lalu lintas ${text} di ${name || "sini"}.`;
-    }
-    return `Update dari ${name || "sini"}.`;
-  };
-
-  // 🚀 OPTIMASI 11: Memo sederhana
-  const kategoriLower = (pickedTempat?.category || tempat?.category || "").toLowerCase();
-  const namaLower = (pickedTempat?.name || tempat?.name || "").toLowerCase();
-
-  const hasQueue = QUEUE_CATEGORIES.some(k => kategoriLower.includes(k));
-  const hasTraffic = TRAFFIC_CATEGORIES.some(k => kategoriLower.includes(k) || namaLower.includes(k));
-  const isNominatimLocation = pickedTempat?.source === 'nominatim';
-  const activeTempat = pickedTempat || tempat;
-  const currentTimeTag = getCurrentTimeTag();
-
+  // HANDLERS
   const handleUploadDone = (res) => {
     if (res?.event === "success") {
       setFormState(prev => ({
@@ -321,6 +198,101 @@ export default function LaporPanel({
     setTempatQuery("");
   };
 
+  const finalizeUpload = async () => {
+    const { condition, trafficCondition, waitTime, caption, mediaUrl, mediaType } = formState;
+
+    // ✅ SANITASI CAPTION
+    const cleanCaption = DOMPurify.sanitize(caption, {
+      ALLOWED_TAGS: [],
+      ALLOWED_ATTR: []
+    });
+
+    const isNominatimLocation = pickedTempat?.source === 'nominatim';
+    const activeTempat = pickedTempat || tempat;
+
+    if (!activeTempat?.id && !isNominatimLocation) {
+      alert("Pilih lokasi dulu");
+      return;
+    }
+
+    if (!isNominatimLocation && !condition && !trafficCondition) {
+      alert("Pilih kondisi");
+      return;
+    }
+
+    if (condition === "Antri" && !waitTime) {
+      alert("Pilih waktu antrian");
+      return;
+    }
+
+    if (formState.status === "uploading") return;
+
+    setFormState(prev => ({ ...prev, status: "uploading" }));
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Login needed");
+
+      const currentTimeTag = getCurrentTimeTag();
+      const estimatedPeople = condition ? getEstimatedPeople(condition, currentTimeTag) : null;
+      const finalDesc = cleanCaption.trim() || getConditionDescription(condition, waitTime, trafficCondition, activeTempat?.name);
+
+      const reportData = {
+        tempat_id: !isNominatimLocation && activeTempat?.id ? parseInt(activeTempat.id) : null,
+        user_id: session.user.id,
+        user_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Warga",
+        username: session.user.user_metadata?.username || session.user.email?.split("@")[0],
+        user_avatar: session.user.user_metadata?.avatar_url || null,
+        photo_url: mediaUrl ? (mediaType === "video" ? mediaUrl.replace(/\.[^/.]+$/, ".jpg") : mediaUrl) : null,
+        video_url: mediaType === "video" ? mediaUrl : null,
+        media_type: mediaType || "text",
+        time_tag: currentTimeTag,
+        tipe: condition || (trafficCondition ? "Lalu Lintas" : null),
+        estimated_people: estimatedPeople,
+        estimated_wait_time: condition === "Antri" ? waitTime : null,
+        traffic_condition: trafficCondition,
+        deskripsi: finalDesc,
+        content: cleanCaption,
+        status: "approved",
+        lokasi_name: isNominatimLocation ? activeTempat.name : null,
+        lokasi_lat: isNominatimLocation ? activeTempat.latitude : null,
+        lokasi_lng: isNominatimLocation ? activeTempat.longitude : null,
+        report_type: isNominatimLocation ? 'general_location' : 'place',
+      };
+
+      const { error } = await supabase
+        .from("laporan_warga")
+        .insert([reportData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] px-4 py-2 rounded-xl bg-emerald-950 border border-emerald-500/50 text-emerald-100 text-[11px] font-bold';
+      toast.textContent = '✅ Laporan Terkirim!';
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.remove();
+        onSuccess?.();
+        onClose();
+      }, 1000);
+
+    } catch (err) {
+      console.error(err);
+      alert("Gagal mengirim");
+      setFormState(prev => ({ ...prev, status: "idle" }));
+    }
+  };
+
+  // COMPUTED VALUES
+  const kategoriLower = (pickedTempat?.category || tempat?.category || "").toLowerCase();
+  const namaLower = (pickedTempat?.name || tempat?.name || "").toLowerCase();
+  const hasQueue = QUEUE_CATEGORIES.some(k => kategoriLower.includes(k));
+  const hasTraffic = TRAFFIC_CATEGORIES.some(k => kategoriLower.includes(k) || namaLower.includes(k));
+  const isNominatimLocation = pickedTempat?.source === 'nominatim';
+  const activeTempat = pickedTempat || tempat;
   const allResults = [...tempatList, ...nominatimResults];
   const cardBg = theme?.isMalam ? "bg-zinc-950 border-white/10" : "bg-white border-gray-200";
   const isFormDisabled = (isNominatimLocation && !formState.trafficCondition) ||
@@ -328,9 +300,9 @@ export default function LaporPanel({
     (formState.condition === "Antri" && !formState.waitTime) ||
     formState.status === "uploading";
 
+  // RENDER
   return (
     <>
-      {/* Toast Upload - Hanya muncul jika uploading */}
       {formState.status === "uploading" && createPortal(
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-black/80 backdrop-blur px-4 py-2 rounded-full text-white text-[11px] font-bold flex items-center gap-2">
           <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -339,11 +311,7 @@ export default function LaporPanel({
         document.body
       )}
 
-      {/* Main Panel - Tanpa animasi berat */}
-      <div
-        className={`mx-4 mb-4 rounded-3xl ${cardBg} border overflow-hidden flex flex-col shadow-2xl relative`}
-        style={{ maxHeight: "85vh" }}
-      >
+      <div className={`mx-4 mb-4 rounded-3xl ${cardBg} border overflow-hidden flex flex-col shadow-2xl relative`} style={{ maxHeight: "85vh" }}>
         <div className={`h-1 w-full flex-shrink-0 ${formState.mediaUrl ? 'bg-gradient-to-r from-indigo-500 to-purple-500' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`} />
 
         <div className="flex flex-col flex-1 min-h-0">
@@ -458,7 +426,6 @@ export default function LaporPanel({
                 onChange={(e) => setFormState(prev => ({ ...prev, caption: e.target.value }))}
               />
 
-              {/* Kondisi Tempat */}
               {!isNominatimLocation && (
                 <div className="space-y-2">
                   <div className="text-[9px] font-bold text-slate-400 uppercase">Status Tempat</div>
@@ -481,7 +448,6 @@ export default function LaporPanel({
                 </div>
               )}
 
-              {/* Waktu Antri */}
               {formState.condition === "Antri" && (
                 <div className="grid grid-cols-3 gap-1.5">
                   {[5, 15, 20].map(v => (
@@ -496,7 +462,6 @@ export default function LaporPanel({
                 </div>
               )}
 
-              {/* Lalu Lintas */}
               {(hasTraffic || isNominatimLocation) && (
                 <div className="space-y-2">
                   <div className="text-[9px] font-bold text-slate-400 uppercase">Lalu Lintas</div>
@@ -521,7 +486,6 @@ export default function LaporPanel({
             </div>
           )}
 
-          {/* FOOTER */}
           {(formState.step === "form" || formState.step === "upload") && (
             <div className="p-4 border-t border-slate-100">
               <button

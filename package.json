@@ -22,6 +22,7 @@
     "cheerio": "^1.2.0",
     "cloudinary": "^2.10.0",
     "date-fns": "^4.1.0",
+    "dompurify": "^3.4.5",
     "framer-motion": "^12.35.2",
     "groq-sdk": "^1.1.2",
     "leaflet": "^1.9.4",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/dompurify": "^3.0.5",
     "@types/lodash": "^4.17.24",
     "@types/node": "^20",
     "@types/react": "^19",

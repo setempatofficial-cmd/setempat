@@ -1,112 +1,49 @@
 "use client";
+import { motion } from "framer-motion";
+import { RefreshCcw, ScanLine } from "lucide-react";
 
-import { useRef } from "react";
+export default function StoryStrip({ laporanWarga = [], onSelectStory, activeStoryId }) {
+  const stories = laporanWarga.filter(l => l?.photo_url || l?.image_url);
 
-export default function StoryStrip({ 
-  places = [], 
-  activePlace, 
-  onSelectPlace, 
-  theme 
-}) {
-  const scrollRef = useRef(null);
-  
-  if (!places || !Array.isArray(places) || places.length === 0) {
-    return (
-      <div className="mb-6">
-        <h3 className="text-sm font-semibold mb-3">Cerita Terbaru</h3>
-        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="flex flex-col items-center gap-1 flex-shrink-0">
-              <div className="w-14 h-14 rounded-full bg-zinc-800 animate-pulse" />
-              <div className="w-10 h-2 bg-zinc-800 rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  
-  const formatStoryTime = (place) => {
-    const lastReport = place.laporan_terbaru?.[0];
-    if (!lastReport) return "Baru saja";
-    const diffMins = Math.floor((Date.now() - new Date(lastReport.created_at)) / 60000);
-    if (diffMins < 60) return `${diffMins}m lalu`;
-    return `${Math.floor(diffMins / 60)}j lalu`;
-  };
-  
-  const isLive = (place) => {
-    const lastReport = place.laporan_terbaru?.[0];
-    if (!lastReport) return false;
-    const diffMins = Math.floor((Date.now() - new Date(lastReport.created_at)) / 60000);
-    return diffMins < 30;
-  };
-  
-  // ✅ Fungsi untuk mendapatkan foto terbaik
-  const getPhotoUrl = (place) => {
-    // Coba dari photos array
-    if (place.photos && Array.isArray(place.photos) && place.photos.length > 0) {
-      return place.photos[0];
-    }
-    // Coba dari laporan terbaru
-    const latestReport = place.laporan_terbaru?.[0];
-    if (latestReport?.photo_url) return latestReport.photo_url;
-    if (latestReport?.image_url) return latestReport.image_url;
-    // Fallback ke icon
-    return null;
-  };
-  
+  // Mencari index. Jika tidak ditemukan, default ke 0
+  const currentIndex = activeStoryId ? stories.findIndex(s => s.id === activeStoryId) : 0;
+  const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+
+  // Logika next: siklus dari 0 ke N
+  const nextIndex = (safeIndex + 1) % stories.length;
+  const nextStory = stories[nextIndex];
+
+  if (stories.length === 0) return null;
+
   return (
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold">Cerita Terbaru</h3>
-        <span className="text-xs text-zinc-500">LIVE</span>
-      </div>
-      
-      <div 
-        ref={scrollRef}
-        className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+    <div className="relative -mt-16 mb-6 px-4 z-30 flex justify-center">
+      <motion.button
+        whileTap={{ scale: 0.98 }}
+        onClick={() => onSelectStory?.(nextStory, nextIndex)}
+        className="relative group flex items-center gap-4 px-5 py-3 rounded-2xl bg-zinc-900/80 border border-white/10 backdrop-blur-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] overflow-hidden"
       >
-        {places.slice(0, 10).map((place) => {
-          const isActive = activePlace?.id === place.id;
-          const live = isLive(place);
-          const timeText = formatStoryTime(place);
-          const photoUrl = getPhotoUrl(place);
-          
-          return (
-            <button
-              key={place.id}
-              onClick={() => onSelectPlace(place)}
-              className="flex flex-col items-center gap-1 flex-shrink-0"
-            >
-              <div className={`relative w-14 h-14 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center
-                ${isActive ? 'ring-2 ring-cyan-500' : ''}
-                ${live ? 'ring-2 ring-red-500' : ''}
-              `}>
-                {photoUrl ? (
-                  <img 
-                    src={photoUrl} 
-                    alt={place.name} 
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.parentElement.innerHTML = '<span class="text-2xl">📍</span>';
-                    }}
-                  />
-                ) : (
-                  <span className="text-2xl">📍</span>
-                )}
-                
-                {live && (
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-zinc-900" />
-                )}
-              </div>
-              <span className="text-xs font-medium max-w-[60px] truncate">{place.name}</span>
-              <span className="text-[10px] text-zinc-500">{timeText}</span>
-            </button>
-          );
-        })}
-      </div>
+        <div className="relative w-10 h-10 rounded-xl bg-black flex items-center justify-center border border-white/5">
+          <ScanLine className="text-cyan-400 animate-pulse" size={18} />
+        </div>
+
+        <div className="text-left">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[8px] font-black tracking-widest text-cyan-400 uppercase">Jendela Warga</span>
+            <div className="flex gap-0.5">
+              {stories.map((_, i) => (
+                <div key={i} className={`h-1 w-1 rounded-full ${i === safeIndex ? 'bg-cyan-400' : 'bg-white/20'}`} />
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] font-bold text-white tracking-tight">
+            Lihat Sekitar {safeIndex + 1} / {stories.length}
+          </p>
+        </div>
+
+        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors">
+          <RefreshCcw size={14} className="text-white group-hover:text-cyan-300 transition-colors" />
+        </div>
+      </motion.button>
     </div>
   );
 }

@@ -45,7 +45,14 @@ export default function AIInsight({ activeTempat, theme }) {
       .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
       .replace(/[\u{2600}-\u{27BF}]/gu, '')
-      .replace(/@\w+/g, 'kata warga')
+      .replace(/@(\w+)(?:\s+(\w+))?/g, (match, p1, p2) => {
+        // Jika ada dua kata (misal @sutejo pramono)
+        if (p2) {
+          return p1 + p2;
+        }
+        // Jika hanya satu kata (misal @sutejo)
+        return p1;
+      })
       .replace(/[#*_~`>|]/g, '')
       .replace(/\n/g, '. ')
       .replace(/\s+/g, ' ')

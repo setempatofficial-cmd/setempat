@@ -1,6 +1,7 @@
 // components/media/MediaRenderer.jsx
 'use client';
 
+import { useRef, useEffect } from 'react';
 import { isVideoUrl } from '@/utils/mediaUtils';
 import VideoPlayer from './VideoPlayer';
 import { optimizeVideoUrl, optimizeImageUrl } from '@/lib/cloudinary';
@@ -8,16 +9,21 @@ import { optimizeVideoUrl, optimizeImageUrl } from '@/lib/cloudinary';
 export default function MediaRenderer({
   url,
   className = "w-full h-full object-cover",
-  hideSpinner,  // ✅ Sudah ada
+  hideSpinner,
   autoPlay = false,
   muted = true,
   loop = true,
   playsInline = true,
   showVideoControls = false,
   thumbnail = false,
+  preload = "auto",  // ✅ TAMBAH: preload control
+  isActive = true,   // ✅ TAMBAH: apakah media sedang aktif
   onLoad,
   onError
 }) {
+  const imgRef = useRef(null);
+  const shouldLoad = preload === "auto" ? true : isActive;
+
   if (!url) {
     return (
       <div className={`${className} bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center`}>
@@ -38,7 +44,7 @@ export default function MediaRenderer({
     finalUrl = optimizeImageUrl(url, options);
   }
 
-  // ✅ Untuk video - Teruskan hideSpinner
+  // ✅ UNTUK VIDEO - Dengan preload & cleanup
   if (isVideo) {
     return (
       <VideoPlayer
@@ -49,25 +55,38 @@ export default function MediaRenderer({
         loop={thumbnail ? false : loop}
         playsInline={playsInline}
         showControls={showVideoControls}
-        hideSpinner={hideSpinner}  // ✅ TAMBAHKAN INI
+        hideSpinner={hideSpinner}
+        preload={preload}        // ✅ TAMBAH: kirim preload
+        isActive={isActive}      // ✅ TAMBAH: kirim status aktif
         onLoad={onLoad}
         onError={onError}
       />
     );
   }
 
-  // Untuk gambar
+  // ✅ UNTUK GAMBAR - Lazy load + webp support
   return (
-    <img
-      src={finalUrl}
-      className={className}
-      alt="Media"
-      loading="lazy"
-      onLoad={onLoad}
-      onError={(e) => {
-        e.target.src = "/placeholder-image.jpg";
-        onError?.(e);
-      }}
-    />
+    <picture>
+      {/* WebP version kalo ada */}
+      {finalUrl.includes('cloudinary') && (
+        <source
+          srcSet={finalUrl.replace('/upload/', '/upload/q_auto:low,f_auto/')}
+          type="image/webp"
+        />
+      )}
+      <img
+        ref={imgRef}
+        src={finalUrl}
+        className={className}
+        alt="Media"
+        loading={shouldLoad ? "eager" : "lazy"}  // ✅ Hanya eager kalo aktif
+        decoding="async"
+        onLoad={onLoad}
+        onError={(e) => {
+          e.target.src = "/placeholder-image.jpg";
+          onError?.(e);
+        }}
+      />
+    </picture>
   );
 }

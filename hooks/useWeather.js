@@ -171,148 +171,132 @@ export function useWeather(locationName) {
   const timeoutIdRef = useRef(null);
   const intervalIdRef = useRef(null);
   const retryTimeoutRef = useRef(null);
+  const currentFetchIdRef = useRef(0); // 🔥 Track fetch ID untuk mencegah race condition
 
   useEffect(() => {
     isMounted.current = true;
 
     return () => {
       isMounted.current = false;
+      // 🔥 Abort dengan aman, ignore error
       if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+        try {
+          abortControllerRef.current.abort();
+        } catch (e) {
+          // Ignore abort errors
+        }
+        abortControllerRef.current = null;
       }
       if (timeoutIdRef.current) {
         clearTimeout(timeoutIdRef.current);
+        timeoutIdRef.current = null;
       }
       if (intervalIdRef.current) {
         clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
       }
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
       }
     };
   }, []);
 
-  // 🔥 Fungsi getKodeWilayah dengan validasi (dipertahankan)
-  const getKodeWilayah = useCallback(async (namaWilayah) => {
-    if (!isValidLocation(namaWilayah)) {
-      console.log("⚠️ Location name invalid, skipping search:", namaWilayah);
-      return null;
-    }
-
-    const cacheKey = `wilayah_${namaWilayah.toLowerCase()}`;
-    const cached = wilayahCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CONFIG.WILAYAH_CACHE_TTL) {
-      console.log("📦 Using cached wilayah:", cached.data.nama);
-      return cached.data;
-    }
-
-    try {
-      console.log("🔍 Searching wilayah:", namaWilayah);
-
-      const response = await fetch(`/api/wilayah/search?nama=${encodeURIComponent(namaWilayah)}`);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        wilayahCache.set(cacheKey, {
-          data: data.data,
-          timestamp: Date.now()
-        });
-
-        if (isMounted.current) {
-          setWilayahInfo({
-            kode: data.data.kode,
-            nama: data.data.nama,
-            kecamatan: data.data.kecamatan,
-            kabupaten: data.data.kabupaten,
-            provinsi: data.data.provinsi,
-            lat: data.data.lat,
-            lon: data.data.lon,
-          });
-        }
-
-        console.log("✅ Wilayah found:", data.data.nama);
-        return data.data;
-      }
-
-      return null;
-
-    } catch (err) {
-      console.error("❌ Error searching wilayah:", err.message);
-      return null;
-    }
-  }, []);
-
-  // 🔥 Fetch dengan retry mechanism
-  const fetchWithRetry = useCallback(async (fetchFn, retries = CONFIG.MAX_RETRIES) => {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        return await fetchFn();
-      } catch (err) {
-        if (attempt === retries) throw err;
-        console.log(`Retry attempt ${attempt + 1}/${retries} after ${CONFIG.RETRY_DELAY}ms`);
-        await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
-      }
-    }
-  }, []);
-
-  // 🔥 Fetch weather langsung dengan peningkatan
+  // 🔥 Fetch weather dengan race condition prevention
   const fetchWeatherDirect = useCallback(async (skipCache = false) => {
     if (!isValidLocation(locationName)) {
       console.log("⚠️ Skipping weather fetch - invalid location:", locationName);
-      setWeather(null);
-      setLoading(false);
-      setError(null);
+      if (isMounted.current) {
+        setWeather(null);
+        setLoading(false);
+        setError(null);
+      }
       return;
     }
 
-    setLoading(true);
+    // 🔥 Generate unique ID untuk fetch ini
+    const fetchId = ++currentFetchIdRef.current;
 
-    // 🔥 Reset error jika ini bukan retry
-    if (retryCount === 0) {
-      setError(null);
+    // 🔥 Cancel previous request sebelum memulai yang baru
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {
+        // Ignore
+      }
+      abortControllerRef.current = null;
+    }
+
+    if (timeoutIdRef.current) {
+      clearTimeout(timeoutIdRef.current);
+      timeoutIdRef.current = null;
+    }
+
+    if (isMounted.current) {
+      setLoading(true);
+      if (retryCount === 0) {
+        setError(null);
+      }
     }
 
     try {
       const cacheKey = `weather_${locationName.toLowerCase()}`;
       const cached = weatherCache.get(cacheKey);
 
-      // Gunakan cache jika masih fresh dan tidak dipaksa skip
+      // Gunakan cache jika masih fresh
       if (!skipCache && cached && Date.now() - cached.timestamp < CONFIG.WEATHER_CACHE_TTL) {
         console.log("📦 Using cached weather data");
         const isOutdated = isWeatherOutdated(cached.data, cached.timestamp);
-        setWeather({
-          ...cached.data,
-          isOutdated
-        });
-        setLoading(false);
-        setRetryCount(0);
+        if (isMounted.current && fetchId === currentFetchIdRef.current) {
+          setWeather({
+            ...cached.data,
+            isOutdated
+          });
+          setLoading(false);
+          setRetryCount(0);
+        }
         return;
       }
 
-      // 🔥 Setup timeout dengan AbortController
+      // 🔥 Setup new AbortController
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), CONFIG.FETCH_TIMEOUT);
+      abortControllerRef.current = controller;
 
-      console.log("🌤️ Fetching weather for:", locationName);
+      const timeoutId = setTimeout(() => {
+        if (controller && !controller.signal.aborted) {
+          controller.abort();
+        }
+      }, CONFIG.FETCH_TIMEOUT);
+      timeoutIdRef.current = timeoutId;
+
+      console.log("🌤️ Fetching weather for:", locationName, `(fetchId: ${fetchId})`);
 
       const response = await fetch(
         `/api/weather?location=${encodeURIComponent(locationName)}`,
         { signal: controller.signal }
       );
 
+      // 🔥 Clear timeout setelah response diterima
       clearTimeout(timeoutId);
+      timeoutIdRef.current = null;
+
+      // 🔥 Cek apakah fetch ini masih valid (belum digantikan oleh fetch baru)
+      if (fetchId !== currentFetchIdRef.current) {
+        console.log(`⚠️ Fetch ${fetchId} was replaced by ${currentFetchIdRef.current}, ignoring...`);
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
+
+      // 🔥 Double check setelah async operation
+      if (fetchId !== currentFetchIdRef.current) {
+        console.log(`⚠️ Fetch ${fetchId} was replaced, ignoring weather data...`);
+        return;
+      }
 
       if (data.weather && data.weather.t && data.weather.weather_desc) {
         const weatherData = {
@@ -331,7 +315,7 @@ export function useWeather(locationName) {
           timestamp: Date.now()
         });
 
-        if (isMounted.current) {
+        if (isMounted.current && fetchId === currentFetchIdRef.current) {
           setWeather(weatherData);
           setError(null);
           setLastSuccessfulFetch(Date.now());
@@ -342,24 +326,42 @@ export function useWeather(locationName) {
       }
 
     } catch (err) {
+      // 🔥 AbortError yang diharapkan (karena cancel request sebelumnya)
+      if (err.name === 'AbortError') {
+        console.log(`ℹ️ Fetch ${fetchId} was aborted (replaced by newer request)`);
+        // Ini normal, tidak perlu dianggap error
+        return;
+      }
+
       console.error("Weather fetch error:", err.message);
 
+      // 🔥 Cek apakah fetch ini masih relevan
+      if (fetchId !== currentFetchIdRef.current) {
+        console.log(`⚠️ Fetch ${fetchId} error but was replaced, ignoring...`);
+        return;
+      }
+
       let errorMessage = 'Gagal memuat data cuaca';
-      if (err.name === 'AbortError') {
+      if (err.message.includes('timeout') || err.message.includes('Timeout')) {
         errorMessage = 'Koneksi timeout, menggunakan data perkiraan';
       } else if (err.message.includes('HTTP 404')) {
         errorMessage = 'Lokasi tidak ditemukan';
-      } else if (err.message.includes('network')) {
+      } else if (err.message.includes('network') || err.message.includes('fetch')) {
         errorMessage = 'Koneksi bermasalah, menggunakan data cache';
       }
 
-      setError(errorMessage);
+      if (isMounted.current && fetchId === currentFetchIdRef.current) {
+        setError(errorMessage);
+      }
 
-      // 🔥 Retry logic
-      if (retryCount < CONFIG.MAX_RETRIES && !skipCache) {
+      // 🔥 Retry logic (hanya jika fetch ini masih aktif)
+      if (retryCount < CONFIG.MAX_RETRIES && !skipCache && fetchId === currentFetchIdRef.current) {
         setRetryCount(prev => prev + 1);
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+        }
         retryTimeoutRef.current = setTimeout(() => {
-          if (isMounted.current) {
+          if (isMounted.current && fetchId === currentFetchIdRef.current) {
             fetchWeatherDirect(true);
           }
         }, CONFIG.RETRY_DELAY);
@@ -370,61 +372,76 @@ export function useWeather(locationName) {
       const cacheKey = `weather_${locationName.toLowerCase()}`;
       const cached = weatherCache.get(cacheKey);
 
-      if (cached && cached.data) {
+      if (cached && cached.data && isMounted.current && fetchId === currentFetchIdRef.current) {
         console.log("📦 Using stale cache as fallback");
-        if (isMounted.current) {
-          setWeather({
-            ...cached.data,
-            isOutdated: true,
-            isFallback: true
-          });
-        }
-      } else {
+        setWeather({
+          ...cached.data,
+          isOutdated: true,
+          isFallback: true
+        });
+      } else if (isMounted.current && fetchId === currentFetchIdRef.current) {
         // Fallback terakhir ke data default
-        if (isMounted.current) {
-          setWeather({
-            ...FALLBACK_WEATHER,
-            isFallback: true
-          });
-        }
+        setWeather({
+          ...FALLBACK_WEATHER,
+          isFallback: true
+        });
       }
 
     } finally {
-      if (isMounted.current) {
-        setLoading(false);
+      // 🔥 Cleanup only if this is the current fetch
+      if (fetchId === currentFetchIdRef.current) {
+        if (timeoutIdRef.current) {
+          clearTimeout(timeoutIdRef.current);
+          timeoutIdRef.current = null;
+        }
+        if (abortControllerRef.current === abortControllerRef.current) {
+          // Jangan null-kan dulu, biar bisa di-cancel di next fetch
+        }
+        if (isMounted.current) {
+          setLoading(false);
+        }
       }
     }
   }, [locationName, retryCount]);
 
-  // 🔥 Manual refresh dengan force
+  // 🔥 Manual refresh dengan force (reset fetch ID)
   const refreshWeather = useCallback(() => {
     if (!isValidLocation(locationName)) return;
     const cacheKey = `weather_${locationName.toLowerCase()}`;
     weatherCache.delete(cacheKey);
     setRetryCount(0);
+    // 🔥 Increment fetch ID untuk membatalkan fetch yang sedang berjalan
+    currentFetchIdRef.current++;
     fetchWeatherDirect(true);
   }, [locationName, fetchWeatherDirect]);
 
-  // 🔥 Main effect dengan interval yang lebih cerdas
+  // 🔥 Main effect dengan cleanup yang proper
   useEffect(() => {
     if (!isValidLocation(locationName)) {
       console.log("⏸️ Waiting for valid location... Current:", locationName);
-      setWeather(null);
-      setLoading(false);
-      setError(null);
+      if (isMounted.current) {
+        setWeather(null);
+        setLoading(false);
+        setError(null);
+      }
       return;
     }
 
+    // 🔥 Reset fetch ID saat location berubah
+    currentFetchIdRef.current++;
+
+    // Jalankan fetch
     fetchWeatherDirect();
 
-    // Refresh interval dengan dynamic interval
+    // Setup interval
     const startInterval = () => {
       if (intervalIdRef.current) {
         clearInterval(intervalIdRef.current);
       }
       intervalIdRef.current = setInterval(() => {
-        // Hanya refresh jika tidak ada error yang critical
         if (isMounted.current && (!error || error.includes('timeout'))) {
+          // 🔥 Increment ID untuk cancel fetch yang sedang berjalan
+          currentFetchIdRef.current++;
           fetchWeatherDirect();
         }
       }, CONFIG.WEATHER_REFRESH_INTERVAL);
@@ -433,11 +450,14 @@ export function useWeather(locationName) {
     startInterval();
 
     return () => {
+      // Cleanup interval
       if (intervalIdRef.current) {
         clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
       }
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
       }
     };
   }, [locationName, fetchWeatherDirect, error]);
