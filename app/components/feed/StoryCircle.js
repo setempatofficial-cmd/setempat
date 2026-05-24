@@ -1,6 +1,8 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import Uploader from "@/components/Uploader";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function StoryCircle({
   laporanWarga = [],
@@ -9,7 +11,12 @@ export default function StoryCircle({
   tempatKategori,
   openStoryModal
 }) {
-  const laporanDenganFoto = laporanWarga.filter(l => l?.photo_url || l?.image_url);
+  const [stories, setStories] = useState(laporanWarga);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  // Filter stories dengan foto/video
+  const laporanDenganFoto = stories.filter(l => l?.photo_url || l?.image_url || l?.video_url);
   const laporanTerbaru = laporanDenganFoto[0];
   const jumlahStory = laporanDenganFoto.length;
 
@@ -17,21 +24,91 @@ export default function StoryCircle({
     ? namaTempat.split(" ").map(word => word[0]).join("").substring(0, 2).toUpperCase()
     : "??";
 
+  // 🔥 Fungsi untuk refresh stories dari database
+  const refreshStories = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("laporan_warga")
+        .select("*")
+        .eq("tempat_id", tempatId)
+        .eq("status", "approved")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        setStories(data);
+      }
+    } catch (err) {
+      console.error("Error refreshing stories:", err);
+    }
+  }, [tempatId]);
+
+  // 🔥 Listen untuk upload event dari Uploader
+  useEffect(() => {
+    const handleUploadStart = () => {
+      setIsUploading(true);
+      setUploadSuccess(false);
+    };
+
+    const handleUploadSuccess = async (event) => {
+      setIsUploading(false);
+      setUploadSuccess(true);
+
+      // Refresh stories dari database
+      await refreshStories();
+
+      // Animasi success (3 detik)
+      setTimeout(() => setUploadSuccess(false), 3000);
+    };
+
+    const handleUploadFailed = () => {
+      setIsUploading(false);
+      setUploadSuccess(false);
+    };
+
+    // Listen untuk custom events
+    window.addEventListener('story-upload-start', handleUploadStart);
+    window.addEventListener('story-upload-success', handleUploadSuccess);
+    window.addEventListener('story-upload-failed', handleUploadFailed);
+
+    return () => {
+      window.removeEventListener('story-upload-start', handleUploadStart);
+      window.removeEventListener('story-upload-success', handleUploadSuccess);
+      window.removeEventListener('story-upload-failed', handleUploadFailed);
+    };
+  }, [refreshStories]);
+
+  // 🔥 Auto-refresh setiap 30 detik (optional)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshStories();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [refreshStories]);
+
   return (
     <div className="relative flex items-center justify-center w-20 h-20 group isolate select-none [-webkit-tap-highlight-color:transparent]">
 
       {/* ── RING ANIMASI RADIANT ── */}
-      {jumlahStory > 0 && (
+      {(jumlahStory > 0 || isUploading) && (
         <>
           {/* Efek Glow di belakang ring */}
-          <div className="absolute inset-[-4px] rounded-full bg-cyan-500/20 blur-md animate-pulse z-0" />
+          <div className={`absolute inset-[-4px] rounded-full blur-md animate-pulse z-0 
+            ${isUploading ? 'bg-yellow-500/40' : 'bg-cyan-500/20'}`}
+          />
 
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
             className="absolute inset-[-3px] rounded-full z-0"
             style={{
-              background: "conic-gradient(from 0deg, #22d3ee, #d946ef, #f59e0b, #22d3ee)",
+              background: isUploading
+                ? "conic-gradient(from 0deg, #f59e0b, #fbbf24, #f59e0b, #f59e0b)"
+                : "conic-gradient(from 0deg, #22d3ee, #d946ef, #f59e0b, #22d3ee)",
               padding: "2.5px",
               WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
               WebkitMaskComposite: "xor",
@@ -54,7 +131,8 @@ export default function StoryCircle({
         whileTap={{ scale: 0.92 }}
         className={`relative w-full h-full rounded-full z-10 bg-zinc-950 cursor-pointer overflow-hidden
           border-[3px] ${jumlahStory > 0 ? "border-black" : "border-white/5"}
-          shadow-[0_8px_20px_rgba(0,0,0,0.8)] transition-all duration-500`}
+          shadow-[0_8px_20px_rgba(0,0,0,0.8)] transition-all duration-500
+          ${uploadSuccess ? 'ring-2 ring-green-500 ring-offset-2 ring-offset-black' : ''}`}
       >
         {laporanTerbaru?.photo_url || laporanTerbaru?.image_url ? (
           <>
@@ -96,6 +174,27 @@ export default function StoryCircle({
             </span>
           </div>
         )}
+
+        {/* Uploading Overlay */}
+        {isUploading && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* Success Checkmark */}
+        {uploadSuccess && (
+          <motion.div
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            className="absolute inset-0 bg-green-500/80 backdrop-blur-sm flex items-center justify-center"
+          >
+            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </motion.div>
+        )}
       </motion.div>
 
       {/* ── TOMBOL UPLOAD (FLOATING) DENGAN AREA SENTUH YANG DIPERBESAR ── */}
@@ -106,12 +205,10 @@ export default function StoryCircle({
         whileTap={{ scale: 0.9 }}
         className="absolute -bottom-1 -right-1 z-30"
         style={{
-          // Memperbesar area sentuh dengan pseudo-element
           touchAction: "manipulation",
         }}
         onTouchStart={(e) => {
           e.stopPropagation();
-          // Biarkan Uploader menangani sentuhan
         }}
         onTouchEnd={(e) => {
           e.stopPropagation();
@@ -123,7 +220,6 @@ export default function StoryCircle({
       >
         {/* Area sentuh yang diperbesar */}
         <div className="relative">
-          {/* Area sentuh ekstra di sekitar tombol (untuk jempol) */}
           <div className="absolute -inset-3 rounded-full bg-transparent touch-manipulation" />
 
           {/* Tombol utama */}
@@ -136,6 +232,11 @@ export default function StoryCircle({
                 tempatId={tempatId}
                 namaTempat={namaTempat}
                 tempatKategori={tempatKategori}
+                onUploadSuccess={() => {
+                  // Trigger refresh dari sini juga
+                  refreshStories();
+                }}
+                onRefreshNeeded={refreshStories}
               />
             </div>
           </div>

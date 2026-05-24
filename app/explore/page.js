@@ -99,6 +99,8 @@ export default function CitizenHub({ userId, userRole }) {
   const [viewCounts, setViewCounts] = useState({});
   const [activeFilter, setActiveFilter] = useState("semua");
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   // Refs
   const modalScrollRef = useRef(null);
   const lastScrollYRef = useRef(0);
@@ -418,6 +420,40 @@ export default function CitizenHub({ userId, userRole }) {
 
   // ========== HANDLERS ==========
 
+  // 🔥 1. REFRESH DATA (DEFINISIKAN PERTAMA)
+  const refreshData = useCallback(async () => {
+    try {
+      await refresh();
+      // Clear cache
+      try {
+        sessionStorage.removeItem('citizenhub_reports');
+      } catch (e) { }
+      viewsLoadedRef.current = false;
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err) {
+      console.error("Refresh error:", err);
+    }
+  }, [refresh]);
+
+  // 🔥 2. EVENT LISTENER (SETELAH refreshData)
+  useEffect(() => {
+    const handleUploadSuccess = () => {
+      refreshData();
+    };
+
+    window.addEventListener('refresh-citizenhub', handleUploadSuccess);
+
+    return () => {
+      window.removeEventListener('refresh-citizenhub', handleUploadSuccess);
+    };
+  }, [refreshData]);
+
+  useEffect(() => {
+    sessionStorage.removeItem('citizenhub_reports');
+    refreshData();
+  }, []);
+
+  // 🔥 3. HANDLER LAINNYA
   const handleModalScroll = useCallback((e) => {
     if (isAutoScrollingRef.current) return;
 
@@ -439,7 +475,6 @@ export default function CitizenHub({ userId, userRole }) {
     document.body.classList.add('modal-open');
     isAutoScrollingRef.current = true;
 
-    // Safe scroll into view
     requestAnimationFrame(() => {
       const targetElement = modalScrollRef.current?.children[index];
       if (targetElement && typeof targetElement.scrollIntoView === 'function') {
@@ -469,15 +504,19 @@ export default function CitizenHub({ userId, userRole }) {
   }, []);
 
   const handleLaporanSuccess = useCallback((newReport) => {
-    const updated = [newReport, ...(displayReports || [])];
-    updateCache(updated);
-    setShowLaporPanel(false);
-    try {
-      sessionStorage.removeItem('citizenhub_reports');
-    } catch (e) {
-      console.error('Storage clear error:', e);
+    // Optimistic update
+    if (newReport && newReport.id) {
+      const updated = [newReport, ...(displayReports || [])];
+      updateCache(updated);
     }
-  }, [displayReports, updateCache]);
+    setShowLaporPanel(false);
+
+    // Refresh data from server
+    refreshData();
+
+    // Optional: scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [displayReports, updateCache, refreshData]);
 
   const handleShare = useCallback(async (report) => {
     if (!report?.id) return;
