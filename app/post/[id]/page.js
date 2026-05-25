@@ -32,7 +32,7 @@ import SolutionRadar from "@/components/v2/feed/SolutionRadar";
 function PostDetailContent({ id }) {
   const router = useRouter();
   const theme = useTheme();
-  const { user } = useAuth();
+  const { user, userLocation } = useAuth();
   const { location, status: locationStatus, placeName } = useLocation();
 
   const radarRef = useRef(null);
@@ -324,6 +324,9 @@ function PostDetailContent({ id }) {
                 tempatId={item.id}
                 tempatName={item.name}
                 kategori={kategori}
+                tempatLatitude={item.latitude}
+                tempatLongitude={item.longitude}
+                userLocation={userLocation}
                 isInRadius={isInRadius}
                 adminPhone={adminPhone}
                 handleOpenAIModal={handleOpenAIModal}

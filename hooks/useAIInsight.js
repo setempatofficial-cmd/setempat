@@ -30,10 +30,22 @@ function formatTimeAgo(dateString) {
   });
 }
 
-// HELPER AMAN: Menggali teks laporan dari objek terlepas dari penamaan properti di UI/DB
+// HELPER AMAN: Menggali teks laporan dari objek
 function dapatkanTeksLaporan(obj) {
   if (!obj) return '';
   return obj.deskripsi || obj.content || obj.deskripsi_ai || obj.isi_laporan || '';
+}
+
+// HELPER DEDUPLIKASI: Menghapus data ganda berdasarkan ID
+function deduplicateByKey(items, key = 'id') {
+  if (!items || !items.length) return [];
+  const seen = new Set();
+  return items.filter(item => {
+    const id = item[key];
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 export function useAIInsight(activeTempat, selectedStory = null) {
@@ -64,7 +76,7 @@ export function useAIInsight(activeTempat, selectedStory = null) {
   const fetchingRef = useRef(false);
 
   // ============================================
-  // AMBIL DATA USER (FIX: ANTI STOLEN LOCK AUTH)
+  // AMBIL DATA USER
   // ============================================
   useEffect(() => {
     isMountedRef.current = true;
@@ -107,7 +119,7 @@ export function useAIInsight(activeTempat, selectedStory = null) {
     };
   }, []);
 
-  // Reset tab aktif ke 'laporan' jika tempat berpindah lokasi
+  // Reset tab aktif ke 'laporan' jika tempat berpindah
   useEffect(() => {
     setActiveStoryId('laporan');
     setStoryVersion(prev => prev + 1);
@@ -123,35 +135,22 @@ export function useAIInsight(activeTempat, selectedStory = null) {
     return { text: greetingMap[timeLabel] || 'Selamat siang', icon: timeInfo.icon, isMalam: timeLabel === 'Malam' };
   }, []);
 
+  // ============================================
+  // CEK DARURAT (HANYA HARI INI)
+  // ============================================
   function isEmergency(context) {
     const todayStr = new Date().toISOString().split('T')[0];
-
-    // 1. Cek dari Selected Story yang sedang diklik (Harus Kejadian Hari Ini)
-    if (selectedStory) {
-      const selectedText = dapatkanTeksLaporan(selectedStory).toLowerCase();
-      const storyDateStr = selectedStory.created_at ? selectedStory.created_at.split('T')[0] : '';
-
-      if (storyDateStr === todayStr && ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran', 'pohon tumbang'].some(kw => selectedText.includes(kw))) {
-        return true;
-      }
-    }
-
-    // 2. Cek dari Laporan Kolektif Warga (Harus Kejadian Hari Ini)
-    const { laporanWarga, externalSignals } = context;
     const emergencyKeywords = ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran', 'pohon tumbang'];
 
-    // Filter laporan & signals yang HANYA terjadi hari ini
-    const liveEmergencyReports = [
-      ...(laporanWarga || []).filter(l => l.created_at && l.created_at.split('T')[0] === todayStr),
-      ...(externalSignals || []).filter(s => s.created_at && s.created_at.split('T')[0] === todayStr)
-    ];
+    const allReports = [...(context.laporanWarga || []), ...(context.externalSignals || [])];
+    const todayReports = allReports.filter(r => r.created_at?.split('T')[0] === todayStr);
+    const allTexts = todayReports.map(item => `${dapatkanTeksLaporan(item)} ${item.content || ''}`.toLowerCase()).join(' ');
 
-    const allTexts = liveEmergencyReports.map(item => `${dapatkanTeksLaporan(item)} ${item.content || ''}`.toLowerCase()).join(' ');
     return emergencyKeywords.some(kw => allTexts.includes(kw));
   }
 
   // ============================================
-  // FETCH RICH CONTEXT (OPTIMAL: PARALEL PROMISE)
+  // FETCH RICH CONTEXT (DENGAN DEDUPLIKASI)
   // ============================================
   const fetchRichContext = useCallback(async (tempatId) => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -185,6 +184,23 @@ export function useAIInsight(activeTempat, selectedStory = null) {
       supabase.from('tempat_aktivitas_warga').select('*').eq('tempat_id', tempatId).in('status', ['direncanakan', 'berlangsung']).gte('tanggal_mulai', todayStr).limit(5)
     ]);
 
+    // DEDUPLIKASI: Hapus data ganda antara laporan_warga dan external_signals
+    const laporanData = laporanWargaRes.data || [];
+    const externalData = externalSignalsRes.data || [];
+
+    const combinedIds = new Set();
+    const uniqueLaporan = laporanData.filter(l => {
+      if (combinedIds.has(l.id)) return false;
+      combinedIds.add(l.id);
+      return true;
+    });
+
+    const uniqueExternal = externalData.filter(e => {
+      if (combinedIds.has(e.id)) return false;
+      combinedIds.add(e.id);
+      return true;
+    });
+
     return {
       metadata: metadataRes.data || null,
       aktivitasBerkala: aktivitasBerkalaRes.data || [],
@@ -192,8 +208,8 @@ export function useAIInsight(activeTempat, selectedStory = null) {
       tempatTerhubung: tempatTerhubungRes.data || [],
       layananTersedia: layananTersediaRes.data || [],
       prediksi: prediksiRes.data || [],
-      laporanWarga: laporanWargaRes.data || [],
-      externalSignals: externalSignalsRes.data || [],
+      laporanWarga: uniqueLaporan,
+      externalSignals: uniqueExternal,
       layananWarga: layananWargaRes.data || [],
       bantuanTersedia: bantuanTersediaRes.data || [],
       umkmProduk: umkmProdukRes.data || [],
@@ -202,44 +218,48 @@ export function useAIInsight(activeTempat, selectedStory = null) {
   }, []);
 
   // ============================================
-  // GENERATE SMART INSIGHT (SENSITIF WAKTU DARURAT)
+  // GENERATE SMART INSIGHT (TIDAK MENGULANG LAPORAN)
   // ============================================
   const generateSmartInsight = useCallback((context, storyId = 'laporan', userName = 'Warga') => {
     const tempatName = activeTempat?.name || 'tempat ini';
-    const emergency = isEmergency(context); // Ini otomatis mengunci hanya untuk HARI INI
+    const emergency = isEmergency(context);
     let fullStory = '';
     let selectedStyle = null;
 
     if (emergency) {
-      // MODE AKTIF: Jika beneran ada kejadian darurat BARU HARI INI
+      // MODE DARURAT - HANYA RINGKASAN, BUKAN LAPORAN LENGKAP
       fullStory = `🚨 **PERINGATAN DARURAT WILAYAH!** 🚨\n\n`;
       const todayStr = new Date().toISOString().split('T')[0];
 
-      let emergencyReports = [...(context.laporanWarga || []), ...(context.externalSignals || [])]
-        .filter(r => r.created_at && r.created_at.split('T')[0] === todayStr); // Kunci hari ini
+      let emergencyReports = [...(context.laporanWarga || []), ...(context.externalSignals || [])];
+      emergencyReports = deduplicateByKey(emergencyReports);
 
-      if (selectedStory) {
-        emergencyReports = [selectedStory, ...emergencyReports.filter(r => r.id !== selectedStory.id)];
-      }
-
+      const emergencyKeywords = ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran', 'pohon tumbang'];
       const filteredEmergency = emergencyReports.filter(item => {
+        const itemDate = item.created_at?.split('T')[0];
         const text = `${dapatkanTeksLaporan(item)} ${item.content || ''}`.toLowerCase();
-        return ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran', 'pohon tumbang'].some(kw => text.includes(kw));
+        return itemDate === todayStr && emergencyKeywords.some(kw => text.includes(kw));
       });
 
       if (filteredEmergency.length > 0) {
-        fullStory += `📢 **Kejadian Genting Hari Ini:**\n`;
-        filteredEmergency.slice(0, 2).forEach(r => {
-          const teksEmergency = dapatkanTeksLaporan(r);
-          fullStory += `   • "${teksEmergency.substring(0, 120)}"\n`;
-          fullStory += `     — *Waktu: ${formatTimeAgo(r.created_at)}* (@${r.username || r.user_name || 'warga'})\n\n`;
+        fullStory += `📢 **Ringkasan Kejadian Hari Ini:**\n`;
+        fullStory += `• Terdapat ${filteredEmergency.length} laporan situasi darurat di wilayah\n`;
+
+        // FIX: Ambil jenis darurat yang muncul
+        const foundKeywords = emergencyKeywords.filter(kw => {
+          return filteredEmergency.some(r => {
+            const text = `${dapatkanTeksLaporan(r)} ${r.content || ''}`.toLowerCase();
+            return text.includes(kw);
+          });
         });
+        fullStory += `• Jenis: ${foundKeywords.join(', ')}\n\n`;
+
+        fullStory += `⚠️ **Himbauan:** Tetap waspada dan ikuti arahan petugas. Hindari area jika tidak mendesak.\n`;
       }
 
-      fullStory += `⚠️ **Hati-hati, Lur!** Arus penanganan darurat sedang berjalan.\n🚧 Mohon kurangi kecepatan atau hindari area jika tidak mendesak.\n\n✨ Tetap utamakan keselamatan bersama! 🙏`;
+      fullStory += `\n✨ Utamakan keselamatan! 🙏`;
       selectedStyle = { name: '🚨 DARURAT' };
     } else {
-      // MODE NORMAL: Berjalan sesuai tab menu yang dipilih user (Laporan, Prediksi, Riwayat, dll)
       selectedStyle = STORY_STYLES.find(s => s.id === storyId) || STORY_STYLES[0];
       fullStory = selectedStyle.build(context, tempatName, selectedStory);
     }
@@ -247,7 +267,7 @@ export function useAIInsight(activeTempat, selectedStory = null) {
     const { text: timeGreeting, icon: timeIcon } = getTimeGreeting();
 
     const finalGreeting = emergency
-      ? `🚨 ${timeGreeting} ${userName}! Ada kejadian darurat di ${tempatName}!`
+      ? `🚨 ${timeGreeting} ${userName}! Ada situasi darurat di ${tempatName}!`
       : `${timeGreeting} ${userName}! ${timeIcon} ${selectedStyle.name} — ${tempatName}`;
 
     const totalLaporan = (context.laporanWarga?.length || 0) + (context.externalSignals?.length || 0);
@@ -263,12 +283,11 @@ export function useAIInsight(activeTempat, selectedStory = null) {
   }, [activeTempat?.name, getTimeGreeting, selectedStory]);
 
   // ============================================
-  // CORE FETCH INSIGHT (FIXED: AUTO-FETCH SELECTED STORY)
+  // CORE FETCH INSIGHT
   // ============================================
   const fetchInsight = useCallback(async () => {
     if (fetchingRef.current || !activeTempat?.id) return;
 
-    // 1. Ambil nama user aktif (Live)
     const { data: { session } } = await supabase.auth.getSession();
     const activeUser = session?.user;
     const userName = activeUser?.user_metadata?.full_name?.split(' ')[0] ||
@@ -295,11 +314,9 @@ export function useAIInsight(activeTempat, selectedStory = null) {
     setIsLoading(true);
 
     try {
-      // 2. Tarik data konseptual tempat secara paralel
       const richData = await fetchRichContext(activeTempat.id);
       if (!isMountedRef.current) return;
 
-      // 3. INVESTIGASI SELECTED STORY: Jika data teks kosong, ambil langsung ke database!
       let storyTerpilihLengkap = selectedStory;
       if (selectedStory && !dapatkanTeksLaporan(selectedStory) && selectedStory.id) {
         const { data: detailLaporan } = await supabase
@@ -307,20 +324,13 @@ export function useAIInsight(activeTempat, selectedStory = null) {
           .select('*')
           .eq('id', selectedStory.id)
           .maybeSingle();
-
-        if (detailLaporan) {
-          storyTerpilihLengkap = detailLaporan;
-        }
+        if (detailLaporan) storyTerpilihLengkap = detailLaporan;
       }
 
-      // 4. Injeksi data yang sudah divalidasi ke generator insight 
-      // FIX CRITICAL: Gunakan 'storyTerpilihLengkap' langsung saat build awal insight
       const { finalGreeting, fullStory, finalStats } = generateSmartInsight(richData, activeStoryId, userName);
 
-      // 5. Verifikasi Akhir Teks Render Cerita
       let finalStoryRender = fullStory;
-      if (storyTerpilihLengkap) {
-        // FIX CRITICAL: Gunakan fungsi helper 'dapatkanTeksLaporan' agar deteksi kolom dinamis (deskripsi/content) akurat!
+      if (storyTerpilihLengkap && activeStoryId === 'laporan') {
         const styleAktif = STORY_STYLES.find(s => s.id === activeStoryId) || STORY_STYLES[0];
         finalStoryRender = styleAktif.build(richData, activeTempat?.name || 'tempat ini', storyTerpilihLengkap);
       }
@@ -342,7 +352,7 @@ export function useAIInsight(activeTempat, selectedStory = null) {
     } catch (err) {
       console.error('Error fetching insight:', err);
       if (isMountedRef.current) {
-        setStory(`Maaf lur, Mbah AI lagi sibuk. Coba refresh lagi ya! 🙏\n\n✨ Klik 🔄 untuk coba lagi.`);
+        setStory(`Maaf, AI sedang sibuk. Silakan refresh lagi ya! 🙏`);
         setGreeting(`Selamat ${getIndonesianTimeLabel()} ${userName}! 🌙`);
       }
     } finally {
@@ -350,260 +360,267 @@ export function useAIInsight(activeTempat, selectedStory = null) {
       fetchingRef.current = false;
     }
   }, [activeTempat?.id, activeStoryId, fetchRichContext, generateSmartInsight, selectedStory]);
+
   const refresh = useCallback(() => {
     setStoryVersion(prev => prev + 1);
   }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
-    if (activeTempat?.id) {
-      fetchInsight();
-    }
-    return () => {
-      isMountedRef.current = false;
-    };
+    if (activeTempat?.id) fetchInsight();
+    return () => { isMountedRef.current = false; };
   }, [activeTempat?.id, storyVersion, fetchInsight, selectedStory?.id]);
 
   return { greeting, story, insightStats, isLoading, modelUsed, richContext, refresh, setActiveStoryId };
 }
 
 // ============================================
-// MODULAR STORY BUILDERS (7 GAYA CERITA)
+// MODULAR STORY BUILDERS (TIDAK MENGULANG LAPORAN)
 // ============================================
 const STORY_STYLES = [
   {
     id: 'laporan',
     name: '📢 Hasil Laporan',
     build: (ctx, tempatName, selectedStory) => {
-      let story = `📢 **AKAMSI AI — Pantauan ${tempatName}**\n\n`;
+      let story = `📢 **AKAMSI AI — Analisa ${tempatName}**\n\n`;
 
-      // 1. JIKA ADA STORY/VIDEO SPESIFIK YANG SEDANG DIKLIK
+      // JIKA ADA LAPORAN YANG DIKLIK - TAMPILKAN ANALISA PENDUKUNG, BUKAN LAPORAN ASLI
       if (selectedStory) {
         const teksUtama = dapatkanTeksLaporan(selectedStory);
-        story += `🎯 **Rangkuman Laporan Terpilih:**\n`;
 
-        // --- DIATUNG NANG KENE, CAK ---
-        if (teksUtama) {
-          const ringkasanTeks = teksUtama.length > 120
-            ? `${teksUtama.substring(0, 120)}...`
-            : teksUtama;
-          story += `💬 *"${ringkasanTeks}"*\n`;
-        } else {
-          // Ganti teks error dadi info visual cerdas sing mbois
-          const lalinInfo = selectedStory.traffic_condition
-            ? `Kondisi lalu lintas terpantau **${selectedStory.traffic_condition.toLowerCase()}**`
-            : 'Situasi terekam via visual';
-          story += `📷 *[${lalinInfo} — Dikirim tanpa catatan teks]*\n`;
-        }
+        story += `🎯 **Analisa Pendukung Laporan Terpilih:**\n\n`;
 
-        // Ekstraksi Otomatis berbasis isi Teks Deskripsi/Content
         const teksLower = teksUtama.toLowerCase();
-        let analisisTeks = [];
+        const analisisTeks = [];
 
+        // Hanya berikan insight pendukung, BUKAN mengulang laporan
         if (['antri', 'antrean', 'panjang', 'ular', 'ramai'].some(k => teksLower.includes(k))) {
-          analisisTeks.push("⏳ Warga mengeluhkan adanya antrean/kepadatan di titik pelayanan.");
+          analisisTeks.push("⏳ Terdeteksi antrean - Disarankan mempersiapkan jalur alternatif.");
         }
-        if (['habis', 'kosong', 'restock', 'gajek'].some(k => teksLower.includes(k))) {
-          analisisTeks.push("❌ Terindikasi ada stok/fasilitas yang sedang kosong atau habis.");
+        if (['habis', 'kosong', 'restock'].some(k => teksLower.includes(k))) {
+          analisisTeks.push("📦 Indikasi stok terbatas - Cek ketersediaan sebelum berangkat.");
         }
-        if (['lancar', 'aman', 'sepi', 'sunyi'].some(k => teksLower.includes(k))) {
-          analisisTeks.push("✅ Situasi spesifik di laporan ini terpantau kondusif atau longgar.");
+        if (['lancar', 'aman', 'sepi'].some(k => teksLower.includes(k))) {
+          analisisTeks.push("✅ Kondisi terpantau kondusif - Waktu tepat untuk berkunjung.");
         }
-        if (['curang', 'pungli', 'mahal', 'tengkulak'].some(k => teksLower.includes(k))) {
-          analisisTeks.push("⚠️ Catatan: Ada keluhan sensitif terkait pelayanan/harga di lokasi.");
+        if (['curang', 'pungli', 'mahal'].some(k => teksLower.includes(k))) {
+          analisisTeks.push("⚠️ Ada keluhan pelayanan - Disarankan bertransaksi di loket resmi.");
         }
 
-        // Gabungkan analisa teks dengan data kolom pendukung jika ada
         if (selectedStory.traffic_condition) {
-          analisisTeks.push(`🚗 Arus lalu lintas: **${selectedStory.traffic_condition}**.`);
+          analisisTeks.push(`🚗 Dampak lalu lintas: **${selectedStory.traffic_condition}** terhadap akses lokasi.`);
         }
         if (selectedStory.estimated_wait_time > 0) {
-          analisisTeks.push(`⏱️ Estimasi nunggu di lokasi sekitar **${selectedStory.estimated_wait_time} menit**.`);
+          analisisTeks.push(`⏱️ Estimasi waktu tunggu: **${selectedStory.estimated_wait_time} menit**.`);
         }
 
         if (analisisTeks.length > 0) {
-          story += `\n🧠 **Intisari AI Setempat:**\n`;
           analisisTeks.forEach(ai => { story += `• ${ai}\n`; });
+        } else {
+          story += `• Tidak ada pola khusus terdeteksi. Kondisi dianggap normal.\n`;
         }
 
-        story += `🕒 *Dilaporkan: ${formatTimeAgo(selectedStory.created_at)}*\n\n`;
+        story += `\n🕒 *Update: ${formatTimeAgo(selectedStory.created_at)}*\n`;
         story += `---\n\n`;
       }
 
-      // 2. RANGKUMAN KUMULATIF DARI SELURUH LAPORAN WARGA LAIN DI TABEL
-      if (ctx.laporanWarga?.length > 0) {
-        const laporanLainnya = selectedStory
-          ? ctx.laporanWarga.filter(l => l.id !== selectedStory.id)
-          : ctx.laporanWarga;
+      // RANGKUMAN KOLEKTIF - HANYA KESIMPULAN, BUKAN DAFTAR LAPORAN
+      const allReports = ctx.laporanWarga || [];
+      const otherReports = selectedStory
+        ? allReports.filter(l => l.id !== selectedStory.id)
+        : allReports;
 
-        story += `📊 **Kondisi Gabungan Sekitar (Kolektif):**\n`;
+      if (otherReports.length > 0) {
+        story += `📊 **Kesimpulan dari ${otherReports.length} Laporan Warga:**\n\n`;
 
-        const semuaTeksGabungan = laporanLainnya.map(l => dapatkanTeksLaporan(l).toLowerCase()).join(' ');
+        const semuaTeksGabungan = otherReports.map(l => dapatkanTeksLaporan(l).toLowerCase()).join(' ');
 
-        let kesimpulanKolektif = [];
+        // Hanya KESIMPULAN, BUKAN daftar laporan individual
         if (['macet', 'padat', 'merayap', 'stuck'].some(k => semuaTeksGabungan.includes(k))) {
-          kesimpulanKolektif.push("Banyak laporan mengeluhkan hambatan arus jalan terdekat.");
-        }
-        if (['solar', 'pertalite', 'pertamax', 'bensin', 'pertalit'].some(k => semuaTeksGabungan.includes(k))) {
-          kesimpulanKolektif.push("Fokus utama interaksi warga saat ini berkaitan dengan ketersediaan / antrean BBM.");
-        }
-        if (['hujan', 'banjir', 'genangan', 'becek'].some(k => semuaTeksGabungan.includes(k))) {
-          kesimpulanKolektif.push("Faktor cuaca/alam dilaporkan sedang mempengaruhi kenyamanan lokasi.");
-        }
-
-        if (kesimpulanKolektif.length > 0) {
-          kesimpulanKolektif.forEach(kolektif => { story += `• 📌 ${kolektif}\n`; });
+          story += `• 🚦 Laporan mengindikasikan potensi hambatan arus\n`;
         } else {
-          story += `• 📌 Secara umum, laporan warga mengarah pada kondisi operasional normal.\n`;
+          story += `• 🚗 Arus lalu lintas relatif lancar berdasarkan laporan yang masuk\n`;
         }
 
-        const cuplikanLaporan = laporanLainnya.slice(0, 2);
-        if (cuplikanLaporan.length > 0) {
-          story += `\n📋 **Suara Warga Sekitar:**\n`;
-          cuplikanLaporan.forEach(l => {
-            const txt = dapatkanTeksLaporan(l);
-            if (txt) {
-              story += `  👉 "${txt.substring(0, 50)}..." (*${formatTimeAgo(l.created_at)}*)\n`;
-            }
-          });
+        if (['solar', 'pertalite', 'pertamax', 'bensin'].some(k => semuaTeksGabungan.includes(k))) {
+          story += `• ⛽ Ada laporan terkait ketersediaan BBM\n`;
         }
+
+        if (['hujan', 'banjir', 'genangan'].some(k => semuaTeksGabungan.includes(k))) {
+          story += `• 🌧️ Cuaca mempengaruhi kondisi lokasi\n`;
+        }
+
+        if (!['macet', 'solar', 'hujan'].some(k => ['macet', 'solar', 'hujan'].some(kw => semuaTeksGabungan.includes(kw)))) {
+          story += `• 📌 Kondisi operasional normal tanpa anomali signifikan\n`;
+        }
+
       } else if (!selectedStory) {
-        story += `Belum ada kiriman info masuk dari warga untuk ${tempatName}. Ayo jadi pelopor informasi di kene, Lur! 📝\n\n`;
+        story += `📭 Belum ada laporan masuk dari warga.\n💡 Ayo jadi pelopor informasi akurat di sini! 📝\n\n`;
       }
 
-      return story + `\n✨ Geser menu di bawah untuk melihat hasil prediksi cerdas atau aktivitas wilayah!`;
+      story += `\n💡 **Rekomendasi AI:**\n`;
+      story += `• Pantau terus update terbaru untuk informasi terkini\n`;
+      story += `• Gunakan menu lain untuk melihat prediksi & aktivitas\n`;
+
+      return story;
     }
   },
   {
     id: 'konteks',
-    name: '🔗 Kondisi Sekitar Lokasi',
+    name: '🔗 Kondisi Sekitar',
     build: (ctx, tempatName) => {
       let story = `🔗 **${tempatName} & Sekitarnya**\n\n`;
       const tempatPengaruh = ctx.tempatTerhubung?.filter(t => ['MACET', 'RAMAI'].includes(t.tempat_terkait?.latest_condition));
       if (tempatPengaruh?.length > 0) {
         tempatPengaruh.forEach(t => {
-          story += `📍 ${t.tempat_terkait?.name} (${t.jarak_km}km) sedang ${t.tempat_terkait?.latest_condition.toLowerCase()}.\n   Ini berpotensi merembet ke ${tempatName}.\n\n`;
+          story += `📍 ${t.tempat_terkait?.name} (${t.jarak_km}km) sedang ${t.tempat_terkait?.latest_condition?.toLowerCase()}.\n   Potensi dampak ke ${tempatName}.\n\n`;
         });
       } else {
-        story += `Tempat-tempat penyangga di sekitar ${tempatName} terpantau normal dan lancar.\n\n`;
+        story += `Tempat penyangga di sekitar ${tempatName} terpantau normal.\n\n`;
       }
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   },
   {
     id: 'layanan',
-    name: '🤝 Pantauan Layanan & UMKM',
+    name: '🤝 Layanan & UMKM',
     build: (ctx, tempatName) => {
       let story = `🤝 **Layanan & Usaha di ${tempatName}**\n\n`;
       const rewang = ctx.layananWarga?.find(l => l.kategori_layanan === 'rewang');
       const ojek = ctx.layananWarga?.find(l => l.kategori_layanan === 'ojek_warga');
 
-      if (rewang) story += `🫱 **Kesiapan Rewang:** Aktif membantu. Respon kisaran ${rewang.estimasi_waktu_respon_menit || 'cepat'} menit.\n\n`;
-      if (ojek) story += `🛵 **Ojek Warga:** Standby di pangkalan. Ada ${ojek.jumlah_provider_aktif || 'beberapa'} pengemudi siap meluncur.\n\n`;
+      if (rewang) story += `🫱 **Rewang:** Aktif. Respon sekitar ${rewang.estimasi_waktu_respon_menit || 'cepat'} menit.\n\n`;
+      if (ojek) story += `🛵 **Ojek Warga:** Ada ${ojek.jumlah_provider_aktif || 'beberapa'} pengemudi siap.\n\n`;
 
       if (ctx.umkmProduk?.length > 0) {
-        story += `🛍️ **Geliat UMKM sekitar:**\n`;
-        ctx.umkmProduk.slice(0, 3).forEach(u => { story += `   • ${u.nama_produk} — *${u.nama_toko}*\n`; });
-        story += `\n`;
+        story += `🛍️ **UMKM sekitar:** ${ctx.umkmProduk.length} produk tersedia\n`;
       }
-      if (!rewang && !ojek && !ctx.umkmProduk?.length) story += `Belum ada entitas layanan warga atau UMKM terdata hari ini.\n\n`;
-      return story + `✨ Refresh untuk cerita lain! 🔄`;
+      if (!rewang && !ojek && !ctx.umkmProduk?.length) {
+        story += `Belum ada data layanan atau UMKM hari ini.\n\n`;
+      }
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   },
   {
     id: 'prediksi',
-    name: '🔮 Hasil Prediksi AI AKAMSI',
+    name: '🔮 Prediksi AI',
     build: (ctx, tempatName) => {
-      let story = `🔮 **Ramalan Kondisi ${tempatName}**\n\n`;
-      if (ctx.prediksi?.length > 0) {
-        const nowHour = new Date().getHours();
-        const prediksiSekarang = ctx.prediksi.find(p => Math.abs(nowHour - parseInt(p.jam_prediksi?.split(':')[0] || '0')) <= 2);
-        if (prediksiSekarang) {
-          story += `Estimasi sekitar jam ${prediksiSekarang.jam_prediksi?.substring(0, 5)} WIB:\n📊 ${prediksiSekarang.prediksi_kondisi}\n🎯 Akurasi data historis: ${Math.round((prediksiSekarang.prediksi_skor || 0.5) * 100)}%\n\n`;
-        }
+      let story = `🔮 **Prediksi Kondisi ${tempatName}**\n\n`;
+      const nowHour = new Date().getHours();
+      const prediksiSekarang = ctx.prediksi?.find(p => Math.abs(nowHour - parseInt(p.jam_prediksi?.split(':')[0] || '0')) <= 2);
+
+      if (prediksiSekarang) {
+        story += `Estimasi jam ${prediksiSekarang.jam_prediksi?.substring(0, 5)} WIB:\n`;
+        story += `📊 ${prediksiSekarang.prediksi_kondisi}\n`;
+        story += `🎯 Akurasi: ${Math.round((prediksiSekarang.prediksi_skor || 0.5) * 100)}%\n\n`;
+      } else if (ctx.prediksi?.length > 0) {
+        story += `Prediksi tersedia untuk jam: ${ctx.prediksi.map(p => p.jam_prediksi?.substring(0, 5)).join(', ')}\n\n`;
       } else {
-        story += `Sistem belum mengumpulkan basis data yang cukup untuk memprediksi pola jam ini.\n\n`;
+        story += `Data belum cukup untuk prediksi akurat.\n\n`;
       }
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   },
   {
     id: 'riwayat',
-    name: '📜 Hasil Riwayat & Kejadian',
+    name: '📜 Riwayat & Kejadian',
     build: (ctx, tempatName) => {
-      let story = `📜 **Catatan Historis & Kilas Balik ${tempatName}**\n\n`;
+      let story = `📜 **Catatan Historis ${tempatName}**\n\n`;
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Ambil laporan darurat dari database yang sudah LEWAT hari-hari sebelumnya (Flashback)
-      const emergencyKeywords = ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran', 'pohon tumbang'];
+      const emergencyKeywords = ['kecelakaan', 'korban', 'luka', 'darurat', 'banjir', 'kebakaran'];
       const daruratMasaLalu = (ctx.laporanWarga || []).filter(l => {
-        const tglLaporan = l.created_at ? l.created_at.split('T')[0] : '';
+        const tglLaporan = l.created_at?.split('T')[0] || '';
         const teks = dapatkanTeksLaporan(l).toLowerCase();
         return tglLaporan !== todayStr && emergencyKeywords.some(kw => teks.includes(kw));
       });
 
-      // 1. Jika ada memori insiden darurat warga tempo hari, tampilkan sebagai Flashback Sambutan
       if (daruratMasaLalu.length > 0) {
-        story += `⏳ **Kilas Balik Kejadian Wilayah:**\n`;
-        daruratMasaLalu.slice(0, 2).forEach(d => {
-          const tglFormat = new Date(d.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-          story += `⚠️ *Flashback (${tglFormat})*: Pernah terjadi insiden \n   "${dapatkanTeksLaporan(d).substring(0, 90)}..."\n   *Status saat ini: Kondisi terpantau sudah pulih/kondusif.*\n\n`;
-        });
-        story += `---\n\n`;
+        story += `⏳ **Kilas Balik Kejadian:**\n`;
+        story += `• ${daruratMasaLalu.length} insiden terekam di periode lalu\n`;
+        story += `• Status saat ini: Kondisi terpantau pulih\n\n`;
       }
 
-      // 2. Tetap tampilkan arsip besar tempat jika ada
       if (ctx.insidenHistoris?.length > 0) {
-        story += `📌 **Arsip Peristiwa Besar:**\n`;
+        story += `📌 **Arsip Peristiwa:**\n`;
         ctx.insidenHistoris.slice(0, 2).forEach(i => {
           const tanggal = i.tanggal_mulai ? new Date(i.tanggal_mulai).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Waktu lampau';
-          story += `• *${tanggal}* — **${i.judul}**\n${i.deskripsi ? `  ${i.deskripsi.substring(0, 100)}...\n` : ''}\n`;
+          story += `• *${tanggal}* — ${i.judul}\n`;
         });
       } else if (daruratMasaLalu.length === 0) {
-        story += `Arsip digital belum mencatat adanya peristiwa darurat atau kejadian besar di masa lampau, Lur. Wilayah aman tentram!\n\n`;
+        story += `Tidak ada catatan kejadian besar di masa lampau.\n\n`;
       }
 
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   },
   {
     id: 'aktivitas',
-    name: '👥 Pantauan Aktivitas Warga',
+    name: '👥 Aktivitas Warga',
     build: (ctx, tempatName) => {
-      let story = `👥 **Kegiatan Kolektif di ${tempatName}**\n\n`;
+      let story = `👥 **Kegiatan di ${tempatName}**\n\n`;
       const todayStr = new Date().toISOString().split('T')[0];
       const aktivitasHariIni = ctx.aktivitasWarga?.filter(a => a.tanggal_mulai === todayStr);
 
       if (aktivitasHariIni?.length > 0) {
         story += `📅 **Agenda Hari Ini:**\n`;
-        aktivitasHariIni.forEach(a => { story += `   • ${a.judul_aktivitas}${a.estimasi_peserta ? ` (~${a.estimasi_peserta} warga)` : ''}\n`; });
+        aktivitasHariIni.forEach(a => {
+          story += `   • ${a.judul_aktivitas}${a.estimasi_peserta ? ` (${a.estimasi_peserta} peserta)` : ''}\n`;
+        });
         story += `\n`;
       }
 
       const nowHour = new Date().getHours();
       const currentDay = new Date().toLocaleDateString('id', { weekday: 'long' });
-      const aktivitasRutin = ctx.aktivitasBerkala?.find(a => a.hari === currentDay && parseInt(a.jam_mulai?.split(':')[0] || '0') <= nowHour && parseInt(a.jam_selesai?.split(':')[0] || '23') >= nowHour);
+      const aktivitasRutin = ctx.aktivitasBerkala?.find(a =>
+        a.hari === currentDay &&
+        parseInt(a.jam_mulai?.split(':')[0] || '0') <= nowHour &&
+        parseInt(a.jam_selesai?.split(':')[0] || '23') >= nowHour
+      );
 
-      if (aktivitasRutin) story += `⏰ **Rutin Jam Sini:**\n   Sedang berlangsung: *${aktivitasRutin.nama_aktivitas}*\n\n`;
-      if (!aktivitasHariIni?.length && !aktivitasRutin) story += `Agenda kegiatan warga terpantau nihil/lowong untuk hari ini.\n\n`;
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+      if (aktivitasRutin) {
+        story += `⏰ **Sedang Berlangsung:** ${aktivitasRutin.nama_aktivitas}\n\n`;
+      }
+
+      if (!aktivitasHariIni?.length && !aktivitasRutin) {
+        story += `Tidak ada agenda kegiatan terjadwal hari ini.\n\n`;
+      }
+
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   },
   {
     id: 'karakter',
-    name: '📍 Hasil Pengamatan Karakter Tempat',
+    name: '📍 Karakter Tempat',
     build: (ctx, tempatName) => {
-      let story = `📍 **Karakteristik Wilayah ${tempatName}**\n\n`;
+      let story = `📍 **Karakteristik ${tempatName}**\n\n`;
+
       if (ctx.metadata) {
-        const tipeMap = { masjid: '🕌 Zona Peribadatan', industri: '🏭 Kawasan Perindustrian', sekolah: '🏫 Lingkungan Pendidikan', rs: '🏥 Fasilitas Kesehatan', mall: '🛍️ Pusat Perbelanjaan', wisata: '🏖️ Destinasi Publik/Wisata', kantor: '🏢 Klaster Administrasi' };
-        story += `Klasifikasi: **${tipeMap[ctx.metadata.tipe_utama] || '📍 Sektor Terbuka'}** ${tempatName}${ctx.metadata.kapasitas_normal ? `\n📏 Ambang Batas Normal: ~${ctx.metadata.kapasitas_normal} mobilitas orang` : ''}\n\n`;
-      }
-      if (ctx.layananTersedia?.length > 0) {
-        story += `🏢 **Prasarana Terdekat:**\n`;
-        ctx.layananTersedia.slice(0, 4).forEach(l => { story += `   • ${l.sub_layanan}\n`; });
+        const tipeMap = {
+          masjid: '🕌 Tempat Ibadah',
+          industri: '🏭 Kawasan Industri',
+          sekolah: '🏫 Lingkungan Pendidikan',
+          rs: '🏥 Fasilitas Kesehatan',
+          mall: '🛍️ Pusat Perbelanjaan',
+          wisata: '🏖️ Destinasi Wisata',
+          kantor: '🏢 Kawasan Perkantoran'
+        };
+        story += `Jenis: **${tipeMap[ctx.metadata.tipe_utama] || 'Lokasi Umum'}**\n`;
+        if (ctx.metadata.kapasitas_normal) {
+          story += `📏 Kapasitas normal: ~${ctx.metadata.kapasitas_normal} orang\n`;
+        }
         story += `\n`;
       }
-      return story + `✨ Refresh untuk cerita lain atau klik pojok kanan bawah! 🔄`;
+
+      if (ctx.layananTersedia?.length > 0) {
+        story += `🏢 **Fasilitas Tersedia:**\n`;
+        ctx.layananTersedia.slice(0, 4).forEach(l => {
+          story += `   • ${l.sub_layanan}\n`;
+        });
+        story += `\n`;
+      }
+
+      return story + `✨ Geser untuk insight lainnya! 🔄`;
     }
   }
 ];

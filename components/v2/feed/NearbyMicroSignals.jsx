@@ -168,34 +168,23 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
   const handleSignalClick = (signal) => {
     setSelectedSignal(signal);
 
-    // Sinyal Lalu Lintas → Buka Google Maps / Waze
+    // Sinyal Lalu Lintas → LANGSUNG RUTE GOOGLE MAPS
     if (signal.label === "Lalu Lintas" && tempatCoords) {
       const { latitude, longitude, name } = tempatCoords;
-      const destination = `${latitude},${longitude}`;
-      const destinationName = encodeURIComponent(name || "Lokasi");
 
-      // Coba buka Waze dulu, fallback ke Google Maps
-      const wazeUrl = `https://waze.com/ul?ll=${destination}&navigate=yes`;
-      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destination}&destination_place_id=${tempatId}`;
+      // Google Maps Intent URL format universal
+      // Menggunakan query nama lokasi agar pencarian pin di Google Maps jauh lebih akurat
+      const destinationParam = `${latitude},${longitude}`;
+      const encodedName = encodeURIComponent(name);
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destinationParam}&destination_place_id=${tempatId}&query=${encodedName}`;
 
-      // Buka di modal atau langsung?
-      // Versi 1: Konfirmasi dulu
-      const userChoice = confirm(`Buka peta untuk mencari rute alternatif ke ${name}?\n\nOK = Waze\nCancel = Google Maps`);
-
-      if (userChoice) {
-        window.open(wazeUrl, '_blank');
-      } else {
-        window.open(googleMapsUrl, '_blank');
-      }
+      // Langsung buka tab baru / aplikasi Google Maps tanpa konfirmasi bertele-tele
+      window.open(googleMapsUrl, '_blank');
     }
 
-    // Sinyal Keramaian → Buka form update atau redirect ke Rewang
+    // Sinyal Keramaian → Buka form update
     if (signal.label === "Keramaian") {
-      // Opsi 1: Buka modal "Saya juga di sini"
       setShowCrowdModal(true);
-
-      // Opsi 2: Redirect ke halaman Rewang/Sambatan (jika ada)
-      // window.location.href = `/rewards/${tempatId}`;
     }
   };
 
@@ -211,7 +200,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
 
     if (error) throw error;
 
-    // Optional: Show success toast
     alert("Terima kasih! Laporanmu akan membantu warga lain.");
   };
 
@@ -290,7 +278,7 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
             color: trafficStatus.color,
             detail: trafficCount > 0
               ? `${trafficCount} laporan kondisi jalan`
-              : "Belum ada laporan lalu lintas",
+              : "Klik untuk cari petunjuk arah",
             source: trafficCount > 0 ? "laporan_warga" : "no_data",
             isClickable: true,
             action: "route"
@@ -303,7 +291,7 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
             color: weatherDataResult.color,
             temp: weatherDataResult.temp,
             source: weatherDataResult.source,
-            isClickable: false // Cuaca tidak bisa diklik
+            isClickable: false
           },
           {
             id: 3,
@@ -354,7 +342,7 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
   // ============================================
   function getTrafficStatus(reports) {
     if (reports.length === 0) {
-      return { status: "Tidak Ada Laporan", icon: "❓", color: "text-gray-400" };
+      return { status: "Petunjuk Jalan", icon: "🗺️", color: "text-blue-400" };
     }
 
     const statusCount = { Sepi: 0, Ramai: 0, Antri: 0 };
@@ -362,19 +350,16 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     reports.forEach(r => {
       let condition = null;
 
-      // Prioritas 1: Dari tipe column
       if (r.tipe === 'sepi') condition = 'Sepi';
       else if (r.tipe === 'ramai') condition = 'Ramai';
       else if (r.tipe === 'antri') condition = 'Antri';
 
-      // Prioritas 2: Dari estimated_people (jika ada)
       if (!condition && r.estimated_people !== null) {
         if (r.estimated_people > 100) condition = 'Antri';
         else if (r.estimated_people > 50) condition = 'Ramai';
         else if (r.estimated_people < 20) condition = 'Sepi';
       }
 
-      // Prioritas 3: Dari analisis deskripsi
       if (!condition && r.deskripsi) {
         const text = r.deskripsi.toLowerCase();
         if (text.includes('antri') || text.includes('ngantre') || text.includes('mengular')) condition = 'Antri';
@@ -389,20 +374,19 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
 
     const totalCount = Object.values(statusCount).reduce((a, b) => a + b, 0);
     if (totalCount === 0) {
-      return { status: "Normal", icon: "👍", color: "text-gray-400" };
+      return { status: "Lancar", icon: "🚗", color: "text-emerald-400" };
     }
 
-    // Tentukan status dominan
     const dominantStatus = Object.keys(statusCount).reduce((a, b) =>
       statusCount[a] > statusCount[b] ? a : b
     );
 
-    const icons = { Sepi: "😴", Ramai: "👥", Antri: "🚶‍♂️🚶‍♀️" };
+    const icons = { Sepi: "🚗 Lancar", Ramai: "🚙 Padat", Antri: "🛑 Macet" };
     const colors = { Sepi: "text-emerald-400", Ramai: "text-amber-400", Antri: "text-red-400" };
 
     return {
       status: dominantStatus,
-      icon: icons[dominantStatus] || "📝",
+      icon: icons[dominantStatus] || "🚗",
       color: colors[dominantStatus] || "text-gray-400"
     };
   }
@@ -415,7 +399,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
       return { status: "Tidak Ada Laporan", icon: "❓", color: "text-gray-400" };
     }
 
-    // PRIORITAS UTAMA: Gunakan estimated_people (jumlah orang sebenarnya)
     const reportsWithPeople = reports.filter(r => r.estimated_people !== null);
 
     if (reportsWithPeople.length > 0) {
@@ -427,7 +410,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
       if (avgPeople > 0) return { status: "Sepi", icon: "👤", color: "text-gray-400" };
     }
 
-    // PRIORITAS KEDUA: Gunakan estimasi waktu antri
     const reportsWithWaitTime = reports.filter(r => r.estimasi_menit !== null);
     if (reportsWithWaitTime.length > 0) {
       const avgWait = reportsWithWaitTime.reduce((sum, r) => sum + r.estimasi_menit, 0) / reportsWithWaitTime.length;
@@ -436,7 +418,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
       if (avgWait > 5) return { status: "Mulai Antri", icon: "⏱️", color: "text-amber-400" };
     }
 
-    // FALLBACK TERAKHIR: Gunakan tipe
     const statusCount = { sepi: 0, ramai: 0, antri: 0, normal: 0 };
 
     reports.forEach(r => {
@@ -505,9 +486,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     ];
   }
 
-  // ============================================
-  // LOADING STATE
-  // ============================================
   if (loading) {
     return (
       <div className="grid grid-cols-3 gap-2">
@@ -522,9 +500,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     );
   }
 
-  // ============================================
-  // ERROR STATE
-  // ============================================
   if (error && !signals) {
     return (
       <div className={`p-4 rounded-2xl text-center text-xs ${theme.isMalam ? 'bg-red-500/10' : 'bg-red-100'}`}>
@@ -533,9 +508,6 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     );
   }
 
-  // ============================================
-  // RENDER SIGNALS
-  // ============================================
   return (
     <>
       <div className="grid grid-cols-3 gap-2">
@@ -548,10 +520,10 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
             whileHover={{ scale: sig.isClickable ? 1.02 : 1 }}
             onClick={() => sig.isClickable && handleSignalClick(sig)}
             className={`p-3 rounded-2xl flex flex-col items-center justify-center text-center border transition-all ${sig.isClickable
-                ? `cursor-pointer ${theme.isMalam ? 'bg-white/5 hover:bg-white/15' : 'bg-black/5 hover:bg-black/15'}`
-                : `cursor-default ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`
+              ? `cursor-pointer ${theme.isMalam ? 'bg-white/5 hover:bg-white/15' : 'bg-black/5 hover:bg-black/15'}`
+              : `cursor-default ${theme.isMalam ? 'bg-white/5' : 'bg-black/5'}`
               }`}
-            title={`${sig.source === 'laporan_warga' ? '📝 Dari laporan warga' : sig.source === 'weather_hook' ? '🌤️ Data cuaca real-time' : sig.source === 'time_fallback' ? '⏰ Estimasi berdasarkan waktu' : '❓ Tidak ada data'}\n${sig.detail || ''}${sig.isClickable ? '\n\n✨ Klik untuk ' + (sig.label === 'Lalu Lintas' ? 'cari rute alternatif' : 'update kondisi terkini') : ''
+            title={`${sig.source === 'laporan_warga' ? '📝 Dari laporan warga' : sig.source === 'weather_hook' ? '🌤️ Data cuaca real-time' : sig.source === 'time_fallback' ? '⏰ Estimasi berdasarkan waktu' : '❓ Tidak ada data'}\n${sig.detail || ''}${sig.isClickable ? '\n\n✨ Klik untuk ' + (sig.label === 'Lalu Lintas' ? 'buka rute Google Maps' : 'update kondisi terkini') : ''
               }`}
           >
             <span className="text-lg mb-1">{sig.icon}</span>

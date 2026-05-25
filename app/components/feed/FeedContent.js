@@ -940,73 +940,47 @@ export default function FeedContent() {
   }, [orderedIds, loadPlaces, networkInfo.isSlowConnection, locationReady, hasMore]);
 
   // Realtime subscription (tanpa toast)
+  // ========== SILENT POLLING (PENGGANTI REALTIME) ==========
   useEffect(() => {
-    if (!useRealtime) {
-      const cleanup = pollForUpdates();
-      return cleanup;
-    }
+    // Realtime dimatikan untuk stabilitas feed
+    // Gunakan polling ringan untuk cek konten baru
 
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
+    let pollInterval = null;
+    let lastKnownFirstId = orderedIds[0];
 
-    const channel = supabase
-      .channel('feed_changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_view' }, (payload) => {
-        const newItem = payload.new;
-        if (!newItem) return;
+    const checkForNewContent = async () => {
+      if (!locationReady || !hasMore || loading || !lastKnownFirstId) return;
 
-        const userLocation = locationReady && location ? {
-          latitude: location.latitude,
-          longitude: location.longitude
-        } : null;
+      try {
+        const { data, error } = await supabase
+          .from("feed_view")
+          .select("id")
+          .gt('id', lastKnownFirstId)
+          .limit(1)
+          .single();
 
-        let inRadius = false;
-        let distance = null;
+        if (error) throw error;
 
-        if (userLocation && newItem.latitude && newItem.longitude) {
-          distance = haversineDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            newItem.latitude,
-            newItem.longitude
-          );
-          inRadius = distance <= searchRadius;
+        if (data) {
+          console.log('📱 New content detected, refreshing feed...');
+          loadPlaces(true, false);
         }
 
-        if (inRadius) {
-          setItemsMap(prevMap => {
-            if (prevMap.has(newItem.id)) return prevMap;
-            const processedItem = cachedProcessFeedItem(newItem, !!userLocation, userLocation);
-            const hybridScoreData = calculateHybridScore(processedItem, userLocation);
-            const finalItem = {
-              ...processedItem,
-              _distance: distance,
-              _distanceScore: hybridScoreData.distanceScore,
-              _rankingScore: hybridScoreData.rankingScore,
-              _hybridScore: hybridScoreData.hybridScore
-            };
-            const newMap = new Map(prevMap);
-            newMap.set(finalItem.id, finalItem);
-            return newMap;
-          });
-
-          // ✅ INSERT DI AWAL (seperti Instagram)
-          setOrderedIds(prevIds => {
-            if (prevIds.includes(newItem.id)) return prevIds;
-            return [newItem.id, ...prevIds];
-          });
-
-          setComments(prev => ({ ...prev, [newItem.id]: [] }));
-          // HAPUS TOAST - tidak menampilkan notifikasi
+        if (orderedIds[0] && orderedIds[0] !== lastKnownFirstId) {
+          lastKnownFirstId = orderedIds[0];
         }
-      })
-      .subscribe();
+
+      } catch (err) {
+        // Silent ignore
+      }
+    };
+
+    pollInterval = setInterval(checkForNewContent, 45000);
 
     return () => {
-      supabase.removeChannel(channel);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
+      if (pollInterval) clearInterval(pollInterval);
     };
-  }, [searchRadius, useRealtime, locationReady, location, pollForUpdates]);
+  }, [locationReady, hasMore, loading, loadPlaces, orderedIds[0]]);
 
   // ========== UPDATED INFINITE SCROLL OBSERVER (rootMargin 400px) ==========
   useEffect(() => {

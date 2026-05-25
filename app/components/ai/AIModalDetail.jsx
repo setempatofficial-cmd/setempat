@@ -18,8 +18,47 @@ export default function AIModalDetail({
   const [quickPrompts, setQuickPrompts] = useState([]);
   const [greeting, setGreeting] = useState("");
   const [isLoadingPrompts, setIsLoadingPrompts] = useState(true);
+  const [currentTime, setCurrentTime] = useState("");
+  const [currentHour, setCurrentHour] = useState(new Date().getHours());
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // ==================== GET TIME GREETING ====================
+  const getTimeGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "Selamat pagi";
+    if (hour >= 12 && hour < 15) return "Selamat siang";
+    if (hour >= 15 && hour < 18) return "Selamat sore";
+    return "Selamat malam";
+  };
+
+  const getFormattedTime = () => {
+    return new Date().toLocaleString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    });
+  };
+
+  // ==================== UPDATE TIME EVERY MINUTE ====================
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentHour(now.getHours());
+      setCurrentTime(getFormattedTime());
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   // ==================== SCROLL TO BOTTOM ====================
   const scrollToBottom = useCallback(() => {
@@ -31,14 +70,12 @@ export default function AIModalDetail({
     }, 100);
   }, []);
 
-  // Scroll setiap ada pesan baru
   useEffect(() => {
     if (messages.length > 0) {
       scrollToBottom();
     }
   }, [messages, scrollToBottom]);
 
-  // Scroll saat loading selesai
   useEffect(() => {
     if (!isLoading) {
       scrollToBottom();
@@ -57,39 +94,44 @@ export default function AIModalDetail({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tempatId: item.id,
-            userId: userId
+            userId: userId,
+            currentTime: getFormattedTime(),
+            currentHour: currentHour
           }),
         });
 
         const data = await response.json();
 
         if (data.success) {
-          setGreeting(data.greeting);
+          const greetingWithTime = `${getTimeGreeting()}! ${data.greeting}`;
+          setGreeting(greetingWithTime);
           setQuickPrompts(data.quickPrompts);
 
           setMessages([{
             id: "greet",
             role: "assistant",
-            content: data.greeting,
+            content: greetingWithTime,
           }]);
         } else {
+          const defaultGreeting = `${getTimeGreeting()}! 👋 Saya AI SETEMPAT. Waktu sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Ada yang bisa saya bantu tentang ${item.name}?`;
           setMessages([{
             id: "greet",
             role: "assistant",
-            content: `Halo! 👋 Ada yang bisa saya bantu tentang ${item.name}?`,
+            content: defaultGreeting,
           }]);
           setQuickPrompts([
             { text: `Info tentang ${item.name}?`, icon: "ℹ️" },
             { text: "Jam operasional?", icon: "🕐" },
-            { text: "Gimana kondisinya?", icon: "📊" }
+            { text: "Gimana kondisinya sekarang?", icon: "📊" }
           ]);
         }
       } catch (error) {
         console.error("Error loading prompts:", error);
+        const fallbackGreeting = `${getTimeGreeting()}! 👋 Ada yang bisa saya bantu tentang ${item.name}? (Sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})`;
         setMessages([{
           id: "greet",
           role: "assistant",
-          content: `Halo! 👋 Ada yang bisa saya bantu tentang ${item.name}?`,
+          content: fallbackGreeting,
         }]);
       } finally {
         setIsLoadingPrompts(false);
@@ -97,14 +139,14 @@ export default function AIModalDetail({
     };
 
     loadQuickPrompts();
-  }, [isOpen, item, userId]);
+  }, [isOpen, item, userId, currentHour]);
 
   // ==================== HANDLE QUICK PROMPT CLICK ====================
   const handleQuickPrompt = (prompt) => {
     handleSend(prompt.text);
   };
 
-  // ==================== SEND MESSAGE ====================
+  // ==================== SEND MESSAGE DENGAN KONTEKS WAKTU ====================
   const handleSend = useCallback(async (forcedQuery = null) => {
     const userMessage = forcedQuery || input.trim();
     if (!userMessage || isLoading) return;
@@ -121,13 +163,24 @@ export default function AIModalDetail({
     setIsLoading(true);
 
     try {
+      const now = new Date();
+      const currentDateTime = getFormattedTime();
+      const currentHourExact = now.getHours();
+      const currentMinute = now.getMinutes();
+      const dayOfWeek = now.toLocaleDateString('id-ID', { weekday: 'long' });
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMessage,
           tempat: item,
-          modalType: "tempat_detail"
+          modalType: "tempat_detail",
+          currentDateTime: currentDateTime,
+          currentHour: currentHourExact,
+          currentMinute: currentMinute,
+          dayOfWeek: dayOfWeek,
+          timestamp: Date.now()
         }),
       });
 
@@ -145,7 +198,7 @@ export default function AIModalDetail({
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        content: "Maaf, terjadi kesalahan teknis. Silakan coba lagi nanti. 🙏",
+        content: `Maaf, terjadi kesalahan teknis. Silakan coba lagi nanti. 🙏\n\n(Waktu sekarang: ${new Date().toLocaleTimeString('id-ID')})`,
       }]);
     } finally {
       setIsLoading(false);
@@ -180,7 +233,7 @@ export default function AIModalDetail({
           className="relative w-full max-w-[420px] h-[85vh] sm:h-[600px] bg-gradient-to-b from-zinc-950 to-black border-t sm:border border-white/10 sm:rounded-[28px] overflow-hidden flex flex-col shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
+          {/* Header dengan waktu */}
           <div className="flex items-center justify-between p-4 border-b border-white/5 bg-zinc-900/80">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[#E3655B]/10 flex items-center justify-center">
@@ -196,9 +249,14 @@ export default function AIModalDetail({
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 rounded-full bg-white/5 hover:bg-white/10">
-              <X size={18} className="text-white/40" />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:block text-right">
+                <p className="text-[8px] text-white/30 font-mono">{currentTime}</p>
+              </div>
+              <button onClick={onClose} className="p-2 rounded-full bg-white/5 hover:bg-white/10">
+                <X size={18} className="text-white/40" />
+              </button>
+            </div>
           </div>
 
           {/* Messages Area */}
@@ -211,8 +269,8 @@ export default function AIModalDetail({
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div className={`max-w-[85%] p-3.5 text-sm leading-relaxed ${msg.role === "user"
-                    ? "bg-[#E3655B] text-white rounded-[20px] rounded-tr-none"
-                    : "bg-white/5 border border-white/10 text-white/90 rounded-[20px] rounded-tl-none"
+                  ? "bg-[#E3655B] text-white rounded-[20px] rounded-tr-none"
+                  : "bg-white/5 border border-white/10 text-white/90 rounded-[20px] rounded-tl-none"
                   }`}>
                   {msg.role === "assistant" ? (
                     <ReactMarkdown

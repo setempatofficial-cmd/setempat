@@ -274,41 +274,37 @@ const PremiumLikeButton = memo(({
 
     const newIsLiked = !isLiked;
     const newCount = newIsLiked ? likeCount + 1 : likeCount - 1;
-    const previousLikeCount = likeCount;
-    const previousIsLiked = isLiked;
 
+    // Optimistic update
     setIsLiked(newIsLiked);
     setLikeCount(newCount);
     if (onLikeChange) onLikeChange(newIsLiked, newCount);
 
     try {
+      // Gunakan transaction atau RPC tunggal
       if (newIsLiked) {
-        const { error } = await supabase.from('likes').insert({
-          tempat_id: tempatId,
-          user_id: userId,
-          created_at: new Date().toISOString()
+        const { error } = await supabase.rpc('toggle_like', {
+          p_tempat_id: tempatId,
+          p_user_id: userId,
+          p_action: 'add'
         });
         if (error) throw error;
-
-        await supabase.rpc('increment_vibe_count', { place_id: tempatId });
       } else {
-        const { error } = await supabase.from('likes')
-          .delete()
-          .eq('tempat_id', tempatId)
-          .eq('user_id', userId);
+        const { error } = await supabase.rpc('toggle_like', {
+          p_tempat_id: tempatId,
+          p_user_id: userId,
+          p_action: 'remove'
+        });
         if (error) throw error;
-
-        await supabase.rpc('decrement_vibe_count', { place_id: tempatId });
       }
     } catch (error) {
       console.error('Error toggling like:', error);
       setError('Gagal menyukai. Coba lagi nanti.');
 
-      if (isMounted.current) {
-        setIsLiked(previousIsLiked);
-        setLikeCount(previousLikeCount);
-        if (onLikeChange) onLikeChange(previousIsLiked, previousLikeCount);
-      }
+      // Rollback
+      setIsLiked(!newIsLiked);
+      setLikeCount(likeCount);
+      if (onLikeChange) onLikeChange(!newIsLiked, likeCount);
     } finally {
       if (isMounted.current) {
         setIsLoading(false);
@@ -316,7 +312,7 @@ const PremiumLikeButton = memo(({
         setTimeout(() => setError(null), 3000);
       }
     }
-  }, [userId, tempatId, isLiked, likeCount, onLikeChange, isLoading]);
+  }, [userId, tempatId, isLiked, likeCount, onLikeChange]);
 
   return (
     <div className="relative flex-1">

@@ -301,27 +301,42 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
                 </button>
               </div>
 
-              {/* Pilih Lokasi Section */}
+              {/* Pilih Lokasi Section - FIXED & SMOOTH */}
               {showPickTempat && (
                 <div className="mb-4 space-y-3">
                   <div className="relative">
                     <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
-                      type="text"
+                      type="search"
                       value={tempatQuery}
                       onChange={(e) => setTempatQuery(e.target.value)}
                       placeholder="Cari tempat atau jalan..."
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-cyan-500/20 bg-slate-50 outline-none"
+
+                      // 🛠️ PERBAIKAN CLASSNAME: Menghilangkan border hitam bawaan & transisi halus
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 transition-all duration-200 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10"
+
                       autoFocus
+
+                      // ✅ Trik ekstra pencegah password manager & auto-fill agresif
+                      autoComplete="one-time-code"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck="false"
+                      enterKeyHint="search"
+
+                      // ✅ ID dan Nama yang aman dari deteksi data pribadi
+                      name="loc-search"
+                      id="loc-search-input"
+                      inputMode="search"
                     />
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={showNominatim}
                       onChange={(e) => setShowNominatim(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded"
+                      className="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-cyan-500/20 border-slate-300"
                     />
                     <span className="text-[9px] text-slate-500">🔍 Cari di peta (jalan, simpang)</span>
                   </label>
@@ -529,21 +544,25 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
                 </p>
               )}
 
-              {/* Submit Button */}
               <button
                 onClick={finalizeUpload}
                 disabled={isFormDisabled}
-                className={`w-full py-4 rounded-2xl font-black uppercase text-[12px] tracking-widest transition-all flex items-center justify-center gap-2
-                  ${isFormDisabled
-                    ? "bg-slate-100 text-slate-300 cursor-not-allowed"
-                    : "bg-gradient-to-r from-cyan-500 to-blue-600 text-white active:scale-[0.98] shadow-lg shadow-cyan-500/20"}`}
+                className={`...`}
               >
                 {status === "uploading" ? (
+                  // Loading state
                   <>
                     <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Mengirim...
                   </>
+                ) : status === "success" ? (
+                  // ✅ Tambahkan state success di sini
+                  <>
+                    <span>✅</span>
+                    Berhasil!
+                  </>
                 ) : (
+                  // Normal state
                   <>
                     <Send size={14} />
                     Kirim Laporan

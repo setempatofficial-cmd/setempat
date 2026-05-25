@@ -46,7 +46,7 @@ const isVideoUrl = (url) => {
   if (!url) return false;
   const urlLower = url.toLowerCase();
   return urlLower.includes('.mp4') || urlLower.includes('.m3u8') || urlLower.includes('cctv') ||
-         urlLower.includes('stream') || urlLower.includes('youtube.com') || urlLower.includes('youtu.be');
+    urlLower.includes('stream') || urlLower.includes('youtube.com') || urlLower.includes('youtu.be');
 };
 
 const extractYouTubeId = (url) => {
@@ -65,7 +65,7 @@ const extractYouTubeId = (url) => {
 const getThumbnail = (item) => {
   const cached = thumbnailCache.get(item.id);
   if (cached) return cached;
-  
+
   const getVideoThumbnail = (url) => {
     if (!url) return null;
     const youtubeId = extractYouTubeId(url);
@@ -77,9 +77,9 @@ const getThumbnail = (item) => {
       return 'https://placehold.co/400x225/1a1a1a/3b82f6?text=VIDEO';
     return null;
   };
-  
+
   let result = 'https://placehold.co/400x225/1a1a1a/666666?text=NO+IMAGE';
-  
+
   if (item.laporan_terbaru?.[0]?.photo_url && !isVideoUrl(item.laporan_terbaru[0].photo_url)) {
     result = item.laporan_terbaru[0].photo_url;
   } else if (item.laporan_terbaru?.[0]?.video_url) {
@@ -92,7 +92,7 @@ const getThumbnail = (item) => {
     const photoUrl = typeof firstPhoto === 'string' ? firstPhoto : firstPhoto.url;
     if (photoUrl && !isVideoUrl(photoUrl)) result = photoUrl;
   }
-  
+
   thumbnailCache.set(item.id, result);
   return result;
 };
@@ -165,11 +165,11 @@ function SearchContent() {
   const [exploreItems, setExploreItems] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
   const [smartSuggestions, setSmartSuggestions] = useState([]);
-  
+
   const [nearbyResults, setNearbyResults] = useState([]);
   const [recentResults, setRecentResults] = useState([]);
   const [contextualResults, setContextualResults] = useState([]);
-  
+
   const initialLoadDone = useRef(false);
   const isMountedRef = useRef(true);
 
@@ -177,10 +177,12 @@ function SearchContent() {
   const [isKomentarModalOpen, setIsKomentarModalOpen] = useState(false);
   const [selectedForAI, setSelectedForAI] = useState(null);
   const [selectedForKomentar, setSelectedForKomentar] = useState(null);
-  
+
   const deferredQuery = useDeferredValue(query);
   const isTypingDeferred = useDeferredValue(isTyping);
-  
+
+  const inputRef = useRef(null);
+
   // Kata kunci kontekstual untuk pencarian situasi/lalu lintas
   const contextualKeywords = {
     laluLintas: ['macet', 'lalu lintas', 'lalin', 'padat', 'ramai lancar', 'arus lalin'],
@@ -205,13 +207,13 @@ function SearchContent() {
   // Fungsi untuk mencocokkan laporan dengan query
   const matchReportsWithQuery = useCallback((item, searchTerm) => {
     if (!searchTerm) return { matched: false, keyword: null };
-    
+
     const term = searchTerm.toLowerCase();
     const matchedReports = [];
-    
+
     for (const report of item.laporan_terbaru || []) {
       let matchReason = null;
-      
+
       // Cek tipe laporan (ramai/macet/sepi)
       if (report.tipe && term.includes(report.tipe.toLowerCase())) {
         matchReason = report.tipe;
@@ -224,19 +226,19 @@ function SearchContent() {
       else {
         for (const [category, keywords] of Object.entries(contextualKeywords)) {
           if (keywords.some(kw => term.includes(kw) || (report.content && report.content.toLowerCase().includes(kw)))) {
-            matchReason = category === 'laluLintas' ? 'Lalu Lintas' : 
-                         category === 'kemacetan' ? 'Macet' :
-                         category === 'kondisi' ? report.tipe || 'Kondisi' : 'Info';
+            matchReason = category === 'laluLintas' ? 'Lalu Lintas' :
+              category === 'kemacetan' ? 'Macet' :
+                category === 'kondisi' ? report.tipe || 'Kondisi' : 'Info';
             break;
           }
         }
       }
-      
+
       if (matchReason) {
         matchedReports.push({ report, reason: matchReason });
       }
     }
-    
+
     return {
       matched: matchedReports.length > 0,
       keyword: matchedReports[0]?.reason || null,
@@ -247,7 +249,7 @@ function SearchContent() {
   // ========== FETCH DATA ==========
   const fetchFreshData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
-    
+
     try {
       const [tempatResult, laporanResult] = await Promise.all([
         supabase
@@ -259,13 +261,13 @@ function SearchContent() {
           .select("id, tempat_id, photo_url, video_url, content, created_at, user_name, tipe, time_tag")
           .order("created_at", { ascending: false })
       ]);
-      
+
       if (tempatResult.error) throw tempatResult.error;
       if (laporanResult.error) throw laporanResult.error;
-      
+
       const tempatData = tempatResult.data || [];
       const laporanData = laporanResult.data || [];
-      
+
       // Group laporan by tempat_id
       const laporanMap = new Map();
       for (const laporan of laporanData) {
@@ -275,17 +277,17 @@ function SearchContent() {
         const list = laporanMap.get(laporan.tempat_id);
         if (list.length < 5) list.push(laporan);
       }
-      
+
       const merged = tempatData.map(tempat => ({
         ...tempat,
         laporan_terbaru: laporanMap.get(tempat.id) || []
       }));
-      
+
       if (isMountedRef.current) {
         setAllData(merged);
         try {
           sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
-        } catch (e) {}
+        } catch (e) { }
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -293,11 +295,11 @@ function SearchContent() {
       if (isMountedRef.current && showLoading) setLoading(false);
     }
   }, []);
-  
+
   // ========== HITUNG ULANG FILTER ==========
   useEffect(() => {
     if (!allData.length) return;
-    
+
     if (location?.latitude && location?.longitude) {
       const withDistance = allData
         .filter(item => item.latitude && item.longitude)
@@ -311,7 +313,7 @@ function SearchContent() {
     } else {
       setNearbyResults([]);
     }
-    
+
     const withRecent = allData
       .filter(item => item.laporan_terbaru?.length > 0)
       .map(item => {
@@ -322,29 +324,29 @@ function SearchContent() {
       .slice(0, 20);
     setRecentResults(withRecent);
   }, [allData, location]);
-  
+
   // ========== HASIL PENCARIAN KONTEKSTUAL ==========
   const results = useMemo(() => {
     if (activeFilter === "Sekitarmu") return nearbyResults;
     if (activeFilter === "Baru terjadi") return recentResults;
-    
+
     const term = deferredQuery.toLowerCase().trim();
-    
+
     if (!term) {
       setContextualResults([]);
       return [];
     }
-    
+
     // Cek apakah ini pencarian kontekstual
     const isContextual = isContextualSearch(term);
-    
+
     // Filter berdasarkan nama tempat dulu
     let nameMatches = allData.filter(item =>
       item.name?.toLowerCase().includes(term) ||
       item.alamat?.toLowerCase().includes(term) ||
       item.category?.toLowerCase().includes(term)
     );
-    
+
     // Jika pencarian kontekstual, cari juga berdasarkan laporan
     let contextualMatches = [];
     if (isContextual || nameMatches.length === 0) {
@@ -362,7 +364,7 @@ function SearchContent() {
         })
         .filter(Boolean);
     }
-    
+
     // Gabungkan hasil (prioritaskan yang match nama, lalu contextual)
     let combined = [...nameMatches];
     for (const ctxMatch of contextualMatches) {
@@ -370,24 +372,24 @@ function SearchContent() {
         combined.push(ctxMatch);
       }
     }
-    
+
     // Sort: yang punya matchingKeyword lebih relevan
     combined.sort((a, b) => {
       if (a.matchingKeyword && !b.matchingKeyword) return -1;
       if (!a.matchingKeyword && b.matchingKeyword) return 1;
       return 0;
     });
-    
+
     if (activeFilter === "Lagi ramai") {
-      combined = combined.filter(item => 
+      combined = combined.filter(item =>
         item.laporan_terbaru?.some(l => l.tipe === "ramai")
       );
     }
-    
+
     setContextualResults(isContextual ? combined : []);
     return combined;
   }, [deferredQuery, allData, activeFilter, nearbyResults, recentResults, isContextualSearch, matchReportsWithQuery]);
-  
+
   // ========== HANDLERS ==========
   const handleSearch = useCallback((searchQuery) => {
     const trimmed = searchQuery.trim();
@@ -401,19 +403,19 @@ function SearchContent() {
     setIsTyping(false);
     setExploreMode(false);
   }, []);
-  
+
   const handleOpenExplore = useCallback((item) => {
     setExploreItems([item]);
     setExploreMode(true);
     setIsTyping(false);
   }, []);
-  
+
   const handleSelectSuggestion = useCallback((suggestion) => handleSearch(suggestion), [handleSearch]);
   const handleClearRecentSearches = useCallback(() => {
     setRecentSearches([]);
     localStorage.removeItem("recent_searches");
   }, []);
-  
+
   const handleShare = useCallback(async (item) => {
     const shareUrl = `${window.location.origin}/post/${item.id}`;
     try {
@@ -423,102 +425,109 @@ function SearchContent() {
         await navigator.clipboard.writeText(shareUrl);
         alert("✅ Link disalin!");
       }
-    } catch (_) {}
+    } catch (_) { }
   }, []);
-  
+
   const handleGlobalRefresh = useCallback(async () => {
     thumbnailCache.clear();
     await fetchFreshData(true);
     router.refresh();
   }, [fetchFreshData, router]);
-  
+
+  // Perbaiki handleClearQuery function
   const handleClearQuery = useCallback(() => {
     setQuery("");
     setIsTyping(true);
     setExploreMode(false);
+    // Fokus kembali ke input
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 0);
   }, []);
-  
+
   // ========== INITIAL LOAD ==========
-useEffect(() => {
-  if (initialLoadDone.current) return;
-  initialLoadDone.current = true;
-  
-  const loadInitial = async () => {
-    const instantSuggestions = getPreloadedSuggestions(placeName);
-    setSmartSuggestions(instantSuggestions);
-    
-    // STEP 1: COBA CACHE - LANGSUNG TAMPILKAN
-    try {
-      const cached = sessionStorage.getItem('search_cache_v2');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.length > 0) {
-          setAllData(parsed);
-          setLoading(false);
-          console.log("✅ Load dari cache: CEPAT!");
+  useEffect(() => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    const loadInitial = async () => {
+      const instantSuggestions = getPreloadedSuggestions(placeName);
+      setSmartSuggestions(instantSuggestions);
+
+      // STEP 1: COBA CACHE - LANGSUNG TAMPILKAN
+      try {
+        const cached = sessionStorage.getItem('search_cache_v2');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.length > 0) {
+            setAllData(parsed);
+            setLoading(false);
+            console.log("✅ Load dari cache: CEPAT!");
+          }
         }
-      }
-    } catch (e) {}
-    
-    // STEP 2: FETCH DI BACKGROUND (tanpa loading state)
-    try {
-      const [tempatResult, laporanResult] = await Promise.all([
-        supabase
-          .from("tempat")
-          .select("id, name, category, latitude, longitude")
-          .limit(100)
-          .order("name", { ascending: true }),
-        supabase
-          .from("laporan_warga")
-          .select("id, tempat_id, content, created_at, tipe")
-          .limit(200)
-          .order("created_at", { ascending: false })
-      ]);
-      
-      const tempatData = tempatResult.data || [];
-      const laporanData = laporanResult.data || [];
-      
-      // Group laporan by tempat_id
-      const laporanMap = new Map();
-      for (const laporan of laporanData) {
-        if (!laporanMap.has(laporan.tempat_id)) {
-          laporanMap.set(laporan.tempat_id, []);
+      } catch (e) { }
+
+      // STEP 2: FETCH DI BACKGROUND (tanpa loading state)
+      try {
+        const [tempatResult, laporanResult] = await Promise.all([
+          supabase
+            .from("tempat")
+            .select("id, name, category, latitude, longitude")
+            .limit(100)
+            .order("name", { ascending: true }),
+          supabase
+            .from("laporan_warga")
+            .select("id, tempat_id, content, created_at, tipe")
+            .limit(200)
+            .order("created_at", { ascending: false })
+        ]);
+
+        const tempatData = tempatResult.data || [];
+        const laporanData = laporanResult.data || [];
+
+        // Group laporan by tempat_id
+        const laporanMap = new Map();
+        for (const laporan of laporanData) {
+          if (!laporanMap.has(laporan.tempat_id)) {
+            laporanMap.set(laporan.tempat_id, []);
+          }
+          const list = laporanMap.get(laporan.tempat_id);
+          if (list.length < 5) list.push(laporan);
         }
-        const list = laporanMap.get(laporan.tempat_id);
-        if (list.length < 5) list.push(laporan);
+
+        const merged = tempatData.map(tempat => ({
+          ...tempat,
+          laporan_terbaru: laporanMap.get(tempat.id) || []
+        }));
+
+        setAllData(merged);
+        sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
+        console.log("✅ Fetch fresh selesai di background");
+      } catch (err) {
+        console.error("Background fetch error:", err);
       }
-      
-      const merged = tempatData.map(tempat => ({
-        ...tempat,
-        laporan_terbaru: laporanMap.get(tempat.id) || []
-      }));
-      
-      setAllData(merged);
-      sessionStorage.setItem('search_cache_v2', JSON.stringify(merged));
-      console.log("✅ Fetch fresh selesai di background");
-    } catch (err) {
-      console.error("Background fetch error:", err);
-    }
-  };
-  
-  loadInitial();
-    
+    };
+
+    loadInitial();
+
     const channel = supabase
       .channel('search-laporan-updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laporan_warga' }, () => {
         setTimeout(() => fetchFreshData(false), 3000);
       })
       .subscribe();
-    
+
     const savedRecent = localStorage.getItem("recent_searches");
     if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
-    
+
     return () => {
       isMountedRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [fetchFreshData, placeName]);
-  
+
   // Helper untuk preloaded suggestions
   const getPreloadedSuggestions = (placeName) => {
     const hour = new Date().getHours();
@@ -528,85 +537,121 @@ useEffect(() => {
     else if (hour >= 15 && hour < 18) suggestions.push("cafe sore", "ngabuburit");
     else if (hour >= 18 && hour < 23) suggestions.push("makan malam", "kuliner malam");
     else suggestions.push("24 jam");
-    
+
     // Tambahkan saran kontekstual
     suggestions.push("lalu lintas", "kondisi macet", "tempat ramai");
     if (placeName) suggestions.push(placeName);
     suggestions.push("kopi", "kuliner", "cafe");
-    
+
     return [...new Set(suggestions)].slice(0, 8);
   };
-  
+
   // ========== RENDER ==========
-if (loading && allData.length === 0) {
-  return (
-    <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
-      <div 
-        className="mx-auto flex justify-center items-center h-64" 
-        style={{ maxWidth: '420px' }}
-      >
-        <div className="relative flex items-center justify-center">
-          {/* Spin lebih cepat */}
-          <div className="relative h-8 w-8 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" 
-               style={{ animationDuration: '0.35s' }}></div>
+  if (loading && allData.length === 0) {
+    return (
+      <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
+        <div
+          className="mx-auto flex justify-center items-center h-64"
+          style={{ maxWidth: '420px' }}
+        >
+          <div className="relative flex items-center justify-center">
+            {/* Spin lebih cepat */}
+            <div className="relative h-8 w-8 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin"
+              style={{ animationDuration: '0.35s' }}></div>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
   return (
     <div className={`min-h-screen w-full ${themeBg} ${themeText} transition-colors duration-300`}>
       {/* Border di container luar (opsional) */}
       <div className="mx-auto w-full max-w-[400px] border-x"
-        style={{ 
+        style={{
           width: '100%',
           maxWidth: '400px',
           borderLeft: `1px solid ${isMalam ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'}`,
           borderRight: `1px solid ${isMalam ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'}`
         }}
       >
-        
+
         {/* HEADER */}
-        <div 
+        <div
           className={`sticky top-0 z-50 px-4 sm:px-6 pt-4 pb-2 backdrop-blur-2xl transition-all duration-500 
             ${isMalam ? "bg-black/60 border-b border-white/5" : "bg-white/70 border-b border-slate-200/50"}`}
           style={{ width: '100%', margin: '0 auto' }}
         >
           <div className="flex items-center gap-1.5">
-            <motion.button 
+            <motion.button
               whileTap={{ scale: 0.9 }}
-              onClick={() => exploreMode ? setExploreMode(false) : router.back()} 
+              onClick={() => exploreMode ? setExploreMode(false) : router.back()}
               className={`p-2 rounded-2xl transition-colors flex-shrink-0 ${isMalam ? "bg-white/5 hover:bg-white/10" : "bg-black/5 hover:bg-black/10"}`}
             >
               <ChevronLeft size={18} />
             </motion.button>
-            
-            {/* Search Input */}
+
+
+            {/* Search Input - OPTIMIZED */}
             <div className="flex-1 relative">
               <input
+                ref={inputRef}
+                type="search"  // ✅ Tepat untuk kolom pencarian
                 value={query}
-                onChange={(e) => { setQuery(e.target.value); setIsTyping(true); setExploreMode(false); }}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch(query)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIsTyping(true);
+                  setExploreMode(false);
+                }}
+                // ✅ Diganti ke onKeyDown karena onKeyPress sudah deprecated
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch(query)}
+
+                // Mencegah konflik *gesture* jika input berada di dalam komponen geser (slider/map)
+                onTouchStart={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+
+                onFocus={() => {
+                  setIsTyping(true);
+                  setExploreMode(false);
+                }}
                 placeholder="Cek Kondisi Lokasi Sekitar..."
-                className={`w-full py-2.5 px-3 rounded-2xl text-sm font-bold outline-none border transition-colors ${
-                  isMalam 
-                    ? "bg-white/[0.07] border-white/10 text-white placeholder:text-white/20" 
-                    : "bg-black/[0.04] border-black/5 text-slate-900 placeholder:text-slate-400"
-                }`}
-                autoComplete="off"
+
+                // ✅ Trik paling ampuh mematikan autofill data pribadi di browser modern
+                autoComplete="one-time-code"
                 autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="search"
+
+                // ✅ Nama & ID yang netral (hindari kata 'user', 'name', 'pass', 'mail')
+                name="q-search"
+                id="q-search-input"
+
+                // ✅ Memaksa layout keyboard mobile memunculkan tombol "Cari" bukan "Go/Masuk"
+                inputMode="search"
+                className="flex-1 w-full bg-transparent py-2 px-3 focus:outline-none focus:ring-0"
               />
+
               {query && (
-                <button onClick={handleClearQuery} className="absolute right-3 top-1/2 -translate-y-1/2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClearQuery();
+                    // Memastikan input kembali fokus setelah teks dihapus
+                    if (inputRef.current) {
+                      inputRef.current.focus();
+                    }
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                  type="button"
+                >
                   <X size={16} className="opacity-40" />
                 </button>
               )}
             </div>
-            
+
             {/* Voice Search */}
-            <div className={`flex-shrink-0 flex items-center justify-center rounded-xl transition-all duration-300 shadow-sm ${
-              isMalam ? "bg-white border border-white/20" : "bg-black/[0.04] border border-black/5"
-            }`}>
+            <div className={`flex-shrink-0 flex items-center justify-center rounded-xl transition-all duration-300 shadow-sm ${isMalam ? "bg-white border border-white/20" : "bg-black/[0.04] border border-black/5"
+              }`}>
               <VoiceSearch
                 handleSearch={(transcript) => handleSearch(transcript)}
                 Error={(error) => console.error("Voice Search Error:", error)}
@@ -615,38 +660,36 @@ if (loading && allData.length === 0) {
                 height="36"
                 language="id-ID"
                 customMicIcon={() => (
-                 <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                   isMalam ? "bg-white" : "bg-[#E3655B]"
-                 }`}>
-                   <Mic size={18} className={isMalam ? "text-black" : "text-white"} />
-                 </div>
-               )}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${isMalam ? "bg-white" : "bg-[#E3655B]"
+                    }`}>
+                    <Mic size={18} className={isMalam ? "text-black" : "text-white"} />
+                  </div>
+                )}
               />
             </div>
-           
-            
+
+
             {!location?.latitude && (
-              <button 
-                onClick={requestLocation} 
+              <button
+                onClick={requestLocation}
                 className="flex-shrink-0 px-2 py-1 rounded-full bg-[#E3655B] text-white text-[9px] font-bold whitespace-nowrap"
               >
                 Lokasi
               </button>
             )}
           </div>
-          
+
           {/* TABS FILTER */}
           {!exploreMode && !isTypingDeferred && (
-            <div className="flex gap-2 overflow-x-auto py-3 px-2 hide-scrollbar"> 
+            <div className="flex gap-2 overflow-x-auto py-3 px-2 hide-scrollbar">
               {["Semua", "Lagi ramai", "Sekitarmu", "Baru"].map(tab => (
                 <button
                   key={tab}
                   onClick={() => { setActiveFilter(tab); setExploreMode(false); }}
-                  className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide border whitespace-nowrap flex-shrink-0 ${
-                    activeFilter === tab 
-                      ? "bg-[#E3655B] border-[#E3655B] text-white" 
-                      : isMalam ? "bg-white/5 border-white/10 text-white/50" : "bg-black/5 border-black/5 text-slate-500"
-                  }`}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide border whitespace-nowrap flex-shrink-0 ${activeFilter === tab
+                    ? "bg-[#E3655B] border-[#E3655B] text-white"
+                    : isMalam ? "bg-white/5 border-white/10 text-white/50" : "bg-black/5 border-black/5 text-slate-500"
+                    }`}
                 >
                   {tab}
                 </button>
@@ -654,10 +697,10 @@ if (loading && allData.length === 0) {
             </div>
           )}
         </div>
-        
+
         {/* SUGGESTIONS */}
         {isTypingDeferred && query.length === 0 && (
-          <div className="px-4 py-3">  
+          <div className="px-4 py-3">
             {recentSearches.length > 0 && (
               <div className="mb-5">
                 <div className="flex justify-between items-center mb-2">
@@ -685,7 +728,7 @@ if (loading && allData.length === 0) {
             </div>
           </div>
         )}
-        
+
         {/* SEARCH RESULTS - SUGGESTIONS SAAT TYPING */}
         {isTypingDeferred && query.length > 0 && (
           <div className="mt-1 divide-y px-4">
@@ -704,7 +747,7 @@ if (loading && allData.length === 0) {
             ))}
           </div>
         )}
-        
+
         {/* GRID CARDS */}
         {!isTypingDeferred && !exploreMode && (
           <>
@@ -716,40 +759,40 @@ if (loading && allData.length === 0) {
                 <button onClick={requestLocation} className="px-4 py-2 bg-[#E3655B] text-white rounded-full text-xs font-bold">Aktifkan Lokasi</button>
               </div>
             )}
-            
+
             {(activeFilter !== "Sekitarmu" || location?.latitude) && results.length === 0 && query.length > 0 && (
               <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
                 <div className="text-4xl mb-3">🔍</div>
                 <h3 className="text-sm font-bold mb-1">Tidak ada hasil</h3>
                 <p className="text-xs opacity-50">
-                  {isContextualSearch(query) 
-                    ? "Tidak ada laporan dengan situasi tersebut. Coba kata kunci lain." 
+                  {isContextualSearch(query)
+                    ? "Tidak ada laporan dengan situasi tersebut. Coba kata kunci lain."
                     : "Tidak ada tempat yang cocok. Coba kata kunci lain."}
                 </p>
               </div>
             )}
-            
+
             {(activeFilter !== "Sekitarmu" || location?.latitude) && results.length === 0 && query.length === 0 && (
-               <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
                 <div className="text-4xl mb-3">🏠</div>
                 <h3 className="text-sm font-bold mb-1">Mulai mencari</h3>
                 <p className="text-xs opacity-50">Cari tempat favorit atau lihat situasi terkini</p>
               </div>
             )}
-            
+
             <div className="grid grid-cols-2 gap-3 py-4 pb-20 px-4">
               {results.map(item => (
-                <StableGridCard 
-                  key={item.id} 
-                  item={item} 
-                  onCardClick={handleOpenExplore} 
-                  showDistance={activeFilter === "Sekitarmu"} 
+                <StableGridCard
+                  key={item.id}
+                  item={item}
+                  onCardClick={handleOpenExplore}
+                  showDistance={activeFilter === "Sekitarmu"}
                 />
               ))}
             </div>
           </>
         )}
-        
+
         {/* EXPLORE MODE */}
         {exploreMode && exploreItems.length > 0 && (
           <div className="flex flex-col gap-5 py-4 pb-20 px-0">
@@ -761,17 +804,17 @@ if (loading && allData.length === 0) {
                 locationReady={locationStatus === "granted"}
                 theme={{ isMalam, isSore }}
                 openAIModal={() => { setSelectedForAI(item); setIsAIModalOpen(true); }}
-                openKomentarModal={() => { setSelectedForKomentar(item); setIsKomentarModalOpen(true); }} 
+                openKomentarModal={() => { setSelectedForKomentar(item); setIsKomentarModalOpen(true); }}
                 onShare={() => handleShare(item)}
               />
             ))}
           </div>
         )}
       </div>
-      
+
       <AIModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} tempat={selectedForAI} />
       <KomentarModal isOpen={isKomentarModalOpen} onClose={() => setIsKomentarModalOpen(false)} tempat={selectedForKomentar} />
-      
+
       <style jsx global>{`
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
