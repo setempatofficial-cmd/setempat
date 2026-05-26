@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
-import { useTheme } from "@/app/hooks/useTheme";
+// Hapus import useTheme karena tidak diperlukan lagi
+// import { useTheme } from "@/app/hooks/useTheme";
 
 export default function SmartBottomNavWarga({
   onOpenLaporanForm,  // untuk warga buka form laporan
@@ -12,12 +13,15 @@ export default function SmartBottomNavWarga({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isMalam } = useTheme();
+  // Hapus const { isMalam } = useTheme();
   const [activeTab, setActiveTab] = useState("");
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPressing, setIsPressing] = useState(false);
+
+  // Selalu set tema ke malam (true)
+  const isMalam = true; // Dipaksa selalu true
 
   useEffect(() => {
     setMounted(true);
@@ -99,9 +103,8 @@ export default function SmartBottomNavWarga({
           h-[70px] px-2 pointer-events-auto
           backdrop-blur-2xl border-t transition-all duration-300
           rounded-none 
-          ${isMalam
-            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]"
-            : "bg-white/95 border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]"}
+          bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]
+          // Hapus conditional styling, selalu pakai tema gelap
         `}
       >
         {tabs.map((tab) => {
@@ -116,7 +119,7 @@ export default function SmartBottomNavWarga({
                   className={`absolute -top-7 flex items-center justify-center w-14 h-14
                     bg-gradient-to-br from-orange-500 to-amber-400 
                     rounded-2xl shadow-xl shadow-orange-500/40 active:scale-90 transition-all duration-200
-                    border-[6px] ${isMalam ? "border-[#0C0C0C]" : "border-white"}`}
+                    border-[6px] border-[#0C0C0C]`} // Selalu pakai border gelap
                   aria-label="Buat Laporan"
                 >
                   <Plus className="text-white" strokeWidth={3} size={28} />
@@ -139,7 +142,8 @@ export default function SmartBottomNavWarga({
                 className={`relative transition-all duration-300
                   ${isActive
                     ? "text-orange-500 -translate-y-0.5"
-                    : isMalam ? "text-white/40" : "text-slate-400"}`}
+                    : "text-white/40"} // Selalu pakai warna ikon putih dengan opacity 40% saat tidak aktif
+                `}
               >
                 {isHomeRefreshing ? (
                   <RefreshCw size={22} className="animate-spin" />
@@ -150,7 +154,7 @@ export default function SmartBottomNavWarga({
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
                     rounded-full bg-red-600 px-1 text-[8px] font-black text-white 
-                    ring-2 ${isMalam ? "ring-[#0C0C0C]" : "ring-white"}`}
+                    ring-2 ring-[#0C0C0C]`} // Selalu pakai ring gelap
                   >
                     {tab.badge > 99 ? "99+" : tab.badge > 9 ? "9+" : tab.badge}
                   </span>

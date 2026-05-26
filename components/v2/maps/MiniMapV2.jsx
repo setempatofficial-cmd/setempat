@@ -46,12 +46,12 @@ export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = tr
 
   useEffect(() => {
     setIsClient(true);
-    
+
     const loadLeaflet = async () => {
       try {
         const L = (await import('leaflet')).default;
         await import('leaflet/dist/leaflet.css');
-        
+
         // Fix marker icon
         delete L.Icon.Default.prototype._getIconUrl;
         L.Icon.Default.mergeOptions({
@@ -59,13 +59,13 @@ export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = tr
           iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-icon.png',
           shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
         });
-        
+
         setLeafletLoaded(true);
       } catch (error) {
         console.error('Failed to load Leaflet:', error);
       }
     };
-    
+
     loadLeaflet();
   }, []);
 
@@ -94,7 +94,7 @@ export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = tr
         className="z-0"
       >
         <TileLayer
-          url={theme.isMalam 
+          url={theme.isMalam
             ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           }
