@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
 import DOMPurify from 'dompurify';
-import { X, MapPin, Camera, Send } from "lucide-react";
+import { MapPin, Camera, Send } from "lucide-react";
 
 // KONSTANTA
 const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
@@ -27,7 +27,14 @@ const ESTIMATED_PEOPLE = {
   Antri: { Pagi: 8, Siang: 15, Sore: 12, Malam: 10 }
 };
 
-export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media", initialMediaUrl = null, initialMediaType = null }) {
+export default function LaporPanel({
+  tempat,
+  onClose,
+  onSuccess,
+  mode = "media",
+  initialMediaUrl = null,
+  initialMediaType = null
+}) {
   // STATE
   const [status, setStatus] = useState("idle");
   const [tempMediaUrl, setTempMediaUrl] = useState(initialMediaUrl);
@@ -44,6 +51,8 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
   const [tempatQuery, setTempatQuery] = useState("");
   const [showNominatim, setShowNominatim] = useState(false);
   const [nominatimResults, setNominatimResults] = useState([]);
+
+  const [isTextOnly, setIsTextOnly] = useState(false);
 
   const timeoutRef = useRef(null);
   const debounceRef = useRef(null);
@@ -154,9 +163,18 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
   };
 
   const finalizeUpload = async () => {
-    if (!activeTempat?.id && !isNominatim) { alert("Pilih lokasi dulu"); return; }
-    if (!isNominatim && !selectedCondition && !selectedTraffic) { alert("Pilih kondisi"); return; }
-    if (selectedCondition === "Antri" && !selectedWaitTime) { alert("Pilih waktu antrian"); return; }
+    if (!activeTempat?.id && !isNominatim) {
+      alert("Pilih lokasi dulu");
+      return;
+    }
+    if (!isNominatim && !selectedCondition && !selectedTraffic) {
+      alert("Pilih kondisi");
+      return;
+    }
+    if (selectedCondition === "Antri" && !selectedWaitTime) {
+      alert("Pilih waktu antrian");
+      return;
+    }
     if (status === "uploading") return;
 
     const cleanContent = DOMPurify.sanitize(content, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
@@ -217,7 +235,6 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
         report_type: isNominatim ? 'general_location' : 'place',
       };
 
-      // 🔥 PERBAIKAN 1: Tambah .select() untuk dapat data kembali
       const { data, error } = await supabase
         .from("laporan_warga")
         .insert([reportData])
@@ -225,29 +242,19 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
 
       if (error) throw error;
 
-      // 🔥 PERBAIKAN 2: Ambil data laporan yang baru
       const newReport = data?.[0] || reportData;
 
-      // 🔥 PERBAIKAN 3: Kirim event dengan data lengkap
+      // Dispatch events untuk update real-time
       window.dispatchEvent(new CustomEvent('story-upload-success', {
-        detail: {
-          tempatId: activeTempat?.id,
-          isNominatim,
-          newReport: newReport
-        }
+        detail: { tempatId: activeTempat?.id, isNominatim, newReport }
       }));
 
-      // 🔥 PERBAIKAN 4: Kirim event khusus untuk refresh CitizenHub
       window.dispatchEvent(new CustomEvent('refresh-citizenhub', {
-        detail: {
-          newReport: newReport,
-          tempatId: activeTempat?.id
-        }
+        detail: { newReport, tempatId: activeTempat?.id }
       }));
 
       setStatus("success");
 
-      // 🔥 PERBAIKAN 5: Kirim data ke onSuccess
       setTimeout(() => {
         onSuccess?.(newReport);
         onClose();
@@ -262,369 +269,375 @@ export default function LaporPanel({ tempat, onClose, onSuccess, mode = "media",
     }
   };
 
-  const allResults = [...tempatList, ...nominatimResults];
+  const allResults = useMemo(() => [
+    ...tempatList.map(t => ({ ...t, uniqueId: `db_${t.id}` })),
+    ...nominatimResults.map(t => ({ ...t, uniqueId: `nom_${t.id}` }))
+  ], [tempatList, nominatimResults]);
 
   return createPortal(
-    <AnimatePresence>
-      {true && (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key="lapor-panel"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100000] flex justify-center items-end sm:items-center p-4"
+        onClick={onClose}
+      >
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100000] flex justify-center items-end sm:items-center p-4"
-          onClick={onClose}
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: "spring", damping: 28, stiffness: 180 }}
+          className="relative bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
         >
-          <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            transition={{ type: "spring", damping: 28, stiffness: 180 }}
-            className="relative bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="h-1.5 bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 w-full" />
+          <div className="h-1.5 bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 w-full" />
 
-            <div className="p-5">
-              {/* Header */}
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Kirim Laporan</h3>
-                  <p className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest mt-0.5">
-                    {activeTempat?.name || (showPickTempat ? "Pilih lokasi" : "Lokasi belum dipilih")} · {currentTimeTag}
-                  </p>
-                </div>
-                <button
-                  onClick={onClose}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 text-lg transition-colors"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Pilih Lokasi Section - FIXED & SMOOTH */}
-              {showPickTempat && (
-                <div className="mb-4 space-y-3">
-                  <div className="relative">
-                    <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="search"
-                      value={tempatQuery}
-                      onChange={(e) => setTempatQuery(e.target.value)}
-                      placeholder="Cari tempat atau jalan..."
-
-                      // 🛠️ PERBAIKAN CLASSNAME: Menghilangkan border hitam bawaan & transisi halus
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 transition-all duration-200 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10"
-
-                      autoFocus
-
-                      // ✅ Trik ekstra pencegah password manager & auto-fill agresif
-                      autoComplete="one-time-code"
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      spellCheck="false"
-                      enterKeyHint="search"
-
-                      // ✅ ID dan Nama yang aman dari deteksi data pribadi
-                      name="loc-search"
-                      id="loc-search-input"
-                      inputMode="search"
-                    />
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={showNominatim}
-                      onChange={(e) => setShowNominatim(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-cyan-500/20 border-slate-300"
-                    />
-                    <span className="text-[9px] text-slate-500">🔍 Cari di peta (jalan, simpang)</span>
-                  </label>
-
-                  <div className="max-h-[200px] overflow-y-auto space-y-1.5">
-                    {allResults.map(t => (
-                      <button
-                        key={t.id}
-                        onClick={() => selectLocation(t)}
-                        className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-50 hover:bg-cyan-50 text-left transition-colors"
-                      >
-                        <span className="text-base">{t.source === 'nominatim' ? '🛣️' : '📍'}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-slate-800 truncate">{t.name}</span>
-                            {t.source === 'nominatim' && (
-                              <span className="text-[7px] px-1 py-0.5 rounded bg-blue-100 text-blue-600">Jalan</span>
-                            )}
-                          </div>
-                          <span className="text-[9px] text-slate-500 truncate block">
-                            {t.source === 'nominatim' ? t.fullName : t.category}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Ganti Lokasi Button */}
-              {!showPickTempat && activeTempat && (
-                <button
-                  onClick={() => setShowPickTempat(true)}
-                  className="mb-3 text-[9px] font-bold text-cyan-600 flex items-center gap-1"
-                >
-                  <MapPin size={10} />
-                  Ganti lokasi
-                </button>
-              )}
-
-              {/* Upload Area */}
-              {!tempMediaUrl && mode !== "text" && (
-                <div className="mb-4">
-                  <CldUploadWidget
-                    uploadPreset="setempat_preset"
-                    onSuccess={handleUploadDone}
-                    options={{
-                      maxFiles: 1,
-                      resourceType: "auto",
-                      sources: ["camera", "local"],
-                      defaultSource: "camera",
-                      multiple: false,
-                      clientAllowedFormats: ["image", "video"],
-                      maxImageFileSize: 5000000,
-                      maxVideoFileSize: 20000000,
-                    }}
-                  >
-                    {({ open }) => (
-                      <button
-                        onClick={() => open()}
-                        className="w-full aspect-video rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 hover:bg-cyan-50 transition-colors"
-                      >
-                        <Camera size={32} className="text-slate-400" />
-                        <span className="text-[11px] font-bold text-slate-700">Ambil Foto/Video</span>
-                      </button>
-                    )}
-                  </CldUploadWidget>
-                </div>
-              )}
-
-              {/* Preview + Textarea (ala Uploader) */}
-              {tempMediaUrl && (
-                <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 mb-4 flex gap-3">
-                  <div className="w-14 h-18 rounded-xl overflow-hidden bg-slate-200 flex-shrink-0 aspect-[3/4]">
-                    {mediaType === "image" ? (
-                      <img src={tempMediaUrl} className="w-full h-full object-cover" alt="preview" />
-                    ) : (
-                      <video src={tempMediaUrl} className="w-full h-full object-cover" muted autoPlay loop playsInline />
-                    )}
-                  </div>
-                  <textarea
-                    placeholder="Ceritakan kondisinya... (contoh: hujan gerimis, ramai pengunjung, macet panjang, dll)"
-                    className="w-full bg-transparent border-none p-1 text-[13px] font-medium focus:ring-0 outline-none resize-none text-slate-700 placeholder:text-slate-300"
-                    rows={3}
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {/* Tombol Skip Upload */}
-              {!tempMediaUrl && mode !== "media" && (
-                <button
-                  onClick={() => setTempMediaUrl("text-only")}
-                  className="w-full py-3 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-500 hover:bg-slate-50 mb-4"
-                >
-                  Lapor Tulisan Saja →
-                </button>
-              )}
-
-              {/* Survey Options - ala Uploader */}
-              {!isNominatim && !showPickTempat && (
-                <>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">📍 Kondisi Tempat</p>
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    {[
-                      { emoji: "🍃", label: "Sepi", val: "Sepi" },
-                      { emoji: "🏃", label: "Ramai", val: "Ramai" },
-                    ].map((btn) => (
-                      <button
-                        key={btn.val}
-                        onClick={() => { setSelectedCondition(btn.val); setSelectedWaitTime(null); setSelectedTraffic(null); }}
-                        className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
-                          ${selectedCondition === btn.val
-                            ? (btn.val === "Sepi" ? "bg-emerald-500 border-emerald-500 text-white scale-[1.04] shadow-lg" : "bg-yellow-400 border-yellow-400 text-white scale-[1.04] shadow-lg")
-                            : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
-                      >
-                        <span className="text-lg">{btn.emoji}</span>
-                        <span className="uppercase tracking-wider">{btn.label}</span>
-                      </button>
-                    ))}
-
-                    {hasQueue && (
-                      <button
-                        onClick={() => { setSelectedCondition("Antri"); setSelectedWaitTime(null); setSelectedTraffic(null); }}
-                        className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
-                          ${selectedCondition === "Antri" ? "bg-rose-500 border-rose-500 text-white scale-[1.04] shadow-lg" : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
-                      >
-                        <span className="text-lg">⏳</span>
-                        <span className="uppercase tracking-wider">Antri</span>
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* Wait Time Options */}
-              {selectedCondition === "Antri" && (
-                <div className="mb-5">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">⏱️ Estimasi waktu antri</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { value: 5, label: "< 5 menit", desc: "Pendek", icon: "⚡" },
-                      { value: 15, label: "5-15 menit", desc: "Sedang", icon: "⏱️" },
-                      { value: 20, label: "> 15 menit", desc: "Panjang", icon: "🐢" },
-                    ].map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setSelectedWaitTime(option.value)}
-                        className={`py-2 px-1 rounded-xl text-[10px] font-bold border-2 transition-all text-center
-                          ${selectedWaitTime === option.value
-                            ? "bg-cyan-500 border-cyan-500 text-white"
-                            : "bg-white text-slate-500 border-slate-200 hover:border-cyan-300"}`}
-                      >
-                        <div className="text-base">{option.icon}</div>
-                        <div>{option.label}</div>
-                        <div className="text-[8px] opacity-80">{option.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Traffic Options */}
-              {(hasTraffic || isNominatim) && !showPickTempat && (
-                <>
-                  <div className="flex items-center gap-2 mt-2 mb-2">
-                    <div className="h-px flex-1 bg-slate-200" />
-                    <span className="text-[8px] font-black text-slate-300 uppercase tracking-wider">atau</span>
-                    <div className="h-px flex-1 bg-slate-200" />
-                  </div>
-
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">🚦 Kondisi Lalu Lintas</p>
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    {[
-                      { emoji: "🛵", label: "Lancar", val: "Lancar", desc: "Jalanan lengang" },
-                      { emoji: "🚗", label: "Ramai", val: "Ramai", desc: "Kendaraan mulai padat" },
-                      { emoji: "🚦", label: "Macet", val: "Macet", desc: "Antrean panjang" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.val}
-                        onClick={() => {
-                          setSelectedTraffic(opt.val);
-                          setSelectedCondition(null);
-                          setSelectedWaitTime(null);
-                        }}
-                        className={`py-2.5 rounded-xl text-[10px] font-bold border-2 transition-all flex flex-col items-center gap-0.5
-                          ${selectedTraffic === opt.val
-                            ? (opt.val === "Lancar" ? "bg-emerald-500" : opt.val === "Ramai" ? "bg-yellow-500" : "bg-rose-500") + " text-white border-transparent shadow-md scale-[1.02]"
-                            : "bg-white text-slate-500 border-slate-200"}`}
-                      >
-                        <span className="text-base">{opt.emoji}</span>
-                        <span className="uppercase tracking-wide">{opt.label}</span>
-                        <span className="text-[8px] opacity-80">{opt.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* Helper Text */}
-              {((hasQueue || hasTraffic) && !showPickTempat) && (
-                <p className="text-[8px] text-center text-slate-400 mb-3">
-                  💡 Pilih kondisi tempat ATAU lalu lintas (sesuai yang kamu lihat)
+          <div className="p-5">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Kirim Laporan</h3>
+                <p className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest mt-0.5">
+                  {activeTempat?.name || (showPickTempat ? "Pilih lokasi" : "Lokasi belum dipilih")} · {currentTimeTag}
                 </p>
-              )}
-
+              </div>
               <button
-                onClick={finalizeUpload}
-                disabled={isFormDisabled}
-                className={`...`}
+                onClick={onClose}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 text-lg transition-colors"
               >
-                {status === "uploading" ? (
-                  // Loading state
-                  <>
-                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Mengirim...
-                  </>
-                ) : status === "success" ? (
-                  // ✅ Tambahkan state success di sini
-                  <>
-                    <span>✅</span>
-                    Berhasil!
-                  </>
-                ) : (
-                  // Normal state
-                  <>
-                    <Send size={14} />
-                    Kirim Laporan
-                  </>
-                )}
+                ✕
               </button>
-
-              {/* Validation Messages */}
-              {selectedCondition === "Antri" && !selectedWaitTime && (
-                <p className="text-[9px] text-amber-600 text-center mt-2">*Pilih estimasi waktu antri untuk melanjutkan</p>
-              )}
-              {!selectedCondition && !selectedTraffic && !isNominatim && !showPickTempat && (
-                <p className="text-[9px] text-slate-400 text-center mt-2">*Pilih kondisi tempat atau lalu lintas</p>
-              )}
             </div>
-          </motion.div>
 
-          {/* Toast Uploading */}
-          <AnimatePresence>
-            {status === "uploading" && createPortal(
-              <motion.div
-                initial={{ y: 50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 50, opacity: 0 }}
-                className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-zinc-900 border border-cyan-500/30 text-white px-5 py-3 rounded-2xl shadow-2xl flex flex-col gap-2 min-w-[260px]"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shrink-0" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
-                    {uploadProgress ? "Menyimpan ke database..." : "Sedang Mengirim..."}
-                  </span>
-                </div>
-                <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
-                  <motion.div
-                    animate={{ width: uploadProgress ? "95%" : "65%" }}
-                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
+            {/* Pilih Lokasi Section */}
+            {showPickTempat && (
+              <div className="mb-4 space-y-3">
+                <div className="relative">
+                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={tempatQuery}
+                    onChange={(e) => setTempatQuery(e.target.value)}
+                    placeholder="Cari tempat atau jalan..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 transition-all duration-200 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10"
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck="false"
+                    enterKeyHint="search"
+                    name="loc-search"
+                    id="loc-search-input"
+                    inputMode="search"
                   />
                 </div>
-              </motion.div>,
-              document.body
-            )}
-          </AnimatePresence>
 
-          {/* Toast Success */}
-          <AnimatePresence>
-            {status === "success" && createPortal(
-              <motion.div
-                initial={{ y: 50, opacity: 0, scale: 0.9 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                exit={{ y: 50, opacity: 0, scale: 0.9 }}
-                className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-emerald-950 border border-emerald-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5"
-              >
-                <span className="text-lg">✅</span>
-                <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
-                  Berhasil Dikirim!
-                </span>
-              </motion.div>,
-              document.body
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showNominatim}
+                    onChange={(e) => setShowNominatim(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-cyan-500/20 border-slate-300"
+                  />
+                  <span className="text-[9px] text-slate-500">🔍 Cari di peta (jalan, simpang)</span>
+                </label>
+
+                <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                  {allResults.map(t => (
+                    <button
+                      key={t.uniqueId}
+                      onClick={() => selectLocation(t)}
+                      className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-50 hover:bg-cyan-50 text-left transition-colors"
+                    >
+                      <span className="text-base">{t.source === 'nominatim' ? '🛣️' : '📍'}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-800 truncate">{t.name}</span>
+                          {t.source === 'nominatim' && (
+                            <span className="text-[7px] px-1 py-0.5 rounded bg-blue-100 text-blue-600">Jalan</span>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-slate-500 truncate block">
+                          {t.source === 'nominatim' ? t.fullName : t.category}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-          </AnimatePresence>
+
+            {/* Ganti Lokasi Button */}
+            {!showPickTempat && activeTempat && (
+              <button
+                onClick={() => setShowPickTempat(true)}
+                className="mb-3 text-[9px] font-bold text-cyan-600 flex items-center gap-1"
+              >
+                <MapPin size={10} />
+                Ganti lokasi
+              </button>
+            )}
+
+            {/* Upload Area */}
+            {!tempMediaUrl && mode !== "text" && !isTextOnly && (
+              <div className="mb-4">
+                <CldUploadWidget
+                  uploadPreset="setempat_preset"
+                  onSuccess={handleUploadDone}
+                  options={{
+                    maxFiles: 1,
+                    resourceType: "auto",
+                    sources: ["camera", "local"],
+                    defaultSource: "camera",
+                    multiple: false,
+                    clientAllowedFormats: ["image", "video"],
+                    maxImageFileSize: 5000000,
+                    maxVideoFileSize: 20000000,
+                  }}
+                >
+                  {({ open }) => (
+                    <button
+                      onClick={() => open()}
+                      className="w-full aspect-video rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 hover:bg-cyan-50 transition-colors"
+                    >
+                      <Camera size={32} className="text-slate-400" />
+                      <span className="text-[11px] font-bold text-slate-700">Ambil Foto/Video</span>
+                    </button>
+                  )}
+                </CldUploadWidget>
+              </div>
+            )}
+
+            {/* Preview */}
+            {tempMediaUrl && !isTextOnly && (
+              <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 mb-4 flex gap-3">
+                <div className="w-14 h-16 rounded-xl overflow-hidden bg-slate-200 flex-shrink-0">
+                  {mediaType === "image" ? (
+                    <img src={tempMediaUrl} className="w-full h-full object-cover" alt="preview" />
+                  ) : (
+                    <video src={tempMediaUrl} className="w-full h-full object-cover" muted autoPlay loop playsInline />
+                  )}
+                </div>
+                <textarea
+                  placeholder="Ceritakan kondisinya... (contoh: hujan gerimis, ramai pengunjung, macet panjang, dll)"
+                  className="w-full bg-transparent border-none p-1 text-[13px] font-medium focus:ring-0 outline-none resize-none text-slate-700 placeholder:text-slate-300"
+                  rows={3}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Tombol Lapor Tulisan Saja */}
+            {!tempMediaUrl && !isTextOnly && (
+              <button
+                onClick={() => setIsTextOnly(true)}
+                className="w-full py-3 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-500 hover:bg-slate-50 mb-4"
+              >
+                Lapor Tulisan Saja →
+              </button>
+            )}
+
+            {/* Textarea mode tulisan */}
+            {isTextOnly && (
+              <textarea
+                placeholder="Ceritakan kondisinya... (contoh: hujan gerimis, ramai pengunjung, macet panjang, dll)"
+                className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50 text-[13px] mb-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 resize-none"
+                rows={4}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                autoFocus
+              />
+            )}
+
+            {/* Survey Options */}
+            {!isNominatim && !showPickTempat && (
+              <>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">📍 Kondisi Tempat</p>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  {[
+                    { emoji: "🍃", label: "Sepi", val: "Sepi" },
+                    { emoji: "🏃", label: "Ramai", val: "Ramai" },
+                  ].map((btn) => (
+                    <button
+                      key={btn.val}
+                      onClick={() => { setSelectedCondition(btn.val); setSelectedWaitTime(null); setSelectedTraffic(null); }}
+                      className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
+                        ${selectedCondition === btn.val
+                          ? (btn.val === "Sepi" ? "bg-emerald-500 border-emerald-500 text-white scale-[1.04] shadow-lg" : "bg-yellow-400 border-yellow-400 text-white scale-[1.04] shadow-lg")
+                          : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
+                    >
+                      <span className="text-lg">{btn.emoji}</span>
+                      <span className="uppercase tracking-wider">{btn.label}</span>
+                    </button>
+                  ))}
+
+                  {hasQueue && (
+                    <button
+                      onClick={() => { setSelectedCondition("Antri"); setSelectedWaitTime(null); setSelectedTraffic(null); }}
+                      className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all flex flex-col items-center gap-1
+                        ${selectedCondition === "Antri" ? "bg-rose-500 border-rose-500 text-white scale-[1.04] shadow-lg" : "bg-white text-slate-400 border-slate-100 hover:border-slate-200"}`}
+                    >
+                      <span className="text-lg">⏳</span>
+                      <span className="uppercase tracking-wider">Antri</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Wait Time Options */}
+            {selectedCondition === "Antri" && (
+              <div className="mb-5">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">⏱️ Estimasi waktu antri</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 5, label: "< 5 menit", desc: "Pendek", icon: "⚡" },
+                    { value: 15, label: "5-15 menit", desc: "Sedang", icon: "⏱️" },
+                    { value: 20, label: "> 15 menit", desc: "Panjang", icon: "🐢" },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSelectedWaitTime(option.value)}
+                      className={`py-2 px-1 rounded-xl text-[10px] font-bold border-2 transition-all text-center
+                        ${selectedWaitTime === option.value
+                          ? "bg-cyan-500 border-cyan-500 text-white"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-cyan-300"}`}
+                    >
+                      <div className="text-base">{option.icon}</div>
+                      <div>{option.label}</div>
+                      <div className="text-[8px] opacity-80">{option.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Traffic Options */}
+            {(hasTraffic || isNominatim) && !showPickTempat && (
+              <>
+                <div className="flex items-center gap-2 mt-2 mb-2">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <span className="text-[8px] font-black text-slate-300 uppercase tracking-wider">atau</span>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">🚦 Kondisi Lalu Lintas</p>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  {[
+                    { emoji: "🛵", label: "Lancar", val: "Lancar", desc: "Jalanan lengang" },
+                    { emoji: "🚗", label: "Ramai", val: "Ramai", desc: "Kendaraan mulai padat" },
+                    { emoji: "🚦", label: "Macet", val: "Macet", desc: "Antrean panjang" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.val}
+                      onClick={() => {
+                        setSelectedTraffic(opt.val);
+                        setSelectedCondition(null);
+                        setSelectedWaitTime(null);
+                      }}
+                      className={`py-2.5 rounded-xl text-[10px] font-bold border-2 transition-all flex flex-col items-center gap-0.5
+                        ${selectedTraffic === opt.val
+                          ? (opt.val === "Lancar" ? "bg-emerald-500" : opt.val === "Ramai" ? "bg-yellow-500" : "bg-rose-500") + " text-white border-transparent shadow-md scale-[1.02]"
+                          : "bg-white text-slate-500 border-slate-200"}`}
+                    >
+                      <span className="text-base">{opt.emoji}</span>
+                      <span className="uppercase tracking-wide">{opt.label}</span>
+                      <span className="text-[8px] opacity-80">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Helper Text */}
+            {((hasQueue || hasTraffic) && !showPickTempat) && (
+              <p className="text-[8px] text-center text-slate-400 mb-3">
+                💡 Pilih kondisi tempat ATAU lalu lintas (sesuai yang kamu lihat)
+              </p>
+            )}
+
+            <button
+              onClick={finalizeUpload}
+              disabled={isFormDisabled}
+              className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all duration-200 
+                ${isFormDisabled
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]'
+                }`}
+            >
+              {status === "uploading" ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Mengirim...
+                </>
+              ) : status === "success" ? (
+                <>
+                  <span>✅</span>
+                  Berhasil!
+                </>
+              ) : (
+                <>
+                  <Send size={14} />
+                  Kirim Laporan
+                </>
+              )}
+            </button>
+
+            {/* Validation Messages */}
+            {selectedCondition === "Antri" && !selectedWaitTime && (
+              <p className="text-[9px] text-amber-600 text-center mt-2">*Pilih estimasi waktu antri untuk melanjutkan</p>
+            )}
+            {!selectedCondition && !selectedTraffic && !isNominatim && !showPickTempat && (
+              <p className="text-[9px] text-slate-400 text-center mt-2">*Pilih kondisi tempat atau lalu lintas</p>
+            )}
+          </div>
         </motion.div>
-      )}
+
+        {/* Toast Uploading */}
+        <AnimatePresence>
+          {status === "uploading" && (
+            <motion.div
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
+              className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-zinc-900 border border-cyan-500/30 text-white px-5 py-3 rounded-2xl shadow-2xl flex flex-col gap-2 min-w-[260px]"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
+                  {uploadProgress ? "Menyimpan ke database..." : "Sedang Mengirim..."}
+                </span>
+              </div>
+              <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                <motion.div
+                  animate={{ width: uploadProgress ? "95%" : "65%" }}
+                  className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toast Success */}
+        <AnimatePresence>
+          {status === "success" && (
+            <motion.div
+              initial={{ y: 50, opacity: 0, scale: 0.9 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 50, opacity: 0, scale: 0.9 }}
+              className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1000002] bg-emerald-950 border border-emerald-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5"
+            >
+              <span className="text-lg">✅</span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
+                Berhasil Dikirim!
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </AnimatePresence>,
     document.body
   );

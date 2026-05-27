@@ -214,7 +214,7 @@ export default function ExploreSearchView({
               >
                 <ArrowLeft size={18} className="text-white" />
               </button>
-              <h2 className="text-white font-bold text-sm">🔍 Cari Lokasi</h2>
+              <h2 className="text-white font-bold text-sm">🔍 Lihat Cerita Lokasi</h2>
             </div>
 
             <div className="relative">

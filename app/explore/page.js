@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { useTheme } from "@/app/hooks/useTheme";
 import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 
-// ========== LAZY LOAD COMPONENTS (IMPROVE FIRST LOAD) ==========
+// ========== LAZY LOAD COMPONENTS ==========
 const SmartBottomNavWarga = dynamic(() => import("@/app/components/layout/SmartBottomNavWarga"), {
   loading: () => <div className="h-16 w-full bg-transparent" />,
   ssr: false
@@ -43,10 +43,9 @@ const ExploreGridView = dynamic(() => import("@/components/explore/ExploreSearch
   ssr: false
 });
 
-// ========== UTILITY FUNCTIONS (LIGHTWEIGHT SANITIZATION) ==========
+// ========== UTILITY FUNCTIONS ==========
 const sanitizeText = (text) => {
   if (!text) return '';
-  // Lightweight sanitization without DOMPurify
   return text
     .replace(/[<>]/g, '')
     .replace(/&/g, '&amp;')
@@ -76,8 +75,7 @@ export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
 
-  // Ambil data laporan warga (LIMIT DIPERKECIL UNTUK FIRST LOAD)
-  const { data: reports, loading, refresh } = useLaporanWarga({ limit: 10 }); // Turun dari 50 ke 10
+  const { data: reports, loading, refresh } = useLaporanWarga({ limit: 10 });
 
   // ========== STATE DECLARATIONS ==========
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -94,6 +92,9 @@ export default function CitizenHub({ userId, userRole }) {
   const [isKomentarLaporanModalOpen, setIsKomentarLaporanModalOpen] = useState(false);
   const [selectedLaporanForComment, setSelectedLaporanForComment] = useState(null);
 
+  // 🔥 STATE UNTUK PAUSE STORY
+  const [isStoryPaused, setIsStoryPaused] = useState(false);
+
   const [viewCounts, setViewCounts] = useState({});
   const [likedLaporan, setLikedLaporan] = useState(new Set());
   const [laporanLikeCounts, setLaporanLikeCounts] = useState({});
@@ -102,7 +103,7 @@ export default function CitizenHub({ userId, userRole }) {
 
   const activeUserId = userId || sessionUserId;
 
-  // Theme configuration (memoized)
+  // Theme configuration
   const theme = useMemo(() => ({
     isMalam,
     text: isMalam ? 'text-white' : 'text-gray-900',
@@ -112,29 +113,37 @@ export default function CitizenHub({ userId, userRole }) {
 
   const validReports = useMemo(() => reports || [], [reports]);
 
+  // 🔥 HANDLER UNTUK LAPOR PANEL
+  const handleOpenLaporanForm = useCallback(() => {
+    setIsStoryPaused(true);  // Pause story saat buka form
+    setSelectedTempat(null);
+    setShowLaporPanel(true);
+  }, []);
+
+  const handleCloseLaporPanel = useCallback(() => {
+    setIsStoryPaused(false);  // Resume story saat tutup form
+    setShowLaporPanel(false);
+  }, []);
+
   // ========== EFFECTS ==========
-  // Mark as hydrated after mount
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  // Auth Session Sync (optimized with cache)
+  // Auth Session Sync
   useEffect(() => {
     let isMounted = true;
 
     const getSession = async () => {
-      // Check cache first
       const cachedSession = sessionStorage.getItem('supabase_session');
       if (cachedSession && isMounted) {
         const { userId, timestamp } = JSON.parse(cachedSession);
-        // Use cache if less than 5 minutes old
         if (Date.now() - timestamp < 5 * 60 * 1000) {
           setSessionUserId(userId);
           return;
         }
       }
 
-      // Fetch new session
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user?.id && isMounted) {
         setSessionUserId(session.user.id);
@@ -166,14 +175,13 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, []);
 
-  // Fetch user profile (only when needed)
+  // Fetch user profile
   useEffect(() => {
     if (!activeUserId) return;
 
     let isMounted = true;
 
     async function fetchProfile() {
-      // Check cache
       const cachedProfile = sessionStorage.getItem(`profile_${activeUserId}`);
       if (cachedProfile && isMounted) {
         const { data, timestamp } = JSON.parse(cachedProfile);
@@ -206,7 +214,7 @@ export default function CitizenHub({ userId, userRole }) {
     fetchProfile();
   }, [activeUserId]);
 
-  // ========== CALLBACK HANDLERS (memoized) ==========
+  // ========== CALLBACK HANDLERS ==========
   const handleOpenFullscreenFromGrid = useCallback((index) => {
     setCurrentIndex(index);
     setViewMode('story');
@@ -217,10 +225,10 @@ export default function CitizenHub({ userId, userRole }) {
   }, [refresh]);
 
   const handleLaporanSuccess = useCallback(() => {
-    setShowLaporPanel(false);
+    handleCloseLaporPanel();
     refreshData();
     setCurrentIndex(0);
-  }, [refreshData]);
+  }, [handleCloseLaporPanel, refreshData]);
 
   const handleShare = useCallback(async (report) => {
     if (!report?.id) return;
@@ -249,7 +257,6 @@ export default function CitizenHub({ userId, userRole }) {
 
     const isCurrentlyLiked = likedLaporan.has(report.id);
 
-    // Optimistic update
     setLikedLaporan(prev => {
       const next = new Set(prev);
       isCurrentlyLiked ? next.delete(report.id) : next.add(report.id);
@@ -261,7 +268,6 @@ export default function CitizenHub({ userId, userRole }) {
       [report.id]: Math.max((prev[report.id] || 0) + (isCurrentlyLiked ? -1 : 1), 0)
     }));
 
-    // Background sync
     if (isCurrentlyLiked) {
       await supabase
         .from("likes_laporan")
@@ -296,12 +302,10 @@ export default function CitizenHub({ userId, userRole }) {
   }, []);
 
   // ========== RENDER ==========
-  // Show loading screen only on initial load
   if (loading && validReports.length === 0) {
     return <InitialLoadingScreen />;
   }
 
-  // Don't render heavy components before hydration
   if (!isHydrated) {
     return <InitialLoadingScreen />;
   }
@@ -341,32 +345,30 @@ export default function CitizenHub({ userId, userRole }) {
               onViewRecorded={handleViewRecorded}
               userId={activeUserId}
               theme={theme}
+              isPaused={isStoryPaused}  // 🔥 PROP UNTUK PAUSE STORY
             />
           </Suspense>
         </div>
 
         {/* BOTTOM NAVIGATION */}
         <SmartBottomNavWarga
-          onOpenLaporanForm={() => {
-            setSelectedTempat(null);
-            setShowLaporPanel(true);
-          }}
+          onOpenLaporanForm={handleOpenLaporanForm}  // 🔥 PAKAI HANDLER YANG SUDAH DIUPDATE
           onOpenNotification={() => router.push("/woro")}
           onOpenProfile={() => router.push("/peken")}
         />
 
-        {/* MODALS - Dynamically loaded when needed */}
+        {/* LAPOR PANEL MODAL */}
         {showLaporPanel && (
           <Suspense fallback={null}>
             <div className="fixed inset-0 z-[200] flex items-center justify-center">
               <div
                 className="absolute inset-0 bg-black/75 backdrop-blur-md"
-                onClick={() => setShowLaporPanel(false)}
+                onClick={handleCloseLaporPanel}
               />
               <div className="relative w-full max-w-md mx-4">
                 <LaporPanel
                   tempat={selectedTempat}
-                  onClose={() => setShowLaporPanel(false)}
+                  onClose={handleCloseLaporPanel}
                   onSuccess={handleLaporanSuccess}
                   mode="media"
                   theme={{ isMalam }}
@@ -378,6 +380,7 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
+        {/* KOMENTAR MODAL */}
         {isKomentarLaporanModalOpen && selectedLaporanForComment && (
           <Suspense fallback={null}>
             <KomentarLaporanModal
@@ -395,6 +398,7 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
+        {/* AUTH MODAL */}
         {isAuthModalOpen && (
           <Suspense fallback={null}>
             <AuthModal
@@ -405,6 +409,7 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
+        {/* AI MODAL */}
         {isAIModalOpen && (
           <Suspense fallback={null}>
             <AIModalTempat

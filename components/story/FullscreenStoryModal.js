@@ -41,6 +41,19 @@ const TipeBadge = ({ tipe }) => {
 // ========== VIDEO MANAGER HOOK (SOLUSI MASALAH VIDEO) ==========
 const useVideoManager = () => {
   const videoElementsRef = useRef(new Map());
+  useEffect(() => {
+    return () => {
+      // Hentikan semua video saat komponen di-unmount
+      videoElementsRef.current.forEach((video, id) => {
+        video.pause();
+        video.src = ''; // Bebaskan memory
+        video.load(); // Force cleanup
+        videoElementsRef.current.delete(id);
+      });
+      videoElementsRef.current.clear();
+    };
+  }, []);
+
   const activeVideoIdRef = useRef(null);
 
   const registerVideo = useCallback((id, videoElement) => {
@@ -104,7 +117,7 @@ const useVideoManager = () => {
 const useStoryViewTracker = (userId, onViewRecorded) => {
   const recordedViewsRef = useRef(new Set());
   const viewRateLimiter = useRef(new Map());
-  const timeoutRef = useRef(null);
+  const timeoutRef = useRef(null); // ✅ Deklarasi
 
   const recordView = useCallback(async (laporanId) => {
     if (!userId || !laporanId) return;
@@ -143,7 +156,11 @@ const useStoryViewTracker = (userId, onViewRecorded) => {
     timeoutRef.current = setTimeout(() => recordView(laporanId), 300);
   }, [recordView]);
 
-  useEffect(() => () => timeoutRef.current && clearTimeout(timeoutRef.current), []);
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   return { scheduleRecordView };
 };
@@ -154,36 +171,87 @@ const useStoryScroll = (totalItems, onIndexChange) => {
   const [currentIndex, setCurrentIndex] = useState(null);
   const isAutoScrolling = useRef(false);
   const timeoutRef = useRef(null);
+  const slidePositionsRef = useRef([]); // ✅ Cache posisi slide
 
+  // ✅ Update posisi slide setiap kali ada perubahan
+  const updateSlidePositions = useCallback(() => {
+    if (!containerRef.current) return;
+
+    const slides = Array.from(containerRef.current.children);
+    let accumulatedHeight = 0;
+
+    slidePositionsRef.current = slides.map((slide) => {
+      const height = slide.clientHeight;
+      const position = accumulatedHeight;
+      accumulatedHeight += height;
+      return { top: position, bottom: position + height, height };
+    });
+  }, []);
+
+  // ✅ Handle scroll dengan akurat
   const handleScroll = useCallback((e) => {
     if (isAutoScrolling.current) return;
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      const { scrollTop, clientHeight } = e.target;
-      if (clientHeight === 0) return;
-      const newIndex = Math.round(scrollTop / clientHeight);
-      if (newIndex !== currentIndex && newIndex >= 0 && newIndex < totalItems) {
-        setCurrentIndex(newIndex);
-        onIndexChange?.(newIndex);
+      const { scrollTop } = e.target;
+
+
+
+      // Cari slide mana yang sedang aktif berdasarkan scroll position
+      let activeIndex = -1;
+      for (let i = 0; i < slidePositionsRef.current.length; i++) {
+        const { top, bottom } = slidePositionsRef.current[i];
+        // Gunakan titik tengah viewport untuk menentukan slide aktif
+        const viewportCenter = scrollTop + (e.target.clientHeight / 2);
+
+        if (viewportCenter >= top && viewportCenter <= bottom) {
+          activeIndex = i;
+          break;
+        }
+      }
+
+      // Fallback: cari slide terdekat
+      if (activeIndex === -1 && slidePositionsRef.current.length > 0) {
+        let minDistance = Infinity;
+        for (let i = 0; i < slidePositionsRef.current.length; i++) {
+          const { top, bottom } = slidePositionsRef.current[i];
+          const distance = Math.min(
+            Math.abs(scrollTop - top),
+            Math.abs(scrollTop - bottom)
+          );
+          if (distance < minDistance) {
+            minDistance = distance;
+            activeIndex = i;
+          }
+        }
+      }
+
+      if (activeIndex !== -1 && activeIndex !== currentIndex && activeIndex < totalItems) {
+        setCurrentIndex(activeIndex);
+        onIndexChange?.(activeIndex);
       }
     }, 50);
   }, [currentIndex, totalItems, onIndexChange]);
 
+  // ✅ Scroll ke index tertentu dengan akurat
   const scrollToIndex = useCallback((index, behavior = 'smooth') => {
     if (!containerRef.current) return;
 
     isAutoScrolling.current = true;
+
+    // Update posisi slide dulu
+    updateSlidePositions();
+
+    const targetPosition = slidePositionsRef.current[index]?.top;
+    if (targetPosition === undefined) return;
+
     const container = containerRef.current;
-    const target = container.children[index];
 
     if (behavior === 'auto') {
       container.style.scrollSnapType = 'none';
       container.style.scrollBehavior = 'auto';
-
-      if (target) {
-        container.scrollTop = target.offsetTop;
-      }
+      container.scrollTop = targetPosition;
 
       setTimeout(() => {
         container.style.scrollSnapType = 'y mandatory';
@@ -191,44 +259,90 @@ const useStoryScroll = (totalItems, onIndexChange) => {
         isAutoScrolling.current = false;
       }, 50);
     } else {
-      target?.scrollIntoView({ behavior, block: 'start' });
-      setTimeout(() => { isAutoScrolling.current = false; }, 300);
+      container.scrollTo({
+        top: targetPosition,
+        behavior: 'smooth'
+      });
+      setTimeout(() => {
+        isAutoScrolling.current = false;
+      }, 300);
     }
+  }, [updateSlidePositions]);
+
+  // ✅ Update posisi saat window resize atau konten berubah
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateSlidePositions();
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [updateSlidePositions]);
+
+  // ✅ Update posisi saat totalItems berubah
+  useEffect(() => {
+    updateSlidePositions();
+  }, [totalItems, updateSlidePositions]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, []);
 
-  useEffect(() => () => timeoutRef.current && clearTimeout(timeoutRef.current), []);
-
-  return { containerRef, currentIndex, setCurrentIndex, handleScroll, scrollToIndex };
+  return {
+    containerRef,
+    currentIndex,
+    setCurrentIndex,
+    handleScroll,
+    scrollToIndex
+  };
 };
 
 // ========== SUB-COMPONENTS ==========
 const StoryMediaBackground = ({ report, isActive, onVideoReady, onVideoElement }) => {
   const mediaUrl = report.video_url || report.photo_url;
   const videoRef = useRef(null);
+  const retryHandlerRef = useRef(null); // ✅ Simpan handler
 
-  if (!mediaUrl) return null;
-
-  // Effect untuk handle video play/pause berdasarkan isActive
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (isActive) {
-      // Kasih delay sedikit untuk memastikan DOM siap
       const playTimeout = setTimeout(() => {
         video.play().catch(err => {
           console.warn("Auto-play failed:", err);
-          // Simpan intent untuk play nanti
-          const playOnInteraction = () => {
+
+          // ✅ Hapus handler lama jika ada
+          if (retryHandlerRef.current) {
+            document.removeEventListener('click', retryHandlerRef.current);
+            document.removeEventListener('touchstart', retryHandlerRef.current);
+          }
+
+          retryHandlerRef.current = () => {
             video.play().catch(() => { });
-            document.removeEventListener('click', playOnInteraction);
-            document.removeEventListener('touchstart', playOnInteraction);
+            document.removeEventListener('click', retryHandlerRef.current);
+            document.removeEventListener('touchstart', retryHandlerRef.current);
           };
-          document.addEventListener('click', playOnInteraction);
-          document.addEventListener('touchstart', playOnInteraction);
+
+          document.addEventListener('click', retryHandlerRef.current);
+          document.addEventListener('touchstart', retryHandlerRef.current);
         });
       }, 100);
-      return () => clearTimeout(playTimeout);
+      return () => {
+        clearTimeout(playTimeout);
+        // ✅ Cleanup handler
+        if (retryHandlerRef.current) {
+          document.removeEventListener('click', retryHandlerRef.current);
+          document.removeEventListener('touchstart', retryHandlerRef.current);
+        }
+      };
     } else {
       video.pause();
     }
@@ -371,7 +485,7 @@ const StoryContentOverlay = ({ report }) => {
   );
 };
 
-const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCounts, onLike, onShare, onOpenAIChat, onOpenKomentar, onNavigateToDetail, theme, onVideoReady, onRegisterVideo }) => {
+const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCounts, onLike, onShare, onOpenAIChat, onOpenKomentar, onNavigateToDetail, theme, onVideoReady, onRegisterVideo, onUnregisterVideo }) => {
   const hasMedia = useMemo(() => !!(report.photo_url || report.video_url), [report]);
   const isGeneralLocation = report.report_type === 'general_location' || !report.tempat_id;
   const slideId = useMemo(() => `story-${report.id}`, [report.id]);
@@ -381,6 +495,14 @@ const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCoun
       onRegisterVideo(slideId, videoElement);
     }
   }, [slideId, onRegisterVideo]);
+
+  useEffect(() => {
+    return () => {
+      if (onUnregisterVideo) {
+        onUnregisterVideo(slideId);
+      }
+    };
+  }, [slideId, onUnregisterVideo]);
 
   return (
     <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-zinc-950 overflow-hidden select-none">
@@ -448,6 +570,7 @@ export default function FullscreenStoryModal({
   onViewRecorded,
   userId,
   theme,
+  isPaused = false,
 }) {
   const [showSearchView, setShowSearchView] = useState(false);
   const [isRendered, setIsRendered] = useState(false);
@@ -463,7 +586,6 @@ export default function FullscreenStoryModal({
   // Handle video play saat index berubah
   useEffect(() => {
     if (currentVideoIndex !== null && reports[currentVideoIndex]?.video_url) {
-      // Kasih delay untuk memastikan video element sudah terdaftar
       const timer = setTimeout(() => {
         const videoId = `story-${reports[currentVideoIndex]?.id}`;
         playActiveVideo(videoId);
@@ -472,11 +594,29 @@ export default function FullscreenStoryModal({
     }
   }, [currentVideoIndex, reports, playActiveVideo]);
 
+  // ✅ TAMBAHKAN EFFECT INI - Untuk pause dari LaporPanel
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (isPaused) {
+      // Story di-pause dari luar (LaporPanel terbuka)
+      pauseAllVideos();
+    } else {
+      // Story di-resume setelah LaporPanel ditutup
+      const timer = setTimeout(() => {
+        if (currentVideoIndex !== null && reports[currentVideoIndex]?.video_url) {
+          const videoId = `story-${reports[currentVideoIndex]?.id}`;
+          playActiveVideo(videoId);
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isPaused, isOpen, pauseAllVideos, playActiveVideo, currentVideoIndex, reports]);
+
   // Modal animation
   useEffect(() => {
     if (isOpen) {
       setIsRendered(true);
-      // Resume video setelah modal terbuka
       setTimeout(() => resumeCurrentVideo(), 200);
     } else {
       pauseAllVideos();
@@ -590,6 +730,8 @@ export default function FullscreenStoryModal({
               onNavigateToDetail={onNavigateToDetail}
               theme={theme}
               onRegisterVideo={registerVideo}
+              onUnregisterVideo={unregisterVideo}
+
             />
           ))}
         </div>
