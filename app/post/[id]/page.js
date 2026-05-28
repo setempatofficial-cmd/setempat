@@ -49,7 +49,12 @@ function PostDetailContent({ id }) {
   const router = useRouter();
   const theme = useTheme();
   const { user, userLocation } = useAuth();
-  const { location, status: locationStatus, placeName } = useLocation();
+  const {
+    location,
+    status: locationStatus,
+    placeName,
+    isLoading: locationLoading // Tambahkan ini jika ada di provider
+  } = useLocation();
 
   const radarRef = useRef(null);
   const mainContentRef = useRef(null);
@@ -66,13 +71,31 @@ function PostDetailContent({ id }) {
   const kategori = item?.category || "umum";
   const adminPhone = item?.admin_phone || "628123456789";
 
-  const distance = getDistanceFromLatLonInKm(
-    location?.lat,
-    location?.lng,
-    item?.latitude,
-    item?.longitude
-  );
-  const isInRadius = distance <= 0.5;
+  // PERBAIKAN: Hitung distance dengan lebih baik, jangan langsung false
+  const [distance, setDistance] = useState(999);
+  const [isInRadius, setIsInRadius] = useState(false);
+  const [isLocationReady, setIsLocationReady] = useState(false);
+
+  // Hitung jarak hanya ketika location sudah tersedia
+  useEffect(() => {
+    if (location?.lat && location?.lng && item?.latitude && item?.longitude) {
+      const calculatedDistance = getDistanceFromLatLonInKm(
+        location.lat,
+        location.lng,
+        item.latitude,
+        item.longitude
+      );
+      setDistance(calculatedDistance);
+      setIsInRadius(calculatedDistance <= 0.5);
+      setIsLocationReady(true);
+    } else if (locationStatus === "granted" && !location) {
+      // Status granted tapi location belum ada, mungkin masih loading
+      setIsLocationReady(false);
+    } else if (locationStatus !== "granted") {
+      // User belum izin lokasi
+      setIsLocationReady(false);
+    }
+  }, [location, locationStatus, item]);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState("profil");
@@ -91,6 +114,9 @@ function PostDetailContent({ id }) {
 
   const isMalam = theme.isMalam;
   const heroData = selectedHeroStory || item;
+
+  // Cek apakah lokasi benar-benar siap digunakan
+  const isLocationActuallyReady = locationStatus === "granted" && location?.lat && location?.lng;
 
   // Optimasi scroll dengan IntersectionObserver
   useEffect(() => {
@@ -252,7 +278,7 @@ function PostDetailContent({ id }) {
           <div className="w-full max-w-[420px] pointer-events-auto">
             <Header
               user={user}
-              locationReady={locationStatus === "granted"}
+              locationReady={isLocationActuallyReady} // PERBAIKAN: Gunakan variable baru
               villageLocation={placeName?.split(",")[0] || "Lokasi"}
               isScrolled={isScrolled}
               onOpenLocationModal={() => setIsLocationModalOpen(true)}
@@ -261,41 +287,63 @@ function PostDetailContent({ id }) {
         </div>
 
         <main ref={mainContentRef} className="mx-auto w-full max-w-[420px] px-2 pt-20 pb-36">
-          {/* 1. HERO CARD & AI INSIGHT */}
-          <div ref={heroRef} className="relative mb-2">
-            <div>
-              {/* Container Foto */}
-              <div className="relative rounded-[32px] overflow-hidden">
-                <HeroCard
-                  tempatId={heroData?.id}
-                  userName={item.user_name}
-                  userAvatar={item.user_avatar}
-                  namaTempat={heroData?.name}
-                  status={heroData?.latest_condition || heroData?.status || "LANCAR"}
-                  photos={heroData?.laporan_terbaru || heroData?.photos || []}
-                  priority={true}
-                  lastUpdate={heroData?.updated_at || heroData?.created_at}
-                  description={heroData?.laporan_terbaru?.[0]?.deskripsi}
-                  onRefresh={handleRefresh}
-                  refreshing={refreshing}
-                  isStoryMode={!!selectedHeroStory}
-                  onBackToOriginal={handleBackToOriginal}
-                />
-              </div>
+          {/* 1. HERO CARD & STORY STRIP (Berurutan, terpisah dengan jarak aman) */}
+          <div ref={heroRef} className="flex flex-col mb-6 w-full relative">
 
-              {/* AI INSIGHT */}
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={selectedHeroStory ? `flashback-${selectedHeroStory.id}` : "live"}
-                  initial={{ opacity: 0, y: -20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="mt-4 p-4 rounded-3xl border border-white/10 bg-zinc-900/50 backdrop-blur-xl shadow-lg"
-                >
-                  <div className="flex items-center gap-2 mb-3 opacity-60">
-                    <Sparkles size={12} className={selectedHeroStory ? "text-cyan-400" : "text-amber-400"} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-                      {selectedHeroStory ? "Analisis Flashback" : "Kondisi Terkini"}
+            {/* Container HeroCard */}
+            <div className="rounded-[32px] overflow-hidden w-full relative z-10 shadow-lg">
+              <HeroCard
+                tempatId={heroData?.id}
+                userName={item.user_name}
+                userAvatar={item.user_avatar}
+                namaTempat={heroData?.name}
+                status={heroData?.latest_condition || heroData?.status || "LANCAR"}
+                photos={heroData?.laporan_terbaru || heroData?.photos || []}
+                priority={true}
+                lastUpdate={heroData?.updated_at || heroData?.created_at}
+                description={heroData?.laporan_terbaru?.[0]?.deskripsi}
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+                isStoryMode={!!selectedHeroStory}
+                onBackToOriginal={handleBackToOriginal}
+              />
+            </div>
+
+            {/* STORY STRIP - Komentar dipindahkan ke atas sini agar aman */}
+            {item.laporan_terbaru && item.laporan_terbaru.filter(l => l?.photo_url || l?.image_url).length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="mt-5 px-1 relative z-30"
+              >
+                <div className="p-2.5 rounded-[24px] bg-zinc-900/40 backdrop-blur-md border border-white/10 shadow-md">
+                  <StoryStrip
+                    laporanWarga={item.laporan_terbaru}
+                    tempatId={item.id}
+                    namaTempat={item.name}
+                    onSelectStory={handleSelectStory}
+                    activeStoryId={selectedHeroStory?.id}
+                    theme={theme}
+                  />
+                </div>
+              </motion.div>
+            )}
+
+            {/* AI INSIGHT */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={selectedHeroStory ? `flashback-${selectedHeroStory.id}` : "live"}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -5 }}
+                className="mt-4 px-1 relative z-20"
+              >
+                <div className="p-4 rounded-[24px] border border-white/5 bg-zinc-950/50 backdrop-blur-xl shadow-xl">
+                  <div className="flex items-center gap-1.5 mb-2.5 opacity-50 px-1">
+                    <Sparkles size={11} className={selectedHeroStory ? "text-cyan-400" : "text-amber-400"} />
+                    <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white">
+                      {selectedHeroStory ? "Analisis Flashback" : "Kondisi Terkini AI"}
                     </span>
                   </div>
                   <AIInsight
@@ -303,31 +351,13 @@ function PostDetailContent({ id }) {
                     mode={selectedHeroStory ? "flashback" : "live"}
                     theme={theme}
                   />
-                </motion.div>
-              </AnimatePresence>
-            </div>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+
           </div>
 
-          {/* STORY STRIP */}
-          {item.laporan_terbaru && item.laporan_terbaru.filter(l => l?.photo_url || l?.image_url).length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="mt-4"
-            >
-              <StoryStrip
-                laporanWarga={item.laporan_terbaru}
-                tempatId={item.id}
-                namaTempat={item.name}
-                onSelectStory={handleSelectStory}
-                activeStoryId={selectedHeroStory?.id}
-                theme={theme}
-              />
-            </motion.div>
-          )}
-
-          {/* SMART CITIZEN BUTTON */}
+          {/* SMART CITIZEN BUTTON - PERBAIKAN: Gunakan isLocationActuallyReady */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -340,8 +370,8 @@ function PostDetailContent({ id }) {
               kategori={kategori}
               tempatLatitude={item.latitude}
               tempatLongitude={item.longitude}
-              userLocation={userLocation}
-              isInRadius={isInRadius}
+              userLocation={isLocationActuallyReady ? location : null} // PERBAIKAN: Kirim location hanya jika benar-benar ready
+              isInRadius={isLocationActuallyReady ? isInRadius : false} // PERBAIKAN: Hitung radius hanya jika location ready
               adminPhone={adminPhone}
               handleOpenAIModal={handleOpenAIModal}
               onUpdate={() => router.refresh()}
@@ -417,7 +447,7 @@ function PostDetailContent({ id }) {
                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Solusi Sekitar</p>
                 <span className="text-[9px] opacity-30 font-bold italic">Radius 1KM</span>
               </div>
-              <SolutionRadar item={item} theme={theme} userLocation={location} />
+              <SolutionRadar item={item} theme={theme} userLocation={isLocationActuallyReady ? location : null} /> {/* PERBAIKAN: Kirim location hanya jika ready */}
             </div>
           </motion.section>
 
@@ -428,7 +458,7 @@ function PostDetailContent({ id }) {
           <RekomendasiFeed
             currentItemId={parseInt(id)}
             userLocation={location}
-            locationReady={locationStatus === "granted"}
+            locationReady={locationStatus === "granted"} // PERBAIKAN: Gunakan variable baru
             theme={theme}
             onOpenAIModal={(it) => openAI("info", `Ceritakan tentang ${it.name}.`)}
           />

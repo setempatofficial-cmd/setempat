@@ -517,13 +517,18 @@ export default function KomentarLaporanModal({ isOpen, onClose, laporan, theme }
 
     const { error } = await supabase.from("komentar_laporan").delete().eq("id", id);
     if (error) {
-      fetchKomentarLaporan(laporan.id).then(setKomentar).catch(console.error);
+      fetchKomentarLaporan(laporan.id).then(setKomentar).catch(console.error); // ✅ Perbaiki typo
       alert("Gagal hapus: " + error.message);
     } else {
-      // 🔥 Invalidate cache on successful delete
       fetchCache.current.delete(`komentar_${laporan.id}`);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('laporan-comment-changed', {
+          detail: { laporanId: laporan.id }
+        }));
+      }
     }
-  }, [laporan?.id]);
+  }, [laporan?.id]); // ✅ Sekarang benar
 
   const handleReport = useCallback(() => {
     alert("Laporan dikirim. Tim kami akan meninjau komentar ini. Terima kasih, Lur!");
@@ -619,8 +624,14 @@ export default function KomentarLaporanModal({ isOpen, onClose, laporan, theme }
         setKomentar(prev => prev.map(k => k.id === tempId ? newItem : k));
       }
 
-      // 🔥 Invalidate cache on new comment
       fetchCache.current.delete(`komentar_${laporan.id}`);
+
+      // 🔥🔥🔥 TAMBAHKAN INI - Dispatch event untuk update FeedActions 🔥🔥🔥
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('laporan-comment-changed', {
+          detail: { laporanId: laporan.id }
+        }));
+      }
 
     } catch (err) {
       if (parentId) {

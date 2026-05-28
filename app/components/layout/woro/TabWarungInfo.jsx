@@ -21,11 +21,11 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   // ==================== GET ICON NOTIFIKASI ====================
   const getNotificationIcon = (type, isUnread) => {
     const iconClass = isUnread ? 'text-white' : 'text-slate-400';
-    const bgClass = isUnread 
-      ? 'bg-orange-500 border-orange-400' 
+    const bgClass = isUnread
+      ? 'bg-orange-500 border-orange-400'
       : (isMalam ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100');
-    
-    switch(type) {
+
+    switch (type) {
       case 'mention':
         return (
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
@@ -91,7 +91,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
         setLoading(false);
         return;
       }
-      
+
       try {
         const { data, error } = await supabase
           .from("warung_info")
@@ -137,7 +137,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   // ==================== HANDLE KLIK NOTIFIKASI ====================
   const handleNotificationClick = async (notif) => {
     if (!notif.is_read) {
-      const updatedNotif = notifications.map(n => 
+      const updatedNotif = notifications.map(n =>
         n.id === notif.id ? { ...n, is_read: true } : n
       );
       setNotifications(updatedNotif);
@@ -170,8 +170,8 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   // ==================== EMPTY STATE ====================
   if (notifications.length === 0) {
     return (
-      <motion.div 
-        initial={{ opacity: 0 }} 
+      <motion.div
+        initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         className={`flex flex-col items-center justify-center py-28 ${isMalam ? 'text-white' : 'text-slate-900'}`}
       >
@@ -179,7 +179,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
           <Inbox size={28} className="opacity-20" />
         </div>
         <p className="text-sm font-bold uppercase tracking-widest opacity-40 text-center px-10">
-          Belum ada woro-woro <br/> pribadi untukmu
+          Belum ada woro-woro <br /> pribadi untukmu
         </p>
       </motion.div>
     );
@@ -192,7 +192,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
         {notifications.map((notif, index) => {
           const isUnread = !notif.is_read;
           const formattedMessage = formatMessage(notif);
-          
+
           return (
             <motion.button
               key={notif.id}
@@ -201,8 +201,8 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
               transition={{ delay: index * 0.05 }}
               onClick={() => handleNotificationClick(notif)}
               className={`w-full relative flex items-start gap-4 p-4 transition-all text-left group
-                ${isUnread 
-                  ? (isMalam ? 'bg-orange-500/[0.03]' : 'bg-orange-50/30') 
+                ${isUnread
+                  ? (isMalam ? 'bg-orange-500/[0.03]' : 'bg-orange-50/30')
                   : 'bg-transparent hover:opacity-70'}`}
             >
               {/* Status Indicator Bar */}
@@ -216,18 +216,15 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex items-center gap-2">
-                    {/* Avatar pengirim */}
-                    {notif.type === 'mention' && notif.from_avatar && (
-                      <img 
-                        src={notif.from_avatar} 
-                        alt="avatar" 
-                        className="w-5 h-5 rounded-full object-cover border border-white/20"
-                        onError={(e) => e.target.src = "/default-avatar.png"}
-                      />
+                    {/* Avatar pengirim - versi tanpa error */}
+                    {notif.type === 'mention' && (
+                      <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white text-[10px] font-bold border border-white/20 shadow-sm">
+                        {(notif.from_username?.[0] || (notif.from_user_name?.[0]) || '?').toUpperCase()}
+                      </div>
                     )}
                     <h3 className={`text-sm tracking-tight leading-tight
-                      ${isUnread 
-                        ? (isMalam ? 'text-white font-black' : 'text-slate-900 font-black') 
+                      ${isUnread
+                        ? (isMalam ? 'text-white font-black' : 'text-slate-900 font-black')
                         : (isMalam ? 'text-white/40 font-bold' : 'text-slate-400 font-bold')}`}>
                       {notif.type === 'mention' ? 'Mention' : (notif.title || "Info Warung")}
                     </h3>
@@ -236,17 +233,17 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                     {new Date(notif.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                   </span>
                 </div>
-                
+
                 {/* Username pengirim */}
                 {notif.type === 'mention' && notif.from_username && (
                   <p className={`text-[11px] font-bold mt-1 ${isUnread ? 'text-orange-500' : 'text-orange-500/40'}`}>
                     @{notif.from_username}
                   </p>
                 )}
-                
+
                 <p className={`text-sm mt-1.5 leading-relaxed line-clamp-2
-                  ${isUnread 
-                    ? (isMalam ? 'text-white/80 font-medium' : 'text-slate-700 font-medium') 
+                  ${isUnread
+                    ? (isMalam ? 'text-white/80 font-medium' : 'text-slate-700 font-medium')
                     : (isMalam ? 'text-white/30 font-normal' : 'text-slate-400 font-normal')}`}>
                   {formattedMessage}
                 </p>
@@ -262,9 +259,8 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
 
                 {/* Preview konten komentar */}
                 {notif.type === 'mention' && notif.content && isUnread && (
-                  <div className={`mt-2 p-2 rounded-lg text-[11px] italic ${
-                    isMalam ? 'bg-white/5 text-white/40' : 'bg-slate-50 text-slate-500'
-                  }`}>
+                  <div className={`mt-2 p-2 rounded-lg text-[11px] italic ${isMalam ? 'bg-white/5 text-white/40' : 'bg-slate-50 text-slate-500'
+                    }`}>
                     "{notif.content.substring(0, 80)}"
                   </div>
                 )}

@@ -22,7 +22,7 @@ const CATEGORY_CONFIG = {
   kuliner: {
     icon: '☕',
     label: 'Kuliner',
-    radius: 0.5, // Radius spesifik per kategori (km)
+    radius: 0.5,
     actions: [
       { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Kosong' },
       { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Nyaris Penuh' },
@@ -33,7 +33,7 @@ const CATEGORY_CONFIG = {
   wisata: {
     icon: '🏞️',
     label: 'Wisata',
-    radius: 1, // Radius lebih besar untuk wisata
+    radius: 1,
     actions: [
       { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Leluasa' },
       { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Cukup Banyak' },
@@ -44,7 +44,7 @@ const CATEGORY_CONFIG = {
   jalan: {
     icon: '🛣️',
     label: 'Lalu Lintas',
-    radius: 0.3, // Radius kecil untuk jalan
+    radius: 0.3,
     actions: [
       { id: 'lancar', icon: '✅', label: 'LANCAR', tipe: 'Lancar', desc: 'Gaspol' },
       { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Merayap' },
@@ -55,7 +55,7 @@ const CATEGORY_CONFIG = {
   parkir: {
     icon: '🅿️',
     label: 'Parkiran',
-    radius: 0.2, // Radius paling kecil untuk parkir
+    radius: 0.2,
     actions: [
       { id: 'kosong', icon: '🟢', label: 'KOSONG', tipe: 'Kosong', desc: 'Bebas Pilih' },
       { id: 'tersedia', icon: '🟡', label: 'ADA', tipe: 'Tersedia', desc: 'Sisa Sedikit' },
@@ -99,26 +99,34 @@ export default function SmartCitizenButton({
   tempatId,
   tempatName,
   kategori,
-  tempatLatitude,  // PERBAIKAN: Terima koordinat tempat
-  tempatLongitude, // PERBAIKAN: Terima koordinat tempat
+  tempatLatitude,
+  tempatLongitude,
   adminPhone,
   handleOpenAIModal,
   onUpdate,
-  userLocation     // PERBAIKAN: Terima lokasi user dari parent
+  userLocation
 }) {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [isInRadiusState, setIsInRadiusState] = useState(false); // State internal untuk radius
-  const [distance, setDistance] = useState(null); // Debug jarak
+  const [isInRadiusState, setIsInRadiusState] = useState(false);
+  const [distance, setDistance] = useState(null);
 
   const config = CATEGORY_CONFIG[kategori] || CATEGORY_CONFIG.default;
-  const RADIUS_KM = config.radius; // Radius spesifik kategori
+  const RADIUS_KM = config.radius;
 
-  // PERBAIKAN: Validasi radius REAL-TIME
+  // Validasi radius REAL-TIME
   const checkRadius = useCallback(() => {
-    if (!userLocation?.latitude || !userLocation?.longitude || !tempatLatitude || !tempatLongitude) {
+    // Validasi lengkap
+    if (!userLocation?.latitude || !userLocation?.longitude) {
+      console.warn(`📍 [${config.label}] User location tidak tersedia`);
+      setIsInRadiusState(false);
+      return false;
+    }
+
+    if (!tempatLatitude || !tempatLongitude) {
+      console.warn(`📍 [${config.label}] Tempat coordinates tidak tersedia`);
       setIsInRadiusState(false);
       return false;
     }
@@ -134,18 +142,20 @@ export default function SmartCitizenButton({
     const isWithinRadius = dist <= RADIUS_KM;
     setIsInRadiusState(isWithinRadius);
 
-    // Debug log
-    console.log(`📍 [${config.label}] Jarak ke ${tempatName}: ${dist.toFixed(3)}km | Radius: ${RADIUS_KM}km | ${isWithinRadius ? '✅ DALAM' : '❌ LUAR'} area`);
+    // Debug log lengkap seperti NearbyMicroSignals
+    console.log(`📍 [SmartCitizen][${config.label}] Jarak ke ${tempatName}: ${dist.toFixed(3)}km | Radius: ${RADIUS_KM}km | ${isWithinRadius ? '✅ DALAM' : '❌ LUAR'} area`);
+    console.log(`   User: ${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}`);
+    console.log(`   Tempat: ${tempatLatitude.toFixed(4)}, ${tempatLongitude.toFixed(4)}`);
 
     return isWithinRadius;
   }, [userLocation, tempatLatitude, tempatLongitude, RADIUS_KM, config.label, tempatName]);
 
-  // PERBAIKAN: Cek radius setiap kali lokasi berubah
+  // Cek radius setiap kali lokasi berubah
   useEffect(() => {
     checkRadius();
   }, [checkRadius]);
 
-  // Cek Cooldown (existing code)
+  // Cek Cooldown
   useEffect(() => {
     if (user?.id && tempatId) {
       const fetchLastReport = async () => {
@@ -175,12 +185,11 @@ export default function SmartCitizenButton({
 
     if (cooldown > 0 || isSubmitting) return;
 
-    // PERBAIKAN: Validasi radius ULANG sebelum submit
+    // Validasi radius ULANG sebelum submit
     const isValidRadius = checkRadius();
     if (!isValidRadius) {
-      console.warn(`⚠️ Penolakan: User di luar radius ${RADIUS_KM}km dari ${tempatName}`);
-      // Tampilkan notifikasi ke user
-      alert(`📍 Anda berada ${distance ? distance.toFixed(2) : 'jauh'} dari lokasi ini. Harus dalam radius ${RADIUS_KM}km untuk melapor.`);
+      const distanceText = distance ? `${distance.toFixed(2)}km` : 'jauh';
+      alert(`📍 Anda berada ${distanceText} dari lokasi ini.\n\nUpdate hanya bisa dilakukan jika berada dalam radius ${RADIUS_KM}km dari ${tempatName}.`);
       return;
     }
 
@@ -188,7 +197,6 @@ export default function SmartCitizenButton({
     if (window.navigator.vibrate) window.navigator.vibrate([50, 30, 50]);
 
     try {
-      // PERBAIKAN: Sertakan bukti jarak dalam laporan
       const { error } = await supabase.from('laporan_warga').insert({
         tempat_id: tempatId,
         user_id: user.id,
@@ -197,9 +205,9 @@ export default function SmartCitizenButton({
         deskripsi: action.desc,
         report_type: 'citizen_click',
         status: 'approved',
-        user_latitude: userLocation?.latitude,  // Simpan bukti
-        user_longitude: userLocation?.longitude, // Simpan bukti
-        distance_from_tempat: distance, // Simpan jarak saat lapor
+        user_latitude: userLocation?.latitude,
+        user_longitude: userLocation?.longitude,
+        distance_from_tempat: distance,
         created_at: new Date().toISOString()
       });
 
@@ -212,6 +220,7 @@ export default function SmartCitizenButton({
 
     } catch (err) {
       console.error("Error submit laporan:", err);
+      alert("Gagal mengirim laporan. Silakan coba lagi.");
     } finally {
       setIsSubmitting(false);
     }
@@ -219,10 +228,8 @@ export default function SmartCitizenButton({
 
   return (
     <div className="relative group p-5 rounded-[32px] bg-zinc-900/40 dark:bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl overflow-hidden">
-      {/* Background Glow Decor */}
       <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
 
-      {/* Header Info */}
       <div className="flex items-center justify-between mb-5 relative z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-xl shadow-inner">
@@ -237,13 +244,16 @@ export default function SmartCitizenButton({
         </div>
 
         <div className="flex flex-col items-end gap-1">
-          {/* PERBAIKAN: Gunakan state internal, bukan prop */}
-          <div className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5 backdrop-blur-md border ${isInRadiusState ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+          <div className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5 backdrop-blur-md border ${!userLocation ? 'bg-gray-500/10 text-gray-400 border-gray-500/20' :
+              isInRadiusState ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                'bg-rose-500/10 text-rose-400 border-rose-500/20'
             }`}>
-            <div className={`w-1 h-1 rounded-full animate-pulse ${isInRadiusState ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-            {isInRadiusState ? 'Area' : `Luar ${RADIUS_KM}km`}
+            <div className={`w-1 h-1 rounded-full animate-pulse ${!userLocation ? 'bg-gray-400' :
+                isInRadiusState ? 'bg-emerald-400' : 'bg-rose-400'
+              }`} />
+            {!userLocation ? 'Aktifkan GPS' :
+              isInRadiusState ? `Dalam ${RADIUS_KM}km` : `Luar ${RADIUS_KM}km`}
           </div>
-          {/* PERBAIKAN: Tampilkan jarak (opsional untuk debug) */}
           {distance !== null && (
             <span className="text-[6px] opacity-30 font-mono">
               {distance.toFixed(2)}km
@@ -252,7 +262,6 @@ export default function SmartCitizenButton({
         </div>
       </div>
 
-      {/* Grid Buttons */}
       <div className="grid grid-cols-4 gap-2 relative z-10">
         <AnimatePresence mode="wait">
           {showSuccess ? (
@@ -268,10 +277,10 @@ export default function SmartCitizenButton({
             config.actions.map((action) => (
               <motion.button
                 key={action.id}
-                whileHover={isInRadiusState && cooldown === 0 ? { y: -3, scale: 1.02 } : {}}
-                whileTap={isInRadiusState && cooldown === 0 ? { scale: 0.95 } : {}}
+                whileHover={isInRadiusState && cooldown === 0 && userLocation ? { y: -3, scale: 1.02 } : {}}
+                whileTap={isInRadiusState && cooldown === 0 && userLocation ? { scale: 0.95 } : {}}
                 onClick={() => handleClick(action)}
-                disabled={!isInRadiusState || cooldown > 0 || isSubmitting}
+                disabled={!userLocation || !isInRadiusState || cooldown > 0 || isSubmitting}
                 className={`
                   relative py-4 px-1 rounded-2xl flex flex-col items-center gap-1.5
                   transition-all duration-300 group/btn
@@ -288,7 +297,6 @@ export default function SmartCitizenButton({
         </AnimatePresence>
       </div>
 
-      {/* Footer Instructions */}
       <div className="mt-4 flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
           {cooldown > 0 ? (
@@ -304,9 +312,9 @@ export default function SmartCitizenButton({
           )}
         </div>
         <p className="text-[7px] font-bold opacity-30 italic tracking-wide">
-          {!isInRadiusState
-            ? `Harus dalam radius ${RADIUS_KM}km dari lokasi`
-            : 'Satu klikmu bantu warga'}
+          {!userLocation ? 'Aktifkan GPS untuk update' :
+            !isInRadiusState ? `Harus dalam radius ${RADIUS_KM}km` :
+              'Satu klikmu bantu warga'}
         </p>
       </div>
     </div>

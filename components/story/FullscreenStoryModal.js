@@ -114,44 +114,146 @@ const useVideoManager = () => {
 };
 
 // ========== VIEW TRACKER HOOK ==========
+// ========== VIEW TRACKER HOOK (VERSION WITH DEBUG) ==========
 const useStoryViewTracker = (userId, onViewRecorded) => {
   const recordedViewsRef = useRef(new Set());
   const viewRateLimiter = useRef(new Map());
-  const timeoutRef = useRef(null); // ✅ Deklarasi
+  const timeoutRef = useRef(null);
 
   const recordView = useCallback(async (laporanId) => {
-    if (!userId || !laporanId) return;
+    console.group('📊 [VIEW TRACKER] Recording View');
+    console.log('Step 1 - Check inputs:', {
+      laporanId,
+      userId,
+      typeOfLaporanId: typeof laporanId,
+      typeOfUserId: typeof userId,
+      stringifiedLaporanId: String(laporanId)
+    });
 
+    if (!userId) {
+      console.error('❌ FAILED: userId is', userId);
+      console.groupEnd();
+      return;
+    }
+
+    if (!laporanId) {
+      console.error('❌ FAILED: laporanId is', laporanId);
+      console.groupEnd();
+      return;
+    }
+
+    // Konversi laporanId ke number (karena table pakai bigint)
+    const numericLaporanId = Number(laporanId);
+    console.log('Step 2 - Convert ID:', {
+      original: laporanId,
+      converted: numericLaporanId,
+      isValidNumber: !isNaN(numericLaporanId)
+    });
+
+    if (isNaN(numericLaporanId)) {
+      console.error('❌ FAILED: Cannot convert laporanId to number');
+      console.groupEnd();
+      return;
+    }
+
+    // Rate limiting check
     const lastTime = viewRateLimiter.current.get(laporanId);
-    if (lastTime && Date.now() - lastTime < 5000) return;
-    if (recordedViewsRef.current.has(laporanId)) return;
+    const now = Date.now();
+    if (lastTime && now - lastTime < 5000) {
+      console.log('⏭️ SKIPPED: Rate limited', {
+        lastView: new Date(lastTime).toISOString(),
+        now: new Date(now).toISOString(),
+        diff: now - lastTime,
+        limit: 5000
+      });
+      console.groupEnd();
+      return;
+    }
 
+    if (recordedViewsRef.current.has(laporanId)) {
+      console.log('⏭️ SKIPPED: Already recorded this session');
+      console.groupEnd();
+      return;
+    }
+
+    console.log('Step 3 - Proceeding to database...');
     recordedViewsRef.current.add(laporanId);
-    viewRateLimiter.current.set(laporanId, Date.now());
+    viewRateLimiter.current.set(laporanId, now);
 
     try {
-      const { data: existing } = await supabase
+      // Cek apakah sudah ada view sebelumnya
+      console.log('Step 4 - Checking existing view...');
+      const { data: existing, error: checkError } = await supabase
         .from("story_views")
-        .select("id")
-        .eq("laporan_id", laporanId)
+        .select("id, viewed_at")
+        .eq("laporan_id", numericLaporanId)
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (!existing) {
-        await supabase.from("story_views").insert({
-          laporan_id: laporanId,
-          user_id: userId,
-          viewed_at: new Date().toISOString()
+      if (checkError) {
+        console.error('❌ DB ERROR (check):', checkError);
+        console.error('Error details:', {
+          code: checkError.code,
+          message: checkError.message,
+          details: checkError.details
+        });
+        recordedViewsRef.current.delete(laporanId);
+        console.groupEnd();
+        return;
+      }
+
+      if (existing) {
+        console.log('ℹ️ View already exists in database:', {
+          viewId: existing.id,
+          viewedAt: existing.viewed_at
+        });
+        console.groupEnd();
+        return;
+      }
+
+      // Insert view baru
+      console.log('Step 5 - Inserting new view...');
+      const viewData = {
+        laporan_id: numericLaporanId,
+        user_id: userId,
+        viewed_at: new Date().toISOString()
+      };
+      console.log('Insert data:', viewData);
+
+      const { data: insertData, error: insertError } = await supabase
+        .from("story_views")
+        .insert(viewData)
+        .select();
+
+      if (insertError) {
+        console.error('❌ DB ERROR (insert):', insertError);
+        console.error('Error details:', {
+          code: insertError.code,
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint
+        });
+        recordedViewsRef.current.delete(laporanId);
+      } else {
+        console.log('✅ SUCCESS: View recorded successfully!', {
+          insertedData: insertData,
+          laporanId: numericLaporanId,
+          userId: userId,
+          timestamp: viewData.viewed_at
         });
         onViewRecorded?.(laporanId);
       }
     } catch (err) {
-      console.error("Error recording view:", err);
+      console.error('❌ UNEXPECTED ERROR:', err);
+      console.error('Error stack:', err.stack);
       recordedViewsRef.current.delete(laporanId);
     }
+
+    console.groupEnd();
   }, [userId, onViewRecorded]);
 
   const scheduleRecordView = useCallback((laporanId) => {
+    console.log('📝 [VIEW TRACKER] Scheduling view recording for:', laporanId);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => recordView(laporanId), 300);
   }, [recordView]);
@@ -161,6 +263,11 @@ const useStoryViewTracker = (userId, onViewRecorded) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  // Log ketika hook diinisialisasi
+  useEffect(() => {
+    console.log('🔧 [VIEW TRACKER] Hook initialized with userId:', userId);
+  }, [userId]);
 
   return { scheduleRecordView };
 };
@@ -485,7 +592,7 @@ const StoryContentOverlay = ({ report }) => {
   );
 };
 
-const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCounts, onLike, onShare, onOpenAIChat, onOpenKomentar, onNavigateToDetail, theme, onVideoReady, onRegisterVideo, onUnregisterVideo }) => {
+const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCounts, onLike, onShare, onOpenAIChat, onOpenKomentar, onNavigateToDetail, theme, onVideoReady, onRegisterVideo, onUnregisterVideo, refreshTrigger }) => {
   const hasMedia = useMemo(() => !!(report.photo_url || report.video_url), [report]);
   const isGeneralLocation = report.report_type === 'general_location' || !report.tempat_id;
   const slideId = useMemo(() => `story-${report.id}`, [report.id]);
@@ -525,7 +632,7 @@ const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCoun
       <div className="absolute right-2 bottom-24 z-50 flex flex-col items-center gap-4">
         <Suspense fallback={<div className="w-8 h-8 rounded-full bg-white/20 animate-pulse" />}>
           <FeedActions
-            item={{ id: report.tempat_id, name: report.display_location_name }}
+            item={{ id: report.id, name: report.display_location_name }}
             openAIModal={() => onOpenAIChat?.(report)}
             openKomentarModal={() => onOpenKomentar?.(report)}
             onShare={() => onShare?.(report)}
@@ -535,6 +642,7 @@ const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCoun
             isLaporanLiked={likedLaporan?.has(report.id)}
             laporanLikeCount={laporanLikeCounts?.[report.id] || 0}
             onLaporanLike={() => onLike?.(report)}
+            refreshTrigger={refreshTrigger}
           />
         </Suspense>
 
@@ -570,6 +678,9 @@ export default function FullscreenStoryModal({
   onViewRecorded,
   userId,
   theme,
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
   isPaused = false,
 }) {
   const [showSearchView, setShowSearchView] = useState(false);
@@ -577,11 +688,32 @@ export default function FullscreenStoryModal({
   const [currentVideoIndex, setCurrentVideoIndex] = useState(initialIndex);
   const { registerVideo, unregisterVideo, playActiveVideo, pauseAllVideos, resumeCurrentVideo } = useVideoManager();
 
+  const [storyRefreshTrigger, setStoryRefreshTrigger] = useState(0);
+
   const { containerRef, currentIndex, setCurrentIndex, handleScroll, scrollToIndex } = useStoryScroll(
     reports?.length || 0,
     (newIndex) => setCurrentVideoIndex(newIndex)
   );
   const { scheduleRecordView } = useStoryViewTracker(userId, onViewRecorded);
+
+  // ========== 3. 🔥 LISTENER UPDATE KOMENTAR (TEMPATKAN DISINI) ==========
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleCommentChange = (event) => {
+      const laporanId = event.detail?.laporanId;
+      if (laporanId) {
+        console.log('🔄 FullscreenStoryModal: Refreshing comment count for laporan:', laporanId);
+        setStoryRefreshTrigger(prev => prev + 1);
+      }
+    };
+
+    window.addEventListener('laporan-comment-changed', handleCommentChange);
+
+    return () => {
+      window.removeEventListener('laporan-comment-changed', handleCommentChange);
+    };
+  }, [isOpen]);
 
   // Handle video play saat index berubah
   useEffect(() => {
@@ -649,6 +781,20 @@ export default function FullscreenStoryModal({
       setTimeout(() => scrollToIndex(initialIndex, 'auto'), 50);
     }
   }, [isOpen, initialIndex, reports, scrollToIndex, setCurrentIndex]);
+
+  // Di dalam FullscreenStoryModal component, tambahkan:
+  useEffect(() => {
+    if (!reports.length) return;
+
+    // Hitung berapa slide tersisa
+    const remainingSlides = reports.length - (currentIndex || 0);
+
+    // Jika tersisa 3 slide atau kurang, load lebih (seperti TikTok)
+    if (remainingSlides <= 3 && hasMore && onLoadMore && !isLoadingMore) {
+      console.log(`📱 Load more stories: ${remainingSlides} slides remaining`);
+      onLoadMore();
+    }
+  }, [currentIndex, reports.length, hasMore, onLoadMore, isLoadingMore]);
 
   // Handle back button
   useEffect(() => {
@@ -731,6 +877,7 @@ export default function FullscreenStoryModal({
               theme={theme}
               onRegisterVideo={registerVideo}
               onUnregisterVideo={unregisterVideo}
+              refreshTrigger={storyRefreshTrigger}
 
             />
           ))}

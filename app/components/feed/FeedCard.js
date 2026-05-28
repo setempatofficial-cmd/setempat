@@ -4,7 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Heart, Share2, MessageCircle } from "lucide-react";
-
+import { useAuth } from "@/app/context/AuthContext";
 import PhotoSlider from "./PhotoSlider";
 import LiveInsight from "./LiveInsight";
 import StatusIsland from "./StatusIsland";
@@ -216,6 +216,210 @@ const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
 });
 
 PremiumActionButton.displayName = 'PremiumActionButton';
+
+// ==================== VALIDATION BUTTON (FINAL FIX) ====================
+const ValidationButton = memo(({
+  tempatId,
+  initialCount,
+  theme,
+  onValidateChange,
+  userId,
+}) => {
+  const [isValidated, setIsValidated] = useState(false);
+  const [validationCount, setValidationCount] = useState(initialCount || 0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const isMounted = useRef(true);
+  const isSubmitting = useRef(false);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  // 🔥 Cek apakah user sudah memvalidasi
+  useEffect(() => {
+    const checkValidationStatus = async () => {
+      if (!userId || !tempatId) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('minat')
+          .select('id')
+          .eq('tempat_id', tempatId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!error && data && isMounted.current) {
+          setIsValidated(true);
+        } else if (isMounted.current) {
+          setIsValidated(false);
+        }
+      } catch (error) {
+        console.error('Error checking validation status:', error);
+      }
+    };
+
+    checkValidationStatus();
+  }, [userId, tempatId]);
+
+  // 🔥 FIX: Ambil vibe_count dari tabel tempat (bukan count dari minat)
+  const fetchTotalValidations = useCallback(async () => {
+    if (!tempatId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('tempat')
+        .select('vibe_count')
+        .eq('id', tempatId)
+        .single();
+
+      if (!error && data && isMounted.current) {
+        console.log('📊 Fetched vibe_count:', data.vibe_count);
+        setValidationCount(data.vibe_count || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching validation count:', error);
+    }
+  }, [tempatId]);
+
+  // Ambil total validasi awal
+  useEffect(() => {
+    fetchTotalValidations();
+  }, [fetchTotalValidations]);
+
+  // 🔥 FIX: Sinkronkan dengan initialCount dari props (optional)
+  useEffect(() => {
+    if (!isMounted.current) return;
+    // Jangan overwrite jika sudah ada data dari database
+    if (validationCount === 0 && initialCount > 0) {
+      setValidationCount(initialCount);
+    }
+  }, [initialCount, validationCount]);
+
+  const handleValidate = useCallback(async () => {
+
+    console.log('🔍=== VALIDASI DIMULAI ===🔍');
+    console.log('userId:', userId);
+    console.log('tempatId:', tempatId);
+    console.log('isValidated sebelum:', isValidated);
+    console.log('validationCount sebelum:', validationCount);
+    if (!userId) {
+      window.dispatchEvent(new CustomEvent('open-auth-modal'));
+      return;
+    }
+
+    if (isLoading || isSubmitting.current) return;
+
+    setError(null);
+    setIsLoading(true);
+    isSubmitting.current = true;
+
+    const newIsValidated = !isValidated;
+    // 🔥 Optimistic update berdasarkan state saat ini
+    const newCount = newIsValidated ? validationCount + 1 : validationCount - 1;
+
+    // Optimistic update UI
+    setIsValidated(newIsValidated);
+    setValidationCount(newCount);
+    if (onValidateChange) onValidateChange(newIsValidated, newCount);
+
+    try {
+      if (newIsValidated) {
+        console.log('📝 Inserting validation for tempat:', tempatId);
+        const { error } = await supabase
+          .from('minat')
+          .insert([{
+            tempat_id: tempatId,
+            user_id: userId,
+            created_at: new Date().toISOString()
+          }]);
+
+        if (error) throw error;
+        console.log('✅ Insert successful');
+      } else {
+        console.log('🗑️ Deleting validation for tempat:', tempatId);
+        const { error } = await supabase
+          .from('minat')
+          .delete()
+          .eq('tempat_id', tempatId)
+          .eq('user_id', userId);
+
+        if (error) throw error;
+        console.log('✅ Delete successful');
+      }
+
+      // 🔥 Refresh dari database setelah trigger bekerja
+      await fetchTotalValidations();
+
+      // 🔥 Kirim event untuk update komponen lain
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('validation-changed', {
+          detail: { tempatId }
+        }));
+      }
+
+    } catch (error) {
+      console.error('❌ Error toggling validation:', error);
+      setError(error.message || 'Gagal memvalidasi. Coba lagi nanti.');
+
+      // Rollback UI
+      setIsValidated(!newIsValidated);
+      setValidationCount(validationCount);
+      if (onValidateChange) onValidateChange(!newIsValidated, validationCount);
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+        isSubmitting.current = false;
+        setTimeout(() => setError(null), 3000);
+      }
+    }
+  }, [userId, tempatId, isValidated, validationCount, onValidateChange, fetchTotalValidations]);
+
+  return (
+    <div className="relative flex-1">
+      <motion.button
+        whileHover={{ scale: 1.05, y: -2 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={handleValidate}
+        disabled={isLoading}
+        className={`
+          w-full py-2.5 rounded-xl font-medium text-sm transition-all
+          flex items-center justify-center gap-2
+          focus:outline-none focus:ring-2 focus:ring-white/50
+          ${isValidated
+            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
+            : 'bg-white/10 hover:bg-white/20'
+          }
+          ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
+        aria-label={isValidated ? 'Batal validasi' : 'Validasi info ini'}
+        aria-busy={isLoading}
+      >
+        <motion.div
+          animate={isValidated && !isLoading ? { scale: [1, 1.3, 1], rotate: [0, 15, -15, 0] } : {}}
+          transition={{ duration: 0.3 }}
+        >
+          <span className="text-base" aria-hidden="true">
+            {isValidated ? "✅" : "👌"}
+          </span>
+        </motion.div>
+        <span className={`text-[10px] sm:text-sm whitespace-nowrap ${isValidated ? 'text-white' : theme.text}`}>
+          Valid ({validationCount})
+        </span>
+      </motion.button>
+      {error && (
+        <div className="absolute -bottom-6 left-0 right-0 text-center">
+          <span className="text-xs text-red-500 bg-black/50 px-2 py-1 rounded">
+            {error}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+ValidationButton.displayName = 'ValidationButton';
 
 // ==================== PREMIUM LIKE BUTTON (Tanpa useAuth) ====================
 const PremiumLikeButton = memo(({
@@ -448,6 +652,8 @@ function FeedCardV2Premium({
   userProfile,
   userAvatar,
 }) {
+
+  const { user } = useAuth();
   const safeItem = useMemo(() => {
     if (!item || typeof item !== 'object') return DEFAULT_ITEM;
     return {
@@ -458,7 +664,7 @@ function FeedCardV2Premium({
   }, [item]);
 
   const tempatId = safeItem.id;
-  const userId = userProfile?.id; // ← DARI PROPS, BUKAN useAuth()
+  const userId = user?.id;
   const theme = useTheme();
   const catStyle = getCategoryStyle(safeItem.category, theme.isMalam);
   const router = useRouter();
@@ -605,6 +811,32 @@ function FeedCardV2Premium({
     };
   }, [tempatId, isVisible, setLocalData]);
 
+  useEffect(() => {
+    if (!tempatId) return;
+
+    // Subscribe ke perubahan vibe_count di tabel tempat
+    const channel = supabase
+      .channel(`tempat_vibe_${tempatId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'tempat',
+        filter: `id=eq.${tempatId}`
+      }, (payload) => {
+        console.log('🔄 Real-time: vibe_count updated to', payload.new?.vibe_count);
+        // Update validationCount di localData
+        setLocalData(prev => ({
+          ...prev,
+          validationCount: payload.new?.vibe_count || 0
+        }));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [tempatId, setLocalData]);
+
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
   const feed = useMemo(() => {
@@ -694,6 +926,10 @@ function FeedCardV2Premium({
   }, [router, safeItem.id, safeItem.category, isDetail]);
 
   const handleLikeChange = useCallback((isLiked, newCount) => { }, []);
+
+  const handleValidationChange = useCallback((isValidated, newCount) => {
+    console.log('Validation changed:', { isValidated, newCount, tempatId: safeItem.id });
+  }, [safeItem.id]);
 
   if (!item?.id && safeItem.id === 0) return null;
 
@@ -889,23 +1125,23 @@ function FeedCardV2Premium({
           <div className="flex flex-col gap-3">
             {!isDetail && (
               <div className="flex gap-2">
-                <PremiumLikeButton
+                <ValidationButton
                   tempatId={safeItem.id}
-                  initialLikeCount={safeItem.vibe_count || 0}
+                  initialCount={safeItem.vibe_count || 0}
                   theme={theme}
-                  onLikeChange={handleLikeChange}
+                  onValidateChange={handleValidationChange}
                   userId={userId}
                 />
                 <PremiumActionButton
                   onClick={() => openKomentarModal?.(safeItem)}
                   icon={MessageCircle}
-                  label="Komentar"
+                  label="Kata Warga"
                   theme={theme}
                 />
                 <PremiumActionButton
                   onClick={() => onShare?.(safeItem)}
                   icon={Share2}
-                  label="Bagikan"
+                  label="Berbagi"
                   theme={theme}
                 />
               </div>

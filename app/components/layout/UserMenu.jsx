@@ -3,16 +3,17 @@
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 import {
-  User, LogOut, Loader2, LayoutDashboard, Map, ChevronRight, 
-  Zap, ShieldCheck, Home, Store, Truck, Briefcase, 
+  User, LogOut, Loader2, LayoutDashboard, Map, ChevronRight,
+  Zap, ShieldCheck, Home, Store, Truck, Briefcase,
   Settings, Bell, HelpCircle, Crown, UserCheck, FileCheck,
   Smartphone
 } from "lucide-react";
-import { useAuth } from "@/app/context/AuthContext"; 
+import { useAuth } from "@/app/context/AuthContext";
 import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
-import Modal from "@/app/components/layout/KTPModal"; 
-import KTPDigital from "@/app/components/layout/KTPCard"; 
+import Modal from "@/app/components/layout/KTPModal";
+import KTPDigital from "@/app/components/layout/KTPCard";
 
 export default function UserMenu({
   isScrolled,
@@ -24,14 +25,30 @@ export default function UserMenu({
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, role, isAdmin, isSuperAdmin, profile, logout } = useAuth();
-  
+
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isKTPModalOpen, setIsKTPModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setIsOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  // Lock scroll saat modal terbuka
+  useEffect(() => {
+    if (isKTPModalOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+  }, [isKTPModalOpen]);
 
   const handleLogout = async () => {
     try {
@@ -99,14 +116,14 @@ export default function UserMenu({
         <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-2
           ${theme?.isMalam ? "border-slate-800" : "border-white shadow-sm"}
           ${!avatar ? `bg-gradient-to-tr ${currentRole.color} text-white font-black text-sm` : "bg-white"}`}>
-          
+
           {avatar ? (
             <img src={avatar} className="w-full h-full object-cover" alt="profile" referrerPolicy="no-referrer" />
           ) : (
             <span>{initial}</span>
           )}
         </div>
-        
+
         {isLoggingOut && (
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-sm">
             <Loader2 size={12} className="animate-spin text-white" />
@@ -118,10 +135,10 @@ export default function UserMenu({
       <AnimatePresence>
         {isOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[90]" 
-              onClick={() => setIsOpen(false)} 
+              className="fixed inset-0 z-[90]"
+              onClick={() => setIsOpen(false)}
             />
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -153,7 +170,7 @@ export default function UserMenu({
               <div className="p-2 max-h-[60vh] overflow-y-auto">
                 <div className="mb-2">
                   <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Menu Utama</p>
-                  
+
                   {isSuperAdmin ? (
                     <>
                       <MenuAction icon={LayoutDashboard} label="Dashboard Pusat" desc="Statistik global" onClick={() => router.push("/admin/dashboard")} theme={theme} color="purple" />
@@ -186,9 +203,13 @@ export default function UserMenu({
         )}
       </AnimatePresence>
 
-      <Modal isOpen={isKTPModalOpen} onClose={() => setIsKTPModalOpen(false)} theme={theme}>
-        <KTPDigital user={user} role={role} theme={theme} onProfileUpdated={() => window.location.reload()} />
-      </Modal>
+      {/* MODAL KTP - Menggunakan Portal agar tidak terpengaruh header scroll */}
+      {mounted && createPortal(
+        <Modal isOpen={isKTPModalOpen} onClose={() => setIsKTPModalOpen(false)} theme={theme}>
+          <KTPDigital user={user} role={role} theme={theme} onProfileUpdated={() => window.location.reload()} />
+        </Modal>,
+        document.body
+      )}
     </div>
   );
 }
@@ -211,9 +232,9 @@ function MenuAction({ icon: Icon, label, desc, onClick, theme, danger, isActive,
       `}
     >
       <div className={`p-2 rounded-xl transition-all
-        ${danger ? "text-rose-500 bg-rose-500/10" : 
+        ${danger ? "text-rose-500 bg-rose-500/10" :
           isActive ? "bg-purple-500 text-white" :
-          theme?.isMalam ? "text-slate-400 bg-slate-800 " + colorMap[color] : "text-slate-500 bg-slate-100 " + colorMap[color]}
+            theme?.isMalam ? "text-slate-400 bg-slate-800 " + colorMap[color] : "text-slate-500 bg-slate-100 " + colorMap[color]}
       `}>
         <Icon size={18} />
       </div>

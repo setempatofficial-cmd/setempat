@@ -75,7 +75,7 @@ export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
 
-  const { data: reports, loading, refresh } = useLaporanWarga({ limit: 10 });
+  const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 10 });
 
   // ========== STATE DECLARATIONS ==========
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -89,12 +89,10 @@ export default function CitizenHub({ userId, userRole }) {
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [selectedAITempat, setSelectedAITempat] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
-  const [isKomentarLaporanModalOpen, setIsKomentarLaporanModalOpen] = useState(false);
   const [selectedLaporanForComment, setSelectedLaporanForComment] = useState(null);
+  const [isKomentarLaporanModalOpen, setIsKomentarLaporanModalOpen] = useState(false);
 
-  // 🔥 STATE UNTUK PAUSE STORY
   const [isStoryPaused, setIsStoryPaused] = useState(false);
-
   const [viewCounts, setViewCounts] = useState({});
   const [likedLaporan, setLikedLaporan] = useState(new Set());
   const [laporanLikeCounts, setLaporanLikeCounts] = useState({});
@@ -102,6 +100,7 @@ export default function CitizenHub({ userId, userRole }) {
   const [isHydrated, setIsHydrated] = useState(false);
 
   const activeUserId = userId || sessionUserId;
+  const validReports = useMemo(() => reports || [], [reports]);
 
   // Theme configuration
   const theme = useMemo(() => ({
@@ -111,46 +110,36 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   }), [isMalam]);
 
-  const validReports = useMemo(() => reports || [], [reports]);
-
-  // 🔥 HANDLER UNTUK LAPOR PANEL
-  const handleOpenLaporanForm = useCallback(() => {
-    setIsStoryPaused(true);  // Pause story saat buka form
-    setSelectedTempat(null);
-    setShowLaporPanel(true);
-  }, []);
-
-  const handleCloseLaporPanel = useCallback(() => {
-    setIsStoryPaused(false);  // Resume story saat tutup form
-    setShowLaporPanel(false);
-  }, []);
-
-  // ========== EFFECTS ==========
+  // ========== OPTIMIZED EFFECTS ==========
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  // Auth Session Sync
+  // Optimized auth session sync with caching
   useEffect(() => {
     let isMounted = true;
 
     const getSession = async () => {
-      const cachedSession = sessionStorage.getItem('supabase_session');
-      if (cachedSession && isMounted) {
-        const { userId, timestamp } = JSON.parse(cachedSession);
-        if (Date.now() - timestamp < 5 * 60 * 1000) {
-          setSessionUserId(userId);
-          return;
+      try {
+        const cachedSession = sessionStorage.getItem('supabase_session');
+        if (cachedSession && isMounted) {
+          const { userId, timestamp } = JSON.parse(cachedSession);
+          if (Date.now() - timestamp < 5 * 60 * 1000) {
+            setSessionUserId(userId);
+            return;
+          }
         }
-      }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id && isMounted) {
-        setSessionUserId(session.user.id);
-        sessionStorage.setItem('supabase_session', JSON.stringify({
-          userId: session.user.id,
-          timestamp: Date.now()
-        }));
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id && isMounted) {
+          setSessionUserId(session.user.id);
+          sessionStorage.setItem('supabase_session', JSON.stringify({
+            userId: session.user.id,
+            timestamp: Date.now()
+          }));
+        }
+      } catch (error) {
+        console.error('Auth session error:', error);
       }
     };
 
@@ -175,46 +164,96 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, []);
 
-  // Fetch user profile
+  // Optimized fetch user profile with caching
   useEffect(() => {
     if (!activeUserId) return;
 
     let isMounted = true;
 
     async function fetchProfile() {
-      const cachedProfile = sessionStorage.getItem(`profile_${activeUserId}`);
-      if (cachedProfile && isMounted) {
-        const { data, timestamp } = JSON.parse(cachedProfile);
-        if (Date.now() - timestamp < 10 * 60 * 1000) {
-          setCurrentUser(data);
-          return;
+      try {
+        const cachedProfile = sessionStorage.getItem(`profile_${activeUserId}`);
+        if (cachedProfile && isMounted) {
+          const { data, timestamp } = JSON.parse(cachedProfile);
+          if (Date.now() - timestamp < 10 * 60 * 1000) {
+            setCurrentUser(data);
+            return;
+          }
         }
-      }
 
-      const { data } = await supabase
-        .from("profiles")
-        .select("username, full_name, avatar_url")
-        .eq("id", activeUserId)
-        .maybeSingle();
+        const { data } = await supabase
+          .from("profiles")
+          .select("username, full_name, avatar_url")
+          .eq("id", activeUserId)
+          .maybeSingle();
 
-      if (data && isMounted) {
-        const sanitizedData = {
-          username: sanitizeText(data.username),
-          full_name: sanitizeText(data.full_name),
-          avatar_url: data.avatar_url
-        };
-        setCurrentUser(sanitizedData);
-        sessionStorage.setItem(`profile_${activeUserId}`, JSON.stringify({
-          data: sanitizedData,
-          timestamp: Date.now()
-        }));
+        if (data && isMounted) {
+          const sanitizedData = {
+            username: sanitizeText(data.username),
+            full_name: sanitizeText(data.full_name),
+            avatar_url: data.avatar_url
+          };
+          setCurrentUser(sanitizedData);
+          sessionStorage.setItem(`profile_${activeUserId}`, JSON.stringify({
+            data: sanitizedData,
+            timestamp: Date.now()
+          }));
+        }
+      } catch (error) {
+        console.error('Profile fetch error:', error);
       }
     }
 
     fetchProfile();
   }, [activeUserId]);
 
-  // ========== CALLBACK HANDLERS ==========
+  // Optimized view counts fetch
+  useEffect(() => {
+    if (!validReports.length) return;
+
+    const fetchInitialViewCounts = async () => {
+      try {
+        const laporanIds = validReports.slice(0, 10).map(r => r.id);
+
+        const { data, error } = await supabase
+          .from('story_views')
+          .select('laporan_id')
+          .in('laporan_id', laporanIds);
+
+        if (error) throw error;
+
+        const counts = {};
+        data?.forEach(view => {
+          counts[view.laporan_id] = (counts[view.laporan_id] || 0) + 1;
+        });
+
+        setViewCounts(counts);
+      } catch (err) {
+        console.error('Failed to fetch view counts:', err);
+      }
+    };
+
+    fetchInitialViewCounts();
+  }, [validReports]);
+
+  // ========== OPTIMIZED CALLBACKS ==========
+  const handleOpenLaporanForm = useCallback(() => {
+    setIsStoryPaused(true);
+    setSelectedTempat(null);
+    setShowLaporPanel(true);
+  }, []);
+
+  const handleCloseLaporPanel = useCallback(() => {
+    setIsStoryPaused(false);
+    setShowLaporPanel(false);
+  }, []);
+
+  const handleLoadMore = useCallback(() => {
+    if (loadMore && !isFetchingMore && hasMore) {
+      loadMore();
+    }
+  }, [loadMore, isFetchingMore, hasMore]);
+
   const handleOpenFullscreenFromGrid = useCallback((index) => {
     setCurrentIndex(index);
     setViewMode('story');
@@ -237,15 +276,20 @@ export default function CitizenHub({ userId, userRole }) {
       try {
         await navigator.share({
           title: "Kondisi Setempat",
-          text: report.deskripsi,
+          text: report.deskripsi?.substring(0, 100),
           url: shareUrl
         });
       } catch (err) {
-        console.log(err);
+        if (err.name !== 'AbortError') console.log(err);
       }
     } else {
       await navigator.clipboard.writeText(shareUrl);
-      alert("Link berhasil disalin!");
+      // Gunakan toast notification yang lebih ringan
+      const toast = document.createElement('div');
+      toast.textContent = 'Link berhasil disalin!';
+      toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-sm z-50';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
     }
   }, []);
 
@@ -257,6 +301,7 @@ export default function CitizenHub({ userId, userRole }) {
 
     const isCurrentlyLiked = likedLaporan.has(report.id);
 
+    // Optimistic update
     setLikedLaporan(prev => {
       const next = new Set(prev);
       isCurrentlyLiked ? next.delete(report.id) : next.add(report.id);
@@ -268,16 +313,30 @@ export default function CitizenHub({ userId, userRole }) {
       [report.id]: Math.max((prev[report.id] || 0) + (isCurrentlyLiked ? -1 : 1), 0)
     }));
 
-    if (isCurrentlyLiked) {
-      await supabase
-        .from("likes_laporan")
-        .delete()
-        .eq("laporan_id", report.id)
-        .eq("user_id", activeUserId);
-    } else {
-      await supabase
-        .from("likes_laporan")
-        .insert({ laporan_id: report.id, user_id: activeUserId });
+    // Background sync
+    try {
+      if (isCurrentlyLiked) {
+        await supabase
+          .from("likes_laporan")
+          .delete()
+          .eq("laporan_id", report.id)
+          .eq("user_id", activeUserId);
+      } else {
+        await supabase
+          .from("likes_laporan")
+          .insert({ laporan_id: report.id, user_id: activeUserId });
+      }
+    } catch (error) {
+      // Rollback on error
+      setLikedLaporan(prev => {
+        const next = new Set(prev);
+        isCurrentlyLiked ? next.add(report.id) : next.delete(report.id);
+        return next;
+      });
+      setLaporanLikeCounts(prev => ({
+        ...prev,
+        [report.id]: Math.max((prev[report.id] || 0) + (isCurrentlyLiked ? 1 : -1), 0)
+      }));
     }
   }, [activeUserId, likedLaporan]);
 
@@ -301,12 +360,8 @@ export default function CitizenHub({ userId, userRole }) {
     setIsKomentarLaporanModalOpen(true);
   }, []);
 
-  // ========== RENDER ==========
-  if (loading && validReports.length === 0) {
-    return <InitialLoadingScreen />;
-  }
-
-  if (!isHydrated) {
+  // ========== RENDER OPTIMIZATION ==========
+  if (!isHydrated || (loading && validReports.length === 0)) {
     return <InitialLoadingScreen />;
   }
 
@@ -345,19 +400,21 @@ export default function CitizenHub({ userId, userRole }) {
               onViewRecorded={handleViewRecorded}
               userId={activeUserId}
               theme={theme}
-              isPaused={isStoryPaused}  // 🔥 PROP UNTUK PAUSE STORY
+              isPaused={isStoryPaused}
+              onLoadMore={handleLoadMore}
+              hasMore={hasMore}
             />
           </Suspense>
         </div>
 
         {/* BOTTOM NAVIGATION */}
         <SmartBottomNavWarga
-          onOpenLaporanForm={handleOpenLaporanForm}  // 🔥 PAKAI HANDLER YANG SUDAH DIUPDATE
+          onOpenLaporanForm={handleOpenLaporanForm}
           onOpenNotification={() => router.push("/woro")}
           onOpenProfile={() => router.push("/peken")}
         />
 
-        {/* LAPOR PANEL MODAL */}
+        {/* MODALS - Only render when needed */}
         {showLaporPanel && (
           <Suspense fallback={null}>
             <div className="fixed inset-0 z-[200] flex items-center justify-center">
@@ -380,7 +437,6 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
-        {/* KOMENTAR MODAL */}
         {isKomentarLaporanModalOpen && selectedLaporanForComment && (
           <Suspense fallback={null}>
             <KomentarLaporanModal
@@ -398,7 +454,6 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
-        {/* AUTH MODAL */}
         {isAuthModalOpen && (
           <Suspense fallback={null}>
             <AuthModal
@@ -409,7 +464,6 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
-        {/* AI MODAL */}
         {isAIModalOpen && (
           <Suspense fallback={null}>
             <AIModalTempat

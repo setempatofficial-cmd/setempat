@@ -200,6 +200,31 @@ export default function FeedActions({
     }
   }, [item?.id, fetchCommentCount, refreshTrigger]);
 
+  useEffect(() => {
+    if (!item?.id || !isLaporanLike) return;
+
+    const handleCommentChange = (event) => {
+      if (event.detail?.laporanId === item?.id) {
+        console.log('🔄 Refreshing comment count for laporan:', item.id);
+        fetchCommentCount();
+
+        // Optional: animasi badge notifikasi
+        setUnreadCount(prev => prev + 1);
+
+        // Hilangkan badge setelah 3 detik (optional)
+        setTimeout(() => {
+          setUnreadCount(0);
+        }, 3000);
+      }
+    };
+
+    window.addEventListener('laporan-comment-changed', handleCommentChange);
+
+    return () => {
+      window.removeEventListener('laporan-comment-changed', handleCommentChange);
+    };
+  }, [item?.id, isLaporanLike, fetchCommentCount]);
+
   // ========== HANDLE OPEN COMMENTS ==========
   const handleOpenComments = useCallback(() => {
     setUnreadCount(0);
@@ -274,8 +299,12 @@ export default function FeedActions({
               </span>
             )}
           </button>
-
+          {/* 🔥 TAMBAHKAN INI - Angka jumlah komentar */}
+          <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
+            {commentCount}
+          </span>
         </div>
+
 
         {/* Share Button */}
         <div className="flex flex-col items-center">
@@ -300,7 +329,7 @@ export default function FeedActions({
             Share
           </span>
         </div>
-      </div>
+      </div >
     );
   }
 

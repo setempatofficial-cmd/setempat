@@ -1,14 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { 
-  MapPin, Link2, Building, Calendar, AlertTriangle, 
-  Truck, Plus, Edit, Trash2, Save, X, 
-  RefreshCw, Sparkles, Brain, TrendingUp
+import { useAuth } from '@/app/context/AuthContext';
+import { useRouter } from 'next/navigation';
+import {
+  MapPin, Link2, Building, Calendar, AlertTriangle,
+  Truck, Plus, Edit, Trash2, Save,
+  Database, Home, RefreshCw, Navigation,
+  FileText
 } from 'lucide-react';
 
-export default function DataManagementTab() {
+export default function SuperAdminDataPage() {
+  const { isSuperAdmin, isLoading } = useAuth();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('tempat');
   const [loading, setLoading] = useState(false);
   const [dataList, setDataList] = useState([]);
@@ -16,207 +21,107 @@ export default function DataManagementTab() {
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
   const [tempatList, setTempatList] = useState([]);
-  const [aiSuggestions, setAiSuggestions] = useState({});
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
 
-  // ==================== FUNGSI AI OTOMATIS ====================
-  
-  // 1. Geocoding - Ambil koordinat dari nama tempat (Nominatim/OpenStreetMap)
-  const autoGeocode = async (namaTempat) => {
-    if (!namaTempat || namaTempat.length < 5) return;
-    
-    setIsAiProcessing(true);
-    setAiSuggestions(prev => ({ ...prev, geocoding: 'Mencari koordinat...' }));
-    
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(namaTempat)}, Indonesia&format=json&limit=1`
-      );
-      const data = await response.json();
-      
-      if (data && data[0]) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        setFormData(prev => ({ ...prev, latitude: lat, longitude: lon }));
-        setAiSuggestions(prev => ({ 
-          ...prev, 
-          geocoding: `✅ Ditemukan: ${lat}, ${lon}` 
-        }));
-      } else {
-        setAiSuggestions(prev => ({ 
-          ...prev, 
-          geocoding: '⚠️ Koordinat tidak ditemukan, silakan isi manual' 
-        }));
-      }
-    } catch (err) {
-      setAiSuggestions(prev => ({ ...prev, geocoding: '❌ Gagal mengambil koordinat' }));
-    } finally {
-      setIsAiProcessing(false);
+  // Proteksi: hanya SuperAdmin yang bisa akses
+  useEffect(() => {
+    if (!isLoading && !isSuperAdmin) {
+      router.push('/admin/dashboard');
     }
-  };
+  }, [isLoading, isSuperAdmin, router]);
 
-  // 2. Estimasi kapasitas berdasarkan tipe tempat
-  const estimasiKapasitas = (tipeTempat) => {
-    const estimasi = {
-      'masjid': { min: 200, max: 1000, rekomendasi: 500 },
-      'mall': { min: 1000, max: 10000, rekomendasi: 5000 },
-      'stasiun': { min: 500, max: 5000, rekomendasi: 2000 },
-      'sekolah': { min: 200, max: 1500, rekomendasi: 800 },
-      'rs': { min: 100, max: 500, rekomendasi: 300 },
-      'pom_bensin': { min: 20, max: 100, rekomendasi: 50 },
-      'pasar': { min: 500, max: 3000, rekomendasi: 1500 },
-      'wisata': { min: 500, max: 5000, rekomendasi: 2000 },
-      'kantor': { min: 50, max: 500, rekomendasi: 200 },
-      'umum': { min: 50, max: 200, rekomendasi: 100 }
-    };
-    return estimasi[tipeTempat]?.rekomendasi || 100;
-  };
-
-  // 3. Hitung jarak antar 2 titik (Haversine Formula)
-  const hitungJarak = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return Math.round(R * c * 10) / 10;
-  };
-
-  // 4. Auto hitung jarak saat pilih dua tempat
-  const autoHitungJarak = async (tempatId1, tempatId2) => {
-    if (!tempatId1 || !tempatId2) return;
-    
-    setIsAiProcessing(true);
-    setAiSuggestions(prev => ({ ...prev, jarak: 'Menghitung jarak...' }));
-    
-    try {
-      const { data: tempat1 } = await supabase
-        .from('tempat')
-        .select('latitude, longitude')
-        .eq('id', tempatId1)
-        .single();
-      
-      const { data: tempat2 } = await supabase
-        .from('tempat')
-        .select('latitude, longitude')
-        .eq('id', tempatId2)
-        .single();
-      
-      if (tempat1?.latitude && tempat2?.latitude) {
-        const jarak = hitungJarak(
-          tempat1.latitude, tempat1.longitude,
-          tempat2.latitude, tempat2.longitude
-        );
-        setFormData(prev => ({ ...prev, jarak_km: jarak }));
-        setAiSuggestions(prev => ({ 
-          ...prev, 
-          jarak: `✅ Jarak: ${jarak} km` 
-        }));
-      }
-    } catch (err) {
-      setAiSuggestions(prev => ({ ...prev, jarak: '❌ Gagal hitung jarak' }));
-    } finally {
-      setIsAiProcessing(false);
-    }
-  };
-
-  // 5. Auto update metadata saat tipe tempat berubah
-  const handleTipeChange = (tipe) => {
-    const kapasitas = estimasiKapasitas(tipe);
-    setFormData(prev => ({ 
-      ...prev, 
-      category: tipe,
-      kapasitas_normal: kapasitas
-    }));
-    setAiSuggestions(prev => ({ 
-      ...prev, 
-      kapasitas: `🤖 AI merekomendasikan kapasitas: ${kapasitas} orang` 
-    }));
-  };
-
-  // ==================== FETCH DATA ====================
-  const fetchTempatList = async () => {
+  // Fetch daftar tempat untuk dropdown
+  const fetchTempatList = useCallback(async () => {
     const { data } = await supabase
       .from('tempat')
-      .select('id, name, latitude, longitude')
+      .select('id, name')
       .order('name');
     setTempatList(data || []);
-  };
+  }, []);
 
-  const fetchData = async () => {
+  // Fetch data sesuai tab aktif
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       if (activeTab === 'tempat') {
-        const { data: tempatData, error: tempatError } = await supabase
-          .from('tempat')
-          .select('*')
-          .order('name');
-        
-        if (tempatError) throw tempatError;
-        
-        const { data: metadataData, error: metadataError } = await supabase
-          .from('tempat_metadata')
-          .select('*');
-        
-        if (metadataError) throw metadataError;
-        
-        const formattedData = tempatData.map(tempat => {
-          const metadata = metadataData?.find(m => m.tempat_id === tempat.id);
+        // ========== UNTUK TAB TEMPAT ==========
+        const [tempatResult, metadataResult] = await Promise.all([
+          supabase.from('tempat').select('*').order('name'),
+          supabase.from('tempat_metadata').select('*')
+        ]);
+
+        if (tempatResult.error) throw tempatResult.error;
+        if (metadataResult.error) throw metadataResult.error;
+
+        const formattedData = tempatResult.data.map(tempat => {
+          const metadata = metadataResult.data?.find(m => m.tempat_id === tempat.id);
           return {
             ...tempat,
             kapasitas_normal: metadata?.kapasitas_normal || null,
             jam_buka: metadata?.jam_buka || null,
             jam_tutup: metadata?.jam_tutup || null,
             is_24_jam: metadata?.is_24_jam || false,
+            tingkat_prioritas: metadata?.tingkat_prioritas || null,
+            catatan_khusus: metadata?.catatan_khusus || null,
             metadata_id: metadata?.id || null
           };
         });
-        
+
         setDataList(formattedData);
-      } 
-      else if (activeTab === 'tempat_koneksi') {
-        const { data: koneksiData, error: koneksiError } = await supabase
-          .from('tempat_koneksi')
+      } else {
+        // ========== UNTUK SEMUA TAB RELASI ==========
+        // Ambil data utama dari tabel terkait
+        const { data: mainData, error: mainError } = await supabase
+          .from(activeTab)
           .select('*');
-        
-        if (koneksiError) throw koneksiError;
-        
+
+        if (mainError) throw mainError;
+
+        if (!mainData || mainData.length === 0) {
+          setDataList([]);
+          setLoading(false);
+          return;
+        }
+
+        // Kumpulkan semua tempat_id yang perlu diambil
+        const tempatIds = new Set();
+        mainData.forEach(item => {
+          if (activeTab === 'tempat_koneksi') {
+            if (item.tempat_id_1) tempatIds.add(item.tempat_id_1);
+            if (item.tempat_id_2) tempatIds.add(item.tempat_id_2);
+          } else {
+            if (item.tempat_id) tempatIds.add(item.tempat_id);
+          }
+        });
+
+        // Ambil data tempat
         const { data: tempatData, error: tempatError } = await supabase
           .from('tempat')
-          .select('id, name');
-        
+          .select('id, name')
+          .in('id', Array.from(tempatIds));
+
         if (tempatError) throw tempatError;
-        
-        const tempatMap = {};
-        tempatData.forEach(t => { tempatMap[t.id] = t.name; });
-        
-        const formattedData = koneksiData.map(item => ({
-          ...item,
-          tempat1_nama: tempatMap[item.tempat_id_1] || '-',
-          tempat2_nama: tempatMap[item.tempat_id_2] || '-'
-        }));
-        
-        setDataList(formattedData);
-      }
-      else {
-        const { data, error } = await supabase.from(activeTab).select('*');
-        if (error) throw error;
-        
-        if (activeTab !== 'tempat') {
-          const { data: tempatData } = await supabase.from('tempat').select('id, name');
-          const tempatMap = {};
-          tempatData.forEach(t => { tempatMap[t.id] = t.name; });
-          
-          const formattedData = data.map(item => ({
+
+        // Buat map untuk akses cepat
+        const tempatMap = new Map();
+        tempatData?.forEach(t => tempatMap.set(t.id, t));
+
+        // Gabungkan data
+        let formattedData;
+        if (activeTab === 'tempat_koneksi') {
+          formattedData = mainData.map(item => ({
             ...item,
-            tempat_nama: tempatMap[item.tempat_id] || '-'
+            tempat1: tempatMap.get(item.tempat_id_1) || null,
+            tempat2: tempatMap.get(item.tempat_id_2) || null
           }));
-          setDataList(formattedData);
         } else {
-          setDataList(data || []);
+          formattedData = mainData.map(item => ({
+            ...item,
+            tempat: tempatMap.get(item.tempat_id) || null
+          }));
         }
+
+        setDataList(formattedData);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -224,68 +129,104 @@ export default function DataManagementTab() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
-    fetchTempatList();
   }, [activeTab]);
 
-  // ==================== CRUD ====================
+  useEffect(() => {
+    if (isSuperAdmin) {
+      fetchData();
+      if (activeTab !== 'tempat') {
+        fetchTempatList();
+      }
+    }
+  }, [activeTab, isSuperAdmin, fetchData, fetchTempatList]);
+
+  // CRUD Operations
   const handleSave = async () => {
-    setLoading(true);
+    if (saveLoading) return;
+    setSaveLoading(true);
+
     try {
       if (activeTab === 'tempat') {
         await handleSaveTempat();
       } else {
         await handleSaveOther();
       }
-      
+
       alert(editingItem ? '✅ Berhasil diupdate!' : '✅ Berhasil ditambahkan!');
       setShowForm(false);
       setEditingItem(null);
       setFormData({});
-      setAiSuggestions({});
-      fetchData();
+      await fetchData();
     } catch (err) {
       console.error('Save error:', err);
       alert('Error: ' + err.message);
     } finally {
-      setLoading(false);
+      setSaveLoading(false);
     }
   };
 
   const handleSaveTempat = async () => {
     if (!formData.name) throw new Error('Nama tempat wajib diisi');
-    
+    if (!formData.latitude || !formData.longitude) throw new Error('Koordinat lokasi wajib diisi');
+
+    const now = new Date().toISOString();
+    const latitude = parseFloat(formData.latitude);
+    const longitude = parseFloat(formData.longitude);
+    const kapasitasNormal = formData.kapasitas_normal ? parseInt(formData.kapasitas_normal) : null;
+
     if (editingItem) {
-      const { error: errorTempat } = await supabase
-        .from('tempat')
-        .update({
-          name: formData.name,
-          alamat: formData.alamat || null,
-          latitude: formData.latitude || null,
-          longitude: formData.longitude || null,
-          category: formData.category || 'umum',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', editingItem.id);
-      
-      if (errorTempat) throw errorTempat;
-      
-      if (editingItem.metadata_id) {
-        const { error: errorMetadata } = await supabase
-          .from('tempat_metadata')
+      const updates = [];
+
+      updates.push(
+        supabase
+          .from('tempat')
           .update({
-            kapasitas_normal: formData.kapasitas_normal || null,
-            jam_buka: formData.jam_buka || null,
-            jam_tutup: formData.jam_tutup || null,
-            is_24_jam: formData.is_24_jam || false,
-            updated_at: new Date().toISOString()
+            name: formData.name,
+            alamat: formData.alamat || null,
+            latitude,
+            longitude,
+            category: formData.category || 'umum',
+            updated_at: now
           })
-          .eq('id', editingItem.metadata_id);
-        
-        if (errorMetadata) throw errorMetadata;
+          .eq('id', editingItem.id)
+      );
+
+      if (editingItem.metadata_id) {
+        updates.push(
+          supabase
+            .from('tempat_metadata')
+            .update({
+              kapasitas_normal: kapasitasNormal,
+              jam_buka: formData.jam_buka || null,
+              jam_tutup: formData.jam_tutup || null,
+              is_24_jam: formData.is_24_jam || false,
+              tingkat_prioritas: formData.tingkat_prioritas || null,
+              catatan_khusus: formData.catatan_khusus || null,
+              updated_at: now
+            })
+            .eq('id', editingItem.metadata_id)
+        );
+      } else if (editingItem.id) {
+        updates.push(
+          supabase
+            .from('tempat_metadata')
+            .insert([{
+              tempat_id: editingItem.id,
+              kapasitas_normal: kapasitasNormal,
+              jam_buka: formData.jam_buka || null,
+              jam_tutup: formData.jam_tutup || null,
+              is_24_jam: formData.is_24_jam || false,
+              tingkat_prioritas: formData.tingkat_prioritas || null,
+              catatan_khusus: formData.catatan_khusus || null,
+              created_at: now,
+              updated_at: now
+            }])
+        );
+      }
+
+      const results = await Promise.all(updates);
+      for (const result of results) {
+        if (result.error) throw result.error;
       }
     } else {
       const { data: tempatBaru, error: errorTempat } = await supabase
@@ -293,55 +234,66 @@ export default function DataManagementTab() {
         .insert([{
           name: formData.name,
           alamat: formData.alamat || null,
-          latitude: formData.latitude || null,
-          longitude: formData.longitude || null,
+          latitude,
+          longitude,
           category: formData.category || 'umum',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: now,
+          updated_at: now
         }])
         .select();
-      
+
       if (errorTempat) throw errorTempat;
-      
+
       const { error: errorMetadata } = await supabase
         .from('tempat_metadata')
         .insert([{
           tempat_id: tempatBaru[0].id,
-          kapasitas_normal: formData.kapasitas_normal || null,
+          kapasitas_normal: kapasitasNormal,
           jam_buka: formData.jam_buka || null,
           jam_tutup: formData.jam_tutup || null,
           is_24_jam: formData.is_24_jam || false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          tingkat_prioritas: formData.tingkat_prioritas || null,
+          catatan_khusus: formData.catatan_khusus || null,
+          created_at: now,
+          updated_at: now
         }]);
-      
+
       if (errorMetadata) throw errorMetadata;
     }
   };
 
   const handleSaveOther = async () => {
-    let result;
+    const cleanedData = { ...formData };
+    delete cleanedData.tempat;
+    delete cleanedData.tempat1;
+    delete cleanedData.tempat2;
+
     if (editingItem) {
-      result = await supabase
+      const { error } = await supabase
         .from(activeTab)
-        .update(formData)
+        .update(cleanedData)
         .eq('id', editingItem.id);
+      if (error) throw error;
     } else {
-      result = await supabase
+      const { error } = await supabase
         .from(activeTab)
-        .insert([formData]);
+        .insert([cleanedData]);
+      if (error) throw error;
     }
-    if (result.error) throw result.error;
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Yakin hapus data ini?')) return;
+
     setLoading(true);
     try {
-      const { error } = await supabase.from(activeTab).delete().eq('id', id);
+      const { error } = await supabase
+        .from(activeTab)
+        .delete()
+        .eq('id', id);
       if (error) throw error;
-      fetchData();
-      alert('✅ Data berhasil dihapus');
+      alert('✅ Data berhasil dihapus!');
+      await fetchData();
     } catch (err) {
       alert('Error: ' + err.message);
     } finally {
@@ -355,664 +307,552 @@ export default function DataManagementTab() {
     setShowForm(true);
   };
 
-  // ==================== UI COMPONENTS ====================
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Browser tidak mendukung GPS");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData(prev => ({
+          ...prev,
+          latitude: position.coords.latitude.toString(),
+          longitude: position.coords.longitude.toString()
+        }));
+        alert("✅ Lokasi berhasil diambil!");
+      },
+      (error) => {
+        alert("Gagal ambil lokasi: " + error.message);
+      }
+    );
+  };
+
   const tabs = [
-    { id: 'tempat', label: '📍 Tempat', icon: <MapPin size={16} />, ai: true },
-    { id: 'tempat_koneksi', label: '🔗 Koneksi', icon: <Link2 size={16} />, ai: true },
-    { id: 'tempat_layanan_terkait', label: '🏢 Fasilitas', icon: <Building size={16} />, ai: false },
-    { id: 'tempat_aktivitas_berkala', label: '📅 Aktivitas Rutin', icon: <Calendar size={16} />, ai: false },
-    { id: 'tempat_insiden_historis', label: '⚠️ Riwayat', icon: <AlertTriangle size={16} />, ai: false },
-    { id: 'tempat_bantuan_tersedia', label: '🚛 Bantuan', icon: <Truck size={16} />, ai: false }
+    { id: 'tempat', label: '📍 Tempat', icon: <MapPin size={16} /> },
+    { id: 'tempat_koneksi', label: '🔗 Koneksi', icon: <Link2 size={16} /> },
+    { id: 'tempat_layanan_terkait', label: '🏢 Fasilitas', icon: <Building size={16} /> },
+    { id: 'tempat_aktivitas_berkala', label: '📅 Aktivitas Rutin', icon: <Calendar size={16} /> },
+    { id: 'tempat_insiden_historis', label: '⚠️ Riwayat', icon: <AlertTriangle size={16} /> },
+    { id: 'tempat_bantuan_tersedia', label: '🚛 Bantuan', icon: <Truck size={16} /> }
   ];
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-emerald-600" />
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return null;
+  }
+
   return (
-    <div>
-      {/* Header dengan AI Badge */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Brain size={20} className="text-purple-600" />
-          <span className="text-sm font-medium text-purple-600 bg-purple-50 px-3 py-1 rounded-full">
-            🤖 AI Auto-Fill Active
-          </span>
-        </div>
-        <button
-          onClick={fetchData}
-          className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100"
-        >
-          <RefreshCw size={18} />
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex overflow-x-auto gap-1 border-b mb-4">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => { 
-              setActiveTab(tab.id); 
-              setShowForm(false); 
-              setEditingItem(null); 
-              setFormData({});
-              setAiSuggestions({});
-            }}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition ${
-              activeTab === tab.id 
-                ? 'border-b-2 border-purple-600 text-purple-700' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-            {tab.ai && <Sparkles size={10} className="text-purple-400" />}
-          </button>
-        ))}
-      </div>
-
-      {/* Tombol Tambah */}
-      <div className="mb-4">
-        {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700"
-          >
-            <Plus size={16} />
-            Tambah Data
-          </button>
-        )}
-      </div>
-
-      {/* FORM MODAL */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative p-6">
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <Database size={24} className="text-emerald-600" />
+              <h1 className="font-bold text-lg">SuperAdmin - Manajemen Data</h1>
+            </div>
             <button
-              onClick={() => { setShowForm(false); setEditingItem(null); setFormData({}); setAiSuggestions({}); }}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+              onClick={() => router.push('/admin/dashboard')}
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
             >
-              <X size={24} />
+              <Home size={16} />
+              Kembali
             </button>
-            
-            <div className="flex items-center gap-2 mb-4">
-              <Brain size={20} className="text-purple-600" />
-              <h2 className="text-xl font-bold">
-                {editingItem ? '✏️ Edit Data' : '➕ Tambah Data Baru'}
-              </h2>
-            </div>
+          </div>
 
-            {/* FORM TEMPAT - VERSI AI */}
-            {activeTab === 'tempat' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Nama Tempat *
-                    <span className="text-purple-500 text-xs ml-2">(AI akan cari koordinat otomatis)</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.name || ''}
-                    onChange={(e) => {
-                      setFormData({...formData, name: e.target.value});
-                      autoGeocode(e.target.value);
-                    }}
-                    placeholder="Contoh: SPBU Pertamina 54.671.16 Purwosari"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Tipe Tempat *
-                    <span className="text-purple-500 text-xs ml-2">(AI akan estimasi kapasitas)</span>
-                  </label>
-                  <select
-                    required
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.category || 'umum'}
-                    onChange={(e) => handleTipeChange(e.target.value)}
-                  >
-                    <option value="masjid">🕌 Masjid</option>
-                    <option value="mall">🛍️ Mall</option>
-                    <option value="stasiun">🚉 Stasiun</option>
-                    <option value="sekolah">🏫 Sekolah</option>
-                    <option value="rs">🏥 Rumah Sakit</option>
-                    <option value="pom_bensin">⛽ SPBU</option>
-                    <option value="pasar">🛒 Pasar</option>
-                    <option value="wisata">🏖️ Wisata</option>
-                    <option value="kantor">🏢 Kantor</option>
-                    <option value="umum">📍 Umum</option>
-                  </select>
-                </div>
-
-                {/* AI Suggestions Panel */}
-                {(isAiProcessing || aiSuggestions.geocoding || aiSuggestions.kapasitas) && (
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Sparkles size={14} className="text-purple-600" />
-                      <span className="text-xs font-semibold text-purple-700">🤖 AI Process</span>
-                    </div>
-                    {isAiProcessing && (
-                      <div className="flex items-center gap-2 text-sm text-purple-600">
-                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-purple-600 border-t-transparent" />
-                        Memproses...
-                      </div>
-                    )}
-                    {aiSuggestions.geocoding && (
-                      <p className="text-sm text-purple-700 mt-1">{aiSuggestions.geocoding}</p>
-                    )}
-                    {aiSuggestions.kapasitas && (
-                      <p className="text-sm text-purple-700 mt-1">{aiSuggestions.kapasitas}</p>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Alamat</label>
-                  <input
-                    type="text"
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.alamat || ''}
-                    onChange={(e) => setFormData({...formData, alamat: e.target.value})}
-                    placeholder="Alamat lengkap"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Latitude</label>
-                    <input
-                      type="text"
-                      className="w-full border rounded-lg px-3 py-2 bg-gray-50"
-                      value={formData.latitude || ''}
-                      onChange={(e) => setFormData({...formData, latitude: e.target.value})}
-                      placeholder="Otomatis dari AI"
-                      readOnly={!formData.latitude}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Longitude</label>
-                    <input
-                      type="text"
-                      className="w-full border rounded-lg px-3 py-2 bg-gray-50"
-                      value={formData.longitude || ''}
-                      onChange={(e) => setFormData({...formData, longitude: e.target.value})}
-                      placeholder="Otomatis dari AI"
-                      readOnly={!formData.longitude}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Kapasitas Normal</label>
-                  <input
-                    type="number"
-                    className="w-full border rounded-lg px-3 py-2 bg-gray-50"
-                    value={formData.kapasitas_normal || ''}
-                    onChange={(e) => setFormData({...formData, kapasitas_normal: e.target.value})}
-                    placeholder="Estimasi AI"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Jam Buka</label>
-                    <input
-                      type="time"
-                      className="w-full border rounded-lg px-3 py-2"
-                      value={formData.jam_buka || ''}
-                      onChange={(e) => setFormData({...formData, jam_buka: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Jam Tutup</label>
-                    <input
-                      type="time"
-                      className="w-full border rounded-lg px-3 py-2"
-                      value={formData.jam_tutup || ''}
-                      onChange={(e) => setFormData({...formData, jam_tutup: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="is_24_jam"
-                    checked={formData.is_24_jam || false}
-                    onChange={(e) => setFormData({...formData, is_24_jam: e.target.checked})}
-                    className="w-4 h-4"
-                  />
-                  <label htmlFor="is_24_jam" className="text-sm">Buka 24 Jam</label>
-                </div>
-              </div>
-            )}
-
-            {/* FORM KONEKSI - JARAK OTOMATIS */}
-            {activeTab === 'tempat_koneksi' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Tempat 1 (Sumber) *
-                    <span className="text-purple-500 text-xs ml-2">(AI akan hitung jarak otomatis)</span>
-                  </label>
-                  <select
-                    required
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.tempat_id_1 || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({...formData, tempat_id_1: val});
-                      if (formData.tempat_id_2) {
-                        autoHitungJarak(val, formData.tempat_id_2);
-                      }
-                    }}
-                  >
-                    <option value="">Pilih tempat...</option>
-                    {tempatList.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Tempat 2 (Tujuan) *</label>
-                  <select
-                    required
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.tempat_id_2 || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({...formData, tempat_id_2: val});
-                      if (formData.tempat_id_1) {
-                        autoHitungJarak(formData.tempat_id_1, val);
-                      }
-                    }}
-                  >
-                    <option value="">Pilih tempat...</option>
-                    {tempatList.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {isAiProcessing && (
-                  <div className="bg-purple-50 p-3 rounded-lg text-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-600 border-t-transparent inline-block mr-2" />
-                    <span className="text-purple-700">AI sedang menghitung jarak terpendek...</span>
-                  </div>
-                )}
-
-                {aiSuggestions.jarak && !isAiProcessing && (
-                  <div className="bg-green-50 p-3 rounded-lg">
-                    <p className="text-green-700 text-sm">{aiSuggestions.jarak}</p>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Jarak (km)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="w-full border rounded-lg px-3 py-2 bg-gray-50"
-                    value={formData.jarak_km || ''}
-                    onChange={(e) => setFormData({...formData, jarak_km: e.target.value})}
-                    placeholder="Dihitung otomatis oleh AI"
-                    readOnly
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    🤖 AI menghitung berdasarkan koordinat kedua tempat
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Estimasi Waktu (menit)</label>
-                  <input
-                    type="number"
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.estimasi_waktu_menit || ''}
-                    onChange={(e) => setFormData({...formData, estimasi_waktu_menit: e.target.value})}
-                    placeholder="Estimasi waktu tempuh"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* FORM LAINNYA (sederhana, tanpa AI) */}
-            {(activeTab === 'tempat_layanan_terkait' || activeTab === 'tempat_aktivitas_berkala' || 
-              activeTab === 'tempat_insiden_historis' || activeTab === 'tempat_bantuan_tersedia') && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Tempat *</label>
-                  <select
-                    required
-                    className="w-full border rounded-lg px-3 py-2"
-                    value={formData.tempat_id || ''}
-                    onChange={(e) => setFormData({...formData, tempat_id: e.target.value})}
-                  >
-                    <option value="">Pilih tempat...</option>
-                    {tempatList.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {activeTab === 'tempat_layanan_terkait' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Jenis Layanan</label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.layanan || ''}
-                        onChange={(e) => setFormData({...formData, layanan: e.target.value})}
-                        placeholder="parkir, toilet, musholah, dll"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Sub Layanan</label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.sub_layanan || ''}
-                        onChange={(e) => setFormData({...formData, sub_layanan: e.target.value})}
-                        placeholder="Detail layanan"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="is_tersedia"
-                        checked={formData.is_tersedia !== false}
-                        onChange={(e) => setFormData({...formData, is_tersedia: e.target.checked})}
-                        className="w-4 h-4"
-                      />
-                      <label htmlFor="is_tersedia" className="text-sm">Tersedia</label>
-                    </div>
-                  </>
-                )}
-
-                {activeTab === 'tempat_aktivitas_berkala' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Nama Aktivitas *</label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.nama_aktivitas || ''}
-                        onChange={(e) => setFormData({...formData, nama_aktivitas: e.target.value})}
-                        placeholder="Contoh: Pengajian Rutin"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Deskripsi</label>
-                      <textarea
-                        className="w-full border rounded-lg px-3 py-2"
-                        rows="2"
-                        value={formData.deskripsi || ''}
-                        onChange={(e) => setFormData({...formData, deskripsi: e.target.value})}
-                        placeholder="Deskripsi kegiatan..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Hari</label>
-                      <select
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.hari || ''}
-                        onChange={(e) => setFormData({...formData, hari: e.target.value})}
-                      >
-                        <option value="">Pilih hari...</option>
-                        <option value="Senin">Senin</option>
-                        <option value="Selasa">Selasa</option>
-                        <option value="Rabu">Rabu</option>
-                        <option value="Kamis">Kamis</option>
-                        <option value="Jumat">Jumat</option>
-                        <option value="Sabtu">Sabtu</option>
-                        <option value="Minggu">Minggu</option>
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Jam Mulai</label>
-                        <input
-                          type="time"
-                          className="w-full border rounded-lg px-3 py-2"
-                          value={formData.jam_mulai || ''}
-                          onChange={(e) => setFormData({...formData, jam_mulai: e.target.value})}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Jam Selesai</label>
-                        <input
-                          type="time"
-                          className="w-full border rounded-lg px-3 py-2"
-                          value={formData.jam_selesai || ''}
-                          onChange={(e) => setFormData({...formData, jam_selesai: e.target.value})}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeTab === 'tempat_insiden_historis' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Judul Insiden *</label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.judul || ''}
-                        onChange={(e) => setFormData({...formData, judul: e.target.value})}
-                        placeholder="Contoh: Kebakaran Pasar"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Deskripsi</label>
-                      <textarea
-                        className="w-full border rounded-lg px-3 py-2"
-                        rows="3"
-                        value={formData.deskripsi || ''}
-                        onChange={(e) => setFormData({...formData, deskripsi: e.target.value})}
-                        placeholder="Detail kejadian..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Tanggal Mulai</label>
-                      <input
-                        type="date"
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.tanggal_mulai?.split('T')[0] || ''}
-                        onChange={(e) => setFormData({...formData, tanggal_mulai: e.target.value})}
-                      />
-                    </div>
-                  </>
-                )}
-
-                {activeTab === 'tempat_bantuan_tersedia' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Jenis Bantuan *</label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.jenis_bantuan || ''}
-                        onChange={(e) => setFormData({...formData, jenis_bantuan: e.target.value})}
-                        placeholder="Contoh: Logistik, Medis, Evakuasi"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Kadaluarsa</label>
-                      <input
-                        type="datetime-local"
-                        className="w-full border rounded-lg px-3 py-2"
-                        value={formData.kadaluarsa?.slice(0, 16) || ''}
-                        onChange={(e) => setFormData({...formData, kadaluarsa: e.target.value})}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Tombol Submit */}
-            <div className="flex gap-3 mt-6 pt-4 border-t">
+          <div className="flex overflow-x-auto gap-1 pb-1">
+            {tabs.map(tab => (
               <button
-                onClick={handleSave}
-                disabled={loading}
-                className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setShowForm(false);
+                  setEditingItem(null);
+                  setFormData({});
+                }}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition ${activeTab === tab.id
+                  ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-600'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
               >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                    Menyimpan...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Simpan
-                  </>
-                )}
+                {tab.icon}
+                {tab.label}
               </button>
-              <button
-                onClick={() => { setShowForm(false); setEditingItem(null); setFormData({}); setAiSuggestions({}); }}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-300"
-              >
-                Batal
-              </button>
-            </div>
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* TABEL DATA */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="text-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-600 mx-auto mb-2" />
-            <p className="text-gray-500">Loading...</p>
-          </div>
-        ) : dataList.length === 0 ? (
-          <div className="text-center py-10 text-gray-500">Belum ada data</div>
-        ) : (
-          <div className="overflow-x-auto">
-            {activeTab === 'tempat' && (
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-3 text-left">Nama</th>
-                    <th className="p-3 text-left">Kategori</th>
-                    <th className="p-3 text-left">Alamat</th>
-                    <th className="p-3 text-left">Koordinat</th>
-                    <th className="p-3 text-center">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dataList.map((item) => (
-                    <tr key={item.id} className="border-t hover:bg-gray-50">
-                      <td className="p-3 font-medium">{item.name}</td>
-                      <td className="p-3">{item.category || '-'}</td>
-                      <td className="p-3 text-sm text-gray-600">{item.alamat?.substring(0, 40) || '-'}</td>
-                      <td className="p-3 text-xs font-mono text-gray-500">
-                        {item.latitude && item.longitude ? `${item.latitude}, ${item.longitude}` : '-'}
-                      </td>
-                      <td className="p-3 text-center space-x-2">
-                        <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800">
-                          <Edit size={16} />
-                        </button>
-                        <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="flex justify-between items-center mb-4">
+          {!showForm && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700"
+            >
+              <Plus size={16} />
+              Tambah Data
+            </button>
+          )}
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+            title="Refresh data"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
 
-            {activeTab === 'tempat_koneksi' && (
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-3 text-left">Dari</th>
-                    <th className="p-3 text-left">Ke</th>
-                    <th className="p-3 text-left">Jarak</th>
-                    <th className="p-3 text-center">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dataList.map((item) => (
-                    <tr key={item.id} className="border-t hover:bg-gray-50">
-                      <td className="p-3">{item.tempat1_nama}</td>
-                      <td className="p-3">{item.tempat2_nama}</td>
-                      <td className="p-3">
-                        {item.jarak_km} km
-                        {item.jarak_km && (
-                          <span className="text-xs text-green-600 ml-2">🤖 AI</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center space-x-2">
-                        <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800">
-                          <Edit size={16} />
-                        </button>
-                        <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {(activeTab === 'tempat_layanan_terkait' || activeTab === 'tempat_aktivitas_berkala' || 
-              activeTab === 'tempat_insiden_historis' || activeTab === 'tempat_bantuan_tersedia') && (
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-3 text-left">Tempat</th>
-                    <th className="p-3 text-left">Detail</th>
-                    <th className="p-3 text-center">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dataList.map((item) => (
-                    <tr key={item.id} className="border-t hover:bg-gray-50">
-                      <td className="p-3 font-medium">{item.tempat_nama}</td>
-                      <td className="p-3 text-sm text-gray-600">
-                        {activeTab === 'tempat_layanan_terkait' && (
-                          <span>{item.layanan}{item.sub_layanan && ` - ${item.sub_layanan}`}</span>
-                        )}
-                        {activeTab === 'tempat_aktivitas_berkala' && (
-                          <span>
-                            <strong>{item.nama_aktivitas}</strong>
-                            {item.hari && <span className="text-gray-500 ml-2">({item.hari})</span>}
-                          </span>
-                        )}
-                        {activeTab === 'tempat_insiden_historis' && (
-                          <span>{item.judul}</span>
-                        )}
-                        {activeTab === 'tempat_bantuan_tersedia' && (
-                          <span>{item.jenis_bantuan}</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center space-x-2">
-                        <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800">
-                          <Edit size={16} />
-                        </button>
-                        <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+        {showForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative p-6">
+              {renderForm(activeTab, formData, setFormData, tempatList, editingItem, getCurrentLocation)}
+              <div className="flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
+                <button
+                  onClick={handleSave}
+                  disabled={saveLoading}
+                  className="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {saveLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                      Menyimpan...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Simpan
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => { setShowForm(false); setEditingItem(null); setFormData({}); }}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-300"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
           </div>
         )}
+
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          {renderTable(activeTab, dataList, handleEdit, handleDelete, loading)}
+        </div>
       </div>
     </div>
   );
+}
+
+// ==================== FORM RENDERER ====================
+function renderForm(activeTab, formData, setFormData, tempatList, editingItem, getCurrentLocation) {
+  const commonFields = (
+    <>
+      <h2 className="text-xl font-bold mb-4">
+        {editingItem ? '✏️ Edit Data' : '➕ Tambah Data Baru'}
+      </h2>
+    </>
+  );
+
+  switch (activeTab) {
+    case 'tempat':
+      return (
+        <div className="space-y-4">
+          {commonFields}
+          <div className="border-b pb-4">
+            <h3 className="font-semibold text-emerald-700 mb-3 flex items-center gap-2">
+              <MapPin size={16} />
+              Data Dasar Tempat
+            </h3>
+            <div>
+              <label className="block text-sm font-medium mb-1">Nama Tempat *</label>
+              <input type="text" required className="w-full border rounded-lg px-3 py-2" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Contoh: SPBU Pertamina 54.671.16" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Alamat</label>
+              <input type="text" className="w-full border rounded-lg px-3 py-2" value={formData.alamat || ''} onChange={(e) => setFormData({ ...formData, alamat: e.target.value })} placeholder="Alamat lengkap" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Kategori</label>
+              <select className="w-full border rounded-lg px-3 py-2" value={formData.category || 'umum'} onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
+                <option value="masjid">🕌 Masjid</option>
+                <option value="industri">🏭 Industri</option>
+                <option value="sekolah">🏫 Sekolah</option>
+                <option value="rs">🏥 Rumah Sakit</option>
+                <option value="mall">🛍️ Mall</option>
+                <option value="wisata">🏖️ Wisata</option>
+                <option value="kantor">🏢 Kantor</option>
+                <option value="pom_bensin">⛽ SPBU</option>
+                <option value="pasar">🛒 Pasar</option>
+                <option value="umum">📍 Umum</option>
+              </select>
+            </div>
+            <div className="border rounded-lg p-3 bg-blue-50">
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium">📍 Koordinat Lokasi *</label>
+                <button type="button" onClick={getCurrentLocation} className="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-600">
+                  <Navigation size={12} />
+                  Ambil GPS
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Latitude</label>
+                  <input type="text" required className="w-full border rounded-lg px-3 py-2 font-mono text-sm" value={formData.latitude || ''} onChange={(e) => setFormData({ ...formData, latitude: e.target.value })} placeholder="-6.200000" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Longitude</label>
+                  <input type="text" required className="w-full border rounded-lg px-3 py-2 font-mono text-sm" value={formData.longitude || ''} onChange={(e) => setFormData({ ...formData, longitude: e.target.value })} placeholder="106.800000" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 className="font-semibold text-emerald-700 mb-3 flex items-center gap-2">
+              <FileText size={16} />
+              Detail Metadata
+            </h3>
+            <div>
+              <label className="block text-sm font-medium mb-1">Kapasitas Normal</label>
+              <input type="number" className="w-full border rounded-lg px-3 py-2" value={formData.kapasitas_normal || ''} onChange={(e) => setFormData({ ...formData, kapasitas_normal: e.target.value })} placeholder="Jumlah orang" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Jam Buka</label>
+                <input type="time" className="w-full border rounded-lg px-3 py-2" value={formData.jam_buka || ''} onChange={(e) => setFormData({ ...formData, jam_buka: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Jam Tutup</label>
+                <input type="time" className="w-full border rounded-lg px-3 py-2" value={formData.jam_tutup || ''} onChange={(e) => setFormData({ ...formData, jam_tutup: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="is_24_jam" checked={formData.is_24_jam || false} onChange={(e) => setFormData({ ...formData, is_24_jam: e.target.checked })} className="w-4 h-4" />
+              <label htmlFor="is_24_jam" className="text-sm">Buka 24 Jam</label>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Tingkat Prioritas</label>
+              <select className="w-full border rounded-lg px-3 py-2" value={formData.tingkat_prioritas || 'normal'} onChange={(e) => setFormData({ ...formData, tingkat_prioritas: e.target.value })}>
+                <option value="rendah">🟢 Rendah</option>
+                <option value="normal">🔵 Normal</option>
+                <option value="tinggi">🟠 Tinggi</option>
+                <option value="kritis">🔴 Kritis</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Catatan Khusus</label>
+              <textarea className="w-full border rounded-lg px-3 py-2" rows="2" value={formData.catatan_khusus || ''} onChange={(e) => setFormData({ ...formData, catatan_khusus: e.target.value })} placeholder="Catatan tambahan..." />
+            </div>
+          </div>
+        </div>
+      );
+
+    case 'tempat_koneksi':
+      return (
+        <div className="space-y-4">
+          {commonFields}
+          <div>
+            <label className="block text-sm font-medium mb-1">Tempat 1 (Sumber) *</label>
+            <select required className="w-full border rounded-lg px-3 py-2" value={formData.tempat_id_1 || ''} onChange={(e) => setFormData({ ...formData, tempat_id_1: e.target.value })}>
+              <option value="">Pilih tempat...</option>
+              {tempatList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tempat 2 (Tujuan) *</label>
+            <select required className="w-full border rounded-lg px-3 py-2" value={formData.tempat_id_2 || ''} onChange={(e) => setFormData({ ...formData, tempat_id_2: e.target.value })}>
+              <option value="">Pilih tempat...</option>
+              {tempatList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jarak (km) *</label>
+            <input type="number" step="0.1" required className="w-full border rounded-lg px-3 py-2" value={formData.jarak_km || ''} onChange={(e) => setFormData({ ...formData, jarak_km: e.target.value })} placeholder="2.5" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Estimasi Waktu (menit)</label>
+            <input type="number" className="w-full border rounded-lg px-3 py-2" value={formData.estimasi_waktu_menit || ''} onChange={(e) => setFormData({ ...formData, estimasi_waktu_menit: e.target.value })} placeholder="10" />
+          </div>
+        </div>
+      );
+
+    case 'tempat_layanan_terkait':
+      return (
+        <div className="space-y-4">
+          {commonFields}
+          <div>
+            <label className="block text-sm font-medium mb-1">Tempat *</label>
+            <select required className="w-full border rounded-lg px-3 py-2" value={formData.tempat_id || ''} onChange={(e) => setFormData({ ...formData, tempat_id: e.target.value })}>
+              <option value="">Pilih tempat...</option>
+              {tempatList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jenis Layanan</label>
+            <input type="text" className="w-full border rounded-lg px-3 py-2" value={formData.layanan || ''} onChange={(e) => setFormData({ ...formData, layanan: e.target.value })} placeholder="parkir, toilet, musholah, dll" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Sub Layanan (detail)</label>
+            <input type="text" className="w-full border rounded-lg px-3 py-2" value={formData.sub_layanan || ''} onChange={(e) => setFormData({ ...formData, sub_layanan: e.target.value })} placeholder="Contoh: Parkir motor gratis" />
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="is_tersedia" checked={formData.is_tersedia !== false} onChange={(e) => setFormData({ ...formData, is_tersedia: e.target.checked })} className="w-4 h-4" />
+            <label htmlFor="is_tersedia" className="text-sm">Tersedia</label>
+          </div>
+        </div>
+      );
+
+    default:
+      return (
+        <div className="space-y-4">
+          {commonFields}
+          <p className="text-gray-500 text-center py-8">Form untuk tab ini sedang dalam pengembangan</p>
+        </div>
+      );
+  }
+}
+
+// ==================== TABLE RENDERER ====================
+// ==================== TABLE RENDERER ====================
+function renderTable(activeTab, dataList, handleEdit, handleDelete, loading) {
+  if (loading) {
+    return <div className="text-center py-10">Loading...</div>;
+  }
+
+  if (dataList.length === 0) {
+    return <div className="text-center py-10 text-gray-500">Belum ada data</div>;
+  }
+
+  switch (activeTab) {
+    case 'tempat':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Nama</th>
+                <th className="p-3 text-left">Kategori</th>
+                <th className="p-3 text-left">Alamat</th>
+                <th className="p-3 text-left">Kapasitas</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 font-medium">{item.name}</td>
+                  <td className="p-3">{item.category || '-'}</td>
+                  <td className="p-3 text-sm text-gray-600">{item.alamat?.substring(0, 40) || '-'}</td>
+                  <td className="p-3">{item.kapasitas_normal?.toLocaleString() || '-'}</td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    case 'tempat_koneksi':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Dari</th>
+                <th className="p-3 text-left">Ke</th>
+                <th className="p-3 text-left">Jarak (km)</th>
+                <th className="p-3 text-left">Estimasi Waktu</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3">{item.tempat1?.name || '-'}</td>
+                  <td className="p-3">{item.tempat2?.name || '-'}</td>
+                  <td className="p-3">{item.jarak_km || '-'}</td>
+                  <td className="p-3">{item.estimasi_waktu_menit ? `${item.estimasi_waktu_menit} menit` : '-'}</td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    case 'tempat_layanan_terkait':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Tempat</th>
+                <th className="p-3 text-left">Layanan</th>
+                <th className="p-3 text-left">Detail</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3">{item.tempat?.name || '-'}</td>
+                  <td className="p-3 font-medium">{item.layanan || '-'}</td>
+                  <td className="p-3 text-sm text-gray-600">{item.sub_layanan || '-'}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded text-xs ${item.is_tersedia ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {item.is_tersedia ? 'Tersedia' : 'Tidak'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    case 'tempat_aktivitas_berkala':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Nama Aktivitas</th>
+                <th className="p-3 text-left">Tempat</th>
+                <th className="p-3 text-left">Jadwal</th>
+                <th className="p-3 text-left">Deskripsi</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 font-medium">{item.nama_aktivitas || '-'}</td>
+                  <td className="p-3">{item.tempat?.name || '-'}</td>
+                  <td className="p-3">{item.jadwal || '-'}</td>
+                  <td className="p-3 text-sm text-gray-600">{item.deskripsi?.substring(0, 50) || '-'}</td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    case 'tempat_insiden_historis':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Judul Insiden</th>
+                <th className="p-3 text-left">Tempat</th>
+                <th className="p-3 text-left">Tanggal</th>
+                <th className="p-3 text-left">Deskripsi</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 font-medium">{item.judul_insiden || '-'}</td>
+                  <td className="p-3">{item.tempat?.name || '-'}</td>
+                  <td className="p-3">{item.tanggal ? new Date(item.tanggal).toLocaleDateString('id-ID') : '-'}</td>
+                  <td className="p-3 text-sm text-gray-600">{item.deskripsi?.substring(0, 50) || '-'}</td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    case 'tempat_bantuan_tersedia':
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">Jenis Bantuan</th>
+                <th className="p-3 text-left">Tempat</th>
+                <th className="p-3 text-left">Kontak</th>
+                <th className="p-3 text-left">Keterangan</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 font-medium">{item.jenis_bantuan || '-'}</td>
+                  <td className="p-3">{item.tempat?.name || '-'}</td>
+                  <td className="p-3">{item.kontak || '-'}</td>
+                  <td className="p-3 text-sm text-gray-600">{item.keterangan?.substring(0, 40) || '-'}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded text-xs ${item.is_tersedia ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {item.is_tersedia ? 'Tersedia' : 'Tidak'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+    default:
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="p-3 text-left">ID</th>
+                <th className="p-3 text-left">Data</th>
+                <th className="p-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataList.map((item) => (
+                <tr key={item.id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 font-mono text-xs">{String(item.id).slice(0, 8)}...</td>
+                  <td className="p-3 text-sm text-gray-600">{JSON.stringify(item).slice(0, 100)}...</td>
+                  <td className="p-3 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+  }
 }

@@ -1,18 +1,34 @@
 // hooks/useOptimizedFetch.js
 'use client';
 
-import { useSessionStorageCache } from './useSessionStorageCache';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 export function useLaporanWarga(options = {}) {
-  const { limit = 50, cacheDuration = 5 * 60 * 1000 } = options;
+  const {
+    limit = 10,           // Ganti jadi 10 (seperti TikTok)
+    cacheDuration = 5 * 60 * 1000
+  } = options;
 
-  const fetchLaporan = async () => {
-    console.log("🔄 Fetching from laporan_warga with JOIN to tempat...");
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const initialLoadDone = useRef(false);
+
+  const fetchLaporan = async (pageNum = 1, append = false) => {
+    if (!append && initialLoadDone.current) return;
+
+    const start = (pageNum - 1) * limit;
+    const end = start + limit - 1;
+
+    console.log(`🔄 Fetching page ${pageNum}: rows ${start} to ${end}`);
 
     try {
-      // ✅ Gunakan 'category' bukan 'kategori'
-      const { data, error } = await supabase
+      const { data: rawData, error, count } = await supabase
         .from("laporan_warga")
         .select(`
           *,
@@ -22,41 +38,33 @@ export function useLaporanWarga(options = {}) {
             alamat,
             category
           )
-        `)
+        `, { count: 'exact' })
         .eq("status", "approved")
         .eq("is_visible", true)
         .order("created_at", { ascending: false })
-        .limit(limit);
+        .range(start, end);  // ← PAGINATION!
 
-      if (error) {
-        console.error("❌ Supabase error:", error);
-        throw new Error(error.message);
+      if (error) throw new Error(error.message);
+
+      // Mapping data
+      const mappedData = rawData?.map(laporan => ({
+        ...laporan,
+        tempat_id: laporan.tempat_id ? Number(laporan.tempat_id) : null,
+        display_location_name: laporan.tempat?.name || laporan.lokasi_name || laporan.lokasi_text || null,
+        tempat_name: laporan.tempat?.name,
+        tempat_category: laporan.tempat?.category,
+      })) || [];
+
+      if (append) {
+        setData(prev => [...prev, ...mappedData]);
+      } else {
+        setData(mappedData);
       }
 
-      // Mapping data + handle tipe data bigint
-      const mappedData = data?.map(laporan => {
-        // Pastikan tempat_id dalam bentuk number
-        const tempatId = laporan.tempat_id ? Number(laporan.tempat_id) : null;
+      setHasMore(mappedData.length === limit);
+      if (count) setTotalCount(count);
 
-        return {
-          ...laporan,
-          tempat_id: tempatId,
-          display_location_name: laporan.tempat?.name || laporan.lokasi_name || laporan.lokasi_text || null,
-          tempat_name: laporan.tempat?.name,
-          tempat_category: laporan.tempat?.category,
-        };
-      }) || [];
-
-      console.log(`✅ Fetched ${mappedData.length} reports`);
-
-      if (mappedData.length > 0) {
-        console.log("Sample data:", {
-          id: mappedData[0].id,
-          display_location_name: mappedData[0].display_location_name,
-          tempat_name: mappedData[0].tempat_name,
-          has_tempat: !!mappedData[0].tempat
-        });
-      }
+      console.log(`✅ Fetched ${mappedData.length} reports (total: ${data.length + mappedData.length}/${count || '?'})`);
 
       return mappedData;
 
@@ -66,9 +74,44 @@ export function useLaporanWarga(options = {}) {
     }
   };
 
-  return useSessionStorageCache(
-    'cache_laporan_warga',
-    fetchLaporan,
-    { duration: cacheDuration, autoFetch: true }
-  );
+  // Load more function untuk infinite scroll
+  const loadMore = useCallback(async () => {
+    if (!hasMore || isFetchingMore) return;
+
+    setIsFetchingMore(true);
+    const nextPage = page + 1;
+    await fetchLaporan(nextPage, true);
+    setPage(nextPage);
+    setIsFetchingMore(false);
+  }, [hasMore, isFetchingMore, page]);
+
+  // Refresh function
+  const refresh = useCallback(async () => {
+    setPage(1);
+    setHasMore(true);
+    setData([]);
+    initialLoadDone.current = false;
+    await fetchLaporan(1, false);
+    initialLoadDone.current = true;
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    if (!initialLoadDone.current) {
+      fetchLaporan(1, false).finally(() => {
+        initialLoadDone.current = true;
+        setLoading(false);
+      });
+    }
+  }, []);
+
+  return {
+    data,
+    loading,
+    refresh,
+    loadMore,      // ← untuk infinite scroll
+    hasMore,       // ← apakah masih ada data
+    totalCount,    // ← total semua laporan
+    isFetchingMore // ← status loading lebih
+  };
 }
