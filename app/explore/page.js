@@ -77,8 +77,8 @@ const sanitizeText = (text) => {
     .replace(/'/g, '&#39;');
 };
 
-// ========== MAIN COMPONENT ==========
-export default function CitizenHub({ userId, userRole }) {
+// ========== CONTENT COMPONENT (Refactored) ==========
+function CitizenHubContent({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -121,7 +121,7 @@ export default function CitizenHub({ userId, userRole }) {
     setMounted(true);
   }, []);
 
-  // ========== CLIENT-ONLY EFFECTS (dengan guard) ==========
+  // ========== CLIENT-ONLY EFFECTS ==========
   useEffect(() => {
     if (!mounted) return;
 
@@ -228,12 +228,6 @@ export default function CitizenHub({ userId, userRole }) {
 
     fetchProfile();
   }, [activeUserId, mounted]);
-
-  // View counts fetch - NONAKTIFKAN SEMENTARA untuk build
-  // useEffect(() => {
-  //   if (!validReports.length || !mounted || typeof window === 'undefined') return;
-  //   // ... kode fetch view counts
-  // }, [validReports, mounted]);
 
   // ========== CALLBACKS ==========
   const handleOpenLaporanForm = useCallback(() => {
@@ -367,7 +361,6 @@ export default function CitizenHub({ userId, userRole }) {
   }, [router]);
 
   // ========== RENDER ==========
-  // Kunci: Selalu render loading di server, baru konten di client
   if (!mounted) {
     return <InitialLoadingScreen />;
   }
@@ -379,7 +372,6 @@ export default function CitizenHub({ userId, userRole }) {
   return (
     <div className="h-[100dvh] w-full bg-black flex justify-center font-sans overflow-hidden select-none">
       <div className="w-full max-w-[400px] h-full bg-zinc-950 relative flex flex-col overflow-hidden">
-
         {viewMode === 'grid' && validReports.length > 0 && (
           <Suspense fallback={<LoadingSpinner />}>
             <ExploreGridView
@@ -504,5 +496,14 @@ export default function CitizenHub({ userId, userRole }) {
 
       </div>
     </div>
+  );
+}
+
+// ========== MAIN EXPORT WRAPPED IN SUSPENSE ==========
+export default function CitizenHub(props) {
+  return (
+    <Suspense fallback={<InitialLoadingScreen />}>
+      <CitizenHubContent {...props} />
+    </Suspense>
   );
 }
