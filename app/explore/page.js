@@ -1,44 +1,65 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
+export const dynamic = 'force-dynamic';
+
+import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import dynamic from 'next/dynamic';
 import { useTheme } from "@/app/hooks/useTheme";
 import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 
-// ========== LAZY LOAD COMPONENTS ==========
-const SmartBottomNavWarga = dynamic(() => import("@/app/components/layout/SmartBottomNavWarga"), {
+// ========== 1. LOADING COMPONENTS ==========
+export const LoadingSpinner = () => (
+  <div className="flex items-center justify-center h-full w-full bg-black">
+    <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
+      Ronda Cerita Warga Setempat...
+    </div>
+  </div>
+);
+
+export const MinimalLoading = () => (
+  <div className="h-[100dvh] w-full bg-black flex items-center justify-center">
+    <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
+      Memuat...
+    </div>
+  </div>
+);
+
+// ========== 2. LAZY LOAD COMPONENTS ==========
+
+import nextDynamic from 'next/dynamic';
+
+const SmartBottomNavWarga = nextDynamic(() => import("@/app/components/layout/SmartBottomNavWarga"), {
   loading: () => <div className="h-16 w-full bg-transparent" />,
   ssr: false
 });
 
-const FullscreenStoryModal = dynamic(() => import("@/components/story/FullscreenStoryModal"), {
+const FullscreenStoryModal = nextDynamic(() => import("@/components/story/FullscreenStoryModal"), {
   loading: () => <LoadingSpinner />,
   ssr: false
 });
 
-const LaporPanel = dynamic(() => import("@/app/components/ai/LaporPanel"), {
+const LaporPanel = nextDynamic(() => import("@/app/components/ai/LaporPanel"), {
   loading: () => null,
   ssr: false
 });
 
-const KomentarLaporanModal = dynamic(() => import("@/app/components/feed/KomentarLaporanModal"), {
+const KomentarLaporanModal = nextDynamic(() => import("@/app/components/feed/KomentarLaporanModal"), {
   loading: () => null,
   ssr: false
 });
 
-const AuthModal = dynamic(() => import("@/app/components/auth/AuthModal"), {
+const AuthModal = nextDynamic(() => import("@/app/components/auth/AuthModal"), {
   loading: () => null,
   ssr: false
 });
 
-const AIModalTempat = dynamic(() => import("@/app/components/ai/AIModalTempat"), {
+const AIModalTempat = nextDynamic(() => import("@/app/components/ai/AIModalTempat"), {
   loading: () => null,
   ssr: false
 });
 
-const ExploreGridView = dynamic(() => import("@/components/explore/ExploreSearchView"), {
+const ExploreGridView = nextDynamic(() => import("@/components/explore/ExploreSearchView"), {
   loading: () => <LoadingSpinner />,
   ssr: false
 });
@@ -53,41 +74,22 @@ const sanitizeText = (text) => {
     .replace(/'/g, '&#39;');
 };
 
-// ========== LOADING COMPONENT ==========
-const LoadingSpinner = () => (
-  <div className="flex items-center justify-center h-full w-full bg-black">
-    <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Ronda Cerita Warga Setempat...
-    </div>
-  </div>
-);
-
-// Minimal loading - tampil cepat
-const MinimalLoading = () => (
-  <div className="h-[100dvh] w-full bg-black flex items-center justify-center">
-    <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Memuat...
-    </div>
-  </div>
-);
-
 // ========== MAIN COMPONENT ==========
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // WAJIB bungkus bapaknya (parent) pakai <Suspense>
 
   const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 20 });
 
-  // ========== STATE DECLARATIONS ==========
+  // State
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showLaporPanel, setShowLaporPanel] = useState(false);
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [sessionUserId, setSessionUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-
   const [allReports, setAllReports] = useState([]);
-  const [isGridReady, setIsGridReady] = useState(false); // Untuk grid loading
+  const [isGridReady, setIsGridReady] = useState(false);
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -96,7 +98,6 @@ export default function CitizenHub({ userId, userRole }) {
   const [selectedReport, setSelectedReport] = useState(null);
   const [selectedLaporanForComment, setSelectedLaporanForComment] = useState(null);
   const [isKomentarLaporanModalOpen, setIsKomentarLaporanModalOpen] = useState(false);
-
   const [isStoryPaused, setIsStoryPaused] = useState(false);
   const [viewCounts, setViewCounts] = useState({});
   const [likedLaporan, setLikedLaporan] = useState(new Set());
@@ -107,7 +108,6 @@ export default function CitizenHub({ userId, userRole }) {
   const activeUserId = userId || sessionUserId;
   const validReports = useMemo(() => reports || [], [reports]);
 
-  // Theme configuration
   const theme = useMemo(() => ({
     isMalam,
     text: isMalam ? 'text-white' : 'text-gray-900',
@@ -115,19 +115,17 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   }), [isMalam]);
 
-  // OPTIMASI: Fetch dengan prioritas rendah (non-blocking)
   const fetchAllReports = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('laporan_warga')
-        .select('*, tempat(name)') // Langsung join biar lebih cepat
+        .select('*, tempat(name)')
         .order('created_at', { ascending: false })
-        .limit(200); // Turunkan ke 200 untuk kecepatan
+        .limit(200);
 
       if (error) throw error;
 
       if (data && data.length > 0) {
-        // Data sudah termasuk tempat dari join
         const formattedData = data.map(report => ({
           ...report,
           tempat: report.tempat || null
@@ -141,25 +139,19 @@ export default function CitizenHub({ userId, userRole }) {
     }
   }, []);
 
-  // Load data di background - TIDAK MEMBLOK RENDER
   useEffect(() => {
-    // Tampilkan UI dulu, fetch data belakangan
     const timer = setTimeout(() => {
       fetchAllReports();
     }, 50);
-
     return () => clearTimeout(timer);
   }, [fetchAllReports]);
 
-  // Hydration state
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  // Auth session (non-blocking)
   useEffect(() => {
     let isMounted = true;
-
     const getSession = async () => {
       try {
         const cachedSession = sessionStorage.getItem('supabase_session');
@@ -205,10 +197,8 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, []);
 
-  // Fetch user profile (non-blocking)
   useEffect(() => {
     if (!activeUserId) return;
-
     let isMounted = true;
 
     async function fetchProfile() {
@@ -248,7 +238,6 @@ export default function CitizenHub({ userId, userRole }) {
     fetchProfile();
   }, [activeUserId]);
 
-  // View counts fetch (non-blocking)
   useEffect(() => {
     if (!validReports.length) return;
 
@@ -275,7 +264,6 @@ export default function CitizenHub({ userId, userRole }) {
     fetchInitialViewCounts();
   }, [validReports]);
 
-  // ========== OPTIMIZED CALLBACKS ==========
   const handleOpenLaporanForm = useCallback(() => {
     setIsStoryPaused(true);
     setSelectedTempat(null);
@@ -305,14 +293,14 @@ export default function CitizenHub({ userId, userRole }) {
   const handleLaporanSuccess = useCallback(() => {
     handleCloseLaporPanel();
     refreshData();
-    fetchAllReports(); // Refresh grid data
+    fetchAllReports();
     setCurrentIndex(0);
   }, [handleCloseLaporPanel, refreshData, fetchAllReports]);
 
   useEffect(() => {
     const storyId = searchParams.get('story');
     if (storyId && validReports.length > 0) {
-      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId));
+      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId, 10)); // Radix ditambahkan
       if (targetIndex !== -1) {
         setCurrentIndex(targetIndex);
         setViewMode('story');
@@ -320,11 +308,8 @@ export default function CitizenHub({ userId, userRole }) {
     }
   }, [searchParams, validReports]);
 
-  // CitizenHub - Ganti handleShare menjadi:
   const handleShare = useCallback(async (report) => {
     if (!report?.id) return;
-
-    // SHARE LINK (bukan buka modal lagi)
     const shareUrl = `${window.location.origin}/explore?story=${report.id}`;
 
     if (navigator.share) {
@@ -339,7 +324,6 @@ export default function CitizenHub({ userId, userRole }) {
       }
     } else {
       await navigator.clipboard.writeText(shareUrl);
-      // show toast
     }
   }, []);
 
@@ -407,23 +391,14 @@ export default function CitizenHub({ userId, userRole }) {
     setIsKomentarLaporanModalOpen(true);
   }, []);
 
-  // ========== RENDER - CEPAT & RINGAN ==========
-  // Minimal loading untuk pertama kali
-  if (!isHydrated) {
+  if (!isHydrated || (loading && validReports.length === 0)) {
     return <MinimalLoading />;
   }
 
-  if (loading && validReports.length === 0) {
-    return <MinimalLoading />;
-  }
-
-  // Tampilkan story mode dengan data yang sudah ada (dari useLaporanWarga)
-  // Jangan tunggu fetchAllReports selesai
   return (
     <div className="h-[100dvh] w-full bg-black flex justify-center font-sans overflow-hidden select-none">
       <div className="w-full max-w-[400px] h-full bg-zinc-950 relative flex flex-col overflow-hidden">
 
-        {/* GRID MODE - TAMPILKAN ONLY SAAT DIKLIK dan data sudah siap */}
         {viewMode === 'grid' && (
           <Suspense fallback={<LoadingSpinner />}>
             <ExploreGridView
@@ -439,7 +414,6 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         )}
 
-        {/* FULLSCREEN MODE - TAMPIL CEPAT */}
         <div className="flex-1 w-full h-full relative z-10">
           <Suspense fallback={<LoadingSpinner />}>
             <FullscreenStoryModal
@@ -465,7 +439,6 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         </div>
 
-        {/* BOTTOM NAVIGATION */}
         <SmartBottomNavWarga
           onOpenLaporanForm={handleOpenLaporanForm}
           onOpenNotification={() => router.push("/woro")}
