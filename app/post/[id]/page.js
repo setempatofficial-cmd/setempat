@@ -1,18 +1,22 @@
 "use client";
 
+// ============ 1. REACT & THIRD-PARTY IMPORTS ============
 import { use, useEffect, useState, useCallback, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import { MessageCircle, Sparkles, ChevronDown, X } from "lucide-react";
+
+// ============ 2. HOOKS & CONTEXTS ============
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { useLocation } from "@/components/LocationProvider";
 import { usePostDetail } from "@/hooks/usePostDetail";
 import { supabase } from "@/lib/supabaseClient";
+
+// ============ 3. STATIC COMPONENTS ============
 import SmartCitizenButton from "@/app/components/feed/SmartCitizenButton";
 import AIInsight from "@/components/v2/AIInsight";
-import { MessageCircle, Sparkles, X } from "lucide-react";
-
-// Components
 import RekomendasiFeed from "@/components/feed/RekomendasiFeed";
 import Header from "@/components/Header";
 import LocationModal from "@/components/LocationModal";
@@ -23,11 +27,9 @@ import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import HeroCard from "@/components/v2/HeroCard";
 import StoryStrip from "@/components/v2/StoryStrip";
 
-// V2 Components dengan Lazy Load
-import dynamic from 'next/dynamic';
-
+// ============ 4. DYNAMIC COMPONENTS (LAZY LOAD) ============
 const MiniMapV2 = dynamic(
-  () => import('@/components/v2/maps/MiniMapV2'),
+  () => import("@/components/v2/maps/MiniMapV2"),
   {
     ssr: false,
     loading: () => <div className="h-48 w-full rounded-[24px] animate-pulse bg-gray-200 dark:bg-gray-800" />
@@ -35,67 +37,59 @@ const MiniMapV2 = dynamic(
 );
 
 const NearbyMicroSignals = dynamic(
-  () => import('@/components/v2/feed/NearbyMicroSignals'),
+  () => import("@/components/v2/feed/NearbyMicroSignals"),
   { ssr: false }
 );
 
 const SolutionRadar = dynamic(
-  () => import('@/components/v2/feed/SolutionRadar'),
+  () => import("@/components/v2/feed/SolutionRadar"),
   { ssr: false }
 );
 
-// ============ MAIN CONTENT ============
+// ============ 5. UTILITY FUNCTIONS ============
+const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 999;
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// ============ MAIN CONTENT COMPONENT ============
 function PostDetailContent({ id }) {
+  // --- Routers & Contexts ---
   const router = useRouter();
   const theme = useTheme();
   const { user, userLocation } = useAuth();
-  const {
-    location,
-    status: locationStatus,
-    placeName,
-    isLoading: locationLoading // Tambahkan ini jika ada di provider
-  } = useLocation();
+  const { location, status: locationStatus, placeName, isLoading: locationLoading } = useLocation();
 
+  // --- Refs ---
   const radarRef = useRef(null);
   const mainContentRef = useRef(null);
   const heroRef = useRef(null);
 
+  // --- Data Fetching ---
   const { data: postData, loading, error: fetchError } = usePostDetail(id, {
     cacheDuration: 5 * 60 * 1000
   });
 
   const item = postData?.item || null;
   const comments = postData?.comments || {};
-
   const tempatName = item?.name || "tempat ini";
   const kategori = item?.category || "umum";
   const adminPhone = item?.admin_phone || "628123456789";
 
-  // PERBAIKAN: Hitung distance dengan lebih baik, jangan langsung false
+  // --- States ---
   const [distance, setDistance] = useState(999);
   const [isInRadius, setIsInRadius] = useState(false);
   const [isLocationReady, setIsLocationReady] = useState(false);
-
-  // Hitung jarak hanya ketika location sudah tersedia
-  useEffect(() => {
-    if (location?.lat && location?.lng && item?.latitude && item?.longitude) {
-      const calculatedDistance = getDistanceFromLatLonInKm(
-        location.lat,
-        location.lng,
-        item.latitude,
-        item.longitude
-      );
-      setDistance(calculatedDistance);
-      setIsInRadius(calculatedDistance <= 0.5);
-      setIsLocationReady(true);
-    } else if (locationStatus === "granted" && !location) {
-      // Status granted tapi location belum ada, mungkin masih loading
-      setIsLocationReady(false);
-    } else if (locationStatus !== "granted") {
-      // User belum izin lokasi
-      setIsLocationReady(false);
-    }
-  }, [location, locationStatus, item]);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState("profil");
@@ -112,13 +106,33 @@ function PostDetailContent({ id }) {
   const [selectedHeroStory, setSelectedHeroStory] = useState(null);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
 
+  // --- Derived Variables ---
   const isMalam = theme.isMalam;
   const heroData = selectedHeroStory || item;
-
-  // Cek apakah lokasi benar-benar siap digunakan
   const isLocationActuallyReady = locationStatus === "granted" && location?.lat && location?.lng;
 
-  // Optimasi scroll dengan IntersectionObserver
+  // --- Effects ---
+
+  // 1. Kalkulasi Jarak & Lokasi
+  useEffect(() => {
+    if (location?.lat && location?.lng && item?.latitude && item?.longitude) {
+      const calculatedDistance = getDistanceFromLatLonInKm(
+        location.lat,
+        location.lng,
+        item.latitude,
+        item.longitude
+      );
+      setDistance(calculatedDistance);
+      setIsInRadius(calculatedDistance <= 0.5);
+      setIsLocationReady(true);
+    } else if (locationStatus === "granted" && !location) {
+      setIsLocationReady(false);
+    } else if (locationStatus !== "granted") {
+      setIsLocationReady(false);
+    }
+  }, [location, locationStatus, item]);
+
+  // 2. Observer Scroll & Sticky Nav
   useEffect(() => {
     setIsScrolled(window.scrollY > 30);
 
@@ -145,93 +159,29 @@ function PostDetailContent({ id }) {
     };
   }, []);
 
-  const scrollToRadar = () => {
-    radarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
-
-  const handleOpenAIModal = useCallback((query = "") => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-      return;
-    }
-    if (!item) return;
-    const finalQuery = query || `Analisis situasi terkini di ${item.name}. Kondisi saat ini: ${item.latest_condition || item.status || "Normal"}. Berikan rekomendasi dan solusi.`;
-    setSelectedTempat(item);
-    setInitialQuery(finalQuery);
-    setShowAIModal(true);
-  }, [user, item]);
-
-  const openAI = useCallback((context = "info", query = "") => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-      return;
-    }
-    if (!item) return;
-    setSelectedTempat(item);
-    setInitialQuery(query);
-    setShowAIModal(true);
-  }, [user, item]);
-
-  const handleSelectStory = useCallback((story, index) => {
-    const formattedStory = {
-      ...story,
-      id: story.id,
-      name: item?.name,
-      parentName: item?.name,
-      latest_condition: story.status,
-      status: story.status,
-      created_at: story.created_at,
-      updated_at: story.created_at,
-      photo_url: story.photo_url || story.image_url,
-      deskripsi: story.deskripsi,
-      laporan_terbaru: [story]
-    };
-    setSelectedHeroStory(formattedStory);
-    setCurrentStoryIndex(index);
-    setTimeout(() => {
-      heroRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-  }, [item]);
-
-  const handleBackToOriginal = useCallback(() => {
-    setSelectedHeroStory(null);
-    setCurrentStoryIndex(0);
-  }, []);
-
-  // Optimasi log view dengan debounce
+  // 3. Log View Detail (Debounced)
   useEffect(() => {
     if (!item?.id || !user?.id) return;
 
     const timer = setTimeout(() => {
       const logDetailView = async () => {
         try {
-          await supabase
-            .from('external_signals')
-            .insert({
-              tempat_id: item.id,
-              source: 'user_activity',
-              source_id: `${user.id}_${item.id}_${Date.now()}`,
-              username: user.id,
-              content: 'view_detail',
-              source_platform: 'setempat_app',
-              created_at: new Date().toISOString(),
-              fetched_at: new Date().toISOString(),
-              confidence: 1.0,
-              verified: true,
-              verification_level: 'high',
-              source_tier: 1
-            });
+          await supabase.from("external_signals").insert({
+            tempat_id: item.id,
+            source: "user_activity",
+            source_id: `${user.id}_${item.id}_${Date.now()}`,
+            username: user.id,
+            content: "view_detail",
+            source_platform: "setempat_app",
+            created_at: new Date().toISOString(),
+            fetched_at: new Date().toISOString(),
+            confidence: 1.0,
+            verified: true,
+            verification_level: "high",
+            source_tier: 1
+          });
         } catch (err) {
-          console.warn('Failed to log detail view:', err);
+          console.warn("Failed to log detail view:", err);
         }
       };
       logDetailView();
@@ -239,6 +189,71 @@ function PostDetailContent({ id }) {
 
     return () => clearTimeout(timer);
   }, [item?.id, user?.id]);
+
+  // --- Handlers ---
+  const scrollToRadar = () => radarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  const scrollToNextContent = () => {
+    // Fungsi untuk tombol Scroll ke Bawah
+    window.scrollBy({ top: window.innerHeight * 0.6, behavior: "smooth" });
+  };
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  const handleOpenAIModal = useCallback(
+    (query = "") => {
+      if (!user) return setIsAuthModalOpen(true);
+      if (!item) return;
+      const finalQuery = query || `Analisis situasi terkini di ${item.name}. Kondisi saat ini: ${item.latest_condition || item.status || "Normal"}. Berikan rekomendasi dan solusi.`;
+      setSelectedTempat(item);
+      setInitialQuery(finalQuery);
+      setShowAIModal(true);
+    },
+    [user, item]
+  );
+
+  const openAI = useCallback(
+    (context = "info", query = "") => {
+      if (!user) return setIsAuthModalOpen(true);
+      if (!item) return;
+      setSelectedTempat(item);
+      setInitialQuery(query);
+      setShowAIModal(true);
+    },
+    [user, item]
+  );
+
+  const handleSelectStory = useCallback(
+    (story, index) => {
+      const formattedStory = {
+        ...story,
+        id: story.id,
+        name: item?.name,
+        parentName: item?.name,
+        latest_condition: story.status,
+        status: story.status,
+        created_at: story.created_at,
+        updated_at: story.created_at,
+        photo_url: story.photo_url || story.image_url,
+        deskripsi: story.deskripsi,
+        laporan_terbaru: [story]
+      };
+      setSelectedHeroStory(formattedStory);
+      setCurrentStoryIndex(index);
+      setTimeout(() => {
+        heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    },
+    [item]
+  );
+
+  const handleBackToOriginal = useCallback(() => {
+    setSelectedHeroStory(null);
+    setCurrentStoryIndex(0);
+  }, []);
 
   const handleShare = useCallback(async () => {
     try {
@@ -250,6 +265,7 @@ function PostDetailContent({ id }) {
     }
   }, []);
 
+  // --- Render Loading & Error ---
   if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${theme.bg}`}>
@@ -262,23 +278,28 @@ function PostDetailContent({ id }) {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-10 ${theme.bg}`}>
         <p className="opacity-40 font-bold uppercase text-[10px] tracking-widest">Data Tidak Ditemukan</p>
-        <button onClick={() => router.push('/')} className="mt-4 px-6 py-2 bg-white/5 rounded-full text-xs">Kembali</button>
+        <button onClick={() => router.push("/")} className="mt-4 px-6 py-2 bg-white/5 rounded-full text-xs">
+          Kembali
+        </button>
       </div>
     );
   }
 
+  // --- Main Render ---
   return (
     <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-500`}>
+      {/* Background Effect */}
       <div className="fixed inset-0 pointer-events-none z-0 flex justify-center">
-        <div className={`w-full max-w-[420px] h-[60vh] opacity-20 blur-[120px] rounded-full ${isMalam ? 'bg-cyan-900' : 'bg-cyan-100'}`} />
+        <div className={`w-full max-w-[420px] h-[60vh] opacity-20 blur-[120px] rounded-full ${isMalam ? "bg-cyan-900" : "bg-cyan-100"}`} />
       </div>
 
       <div className="relative z-10">
+        {/* Header */}
         <div className="fixed top-0 left-0 right-0 z-[100] flex justify-center pointer-events-none">
           <div className="w-full max-w-[420px] pointer-events-auto">
             <Header
               user={user}
-              locationReady={isLocationActuallyReady} // PERBAIKAN: Gunakan variable baru
+              locationReady={isLocationActuallyReady}
               villageLocation={placeName?.split(",")[0] || "Lokasi"}
               isScrolled={isScrolled}
               onOpenLocationModal={() => setIsLocationModalOpen(true)}
@@ -287,10 +308,9 @@ function PostDetailContent({ id }) {
         </div>
 
         <main ref={mainContentRef} className="mx-auto w-full max-w-[420px] px-2 pt-20 pb-36">
-          {/* 1. HERO CARD & STORY STRIP (Berurutan, terpisah dengan jarak aman) */}
-          <div ref={heroRef} className="flex flex-col mb-6 w-full relative">
 
-            {/* Container HeroCard */}
+          {/* SECTION 1: HERO & STORIES */}
+          <div ref={heroRef} className="flex flex-col mb-6 w-full relative">
             <div className="rounded-[32px] overflow-hidden w-full relative z-10 shadow-lg">
               <HeroCard
                 tempatId={heroData?.id}
@@ -309,8 +329,29 @@ function PostDetailContent({ id }) {
               />
             </div>
 
-            {/* STORY STRIP - Komentar dipindahkan ke atas sini agar aman */}
-            {item.laporan_terbaru && item.laporan_terbaru.filter(l => l?.photo_url || l?.image_url).length > 0 && (
+            {/* Scroll Down Indicator - Muncul jika belum di-scroll */}
+            <AnimatePresence>
+              {!isScrolled && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute -bottom-14 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center cursor-pointer"
+                  onClick={scrollToNextContent}
+                >
+                  <motion.div
+                    animate={{ y: [0, 8, 0] }}
+                    transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                    className="p-2 rounded-full bg-white/10 dark:bg-zinc-800/30 backdrop-blur-md border border-white/10 shadow-lg"
+                  >
+                    <ChevronDown size={20} className="text-zinc-600 dark:text-zinc-300 opacity-70" />
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Story Strip */}
+            {item.laporan_terbaru && item.laporan_terbaru.filter((l) => l?.photo_url || l?.image_url).length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -330,7 +371,7 @@ function PostDetailContent({ id }) {
               </motion.div>
             )}
 
-            {/* AI INSIGHT */}
+            {/* AI Insight */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={selectedHeroStory ? `flashback-${selectedHeroStory.id}` : "live"}
@@ -346,39 +387,29 @@ function PostDetailContent({ id }) {
                       {selectedHeroStory ? "Analisis Flashback" : "Kondisi Terkini AI"}
                     </span>
                   </div>
-                  <AIInsight
-                    activeTempat={heroData}
-                    mode={selectedHeroStory ? "flashback" : "live"}
-                    theme={theme}
-                  />
+                  <AIInsight activeTempat={heroData} mode={selectedHeroStory ? "flashback" : "live"} theme={theme} />
                 </div>
               </motion.div>
             </AnimatePresence>
-
           </div>
 
-          {/* SMART CITIZEN BUTTON - PERBAIKAN: Gunakan isLocationActuallyReady */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="mt-2 mx-2 relative z-20"
-          >
+          {/* SECTION 2: SMART CITIZEN BUTTON */}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mt-2 mx-2 relative z-20">
             <SmartCitizenButton
               tempatId={item.id}
               tempatName={item.name}
               kategori={kategori}
               tempatLatitude={item.latitude}
               tempatLongitude={item.longitude}
-              userLocation={isLocationActuallyReady ? location : null} // PERBAIKAN: Kirim location hanya jika benar-benar ready
-              isInRadius={isLocationActuallyReady ? isInRadius : false} // PERBAIKAN: Hitung radius hanya jika location ready
+              userLocation={isLocationActuallyReady ? location : null}
+              isInRadius={isLocationActuallyReady ? isInRadius : false}
               adminPhone={adminPhone}
               handleOpenAIModal={handleOpenAIModal}
               onUpdate={() => router.refresh()}
             />
           </motion.div>
 
-          {/* Tab Navigation */}
+          {/* SECTION 3: NAVIGATION TABS */}
           <div className="flex items-center justify-between mt-6 mb-4 px-2">
             <div className="flex flex-col">
               <h2 className="text-xl font-[1000] tracking-tighter italic">DETAIL INFO</h2>
@@ -387,26 +418,28 @@ function PostDetailContent({ id }) {
             <div className="flex items-center gap-3 bg-black/5 dark:bg-white/5 p-1.5 rounded-2xl border border-black/5 dark:border-white/5">
               <button
                 onClick={scrollToTop}
-                className={`px-4 py-1.5 rounded-xl transition-all duration-300 text-[9px] font-black uppercase ${activeSection === 'profil' ? 'bg-white dark:bg-zinc-800 shadow-md opacity-100' : 'opacity-30 hover:opacity-60'}`}
+                className={`px-4 py-1.5 rounded-xl transition-all duration-300 text-[9px] font-black uppercase ${activeSection === "profil" ? "bg-white dark:bg-zinc-800 shadow-md opacity-100" : "opacity-30 hover:opacity-60"
+                  }`}
               >
                 Profil
               </button>
               <button
                 onClick={scrollToRadar}
-                className={`px-4 py-1.5 rounded-xl transition-all duration-300 text-[9px] font-black uppercase ${activeSection === 'radar' ? 'bg-white dark:bg-zinc-800 shadow-md opacity-100' : 'opacity-30 hover:opacity-60'}`}
+                className={`px-4 py-1.5 rounded-xl transition-all duration-300 text-[9px] font-black uppercase ${activeSection === "radar" ? "bg-white dark:bg-zinc-800 shadow-md opacity-100" : "opacity-30 hover:opacity-60"
+                  }`}
               >
                 Radar
               </button>
             </div>
           </div>
 
-          {/* Radar Section */}
+          {/* SECTION 4: RADAR */}
           <motion.section
             ref={radarRef}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
-            className={`p-6 rounded-[40px] border ${isMalam ? 'bg-zinc-950/50 border-white/10' : 'bg-white border-black/5'} backdrop-blur-3xl shadow-2xl relative overflow-hidden`}
+            className={`p-6 rounded-[40px] border ${isMalam ? "bg-zinc-950/50 border-white/10" : "bg-white border-black/5"} backdrop-blur-3xl shadow-2xl relative overflow-hidden`}
           >
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 blur-[80px] rounded-full" />
             <div className="flex items-center justify-between mb-6 relative z-10">
@@ -422,7 +455,6 @@ function PostDetailContent({ id }) {
               </div>
             </div>
 
-            {/* MiniMap dengan Lazy Load */}
             <div className="h-48 w-full rounded-[24px] overflow-hidden mb-6 border-2 border-black/5 dark:border-white/5 shadow-inner">
               <MiniMapV2
                 lat={item.latitude}
@@ -436,36 +468,34 @@ function PostDetailContent({ id }) {
               />
             </div>
 
-            {/* Nearby Micro Signals dengan Lazy Load */}
             <div className="mb-8">
               <NearbyMicroSignals tempatId={item.id} theme={theme} />
             </div>
 
-            {/* Solution Radar dengan Lazy Load */}
             <div className="relative z-10">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Solusi Sekitar</p>
                 <span className="text-[9px] opacity-30 font-bold italic">Radius 1KM</span>
               </div>
-              <SolutionRadar item={item} theme={theme} userLocation={isLocationActuallyReady ? location : null} /> {/* PERBAIKAN: Kirim location hanya jika ready */}
+              <SolutionRadar item={item} theme={theme} userLocation={isLocationActuallyReady ? location : null} />
             </div>
           </motion.section>
 
-          {/* Rekomendasi */}
+          {/* SECTION 5: RECOMMENDATIONS */}
           <div className="mt-16 mb-6 px-2">
             <h3 className="text-sm font-black uppercase tracking-tighter italic">REKOMENDASI TEMPAT</h3>
           </div>
           <RekomendasiFeed
             currentItemId={parseInt(id)}
             userLocation={location}
-            locationReady={locationStatus === "granted"} // PERBAIKAN: Gunakan variable baru
+            locationReady={locationStatus === "granted"}
             theme={theme}
             onOpenAIModal={(it) => openAI("info", `Ceritakan tentang ${it.name}.`)}
           />
         </main>
       </div>
 
-      {/* Floating Button */}
+      {/* ============ FLOATING ACTION BUTTON ============ */}
       <div className="fixed bottom-24 right-6 z-[99] flex flex-col items-end gap-3.5 select-none">
         <AnimatePresence>
           {isExpanded && (
@@ -491,6 +521,7 @@ function PostDetailContent({ id }) {
                   <Sparkles size={16} className="text-amber-200 animate-pulse" />
                 </div>
               </button>
+
               <button
                 onClick={() => {
                   window.open(`https://wa.me/${adminPhone}?text=Halo Admin ${tempatName}...`);
@@ -509,17 +540,15 @@ function PostDetailContent({ id }) {
             </motion.div>
           )}
         </AnimatePresence>
+
         <motion.button
           onClick={() => setIsExpanded(!isExpanded)}
           whileTap={{ scale: 0.92 }}
-          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all duration-300 relative ${isExpanded ? 'bg-zinc-900 border-zinc-800' : 'bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800'}`}
+          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all duration-300 relative ${isExpanded ? "bg-zinc-900 border-zinc-800" : "bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800"
+            }`}
         >
           <div className="relative flex items-center justify-center w-full h-full">
-            <motion.div
-              animate={{ rotate: isExpanded ? 180 : 0, opacity: isExpanded ? 0 : 1, scale: isExpanded ? 0.6 : 1 }}
-              transition={{ duration: 0.2 }}
-              className="absolute"
-            >
+            <motion.div animate={{ rotate: isExpanded ? 180 : 0, opacity: isExpanded ? 0 : 1, scale: isExpanded ? 0.6 : 1 }} transition={{ duration: 0.2 }} className="absolute">
               <svg viewBox="0 0 24 24" className="w-9 h-9 fill-amber-600 dark:fill-amber-400">
                 <path d="M6 14C6 17.3 8.7 20 12 20C15.3 20 18 17.3 18 14V13H6V14Z" />
                 <path d="M5.5 12C5.5 8 8 5 12 5C16 5 18.5 8 18.5 12C16.5 11 14.5 10.5 12 10.5C9.5 10.5 7.5 11 5.5 12Z" className="fill-amber-700 dark:fill-amber-500" />
@@ -540,7 +569,7 @@ function PostDetailContent({ id }) {
         </motion.button>
       </div>
 
-      {/* Modals */}
+      {/* ============ MODALS & TOAST ============ */}
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <LocationModal isOpen={isLocationModalOpen} onClose={() => setIsLocationModalOpen(false)} />
       <AIModalDetail isOpen={showAIModal} onClose={() => setShowAIModal(false)} item={selectedTempat} userId={user?.id} initialQuery={initialQuery} />
@@ -564,19 +593,7 @@ function PostDetailContent({ id }) {
   );
 }
 
-// Helper function untuk hitung jarak
-const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 999;
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
+// ============ EXPORT PAGE ============
 export default function PostDetailPage({ params }) {
   const { id } = use(params);
   return <PostDetailContent id={id} />;

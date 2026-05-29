@@ -108,6 +108,7 @@ export default function ExploreSearchView({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isClosing, setIsClosing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef(null);
 
   const isMalam = theme?.isMalam ?? true;
@@ -139,8 +140,8 @@ export default function ExploreSearchView({
         results.push(r);
       }
 
-      // Limit hasil untuk performa (max 50)
-      if (results.length >= 50) break;
+      // Limit hasil untuk performa (max 200)
+      if (results.length >= 200) break;
     }
 
     return results;

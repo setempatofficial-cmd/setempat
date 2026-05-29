@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { X, MapPin, ShieldCheck, Eye, Trash2, Share2, MoreVertical, Compass, Plus } from "lucide-react";
+import { X, MapPin, ShieldCheck, Eye, Trash2, Share2, MoreVertical, Compass, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import MediaRenderer from "@/components/media/MediaRenderer";
@@ -20,6 +20,54 @@ const formatViewCount = (count) => {
   if (!count) return "—";
   if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
   return count.toString();
+};
+
+// ==================== KOMPONEN DESKRIPSI YANG BISA DI-EXPAND ====================
+const ExpandableDescription = ({ text }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [needsExpanding, setNeedsExpanding] = useState(false);
+  const descriptionRef = useRef(null);
+
+  useEffect(() => {
+    if (descriptionRef.current) {
+      const lineHeight = parseInt(getComputedStyle(descriptionRef.current).lineHeight);
+      const maxHeight = lineHeight * 3;
+      setNeedsExpanding(descriptionRef.current.scrollHeight > maxHeight);
+    }
+  }, [text]);
+
+  if (!text) return null;
+
+  return (
+    <div className="mt-1">
+      <p
+        ref={descriptionRef}
+        className={`text-white font-medium text-base sm:text-lg leading-relaxed tracking-tight drop-shadow-md transition-all duration-300 ${!isExpanded ? 'line-clamp-3' : ''
+          }`}
+      >
+        {text}
+      </p>
+
+      {needsExpanding && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-1 mt-2 text-white/50 hover:text-white/80 transition-colors active:scale-95"
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp size={14} />
+              <span className="text-[10px] font-medium">Sembunyikan</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown size={14} />
+              <span className="text-[10px] font-medium">Baca Selengkapnya</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
 };
 
 // ==================== MAIN COMPONENT ====================
@@ -522,9 +570,8 @@ export default function StoryModalFullscreen({
                 </div>
               </div>
 
-              <p className="text-white font-medium text-base sm:text-lg leading-snug tracking-tight line-clamp-3 drop-shadow-md">
-                {story.deskripsi || "Tidak ada deskripsi kondisi terkini."}
-              </p>
+              {/* DESKRIPSI YANG BISA DI-EXPAND */}
+              <ExpandableDescription text={story.deskripsi || "Tidak ada deskripsi kondisi terkini."} />
 
               <div className="flex items-center gap-1.5 mt-3">
                 <Eye size={12} className="text-white/40" />

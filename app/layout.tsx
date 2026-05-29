@@ -4,7 +4,7 @@ import "./globals.css";
 import { DataProvider } from "@/contexts/DataContext";
 import { AuthProvider } from "@/app/context/AuthContext";
 import LocationProvider from "@/components/LocationProvider";
-import AdminActionSheet from "./components/AdminActionSheet"; // 👈 Import di sini
+import AdminActionSheetWrapper from "./components/AdminActionSheetWrapper"; // ← ubah import
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,17 +30,10 @@ export default function RootLayout({
     <html lang="id">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
-          <LocationProvider> 
+          <LocationProvider>
             <DataProvider>
-              
               {children}
-              
-              {/* 
-                Taruh di sini agar bisa mengakses context jika nanti 
-                admin action sheet butuh data user/lokasi 
-              */}
-              <AdminActionSheet />
-
+              <AdminActionSheetWrapper /> {/* ← panggil wrapper */}
             </DataProvider>
           </LocationProvider>
         </AuthProvider>

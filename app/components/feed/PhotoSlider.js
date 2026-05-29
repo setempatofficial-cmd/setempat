@@ -66,6 +66,8 @@ export default function PhotoSlider({
   const [officialPhotosState, setOfficialPhotosState] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [cctvUrlState, setCctvUrlState] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasInitialized, setHasInitialized] = useState(false); // Track if sudah initialize
+  const prevTempatIdRef = useRef(null); // Track perubahan tempatId
 
   const sliderRef = useRef(null);
   const channelRef = useRef(null);
@@ -80,10 +82,16 @@ export default function PhotoSlider({
     }
   }, [currentTimeKey, isHujan]);
 
-  // FIX: Reset index foto hanya saat user berganti lokasi (tempatId berubah)
+  // FIX: Reset index foto HANYA saat tempatId berubah (bukan setiap re-render)
   useEffect(() => {
-    if (setSelectedPhotoIndex) {
-      setSelectedPhotoIndex(0);
+    // Cek apakah tempatId benar-benar berubah
+    if (prevTempatIdRef.current !== tempatId) {
+      prevTempatIdRef.current = tempatId;
+      setHasInitialized(false); // Reset flag saat ganti tempat
+
+      if (setSelectedPhotoIndex) {
+        setSelectedPhotoIndex(0);
+      }
     }
   }, [tempatId, setSelectedPhotoIndex]);
 
@@ -104,8 +112,10 @@ export default function PhotoSlider({
 
         setOfficialPhotosState(normalizeOfficialPhotos(data?.photos));
         setCctvUrlState(data?.image_url || null);
+        setHasInitialized(true);
       } catch (error) {
         console.error('Error fetching data:', error.message);
+        setHasInitialized(true);
       } finally {
         setIsLoading(false);
       }
@@ -114,9 +124,12 @@ export default function PhotoSlider({
     fetchData();
   }, [tempatId]);
 
-  // Realtime subscription
+  // Realtime subscription - dengan perlindungan agar tidak reset index
   useEffect(() => {
     if (!tempatId || !supabase) return;
+
+    // Simpan current index sebelum update
+    const currentIndex = selectedPhotoIndex;
 
     const channel = supabase
       .channel(`realtime_photos_${tempatId}`)
@@ -126,8 +139,17 @@ export default function PhotoSlider({
         table: 'tempat',
         filter: `id=eq.${tempatId}`,
       }, (payload) => {
+        // Update state tanpa mereset index
         setOfficialPhotosState(normalizeOfficialPhotos(payload.new?.photos));
         setCctvUrlState(payload.new?.image_url || null);
+
+        // RESTORE index yang sama setelah update
+        if (setSelectedPhotoIndex && currentIndex !== undefined) {
+          // Gunakan setTimeout untuk memastikan state update selesai
+          setTimeout(() => {
+            setSelectedPhotoIndex(currentIndex);
+          }, 0);
+        }
       })
       .subscribe();
 
@@ -138,9 +160,9 @@ export default function PhotoSlider({
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [tempatId]);
+  }, [tempatId, selectedPhotoIndex, setSelectedPhotoIndex]);
 
-  // Logic filter media
+  // Logic filter media - tanpa mengganggu index
   const currentPhoto = useMemo(() => {
     // CCTV
     if (cctvUrlState && typeof cctvUrlState === 'string' && cctvUrlState.trim() !== "") {

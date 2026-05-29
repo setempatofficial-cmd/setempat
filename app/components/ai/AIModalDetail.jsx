@@ -4,6 +4,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from 'react-markdown';
 import { X, Send, Loader2, Sparkles, Bot, MapPin } from "lucide-react";
+import {
+  getIndonesianTimeLabel,
+  getIndonesianTimeLabelLower,
+  getTimeInfo,
+  useOptimizedClock,
+  formatTimeAgoCached
+} from "@/utils/timeUtils"; // Sesuaikan path import
 
 export default function AIModalDetail({
   isOpen,
@@ -19,17 +26,22 @@ export default function AIModalDetail({
   const [greeting, setGreeting] = useState("");
   const [isLoadingPrompts, setIsLoadingPrompts] = useState(true);
   const [currentTime, setCurrentTime] = useState("");
-  const [currentHour, setCurrentHour] = useState(new Date().getHours());
+
+  // Gunakan hook dari timeUtils untuk update minimal (setiap menit)
+  const timeInfo = useOptimizedClock();
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // ==================== GET TIME GREETING ====================
+  // ==================== GET TIME GREETING DARI timeUtils ====================
   const getTimeGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "Selamat pagi";
-    if (hour >= 12 && hour < 15) return "Selamat siang";
-    if (hour >= 15 && hour < 18) return "Selamat sore";
-    return "Selamat malam";
+    const timeLabel = getIndonesianTimeLabel();
+    switch (timeLabel) {
+      case 'Pagi': return "Selamat pagi";
+      case 'Siang': return "Selamat siang";
+      case 'Sore': return "Selamat sore";
+      default: return "Selamat malam";
+    }
   };
 
   const getFormattedTime = () => {
@@ -44,18 +56,16 @@ export default function AIModalDetail({
     });
   };
 
-  // ==================== UPDATE TIME EVERY MINUTE ====================
+  // ==================== UPDATE TIME EVERY MINUTE (sudah ditangani useOptimizedClock) ====================
   useEffect(() => {
     if (!isOpen) return;
 
     const updateTime = () => {
-      const now = new Date();
-      setCurrentHour(now.getHours());
       setCurrentTime(getFormattedTime());
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 60000); // Update every minute
+    const interval = setInterval(updateTime, 60000);
 
     return () => clearInterval(interval);
   }, [isOpen]);
@@ -96,14 +106,15 @@ export default function AIModalDetail({
             tempatId: item.id,
             userId: userId,
             currentTime: getFormattedTime(),
-            currentHour: currentHour
+            currentHour: timeInfo.hour, // Gunakan dari timeInfo
+            timeLabel: timeInfo.labelLower // Kirim label waktu juga
           }),
         });
 
         const data = await response.json();
 
         if (data.success) {
-          const greetingWithTime = `${getTimeGreeting()}! ${data.greeting}`;
+          const greetingWithTime = `${getTimeGreeting()} ${timeInfo.icon} ${data.greeting}`;
           setGreeting(greetingWithTime);
           setQuickPrompts(data.quickPrompts);
 
@@ -113,7 +124,7 @@ export default function AIModalDetail({
             content: greetingWithTime,
           }]);
         } else {
-          const defaultGreeting = `${getTimeGreeting()}! 👋 Saya AI SETEMPAT. Waktu sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Ada yang bisa saya bantu tentang ${item.name}?`;
+          const defaultGreeting = `${getTimeGreeting()} ${timeInfo.icon} 👋 Saya AI SETEMPAT. Waktu sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Ada yang bisa saya bantu tentang ${item.name}?`;
           setMessages([{
             id: "greet",
             role: "assistant",
@@ -127,7 +138,7 @@ export default function AIModalDetail({
         }
       } catch (error) {
         console.error("Error loading prompts:", error);
-        const fallbackGreeting = `${getTimeGreeting()}! 👋 Ada yang bisa saya bantu tentang ${item.name}? (Sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})`;
+        const fallbackGreeting = `${getTimeGreeting()} ${timeInfo.icon} 👋 Ada yang bisa saya bantu tentang ${item.name}? (Sekarang ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})`;
         setMessages([{
           id: "greet",
           role: "assistant",
@@ -139,7 +150,7 @@ export default function AIModalDetail({
     };
 
     loadQuickPrompts();
-  }, [isOpen, item, userId, currentHour]);
+  }, [isOpen, item, userId, timeInfo.hour, timeInfo.labelLower, timeInfo.icon]);
 
   // ==================== HANDLE QUICK PROMPT CLICK ====================
   const handleQuickPrompt = (prompt) => {
@@ -165,7 +176,9 @@ export default function AIModalDetail({
     try {
       const now = new Date();
       const currentDateTime = getFormattedTime();
-      const currentHourExact = now.getHours();
+
+      // Gunakan timeInfo dari hook
+      const currentHourExact = timeInfo.hour;
       const currentMinute = now.getMinutes();
       const dayOfWeek = now.toLocaleDateString('id-ID', { weekday: 'long' });
 
@@ -180,6 +193,7 @@ export default function AIModalDetail({
           currentHour: currentHourExact,
           currentMinute: currentMinute,
           dayOfWeek: dayOfWeek,
+          timeLabel: timeInfo.labelLower,
           timestamp: Date.now()
         }),
       });
@@ -203,7 +217,7 @@ export default function AIModalDetail({
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, item]);
+  }, [input, isLoading, item, timeInfo.hour, timeInfo.labelLower]);
 
   // ==================== RESET ====================
   useEffect(() => {
@@ -233,7 +247,7 @@ export default function AIModalDetail({
           className="relative w-full max-w-[420px] h-[85vh] sm:h-[600px] bg-gradient-to-b from-zinc-950 to-black border-t sm:border border-white/10 sm:rounded-[28px] overflow-hidden flex flex-col shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header dengan waktu */}
+          {/* Header dengan waktu dan icon waktu */}
           <div className="flex items-center justify-between p-4 border-b border-white/5 bg-zinc-900/80">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-[#E3655B]/10 flex items-center justify-center">
@@ -251,7 +265,10 @@ export default function AIModalDetail({
             </div>
             <div className="flex items-center gap-2">
               <div className="hidden sm:block text-right">
-                <p className="text-[8px] text-white/30 font-mono">{currentTime}</p>
+                <p className="text-[8px] text-white/30 font-mono flex items-center gap-1">
+                  <span>{timeInfo.icon}</span>
+                  <span>{currentTime || getFormattedTime()}</span>
+                </p>
               </div>
               <button onClick={onClose} className="p-2 rounded-full bg-white/5 hover:bg-white/10">
                 <X size={18} className="text-white/40" />

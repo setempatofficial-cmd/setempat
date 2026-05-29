@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import dynamic from 'next/dynamic';
 import { useTheme } from "@/app/hooks/useTheme";
@@ -62,10 +62,11 @@ const LoadingSpinner = () => (
   </div>
 );
 
-const InitialLoadingScreen = () => (
-  <div className="h-[100dvh] w-full bg-black flex items-center justify-center text-white">
+// Minimal loading - tampil cepat
+const MinimalLoading = () => (
+  <div className="h-[100dvh] w-full bg-black flex items-center justify-center">
     <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Ronda Cerita Warga Setempat...
+      Memuat...
     </div>
   </div>
 );
@@ -74,8 +75,9 @@ const InitialLoadingScreen = () => (
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 10 });
+  const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 20 });
 
   // ========== STATE DECLARATIONS ==========
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -83,6 +85,9 @@ export default function CitizenHub({ userId, userRole }) {
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [sessionUserId, setSessionUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+
+  const [allReports, setAllReports] = useState([]);
+  const [isGridReady, setIsGridReady] = useState(false); // Untuk grid loading
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -110,12 +115,48 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   }), [isMalam]);
 
-  // ========== OPTIMIZED EFFECTS ==========
+  // OPTIMASI: Fetch dengan prioritas rendah (non-blocking)
+  const fetchAllReports = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('laporan_warga')
+        .select('*, tempat(name)') // Langsung join biar lebih cepat
+        .order('created_at', { ascending: false })
+        .limit(200); // Turunkan ke 200 untuk kecepatan
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // Data sudah termasuk tempat dari join
+        const formattedData = data.map(report => ({
+          ...report,
+          tempat: report.tempat || null
+        }));
+        setAllReports(formattedData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch:', error.message);
+    } finally {
+      setIsGridReady(true);
+    }
+  }, []);
+
+  // Load data di background - TIDAK MEMBLOK RENDER
+  useEffect(() => {
+    // Tampilkan UI dulu, fetch data belakangan
+    const timer = setTimeout(() => {
+      fetchAllReports();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [fetchAllReports]);
+
+  // Hydration state
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  // Optimized auth session sync with caching
+  // Auth session (non-blocking)
   useEffect(() => {
     let isMounted = true;
 
@@ -139,7 +180,7 @@ export default function CitizenHub({ userId, userRole }) {
           }));
         }
       } catch (error) {
-        console.error('Auth session error:', error);
+        console.error('Auth error:', error);
       }
     };
 
@@ -164,7 +205,7 @@ export default function CitizenHub({ userId, userRole }) {
     };
   }, []);
 
-  // Optimized fetch user profile with caching
+  // Fetch user profile (non-blocking)
   useEffect(() => {
     if (!activeUserId) return;
 
@@ -200,21 +241,20 @@ export default function CitizenHub({ userId, userRole }) {
           }));
         }
       } catch (error) {
-        console.error('Profile fetch error:', error);
+        console.error('Profile error:', error);
       }
     }
 
     fetchProfile();
   }, [activeUserId]);
 
-  // Optimized view counts fetch
+  // View counts fetch (non-blocking)
   useEffect(() => {
     if (!validReports.length) return;
 
     const fetchInitialViewCounts = async () => {
       try {
         const laporanIds = validReports.slice(0, 10).map(r => r.id);
-
         const { data, error } = await supabase
           .from('story_views')
           .select('laporan_id')
@@ -226,10 +266,9 @@ export default function CitizenHub({ userId, userRole }) {
         data?.forEach(view => {
           counts[view.laporan_id] = (counts[view.laporan_id] || 0) + 1;
         });
-
         setViewCounts(counts);
       } catch (err) {
-        console.error('Failed to fetch view counts:', err);
+        console.error('View counts error:', err);
       }
     };
 
@@ -266,12 +305,28 @@ export default function CitizenHub({ userId, userRole }) {
   const handleLaporanSuccess = useCallback(() => {
     handleCloseLaporPanel();
     refreshData();
+    fetchAllReports(); // Refresh grid data
     setCurrentIndex(0);
-  }, [handleCloseLaporPanel, refreshData]);
+  }, [handleCloseLaporPanel, refreshData, fetchAllReports]);
 
+  useEffect(() => {
+    const storyId = searchParams.get('story');
+    if (storyId && validReports.length > 0) {
+      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId));
+      if (targetIndex !== -1) {
+        setCurrentIndex(targetIndex);
+        setViewMode('story');
+      }
+    }
+  }, [searchParams, validReports]);
+
+  // CitizenHub - Ganti handleShare menjadi:
   const handleShare = useCallback(async (report) => {
     if (!report?.id) return;
-    const shareUrl = `${window.location.origin}/post/${report.id}`;
+
+    // SHARE LINK (bukan buka modal lagi)
+    const shareUrl = `${window.location.origin}/explore?story=${report.id}`;
+
     if (navigator.share) {
       try {
         await navigator.share({
@@ -284,12 +339,7 @@ export default function CitizenHub({ userId, userRole }) {
       }
     } else {
       await navigator.clipboard.writeText(shareUrl);
-      // Gunakan toast notification yang lebih ringan
-      const toast = document.createElement('div');
-      toast.textContent = 'Link berhasil disalin!';
-      toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-sm z-50';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
+      // show toast
     }
   }, []);
 
@@ -301,7 +351,6 @@ export default function CitizenHub({ userId, userRole }) {
 
     const isCurrentlyLiked = likedLaporan.has(report.id);
 
-    // Optimistic update
     setLikedLaporan(prev => {
       const next = new Set(prev);
       isCurrentlyLiked ? next.delete(report.id) : next.add(report.id);
@@ -313,7 +362,6 @@ export default function CitizenHub({ userId, userRole }) {
       [report.id]: Math.max((prev[report.id] || 0) + (isCurrentlyLiked ? -1 : 1), 0)
     }));
 
-    // Background sync
     try {
       if (isCurrentlyLiked) {
         await supabase
@@ -327,7 +375,6 @@ export default function CitizenHub({ userId, userRole }) {
           .insert({ laporan_id: report.id, user_id: activeUserId });
       }
     } catch (error) {
-      // Rollback on error
       setLikedLaporan(prev => {
         const next = new Set(prev);
         isCurrentlyLiked ? next.add(report.id) : next.delete(report.id);
@@ -360,28 +407,39 @@ export default function CitizenHub({ userId, userRole }) {
     setIsKomentarLaporanModalOpen(true);
   }, []);
 
-  // ========== RENDER OPTIMIZATION ==========
-  if (!isHydrated || (loading && validReports.length === 0)) {
-    return <InitialLoadingScreen />;
+  // ========== RENDER - CEPAT & RINGAN ==========
+  // Minimal loading untuk pertama kali
+  if (!isHydrated) {
+    return <MinimalLoading />;
   }
 
+  if (loading && validReports.length === 0) {
+    return <MinimalLoading />;
+  }
+
+  // Tampilkan story mode dengan data yang sudah ada (dari useLaporanWarga)
+  // Jangan tunggu fetchAllReports selesai
   return (
     <div className="h-[100dvh] w-full bg-black flex justify-center font-sans overflow-hidden select-none">
       <div className="w-full max-w-[400px] h-full bg-zinc-950 relative flex flex-col overflow-hidden">
 
-        {/* GRID MODE */}
-        {viewMode === 'grid' && validReports.length > 0 && (
+        {/* GRID MODE - TAMPILKAN ONLY SAAT DIKLIK dan data sudah siap */}
+        {viewMode === 'grid' && (
           <Suspense fallback={<LoadingSpinner />}>
             <ExploreGridView
-              reports={validReports}
-              loading={loading}
-              onCardClick={handleOpenFullscreenFromGrid}
-              onBackToStory={() => setViewMode('story')}
+              reports={allReports}
+              isLoading={!isGridReady && allReports.length === 0}
+              onSelectReport={(index) => {
+                setCurrentIndex(index);
+                setViewMode('story');
+              }}
+              onBack={() => setViewMode('story')}
+              theme={theme}
             />
           </Suspense>
         )}
 
-        {/* FULLSCREEN MODE */}
+        {/* FULLSCREEN MODE - TAMPIL CEPAT */}
         <div className="flex-1 w-full h-full relative z-10">
           <Suspense fallback={<LoadingSpinner />}>
             <FullscreenStoryModal
@@ -414,14 +472,11 @@ export default function CitizenHub({ userId, userRole }) {
           onOpenProfile={() => router.push("/peken")}
         />
 
-        {/* MODALS - Only render when needed */}
+        {/* MODALS */}
         {showLaporPanel && (
           <Suspense fallback={null}>
             <div className="fixed inset-0 z-[200] flex items-center justify-center">
-              <div
-                className="absolute inset-0 bg-black/75 backdrop-blur-md"
-                onClick={handleCloseLaporPanel}
-              />
+              <div className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={handleCloseLaporPanel} />
               <div className="relative w-full max-w-md mx-4">
                 <LaporPanel
                   tempat={selectedTempat}

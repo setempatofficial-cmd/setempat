@@ -46,13 +46,49 @@ export default function FeedActions({
   const [unreadCount, setUnreadCount] = useState(0);
 
   // ========== SYNC STATE DARI PROPS ==========
-  // 🔥 Penting: Sinkronkan state dari props untuk laporan
   useEffect(() => {
     if (isLaporanLike) {
       setIsLiked(isLaporanLiked);
       setLikeCount(laporanLikeCount);
     }
   }, [isLaporanLike, isLaporanLiked, laporanLikeCount]);
+
+  // ========== FETCH LIKE DARI DATABASE (UNTUK LAPORAN) ==========
+  const fetchLaporanLike = useCallback(async () => {
+    if (!item?.id || !isLaporanLike || !user?.id) return;
+
+    try {
+      // Ambil status like user
+      const { data: likeData, error: likeError } = await supabase
+        .from("likes_laporan")
+        .select("id")
+        .eq("laporan_id", item.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (likeError) throw likeError;
+
+      // Ambil total like count
+      const { count, error: countError } = await supabase
+        .from("likes_laporan")
+        .select("id", { count: "exact", head: true })
+        .eq("laporan_id", item.id);
+
+      if (countError) throw countError;
+
+      setIsLiked(!!likeData);
+      setLikeCount(count || 0);
+    } catch (error) {
+      console.error("Fetch laporan like error:", error);
+    }
+  }, [item?.id, isLaporanLike, user?.id]);
+
+  // Fetch like dari database saat mount atau item berubah
+  useEffect(() => {
+    if (isLaporanLike && item?.id && user?.id) {
+      fetchLaporanLike();
+    }
+  }, [isLaporanLike, item?.id, user?.id, fetchLaporanLike, refreshTrigger]);
 
   // ========== LIKE LOGIC (UNTUK TEMPAT) ==========
   useEffect(() => {
@@ -90,48 +126,70 @@ export default function FeedActions({
     return () => { isMounted = false; };
   }, [item?.id, user?.id, isLaporanLike]);
 
-  const handleLikeClick = useCallback(async () => {
-    if (!user || isLikeLoading) return;
-
-    // Handle laporan like
-    if (isLaporanLike) {
-      setIsLikeLoading(true);
-
-      // Optimistic update lokal
-      const wasLiked = isLiked;
-      setIsLiked(!wasLiked);
-      setLikeCount(prev => wasLiked ? prev - 1 : prev + 1);
-
-      if (!wasLiked) setShowHeart(true);
-
-      try {
-        // Panggil handler dari parent
-        await onLaporanLike?.();
-
-        // 🔥 Refresh dari database setelah 500ms untuk memastikan sync
-        setTimeout(() => {
-          // Trigger refresh melalui parent
-          if (window.__refreshLaporanLike) {
-            window.__refreshLaporanLike(item?.id);
-          }
-        }, 500);
-
-      } catch (error) {
-        // Rollback jika gagal
-        setIsLiked(wasLiked);
-        setLikeCount(prev => wasLiked ? prev + 1 : prev - 1);
-        console.error("Like error:", error);
-      } finally {
-        setIsLikeLoading(false);
-      }
-
-      if (!wasLiked) {
-        setTimeout(() => setShowHeart(false), ANIMATION_DURATION);
-      }
+  // ========== HANDLE LIKE UNTUK LAPORAN ==========
+  const handleLaporanLikeClick = useCallback(async () => {
+    if (!user || isLikeLoading) {
+      // Redirect ke login jika perlu
       return;
     }
 
-    // Handle tempat like (existing code)
+    setIsLikeLoading(true);
+    const wasLiked = isLiked;
+
+    // Optimistic update
+    setIsLiked(!wasLiked);
+    setLikeCount(prev => wasLiked ? prev - 1 : prev + 1);
+    if (!wasLiked) setShowHeart(true);
+
+    try {
+      if (wasLiked) {
+        // DELETE like
+        const { error } = await supabase
+          .from("likes_laporan")
+          .delete()
+          .eq("laporan_id", item.id)
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+      } else {
+        // INSERT like
+        const { error } = await supabase
+          .from("likes_laporan")
+          .insert({
+            laporan_id: item.id,
+            user_id: user.id,
+            created_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+      }
+
+      // 🔥 Panggil callback parent untuk refresh data (opsional)
+      if (onLaporanLike) {
+        await onLaporanLike();
+      }
+
+      // 🔥 Refresh local state dari database untuk memastikan sync
+      await fetchLaporanLike();
+
+    } catch (error) {
+      // Rollback on error
+      setIsLiked(wasLiked);
+      setLikeCount(prev => wasLiked ? prev + 1 : prev - 1);
+      console.error("Like error:", error);
+    } finally {
+      setIsLikeLoading(false);
+    }
+
+    if (!wasLiked) {
+      setTimeout(() => setShowHeart(false), ANIMATION_DURATION);
+    }
+  }, [user, isLiked, likeCount, isLikeLoading, item?.id, onLaporanLike, fetchLaporanLike]);
+
+  // ========== HANDLE LIKE UNTUK TEMPAT ==========
+  const handleTempatLikeClick = useCallback(async () => {
+    if (!user || isLikeLoading) return;
+
     const wasLiked = isLiked;
     setIsLikeLoading(true);
     setIsLiked(!wasLiked);
@@ -169,7 +227,16 @@ export default function FeedActions({
     if (!wasLiked) {
       setTimeout(() => setShowHeart(false), ANIMATION_DURATION);
     }
-  }, [user, isLiked, likeCount, isLikeLoading, isLaporanLike, onLaporanLike, item?.id]);
+  }, [user, isLiked, likeCount, isLikeLoading, item?.id]);
+
+  // Pilih handler berdasarkan jenis
+  const handleLikeClick = useCallback(() => {
+    if (isLaporanLike) {
+      handleLaporanLikeClick();
+    } else {
+      handleTempatLikeClick();
+    }
+  }, [isLaporanLike, handleLaporanLikeClick, handleTempatLikeClick]);
 
   // ========== FETCH COMMENT COUNT ==========
   const fetchCommentCount = useCallback(async () => {
@@ -186,7 +253,6 @@ export default function FeedActions({
 
       if (error) throw error;
 
-      console.log(`Fetch comment count for ${tableName}:`, count);
       setCommentCount(count || 0);
     } catch (error) {
       console.error("Fetch comment error:", error);
@@ -200,26 +266,19 @@ export default function FeedActions({
     }
   }, [item?.id, fetchCommentCount, refreshTrigger]);
 
+  // ========== EVENT LISTENER UNTUK KOMENTAR ==========
   useEffect(() => {
     if (!item?.id || !isLaporanLike) return;
 
     const handleCommentChange = (event) => {
       if (event.detail?.laporanId === item?.id) {
-        console.log('🔄 Refreshing comment count for laporan:', item.id);
         fetchCommentCount();
-
-        // Optional: animasi badge notifikasi
         setUnreadCount(prev => prev + 1);
-
-        // Hilangkan badge setelah 3 detik (optional)
-        setTimeout(() => {
-          setUnreadCount(0);
-        }, 3000);
+        setTimeout(() => setUnreadCount(0), 3000);
       }
     };
 
     window.addEventListener('laporan-comment-changed', handleCommentChange);
-
     return () => {
       window.removeEventListener('laporan-comment-changed', handleCommentChange);
     };
@@ -232,14 +291,8 @@ export default function FeedActions({
   }, [openKomentarModal, item]);
 
   // ========== HELPER FUNCTIONS ==========
-  const getDisplayLikeIcon = () => {
-    if (isLaporanLike) return isLiked ? "❤️" : "🤍";
-    return isLiked ? "❤️" : "🤍";
-  };
-
-  const getDisplayLikeCount = () => {
-    return isLaporanLike ? likeCount : likeCount;
-  };
+  const getDisplayLikeIcon = () => isLiked ? "❤️" : "🤍";
+  const getDisplayLikeCount = () => likeCount;
 
   const getRoleInfo = () => {
     if (isSuperAdmin) return ROLES.SUPER_ADMIN;
@@ -299,12 +352,10 @@ export default function FeedActions({
               </span>
             )}
           </button>
-          {/* 🔥 TAMBAHKAN INI - Angka jumlah komentar */}
           <span className="text-[9px] font-black mt-1 text-white drop-shadow-md tracking-tighter uppercase">
             {commentCount}
           </span>
         </div>
-
 
         {/* Share Button */}
         <div className="flex flex-col items-center">
@@ -329,7 +380,7 @@ export default function FeedActions({
             Share
           </span>
         </div>
-      </div >
+      </div>
     );
   }
 
@@ -339,7 +390,6 @@ export default function FeedActions({
 
     return (
       <div className="flex items-center gap-2.5 w-full px-2 select-none">
-        {/* Sesuai Button */}
         <button
           onClick={handleSesuai}
           disabled={isSesuai}
@@ -372,7 +422,6 @@ export default function FeedActions({
           )}
         </button>
 
-        {/* AI Button */}
         <button
           onClick={() => openAIModal?.(item)}
           aria-label="Ask AI about this location"
