@@ -1,15 +1,14 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import dynamic from 'next/dynamic';
 import { useTheme } from "@/app/hooks/useTheme";
 import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 
-// ========== 1. LOADING COMPONENTS ==========
-export const LoadingSpinner = () => (
+// ========== LOADING COMPONENT ==========
+const LoadingSpinner = () => (
   <div className="flex items-center justify-center h-full w-full bg-black">
     <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
       Ronda Cerita Warga Setempat...
@@ -17,49 +16,53 @@ export const LoadingSpinner = () => (
   </div>
 );
 
-export const MinimalLoading = () => (
+const InitialLoadingScreen = () => (
   <div className="h-[100dvh] w-full bg-black flex items-center justify-center">
     <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Memuat...
+      Ronda Cerita Warga Setempat...
     </div>
   </div>
 );
 
-// ========== 2. LAZY LOAD COMPONENTS ==========
-
-import nextDynamic from 'next/dynamic';
-
-const SmartBottomNavWarga = nextDynamic(() => import("@/app/components/layout/SmartBottomNavWarga"), {
+// ========== LAZY LOAD COMPONENTS ==========
+const SmartBottomNavWarga = dynamic(() =>
+  import("@/app/components/layout/SmartBottomNavWarga").catch(() => ({ default: () => <div className="h-16 w-full bg-transparent" /> })), {
   loading: () => <div className="h-16 w-full bg-transparent" />,
   ssr: false
 });
 
-const FullscreenStoryModal = nextDynamic(() => import("@/components/story/FullscreenStoryModal"), {
+const FullscreenStoryModal = dynamic(() =>
+  import("@/components/story/FullscreenStoryModal").catch(() => ({ default: () => <LoadingSpinner /> })), {
   loading: () => <LoadingSpinner />,
   ssr: false
 });
 
-const LaporPanel = nextDynamic(() => import("@/app/components/ai/LaporPanel"), {
+const LaporPanel = dynamic(() =>
+  import("@/app/components/ai/LaporPanel").catch(() => ({ default: () => null })), {
   loading: () => null,
   ssr: false
 });
 
-const KomentarLaporanModal = nextDynamic(() => import("@/app/components/feed/KomentarLaporanModal"), {
+const KomentarLaporanModal = dynamic(() =>
+  import("@/app/components/feed/KomentarLaporanModal").catch(() => ({ default: () => null })), {
   loading: () => null,
   ssr: false
 });
 
-const AuthModal = nextDynamic(() => import("@/app/components/auth/AuthModal"), {
+const AuthModal = dynamic(() =>
+  import("@/app/components/auth/AuthModal").catch(() => ({ default: () => null })), {
   loading: () => null,
   ssr: false
 });
 
-const AIModalTempat = nextDynamic(() => import("@/app/components/ai/AIModalTempat"), {
+const AIModalTempat = dynamic(() =>
+  import("@/app/components/ai/AIModalTempat").catch(() => ({ default: () => null })), {
   loading: () => null,
   ssr: false
 });
 
-const ExploreGridView = nextDynamic(() => import("@/components/explore/ExploreSearchView"), {
+const ExploreGridView = dynamic(() =>
+  import("@/components/explore/ExploreSearchView").catch(() => ({ default: () => <LoadingSpinner /> })), {
   loading: () => <LoadingSpinner />,
   ssr: false
 });
@@ -78,18 +81,16 @@ const sanitizeText = (text) => {
 export default function CitizenHub({ userId, userRole }) {
   const { isMalam } = useTheme();
   const router = useRouter();
-  const searchParams = useSearchParams(); // WAJIB bungkus bapaknya (parent) pakai <Suspense>
+  const searchParams = useSearchParams();
 
-  const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 20 });
+  const { data: reports, loading, refresh, loadMore, hasMore, isFetchingMore } = useLaporanWarga({ limit: 10 });
 
-  // State
+  // ========== STATE DECLARATIONS ==========
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showLaporPanel, setShowLaporPanel] = useState(false);
   const [selectedTempat, setSelectedTempat] = useState(null);
   const [sessionUserId, setSessionUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [allReports, setAllReports] = useState([]);
-  const [isGridReady, setIsGridReady] = useState(false);
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -98,16 +99,18 @@ export default function CitizenHub({ userId, userRole }) {
   const [selectedReport, setSelectedReport] = useState(null);
   const [selectedLaporanForComment, setSelectedLaporanForComment] = useState(null);
   const [isKomentarLaporanModalOpen, setIsKomentarLaporanModalOpen] = useState(false);
+
   const [isStoryPaused, setIsStoryPaused] = useState(false);
   const [viewCounts, setViewCounts] = useState({});
   const [likedLaporan, setLikedLaporan] = useState(new Set());
   const [laporanLikeCounts, setLaporanLikeCounts] = useState({});
   const [viewMode, setViewMode] = useState('story');
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const activeUserId = userId || sessionUserId;
   const validReports = useMemo(() => reports || [], [reports]);
 
+  // Theme configuration
   const theme = useMemo(() => ({
     isMalam,
     text: isMalam ? 'text-white' : 'text-gray-900',
@@ -115,45 +118,35 @@ export default function CitizenHub({ userId, userRole }) {
     border: isMalam ? 'border-white/10' : 'border-gray-100',
   }), [isMalam]);
 
-  const fetchAllReports = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('laporan_warga')
-        .select('*, tempat(name)')
-        .order('created_at', { ascending: false })
-        .limit(200);
+  // ========== OPTIMIZED EFFECTS ==========
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-      if (error) throw error;
+  // Sync URL query param to currentIndex
+  useEffect(() => {
+    if (!mounted) return;
 
-      if (data && data.length > 0) {
-        const formattedData = data.map(report => ({
-          ...report,
-          tempat: report.tempat || null
-        }));
-        setAllReports(formattedData);
+    const storyId = searchParams?.get('story');
+    if (storyId && validReports.length > 0) {
+      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId, 10));
+      if (targetIndex !== -1 && targetIndex !== currentIndex) {
+        setCurrentIndex(targetIndex);
+        setViewMode('story');
       }
-    } catch (error) {
-      console.error('Failed to fetch:', error.message);
-    } finally {
-      setIsGridReady(true);
     }
-  }, []);
+  }, [searchParams, validReports, currentIndex, mounted]);
 
+  // Optimized auth session sync with caching
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchAllReports();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [fetchAllReports]);
+    if (!mounted) return;
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  useEffect(() => {
     let isMounted = true;
+
     const getSession = async () => {
       try {
+        if (typeof window === 'undefined') return;
+
         const cachedSession = sessionStorage.getItem('supabase_session');
         if (cachedSession && isMounted) {
           const { userId, timestamp } = JSON.parse(cachedSession);
@@ -172,20 +165,20 @@ export default function CitizenHub({ userId, userRole }) {
           }));
         }
       } catch (error) {
-        console.error('Auth error:', error);
+        console.error('Auth session error:', error);
       }
     };
 
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user?.id && isMounted) {
+      if (session?.user?.id && isMounted && typeof window !== 'undefined') {
         setSessionUserId(session.user.id);
         sessionStorage.setItem('supabase_session', JSON.stringify({
           userId: session.user.id,
           timestamp: Date.now()
         }));
-      } else if (event === 'SIGNED_OUT' && isMounted) {
+      } else if (event === 'SIGNED_OUT' && isMounted && typeof window !== 'undefined') {
         setSessionUserId(null);
         sessionStorage.removeItem('supabase_session');
       }
@@ -195,10 +188,12 @@ export default function CitizenHub({ userId, userRole }) {
       isMounted = false;
       subscription?.unsubscribe();
     };
-  }, []);
+  }, [mounted]);
 
+  // Optimized fetch user profile with caching
   useEffect(() => {
-    if (!activeUserId) return;
+    if (!activeUserId || !mounted || typeof window === 'undefined') return;
+
     let isMounted = true;
 
     async function fetchProfile() {
@@ -231,19 +226,21 @@ export default function CitizenHub({ userId, userRole }) {
           }));
         }
       } catch (error) {
-        console.error('Profile error:', error);
+        console.error('Profile fetch error:', error);
       }
     }
 
     fetchProfile();
-  }, [activeUserId]);
+  }, [activeUserId, mounted]);
 
+  // Optimized view counts fetch
   useEffect(() => {
-    if (!validReports.length) return;
+    if (!validReports.length || !mounted || typeof window === 'undefined') return;
 
     const fetchInitialViewCounts = async () => {
       try {
         const laporanIds = validReports.slice(0, 10).map(r => r.id);
+
         const { data, error } = await supabase
           .from('story_views')
           .select('laporan_id')
@@ -255,15 +252,17 @@ export default function CitizenHub({ userId, userRole }) {
         data?.forEach(view => {
           counts[view.laporan_id] = (counts[view.laporan_id] || 0) + 1;
         });
+
         setViewCounts(counts);
       } catch (err) {
-        console.error('View counts error:', err);
+        console.error('Failed to fetch view counts:', err);
       }
     };
 
     fetchInitialViewCounts();
-  }, [validReports]);
+  }, [validReports, mounted]);
 
+  // ========== OPTIMIZED CALLBACKS ==========
   const handleOpenLaporanForm = useCallback(() => {
     setIsStoryPaused(true);
     setSelectedTempat(null);
@@ -284,7 +283,12 @@ export default function CitizenHub({ userId, userRole }) {
   const handleOpenFullscreenFromGrid = useCallback((index) => {
     setCurrentIndex(index);
     setViewMode('story');
-  }, []);
+    // Update URL without navigation
+    const reportId = validReports[index]?.id;
+    if (reportId && typeof window !== 'undefined') {
+      window.history.pushState({}, '', `/explore?story=${reportId}`);
+    }
+  }, [validReports]);
 
   const refreshData = useCallback(async () => {
     await refresh();
@@ -293,23 +297,12 @@ export default function CitizenHub({ userId, userRole }) {
   const handleLaporanSuccess = useCallback(() => {
     handleCloseLaporPanel();
     refreshData();
-    fetchAllReports();
     setCurrentIndex(0);
-  }, [handleCloseLaporPanel, refreshData, fetchAllReports]);
+  }, [handleCloseLaporPanel, refreshData]);
 
-  useEffect(() => {
-    const storyId = searchParams.get('story');
-    if (storyId && validReports.length > 0) {
-      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId, 10)); // Radix ditambahkan
-      if (targetIndex !== -1) {
-        setCurrentIndex(targetIndex);
-        setViewMode('story');
-      }
-    }
-  }, [searchParams, validReports]);
-
+  // PERBAIKAN: Konsisten menggunakan /explore?story=
   const handleShare = useCallback(async (report) => {
-    if (!report?.id) return;
+    if (!report?.id || typeof window === 'undefined') return;
     const shareUrl = `${window.location.origin}/explore?story=${report.id}`;
 
     if (navigator.share) {
@@ -324,6 +317,11 @@ export default function CitizenHub({ userId, userRole }) {
       }
     } else {
       await navigator.clipboard.writeText(shareUrl);
+      const toast = document.createElement('div');
+      toast.textContent = 'Link berhasil disalin!';
+      toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-sm z-50';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
     }
   }, []);
 
@@ -391,29 +389,37 @@ export default function CitizenHub({ userId, userRole }) {
     setIsKomentarLaporanModalOpen(true);
   }, []);
 
-  if (!isHydrated || (loading && validReports.length === 0)) {
-    return <MinimalLoading />;
+  // PERBAIKAN: Konsisten menggunakan /explore?story=
+  const handleNavigateToDetail = useCallback((reportId) => {
+    router.push(`/explore?story=${reportId}`);
+  }, [router]);
+
+  // ========== RENDER ==========
+  if (!mounted) {
+    return <InitialLoadingScreen />;
+  }
+
+  if (loading && validReports.length === 0) {
+    return <InitialLoadingScreen />;
   }
 
   return (
     <div className="h-[100dvh] w-full bg-black flex justify-center font-sans overflow-hidden select-none">
       <div className="w-full max-w-[400px] h-full bg-zinc-950 relative flex flex-col overflow-hidden">
 
-        {viewMode === 'grid' && (
+        {/* GRID MODE */}
+        {viewMode === 'grid' && validReports.length > 0 && (
           <Suspense fallback={<LoadingSpinner />}>
             <ExploreGridView
-              reports={allReports}
-              isLoading={!isGridReady && allReports.length === 0}
-              onSelectReport={(index) => {
-                setCurrentIndex(index);
-                setViewMode('story');
-              }}
-              onBack={() => setViewMode('story')}
-              theme={theme}
+              reports={validReports}
+              loading={loading}
+              onCardClick={handleOpenFullscreenFromGrid}
+              onBackToStory={() => setViewMode('story')}
             />
           </Suspense>
         )}
 
+        {/* FULLSCREEN MODE */}
         <div className="flex-1 w-full h-full relative z-10">
           <Suspense fallback={<LoadingSpinner />}>
             <FullscreenStoryModal
@@ -428,7 +434,7 @@ export default function CitizenHub({ userId, userRole }) {
               onShare={handleShare}
               onOpenAIChat={openAIChat}
               onOpenKomentar={handleOpenKomentar}
-              onNavigateToDetail={(reportId) => router.push(`/post/${reportId}`)}
+              onNavigateToDetail={handleNavigateToDetail}
               onViewRecorded={handleViewRecorded}
               userId={activeUserId}
               theme={theme}
@@ -439,6 +445,7 @@ export default function CitizenHub({ userId, userRole }) {
           </Suspense>
         </div>
 
+        {/* BOTTOM NAVIGATION */}
         <SmartBottomNavWarga
           onOpenLaporanForm={handleOpenLaporanForm}
           onOpenNotification={() => router.push("/woro")}
@@ -449,7 +456,10 @@ export default function CitizenHub({ userId, userRole }) {
         {showLaporPanel && (
           <Suspense fallback={null}>
             <div className="fixed inset-0 z-[200] flex items-center justify-center">
-              <div className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={handleCloseLaporPanel} />
+              <div
+                className="absolute inset-0 bg-black/75 backdrop-blur-md"
+                onClick={handleCloseLaporPanel}
+              />
               <div className="relative w-full max-w-md mx-4">
                 <LaporPanel
                   tempat={selectedTempat}
