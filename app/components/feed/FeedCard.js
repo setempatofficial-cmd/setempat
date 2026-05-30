@@ -187,7 +187,7 @@ const DistanceBadge = memo(({ distance, theme }) => {
 
 DistanceBadge.displayName = 'DistanceBadge';
 
-// ==================== PREMIUM ACTION BUTTON ====================
+// ==================== PREMIUM ACTION BUTTON (SINKRON SIANG/MALAM) ====================
 const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
   const handleClick = (e) => {
     e.preventDefault();
@@ -197,225 +197,219 @@ const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
 
   return (
     <motion.button
-      whileHover={{ scale: 1.05, y: -2 }}
-      whileTap={{ scale: 0.95 }}
+      whileHover={{ scale: 1.02, y: -1 }}
+      whileTap={{ scale: 0.98 }}
       onClick={handleClick}
       className={`
-        flex-1 py-2.5 rounded-xl font-medium text-sm transition-all
-        bg-white/10 hover:bg-white/20 
-        ${theme.text}
-        flex items-center justify-center gap-2
-        focus:outline-none focus:ring-2 focus:ring-white/50
+        flex-1 py-2.5 px-3 rounded-xl font-bold text-sm transition-all duration-300
+        flex items-center justify-center gap-1
+        focus:outline-none focus:ring-2 focus:ring-emerald-500/50
+        ${theme.isMalam
+          ? 'bg-white/10 hover:bg-white/20 text-white' // Mode Malam: Transparan mbois, text putih
+          : 'bg-black/5 hover:bg-black/10 text-gray-800 border border-black/10' // Mode Siang: Ada kotak border tipis & text tegas!
+        }
       `}
       aria-label={label}
     >
-      <Icon size={16} className={theme.text} aria-hidden="true" />
-      <span className="text-[10px] sm:text-sm whitespace-nowrap">{label}</span>
+      {/* Icon otomatis manut warna text pembungkusnya */}
+      <Icon size={16} className="transition-colors duration-300" aria-hidden="true" />
+      <span className="text-[10px] sm:text-sm tracking-wide whitespace-nowrap">{label}</span>
     </motion.button>
   );
 });
 
 PremiumActionButton.displayName = 'PremiumActionButton';
 
-// ==================== VALIDATION BUTTON (FINAL FIX) ====================
+// ==================== COCOK LUR (VALIDATION) BUTTON ====================
+// Berfungsi sebagai tombol kesepakatan warga jika info/kondisi tempat dirasa sesuai asli.
 const ValidationButton = memo(({
   tempatId,
-  initialCount,
+  validationCount,
   theme,
   onValidateChange,
   userId,
 }) => {
   const [isValidated, setIsValidated] = useState(false);
-  const [validationCount, setValidationCount] = useState(initialCount || 0);
+  const [currentCount, setCurrentCount] = useState(validationCount);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const isMounted = useRef(true);
-  const isSubmitting = useRef(false);
+  const processingRef = useRef(false); // Anti double-klik / spam
+
+  // Sync dengan properti dari parent jika ada perubahan data eksternal
+  useEffect(() => {
+    setCurrentCount(validationCount);
+  }, [validationCount]);
+
+  // ========== FETCH INITIAL STATUS DATA ==========
+  const fetchValidationStatus = useCallback(async () => {
+    if (!tempatId || !userId) return;
+
+    try {
+      const { data: minatData, error: minatError } = await supabase
+        .from("minat")
+        .select("created_at")
+        .eq("tempat_id", tempatId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (minatError) throw minatError;
+
+      const { data: tempatData, error: tempatError } = await supabase
+        .from("tempat")
+        .select("vibe_count")
+        .eq("id", tempatId)
+        .single();
+
+      if (tempatError) throw tempatError;
+
+      if (isMounted.current) {
+        setIsValidated(!!minatData);
+        setCurrentCount(tempatData?.vibe_count || 0);
+      }
+    } catch (error) {
+      console.error("Gagal sinkronisasi data setempat:", error);
+    }
+  }, [tempatId, userId]);
 
   useEffect(() => {
     isMounted.current = true;
-    return () => { isMounted.current = false; };
-  }, []);
+    fetchValidationStatus();
 
-  // 🔥 Cek apakah user sudah memvalidasi
-  useEffect(() => {
-    const checkValidationStatus = async () => {
-      if (!userId || !tempatId) return;
-
-      try {
-        const { data, error } = await supabase
-          .from('minat')
-          .select('id')
-          .eq('tempat_id', tempatId)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        if (!error && data && isMounted.current) {
-          setIsValidated(true);
-        } else if (isMounted.current) {
-          setIsValidated(false);
-        }
-      } catch (error) {
-        console.error('Error checking validation status:', error);
-      }
+    return () => {
+      isMounted.current = false;
     };
+  }, [fetchValidationStatus]);
 
-    checkValidationStatus();
-  }, [userId, tempatId]);
+  // ========== HANDLE TOGGLE KESEPAKATAN LOKAL ==========
+  const handleValidation = useCallback(async () => {
+    // Cegah aksi beruntun sebelum proses selesai
+    if (processingRef.current || isLoading) return;
 
-  // 🔥 FIX: Ambil vibe_count dari tabel tempat (bukan count dari minat)
-  const fetchTotalValidations = useCallback(async () => {
-    if (!tempatId) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('tempat')
-        .select('vibe_count')
-        .eq('id', tempatId)
-        .single();
-
-      if (!error && data && isMounted.current) {
-        console.log('📊 Fetched vibe_count:', data.vibe_count);
-        setValidationCount(data.vibe_count || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching validation count:', error);
-    }
-  }, [tempatId]);
-
-  // Ambil total validasi awal
-  useEffect(() => {
-    fetchTotalValidations();
-  }, [fetchTotalValidations]);
-
-  // 🔥 FIX: Sinkronkan dengan initialCount dari props (optional)
-  useEffect(() => {
-    if (!isMounted.current) return;
-    // Jangan overwrite jika sudah ada data dari database
-    if (validationCount === 0 && initialCount > 0) {
-      setValidationCount(initialCount);
-    }
-  }, [initialCount, validationCount]);
-
-  const handleValidate = useCallback(async () => {
-
-    console.log('🔍=== VALIDASI DIMULAI ===🔍');
-    console.log('userId:', userId);
-    console.log('tempatId:', tempatId);
-    console.log('isValidated sebelum:', isValidated);
-    console.log('validationCount sebelum:', validationCount);
     if (!userId) {
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
       return;
     }
 
-    if (isLoading || isSubmitting.current) return;
-
-    setError(null);
+    processingRef.current = true;
     setIsLoading(true);
-    isSubmitting.current = true;
 
-    const newIsValidated = !isValidated;
-    // 🔥 Optimistic update berdasarkan state saat ini
-    const newCount = newIsValidated ? validationCount + 1 : validationCount - 1;
+    const wasValidated = isValidated;
+    const newIsValidated = !wasValidated;
 
-    // Optimistic update UI
+    // OPTIMISTIC UPDATE: Langsung kalkulasi angka, batasi minimal di angka 0
+    const newCount = newIsValidated
+      ? currentCount + 1
+      : Math.max(0, currentCount - 1);
+
+    // Pasang ke UI lokal secara instan
     setIsValidated(newIsValidated);
-    setValidationCount(newCount);
-    if (onValidateChange) onValidateChange(newIsValidated, newCount);
+    setCurrentCount(newCount);
+
+    if (onValidateChange) {
+      onValidateChange(newIsValidated, newCount);
+    }
 
     try {
-      if (newIsValidated) {
-        console.log('📝 Inserting validation for tempat:', tempatId);
-        const { error } = await supabase
-          .from('minat')
-          .insert([{
+      if (wasValidated) {
+        // JIKA SEBELUMNYA SUDAH COCOK -> MAKA BATALKAN (DELETE & DECREMENT)
+        const { error: deleteError } = await supabase
+          .from("minat")
+          .delete()
+          .eq("tempat_id", tempatId)
+          .eq("user_id", userId);
+
+        if (deleteError) throw deleteError;
+
+        const { error: decError } = await supabase
+          .rpc('increment_vibe_count', {
+            p_tempat_id: tempatId,
+            p_increment: -1
+          });
+
+        if (decError) throw decError;
+      } else {
+        // JIKA BELUM COCOK -> DAFTARKAN (INSERT & INCREMENT)
+        const { error: insertError } = await supabase
+          .from("minat")
+          .insert({
             tempat_id: tempatId,
             user_id: userId,
             created_at: new Date().toISOString()
-          }]);
+          });
 
-        if (error) throw error;
-        console.log('✅ Insert successful');
-      } else {
-        console.log('🗑️ Deleting validation for tempat:', tempatId);
-        const { error } = await supabase
-          .from('minat')
-          .delete()
-          .eq('tempat_id', tempatId)
-          .eq('user_id', userId);
+        if (insertError) throw insertError;
 
-        if (error) throw error;
-        console.log('✅ Delete successful');
+        const { error: incError } = await supabase
+          .rpc('increment_vibe_count', {
+            p_tempat_id: tempatId,
+            p_increment: 1
+          });
+
+        if (incError) throw incError;
       }
 
-      // 🔥 Refresh dari database setelah trigger bekerja
-      await fetchTotalValidations();
-
-      // 🔥 Kirim event untuk update komponen lain
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('validation-changed', {
-          detail: { tempatId }
-        }));
-      }
+      // Ambil data terbaru dari db untuk memastikan akurasi background data
+      await fetchValidationStatus();
 
     } catch (error) {
-      console.error('❌ Error toggling validation:', error);
-      setError(error.message || 'Gagal memvalidasi. Coba lagi nanti.');
+      console.error("Gagal memproses kesepakatan warga:", error);
 
-      // Rollback UI
-      setIsValidated(!newIsValidated);
-      setValidationCount(validationCount);
-      if (onValidateChange) onValidateChange(!newIsValidated, validationCount);
+      // ROLLBACK STATE: Kembalikan ke angka semula jika jaringan/db error
+      if (isMounted.current) {
+        setIsValidated(wasValidated);
+        setCurrentCount(currentCount);
+        if (onValidateChange) {
+          onValidateChange(wasValidated, currentCount);
+        }
+
+        // Munculkan notifikasi error tipis tanpa merusak UI
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: { message: 'Waduh, koneksi bermasalah. Coba maneh, Lur!', type: 'error' }
+        }));
+      }
     } finally {
       if (isMounted.current) {
         setIsLoading(false);
-        isSubmitting.current = false;
-        setTimeout(() => setError(null), 3000);
+        // Beri jeda 300ms sebelum tombol bisa diklik kembali
+        setTimeout(() => { processingRef.current = false; }, 300);
       }
     }
-  }, [userId, tempatId, isValidated, validationCount, onValidateChange, fetchTotalValidations]);
+  }, [userId, tempatId, isValidated, currentCount, isLoading, onValidateChange, fetchValidationStatus]);
 
   return (
-    <div className="relative flex-1">
-      <motion.button
-        whileHover={{ scale: 1.05, y: -2 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={handleValidate}
-        disabled={isLoading}
-        className={`
-          w-full py-2.5 rounded-xl font-medium text-sm transition-all
-          flex items-center justify-center gap-2
-          focus:outline-none focus:ring-2 focus:ring-white/50
-          ${isValidated
-            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
-            : 'bg-white/10 hover:bg-white/20'
-          }
-          ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
-        aria-label={isValidated ? 'Batal validasi' : 'Validasi info ini'}
-        aria-busy={isLoading}
+    <motion.button
+      onClick={handleValidation}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      className={`
+  flex-1 py-2.5 px-3 rounded-xl font-bold text-sm
+  flex items-center justify-center gap-1
+  transition-all duration-300 focus:outline-none
+  ${isValidated
+          ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/20'
+          : theme.isMalam
+            ? 'bg-white/10 hover:bg-white/20 text-white' // Mode Malam: Transparan putih, tulisan putih
+            : 'bg-black/5 hover:bg-black/10 text-gray-800 border border-black/10' // Mode Terang/Siang: Transparan hitam, tulisan gelap
+        }
+  ${isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer'}
+`}
+      aria-label={isValidated ? 'Batal menyatakan cocok' : 'Nyatakan cocok dengan kondisi tempat'}
+    >
+      <motion.span
+        animate={isValidated && !isLoading ? { scale: [1, 1.2, 1] } : {}}
+        transition={{ duration: 0.3 }}
+        className="text-base"
       >
-        <motion.div
-          animate={isValidated && !isLoading ? { scale: [1, 1.3, 1], rotate: [0, 15, -15, 0] } : {}}
-          transition={{ duration: 0.3 }}
-        >
-          <span className="text-base" aria-hidden="true">
-            {isValidated ? "✅" : "👌"}
-          </span>
-        </motion.div>
-        <span className={`text-[10px] sm:text-sm whitespace-nowrap ${isValidated ? 'text-white' : theme.text}`}>
-          Valid ({validationCount})
-        </span>
-      </motion.button>
-      {error && (
-        <div className="absolute -bottom-6 left-0 right-0 text-center">
-          <span className="text-xs text-red-500 bg-black/50 px-2 py-1 rounded">
-            {error}
-          </span>
-        </div>
-      )}
-    </div>
+        {isValidated ? "🤝" : "👌"}
+      </motion.span>
+
+      <span className="text-[10px] sm:text-sm tracking-wide whitespace-nowrap">
+        {isValidated
+          ? `Saksi Warga (${currentCount})`
+          : `Bener ta? (${currentCount})`
+        }
+      </span>
+    </motion.button>
   );
 });
 
@@ -814,28 +808,26 @@ function FeedCardV2Premium({
   useEffect(() => {
     if (!tempatId) return;
 
-    // Subscribe ke perubahan vibe_count di tabel tempat
+    // Hanya subscribe ke field lain yang perlu realtime, BUKAN vibe_count
     const channel = supabase
-      .channel(`tempat_vibe_${tempatId}`)
+      .channel(`tempat_status_${tempatId}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'tempat',
         filter: `id=eq.${tempatId}`
       }, (payload) => {
-        console.log('🔄 Real-time: vibe_count updated to', payload.new?.vibe_count);
-        // Update validationCount di localData
-        setLocalData(prev => ({
-          ...prev,
-          validationCount: payload.new?.vibe_count || 0
-        }));
+        // Update hanya untuk status, isViral, isRamai
+        // JANGAN update validationCount
+        console.log('🔄 Real-time: status updated to', payload.new?.status);
+        // setLocalData prev => ({ ...prev, status: payload.new?.status }); // jika perlu
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [tempatId, setLocalData]);
+  }, [tempatId]); // Hapus setLocalData dari dependencies
 
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
@@ -928,8 +920,19 @@ function FeedCardV2Premium({
   const handleLikeChange = useCallback((isLiked, newCount) => { }, []);
 
   const handleValidationChange = useCallback((isValidated, newCount) => {
-    console.log('Validation changed:', { isValidated, newCount, tempatId: safeItem.id });
-  }, [safeItem.id]);
+    console.log('✅ Validation changed:', { isValidated, newCount, tempatId: safeItem.id });
+
+    // Update local state
+    setLocalData(prev => ({
+      ...prev,
+      validationCount: newCount
+    }));
+
+    // Optional: Trigger refresh jika perlu
+    if (onRefreshNeeded) {
+      onRefreshNeeded();
+    }
+  }, [setLocalData, onRefreshNeeded, safeItem.id]);
 
   if (!item?.id && safeItem.id === 0) return null;
 
@@ -1127,7 +1130,7 @@ function FeedCardV2Premium({
               <div className="flex gap-2">
                 <ValidationButton
                   tempatId={safeItem.id}
-                  initialCount={safeItem.vibe_count || 0}
+                  validationCount={safeItem.vibe_count || 0}
                   theme={theme}
                   onValidateChange={handleValidationChange}
                   userId={userId}
@@ -1141,7 +1144,7 @@ function FeedCardV2Premium({
                 <PremiumActionButton
                   onClick={() => onShare?.(safeItem)}
                   icon={Share2}
-                  label="Berbagi"
+                  label="Bagi"
                   theme={theme}
                 />
               </div>

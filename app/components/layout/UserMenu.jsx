@@ -187,8 +187,8 @@ export default function UserMenu({
                     </>
                   ) : (
                     <>
-                      <MenuAction icon={LayoutDashboard} label="Balai Warga" desc="Info setempat" onClick={() => router.push("/")} theme={theme} color="rose" />
-                      <MenuAction icon={Smartphone} label="KTP Digital" desc="Kartu identitas" onClick={handleKTPClick} theme={theme} color="rose" />
+                      <MenuAction icon={LayoutDashboard} label="Rumah Warga" desc="Badge, kontribusi & reputasi" onClick={() => router.push("/")} theme={theme} color="rose" />
+                      <MenuAction icon={Smartphone} label="KTP Digital" desc="Identitas Warga Setempat" onClick={handleKTPClick} theme={theme} color="rose" />
                     </>
                   )}
                 </div>
