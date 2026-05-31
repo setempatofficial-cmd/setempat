@@ -213,7 +213,7 @@ const PremiumActionButton = memo(({ onClick, icon: Icon, label, theme }) => {
     >
       {/* Icon otomatis manut warna text pembungkusnya */}
       <Icon size={16} className="transition-colors duration-300" aria-hidden="true" />
-      <span className="text-[10px] sm:text-sm tracking-wide whitespace-nowrap">{label}</span>
+      <span className="text-[11px] sm:text-sm tracking-wide whitespace-nowrap">{label}</span>
     </motion.button>
   );
 });
@@ -403,7 +403,7 @@ const ValidationButton = memo(({
         {isValidated ? "🤝" : "👌"}
       </motion.span>
 
-      <span className="text-[10px] sm:text-sm tracking-wide whitespace-nowrap">
+      <span className="text-[11px] sm:text-sm tracking-wide whitespace-nowrap">
         {isValidated
           ? `Saksi Warga (${currentCount})`
           : `Bener ta? (${currentCount})`

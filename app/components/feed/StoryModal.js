@@ -158,29 +158,52 @@ export default function StoryModalFullscreen({
   }, [isOpen, stories]);
 
   // ==================== RECORD VIEW ====================
+  // ==================== RECORD VIEW ====================
   const recordView = useCallback(async (storyId) => {
-    if (!currentUserId || recordedViews.has(storyId) || storyId?.includes('cta')) return;
+    // ✅ Validasi tipe data
+    if (!storyId) return;
+    if (!currentUserId) return;
 
-    setRecordedViews(prev => new Set(prev).add(storyId));
+    // Konversi ke string dengan aman
+    let storyIdStr;
+    try {
+      storyIdStr = String(storyId);
+    } catch (e) {
+      console.error("Invalid storyId:", storyId);
+      return;
+    }
+
+    // Cek apakah sudah di-record atau ini CTA
+    if (recordedViews.has(storyIdStr)) return;
+
+    // Cek apakah ini CTA (bukan laporan valid)
+    if (storyIdStr.startsWith('cta-') ||
+      storyIdStr.includes('explore') ||
+      storyIdStr.includes('lapor') ||
+      storyIdStr.length > 50) { // UUID biasanya 36 karakter
+      return;
+    }
+
+    setRecordedViews(prev => new Set(prev).add(storyIdStr));
 
     try {
       const { data: existing } = await supabase
         .from("story_views")
         .select("id")
-        .eq("laporan_id", storyId)
+        .eq("laporan_id", storyIdStr)
         .eq("user_id", currentUserId)
         .maybeSingle();
 
       if (!existing) {
         await supabase.from("story_views").insert({
-          laporan_id: storyId,
+          laporan_id: storyIdStr,
           user_id: currentUserId,
           viewed_at: new Date().toISOString()
         });
 
         setViewCounts(prev => ({
           ...prev,
-          [storyId]: (prev[storyId] || 0) + 1
+          [storyIdStr]: (prev[storyIdStr] || 0) + 1
         }));
       }
     } catch (err) {

@@ -31,7 +31,7 @@ const notifySubscribers = () => {
   subscribers.forEach(callback => callback(globalAuthState));
 };
 
-// Fetch permissions (hanya sekali)
+// Fetch permissions (dengan support multiple tables)
 const fetchPermissions = async (userObj) => {
   if (!userObj) {
     return { role: "warga", isAdmin: false, isSuperAdmin: false, profile: null };
@@ -57,21 +57,97 @@ const fetchPermissions = async (userObj) => {
 
   cachePromise = (async () => {
     try {
-      const [profileRes, adminRes] = await Promise.all([
+      // Fetch dari multiple tables PARALLEL untuk performance
+      const [
+        profileRes,
+        adminRes,
+        pointsRes,
+        sellerRes,
+        driverRes,
+        rewangRes,
+        ktpRes,
+        rolesRes
+      ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', userObj.id).maybeSingle(),
-        supabase.from('admins').select('id').eq('user_id', userObj.id).maybeSingle()
+        supabase.from('admins').select('id').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('user_points').select('total_points').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('seller_profiles').select('*').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('driver_profiles').select('*').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('rewang_profiles').select('*').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('ktp_verifications').select('*').eq('user_id', userObj.id).maybeSingle(),
+        supabase.from('user_roles').select('role').eq('user_id', userObj.id).maybeSingle()
       ]);
 
-      const profileData = profileRes.data;
-      const currentRole = profileData?.role?.toLowerCase() || "warga";
+      const profileData = profileRes.data || {};
+
+      // Ambil role dari user_roles dulu, fallback ke profiles.role
+      let currentRole = rolesRes.data?.role || profileData.role || "warga";
+      currentRole = currentRole.toLowerCase();
+
       const isAdminTable = !!adminRes.data;
       const superCheck = currentRole === 'superadmin';
       const adminCheck = currentRole === 'admin' || superCheck || isAdminTable;
 
+      // Gabungkan semua data ke dalam satu object profile
+      // Formatnya SAMA PERSIS dengan sebelumnya, jadi komponen tidak perlu diubah!
+      const completeProfile = {
+        // Data dasar dari profiles
+        id: profileData.id,
+        full_name: profileData.full_name,
+        username: profileData.username,
+        avatar_url: profileData.avatar_url,
+        email: profileData.email,
+        phone: profileData.phone,
+        desa: profileData.desa,
+        kecamatan: profileData.kecamatan,
+        kabupaten: profileData.kabupaten,
+        provinsi: profileData.provinsi,
+        created_at: profileData.created_at,
+        updated_at: profileData.updated_at,
+
+        // Points dari user_points (fallback ke kolom points lama jika ada)
+        points: pointsRes.data?.total_points || profileData.points || 0,
+
+        // Seller data (Bakul)
+        is_seller: !!sellerRes.data,
+        toko_name: sellerRes.data?.toko_name || profileData.toko_name,
+        business_type: sellerRes.data?.business_type || profileData.business_type,
+        seller_rating: sellerRes.data?.rating || 0,
+        total_sales: sellerRes.data?.total_sales || 0,
+
+        // Driver data (Ojek)
+        is_driver: !!driverRes.data,
+        driver_status: driverRes.data?.driver_status || profileData.driver_status || 'offline',
+        motor_info: driverRes.data?.motor_info || profileData.motor_info,
+        plate_number: driverRes.data?.plate_number,
+        driver_rating: driverRes.data?.driver_rating || profileData.driver_rating || 0,
+        total_trips: driverRes.data?.total_trips || 0,
+
+        // Rewang data (Jasa)
+        is_rewang: !!rewangRes.data,
+        kategori: rewangRes.data?.kategori || profileData.kategori,
+        deskripsi_jasa: rewangRes.data?.deskripsi_jasa || profileData.deskripsi_jasa,
+        estimasi_biaya: rewangRes.data?.estimasi_biaya || profileData.estimasi_biaya,
+        jam_operasional: rewangRes.data?.jam_operasional || profileData.jam_operasional,
+        rewang_rating: rewangRes.data?.rating || 0,
+        total_orders: rewangRes.data?.total_orders || 0,
+
+        // KTP Verifikasi
+        ktp_status: ktpRes.data?.ktp_status || profileData.ktp_status || 'belum_mengajukan',
+        foto_ktp: ktpRes.data?.foto_ktp || profileData.foto_ktp,
+        ktp_verified_at: ktpRes.data?.verified_at || profileData.ktp_verified_at,
+        ktp_rejection_reason: ktpRes.data?.rejection_reason || profileData.ktp_rejection_reason,
+        is_verified: !!(ktpRes.data?.verified_at || profileData.is_verified),
+
+        // Role (tetap dipertahankan untuk backward compatibility)
+        role: currentRole,
+      };
+
+      // Update cache
       cachedRole = currentRole;
       cachedIsAdmin = adminCheck;
       cachedIsSuperAdmin = superCheck;
-      cachedProfile = profileData;
+      cachedProfile = completeProfile;
       cachedTimestamp = Date.now();
       cachedUser = userObj;
 
@@ -79,7 +155,7 @@ const fetchPermissions = async (userObj) => {
         role: currentRole,
         isAdmin: adminCheck,
         isSuperAdmin: superCheck,
-        profile: profileData
+        profile: completeProfile
       };
     } catch (error) {
       console.error("Auth Check Error:", error);

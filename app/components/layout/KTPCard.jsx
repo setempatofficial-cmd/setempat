@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import QRCode from "react-qr-code"; 
+import QRCode from "react-qr-code";
 import { supabase } from "@/lib/supabaseClient";
 import {
   Fingerprint,
@@ -12,7 +12,7 @@ import {
   Clock,
   XCircle
 } from "lucide-react";
- 
+
 import KTPModal from "@/app/components/layout/KTPModal";
 import UpdateProfileForm from "@/app/components/form/UpdateProfileForm";
 
@@ -28,21 +28,21 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
   // Fetch profile dan status KTP
   const fetchProfile = async () => {
     if (!user?.id) return;
-    
+
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", user.id)
       .single();
-    
+
     if (!error && data) {
       setProfile(data);
       setKtpStatus(data.ktp_status || "belum_mengajukan");
     } else {
       setKtpStatus("belum_mengajukan");
     }
-    
+
     setLoading(false);
   };
 
@@ -57,7 +57,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
     const name = profile?.full_name || user?.full_name || meta.full_name || meta.name || "WARGA DIGITAL";
     const username = profile?.username || user?.username || "";
     const avatar = profile?.avatar_url || meta.avatar_url || meta.picture || null;
-    
+
     return {
       fullName: name,
       username: username,
@@ -96,15 +96,15 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
       <div className="flex flex-col items-center justify-center p-6 w-full max-w-[400px] mx-auto">
         <div className={`text-center p-6 rounded-2xl border ${isMalam ? "bg-slate-900 border-white/10" : "bg-white border-slate-200"}`}>
           <ShieldCheck size={48} className="mx-auto mb-4 text-slate-400" />
-          
+
           <h3 className={`text-base font-bold mb-2 ${isMalam ? "text-white" : "text-slate-900"}`}>
             Ajukan KTP Digital
           </h3>
-          
+
           <p className={`text-xs mb-4 ${isMalam ? "text-white/50" : "text-slate-500"}`}>
             Dapatkan akses istimewa setelah verifikasi:
           </p>
-          
+
           <div className={`text-left text-xs space-y-2 mb-6 p-3 rounded-xl ${isMalam ? "bg-slate-800/50" : "bg-slate-50"}`}>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
@@ -131,21 +131,21 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
               </span>
             </div>
           </div>
-          
+
           <button
             onClick={() => setShowModal(true)}
             className="w-full py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-medium text-sm transition-all active:scale-95"
           >
             Ajukan KTP Digital
           </button>
-          
+
           <p className={`text-[9px] mt-3 ${isMalam ? "text-white/25" : "text-slate-400"}`}>
             Gratis! Verifikasi oleh Petinggi Setempat maksimal 1x24 jam
           </p>
         </div>
       </div>
     );
-  } 
+  }
   else if (ktpStatus === "menunggu") {
     content = (
       <div className="flex flex-col items-center justify-center p-8 w-full max-w-[420px] mx-auto">
@@ -163,7 +163,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
         </div>
       </div>
     );
-  } 
+  }
   else if (ktpStatus === "ditolak") {
     content = (
       <div className="flex flex-col items-center justify-center p-8 w-full max-w-[420px] mx-auto">
@@ -184,7 +184,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
         </div>
       </div>
     );
-  } 
+  }
   else if (ktpStatus === "aktif") {
     content = (
       <>
@@ -278,7 +278,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
               <div className={`absolute inset-0 w-full h-full rounded-[28px] p-8 [transform:rotateY(180deg)] [backface-visibility:hidden]
                 border flex flex-col items-center justify-between shadow-2xl overflow-hidden
                 ${isMalam ? "bg-slate-900 border-white/5 text-white" : "bg-slate-50 border-slate-200 text-slate-800"}`}>
-                
+
                 <div className="w-full flex justify-between items-center opacity-40">
                   <Fingerprint size={24} />
                   <div className={`h-px flex-1 mx-4 bg-gradient-to-r from-transparent ${isMalam ? "via-white/20" : "via-slate-300"} to-transparent`} />
@@ -290,12 +290,12 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
                   <div className="absolute inset-0 bg-orange-500 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-500" />
                   <div className={`p-4 rounded-[2.5rem] relative z-10 shadow-2xl transition-transform duration-500 group-hover:scale-105
                     ${isMalam ? "bg-white" : "bg-slate-900"}`}>
-                    <QRCode 
-                      value={userData.profileUrl} 
-                      size={110} 
+                    <QRCode
+                      value={userData.profileUrl}
+                      size={110}
                       bgColor={isMalam ? "#ffffff" : "#0f172a"}
                       fgColor={isMalam ? "#020617" : "#ffffff"}
-                      level="H" 
+                      level="H"
                     />
                   </div>
                 </div>
@@ -338,7 +338,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
         </div>
       </>
     );
-  } 
+  }
   else {
     content = (
       <div className="flex flex-col items-center justify-center p-8 w-full max-w-[420px] mx-auto">
@@ -359,7 +359,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
   return (
     <>
       {content}
-      
+
       <KTPModal isOpen={showModal} onClose={() => setShowModal(false)} theme={theme}>
         <UpdateProfileForm
           profile={profile || user}  // 🔥 Prioritaskan profile database, fallback ke user
