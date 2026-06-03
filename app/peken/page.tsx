@@ -1,5 +1,8 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -34,9 +37,9 @@ export default function PekenPage() {
   const searchParams = useSearchParams();
   const { user, profile, refreshProfile } = useAuth();
   const { location, placeName } = useLocation();
-  const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // --- STATES ---
+  // 1. SEMUA STATE
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [activeTab, setActiveTab] = useState('beranda');
   const [manualLocationName, setManualLocationName] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -44,15 +47,55 @@ export default function PekenPage() {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showDaftarBakul, setShowDaftarBakul] = useState(false);
   const [localProfile, setLocalProfile] = useState(null);
-
-  // Header Scroll Logic
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // 🔥 CEK PARAMETER ACTION DARI URL (TAMBAHKAN INI)
+  // 2. STATE MODALS
+  const [modals, setModals] = useState({
+    daftarOjek: false,
+    daftarRewang: false,
+    donasi: false,
+    sambat: false,
+    formPanyangan: false
+  });
+
+  // 3. FUNCTIONS (DEFINISIKAN DULUAN)
+  const toggleModal = useCallback((key, value) => {
+    setModals(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const fetchProfileDirect = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      console.log("📋 Profile langsung dari DB:", data);
+      setLocalProfile(data);
+    } catch (error) {
+      console.error("Error fetch profile:", error);
+    }
+  }, [user]);
+
+  // ✅ HANYA SATU DEFINISI handleAddProduct
+  const handleAddProduct = useCallback(() => {
+    setEditingProduct(null);
+    toggleModal('formPanyangan', true);
+  }, [toggleModal]);
+
+  const handleRefreshStatus = useCallback(async () => {
+    if (refreshProfile) {
+      await refreshProfile();
+    }
+    window.dispatchEvent(new CustomEvent('refresh-lapak-status'));
+  }, [refreshProfile]);
+
+  // 4. useEffect untuk action parameter
   useEffect(() => {
     const action = searchParams.get('action');
-
     if (!action) return;
 
     console.log("🔍 Action detected from URL:", action);
@@ -73,55 +116,13 @@ export default function PekenPage() {
       default:
         break;
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, toggleModal]);
 
-  // Status dari profile
-
-  const isSeller = localProfile?.is_seller === true;
-  const isDriver = localProfile?.is_driver === true;
-  const isRewang = localProfile?.is_rewang === true;
-
-  const finalIsSeller = localProfile?.is_seller === true;
-  const finalKtpStatus = localProfile?.ktp_status || 'belum_mengajukan';
-  const finalKtpRejectionReason = localProfile?.ktp_rejection_reason;
-
-  // State untuk modal-modal
-  const [modals, setModals] = useState({
-    daftarOjek: false,
-    daftarRewang: false,
-    donasi: false,
-    sambat: false,
-    formPanyangan: false
-  });
-
-  const toggleModal = useCallback((key, value) => {
-    setModals(prev => ({ ...prev, [key]: value }));
-  }, []);
-
-  const fetchProfileDirect = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error) throw error;
-
-      console.log("📋 Profile langsung dari DB:", data);
-      setLocalProfile(data);
-    } catch (error) {
-      console.error("Error fetch profile:", error);
-    }
-  }, [user]);
-
+  // 5. useEffect lainnya
   useEffect(() => {
     fetchProfileDirect();
   }, [fetchProfileDirect]);
 
-  // Scroll logic
   useEffect(() => {
     const controlHeader = () => {
       if (typeof window !== 'undefined') {
@@ -133,16 +134,9 @@ export default function PekenPage() {
         setLastScrollY(window.scrollY);
       }
     };
-
     window.addEventListener('scroll', controlHeader);
     return () => window.removeEventListener('scroll', controlHeader);
   }, [lastScrollY]);
-
-  const finalLocationName = useMemo(() => {
-    if (manualLocationName) return manualLocationName;
-    if (placeName) return placeName.split(",")[0].trim();
-    return "Pasuruan";
-  }, [placeName, manualLocationName]);
 
   useEffect(() => {
     const handleLocationUpdate = (e) => {
@@ -162,24 +156,25 @@ export default function PekenPage() {
     };
   }, [refreshProfile]);
 
-  const handleAddProduct = useCallback(() => {
-    setEditingProduct(null);
-    toggleModal('formPanyangan', true);
-  }, [toggleModal]);
+  // 6. Derived values
+  const isSeller = localProfile?.is_seller === true;
+  const isDriver = localProfile?.is_driver === true;
+  const isRewang = localProfile?.is_rewang === true;
+  const finalIsSeller = localProfile?.is_seller === true;
+  const finalKtpStatus = localProfile?.ktp_status || 'belum_mengajukan';
+  const finalKtpRejectionReason = localProfile?.ktp_rejection_reason;
 
-  const handleRefreshStatus = useCallback(async () => {
-    if (refreshProfile) {
-      await refreshProfile();
-    }
-    window.dispatchEvent(new CustomEvent('refresh-lapak-status'));
-  }, [refreshProfile]);
+  const finalLocationName = useMemo(() => {
+    if (manualLocationName) return manualLocationName;
+    if (placeName) return placeName.split(",")[0].trim();
+    return "Pasuruan";
+  }, [placeName, manualLocationName]);
 
+  // 7. RETURN JSX (sama seperti sebelumnya)
   return (
     <div className="min-h-screen bg-[#FBFBFE] pb-32 max-w-[420px] mx-auto relative shadow-2xl overflow-x-hidden">
-
       {/* HEADER FIXED */}
-      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ease-in-out ${showHeader ? 'translate-y-0' : '-translate-y-full'
-        }`}>
+      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ease-in-out ${showHeader ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="max-w-[420px] mx-auto bg-[#FBFBFE]/90 backdrop-blur-md border-b border-slate-100 px-6 py-4">
           <div className="flex justify-between items-start">
             <div>
@@ -203,33 +198,26 @@ export default function PekenPage() {
         </div>
       </div>
 
-      {/* Spacer */}
       <div className="h-[84px]" />
 
       <main className="px-6">
         {activeTab === 'beranda' && (
           <PekenHome location={finalLocationName} setActiveTab={setActiveTab} />
         )}
-
         {activeTab === 'kabarbakul' && (
           <KabarBakulSection locationName={finalLocationName} location={location} onNavigateToProduct={() => setActiveTab('panyangan')} />
         )}
-
         {activeTab === 'panyangan' && (
           <PanyanganSection locationName={finalLocationName} location={location} userId={user?.id} onBack={() => setActiveTab('beranda')} onAddProduct={handleAddProduct} />
         )}
-
         {activeTab === 'rewang' && (
           <RewangSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />
         )}
-
         {activeTab === 'pesenan' && (
           <PesenanSection userId={user?.id} locationName={finalLocationName} onBack={() => setActiveTab('beranda')} onReviewOrder={(order) => { setSelectedProduct(order.produk); setShowReviewModal(true); }} />
         )}
-
         {activeTab === 'ojek' && <OjekSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />}
         {activeTab === 'donasi' && <DonasiSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />}
-
         {activeTab === 'lapakku' && (
           <LapakkuSection
             userId={user?.id}
@@ -249,10 +237,8 @@ export default function PekenPage() {
         )}
       </main>
 
-      {/* BOTTOM NAVIGATION */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} onPlusClick={() => setShowUploadModal(true)} />
 
-      {/* UPLOAD OPTIONS MODAL */}
       {showUploadModal && (
         <UploadOptions
           onClose={() => setShowUploadModal(false)}
@@ -268,7 +254,6 @@ export default function PekenPage() {
         />
       )}
 
-      {/* SEMUA MODAL */}
       <FormDaftarBakul
         isOpen={showDaftarBakul}
         onClose={() => setShowDaftarBakul(false)}
@@ -330,12 +315,11 @@ export default function PekenPage() {
         autoOpenUlasan={true}
         onOrderSuccess={() => { }}
       />
-
     </div>
   );
 }
 
-// --- SUB-COMPONENTS ---
+// --- SUB-COMPONENTS (tetap sama) ---
 function PekenHome({ location, setActiveTab }) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-10">
@@ -343,14 +327,12 @@ function PekenHome({ location, setActiveTab }) {
         <h2 className="text-xl font-black leading-tight">Sugeng Rawuh <br />ing Peken {location}</h2>
         <p className="text-orange-100 text-xs mt-2 font-medium opacity-80">Pusat ekonomi & gotong royong warga {location}</p>
       </div>
-
       <div className="grid grid-cols-2 gap-4">
         <MenuCard onClick={() => setActiveTab('panyangan')} icon={Store} title="Panyangan" desc="Hasil bumi & barang" color="bg-blue-50 text-blue-600" />
         <MenuCard onClick={() => setActiveTab('rewang')} icon={Users} title="Rewang" desc="Jasa & Gotong Royong" color="bg-purple-50 text-purple-600" />
         <MenuCard onClick={() => setActiveTab('ojek')} icon={Truck} title="Ojek Warga" desc="Antar jemput & kirim" color="bg-emerald-50 text-emerald-600" />
         <MenuCard onClick={() => setActiveTab('donasi')} icon={Gift} title="Donasi" desc="Berbagi ke sesama" color="bg-red-50 text-red-600" />
       </div>
-
       <div className="p-8 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center text-center">
         <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-slate-400 mb-3">
           <ShoppingBag size={24} />
