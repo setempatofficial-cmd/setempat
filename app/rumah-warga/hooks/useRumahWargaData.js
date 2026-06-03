@@ -3,23 +3,34 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-// ============ HELPER FUNCTIONS ============
-function calculateLevel(totalReports) {
-  if (totalReports >= 500) return { level: 10, progress: 100, nextReq: 500, reportsLeft: 0 };
-  if (totalReports >= 100) return { level: 5, progress: ((totalReports - 100) / 400) * 100, nextReq: 500, reportsLeft: 500 - totalReports };
-  if (totalReports >= 50) return { level: 4, progress: ((totalReports - 50) / 50) * 100, nextReq: 100, reportsLeft: 100 - totalReports };
-  if (totalReports >= 20) return { level: 3, progress: ((totalReports - 20) / 30) * 100, nextReq: 50, reportsLeft: 50 - totalReports };
-  if (totalReports >= 5) return { level: 2, progress: ((totalReports - 5) / 15) * 100, nextReq: 20, reportsLeft: 20 - totalReports };
-  return { level: 1, progress: (totalReports / 5) * 100, nextReq: 5, reportsLeft: 5 - totalReports };
-}
+import { calculateReputasi } from "../utils/levelCalculator";
+import { calculateImpactStatus, aggregateStats, calculatePoinSetempat } from "../utils/impactCalculator";
+import { generateBadges } from "../utils/badgeCalculator";
 
-function getGelarAkamsi(level) {
-  if (level >= 10) return { title: "🏆 Akamsi Teladan", color: "text-rose-400", bg: "bg-rose-500/10" };
-  if (level >= 5) return { title: "🌳 Akamsi Andal", color: "text-emerald-400", bg: "bg-emerald-500/10" };
-  if (level >= 3) return { title: "🌿 Akamsi Aktif", color: "text-sky-400", bg: "bg-sky-500/10" };
-  return { title: "🌱 Akamsi Pemula", color: "text-amber-400", bg: "bg-amber-500/10" };
-}
+// ============ HITUNG HARI AKTIF ============
+const hitungHariAktif = (laporan) => {
+  const uniqueDays = new Set();
+  laporan.forEach(lap => {
+    if (lap.created_at) {
+      const date = new Date(lap.created_at).toDateString();
+      uniqueDays.add(date);
+    }
+  });
+  return uniqueDays.size;
+};
 
+// ============ HITUNG FOTO & VIDEO ============
+const hitungMedia = (laporan) => {
+  let foto = 0;
+  let video = 0;
+  laporan.forEach(lap => {
+    if (lap.photo_url || lap.image_url) foto++;
+    if (lap.video_url) video++;
+  });
+  return { foto, video };
+};
+
+// ============ FORMAT TANGGAL ============
 function formatTanggal(tanggal) {
   if (!tanggal) return "Baru saja";
   const date = new Date(tanggal);
@@ -30,17 +41,31 @@ function formatTanggal(tanggal) {
   return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
 }
 
+// ============ MAIN HOOK ============
 export function useRumahWargaData(userId) {
   const [laporanTerbaru, setLaporanTerbaru] = useState([]);
-  const [kontribusi, setKontribusi] = useState({
-    totalLaporan: 0,
-    totalLikes: 0,
-    totalViews: 0,
-    featuredCount: 0,
-    laporanRamai: 0,
-    laporanBerdampak: 0,
-    levelInfo: { level: 1, progress: 0, nextReq: 5, reportsLeft: 5 },
-    gelar: { title: "🌱 Akamsi Pemula", color: "text-amber-400", bg: "bg-amber-500/10" },
+  const [data, setData] = useState({
+    reputasi: {
+      skor: 0,
+      level: 1,
+      gelar: "🌱 Warga Baru",
+      color: "text-green-400",
+      bg: "bg-green-500/10",
+      progress: 0,
+      nextLevelSkor: 25
+    },
+    poinSetempat: 0,
+    statistik: {
+      totalLaporan: 0,
+      totalFoto: 0,
+      totalVideo: 0,
+      hariAktif: 0,
+      totalLikes: 0,
+      totalViews: 0,
+      featuredCount: 0,
+      laporanRamai: 0,
+      laporanBerdampak: 0
+    },
     badges: []
   });
   const [loading, setLoading] = useState(true);
@@ -79,19 +104,32 @@ export function useRumahWargaData(userId) {
       const fetchedLaporan = laporan || [];
       const laporanIds = fetchedLaporan.map(l => l.id).filter(Boolean);
 
-      // ========== 2. HITUNG TOTAL LIKE & VIEWS DALAM 1 QUERY ==========
+      // ========== HITUNG LAPORAN BERDASARKAN JENIS ==========
+      let laporanByTraffic = 0;
+      let laporanByWeather = 0;
+      let laporanByIncident = {};
+
+      for (const lap of fetchedLaporan) {
+        if (lap.traffic_condition) laporanByTraffic++;
+        if (lap.incident_type === "cuaca" || lap.report_type === "cuaca") laporanByWeather++;
+
+        // Hitung berdasarkan incident_type
+        if (lap.incident_type) {
+          laporanByIncident[lap.incident_type] = (laporanByIncident[lap.incident_type] || 0) + 1;
+        }
+      }
+
+      // ========== 2. HITUNG TOTAL LIKE & VIEWS ==========
       let totalLikes = 0;
       let totalViews = 0;
 
       if (laporanIds.length > 0) {
-        // Ambil semua likes sekaligus
         const { count: likesCount } = await supabase
           .from("likes_laporan")
           .select("id", { count: "exact", head: true })
           .in("laporan_id", laporanIds);
         totalLikes = likesCount || 0;
 
-        // Ambil semua views sekaligus
         const { count: viewsCount } = await supabase
           .from("story_views")
           .select("id", { count: "exact", head: true })
@@ -99,26 +137,20 @@ export function useRumahWargaData(userId) {
         totalViews = viewsCount || 0;
       }
 
-      // ========== 3. HITUNG LAPORAN BERDAMPAK (AGGREGATE QUERY) ==========
-      // Query untuk mendapat likes dan views per laporan sekaligus
-      let laporanBerdampak = 0;
+      // ========== 3. HITUNG LIKES & VIEWS PER LAPORAN ==========
+      const likesMap = {};
+      const viewsMap = {};
 
       if (laporanIds.length > 0) {
-        // Ambil likes per laporan
         const { data: likesPerLaporan } = await supabase
           .from("likes_laporan")
-          .select("laporan_id", { count: "exact" })
+          .select("laporan_id")
           .in("laporan_id", laporanIds);
 
-        // Ambil views per laporan
         const { data: viewsPerLaporan } = await supabase
           .from("story_views")
-          .select("laporan_id", { count: "exact" })
+          .select("laporan_id")
           .in("laporan_id", laporanIds);
-
-        // Hitung likes dan views per laporan
-        const likesMap = {};
-        const viewsMap = {};
 
         (likesPerLaporan || []).forEach(like => {
           likesMap[like.laporan_id] = (likesMap[like.laporan_id] || 0) + 1;
@@ -127,61 +159,86 @@ export function useRumahWargaData(userId) {
         (viewsPerLaporan || []).forEach(view => {
           viewsMap[view.laporan_id] = (viewsMap[view.laporan_id] || 0) + 1;
         });
-
-        // Hitung laporan berdampak
-        for (const lap of fetchedLaporan) {
-          const likes = likesMap[lap.id] || 0;
-          const views = viewsMap[lap.id] || 0;
-          if (views >= 100 || likes >= 10 || lap.is_featured === true) {
-            laporanBerdampak++;
-          }
-        }
       }
 
-      // ========== 4. METRIK LAINNYA ==========
+      // ========== 4. TAMBAHKAN LIKES & VIEWS KE LAPORAN ==========
+      const laporanWithDetails = fetchedLaporan.map(lap => ({
+        ...lap,
+        likes: likesMap[lap.id] || 0,
+        views: viewsMap[lap.id] || 0
+      }));
+
+      // ========== 5. METRIK DASAR ==========
       const totalLaporan = fetchedLaporan.length;
       const featuredCount = fetchedLaporan.filter(l => l.is_featured === true).length;
       const laporanRamai = fetchedLaporan.filter(l => (l.vibe_count || 0) >= 50).length;
+      const { foto: totalFoto, video: totalVideo } = hitungMedia(fetchedLaporan);
+      const hariAktif = hitungHariAktif(fetchedLaporan);
 
-      // ========== 5. FORMAT LAPORAN ==========
-      const formattedLaporan = fetchedLaporan.slice(0, 6).map(lap => ({
-        ...lap,
-        lokasi_display: lap.tempat?.name || lap.lokasi_name || lap.lokasi_custom || "Lokasi Setempat"
-      }));
-      setLaporanTerbaru(formattedLaporan);
+      // ========== 6. HITUNG STATISTIK DENGAN UTILS ==========
+      const statistikHasil = aggregateStats(laporanWithDetails);
 
-      // ========== 6. LEVEL & GELAR ==========
-      const levelInfo = calculateLevel(totalLaporan);
-      const gelar = getGelarAkamsi(levelInfo.level);
+      // Tambahkan data laporan by traffic dan weather ke statistik
+      statistikHasil.laporanByTraffic = laporanByTraffic;
+      statistikHasil.laporanByWeather = laporanByWeather;
 
-      // ========== 7. BADGES ==========
-      const badges = [];
-      if (totalLikes >= 10) badges.push({ id: "diapresiasi", icon: "❤️", title: "Diapresiasi Warga", desc: `${totalLikes} like` });
-      if (totalViews >= 100) badges.push({ id: "dikenal", icon: "👁", title: "Dikenal Warga", desc: `${totalViews} views` });
-      if (featuredCount >= 1) badges.push({ id: "sorotan", icon: "⭐", title: "Sorotan Setempat", desc: `${featuredCount} laporan` });
-      if (laporanRamai >= 1) badges.push({ id: "ramai", icon: "🔥", title: "Laporan Ramai", desc: `${laporanRamai} laporan` });
-      if (laporanBerdampak >= 1) badges.push({ id: "berdampak", icon: "🏆", title: "Laporan Berdampak", desc: `${laporanBerdampak} laporan` });
+      // ========== 7. HITUNG POIN SETEMPAT ==========
+      const poinSetempat = calculatePoinSetempat(
+        fetchedLaporan,
+        statistikHasil.totalLikes,
+        statistikHasil.totalViews,
+        statistikHasil.featuredCount
+      );
 
-      // Role badges
+      // ========== 8. HITUNG REPUTASI ==========
+      const reputasiHasil = calculateReputasi(statistikHasil);
+
+      // ========== 9. GENERATE BADGES ==========
+      const badges = generateBadges(statistikHasil);
+
+      // ========== 10. TAMBAHKAN ROLE BADGES ==========
       const [sellerData, driverData, rewangData] = await Promise.all([
         supabase.from("seller_profiles").select("user_id").eq("user_id", userId).maybeSingle(),
         supabase.from("driver_profiles").select("user_id").eq("user_id", userId).maybeSingle(),
         supabase.from("rewang_profiles").select("user_id").eq("user_id", userId).maybeSingle()
       ]);
 
-      if (sellerData.data) badges.push({ id: "bakul", icon: "🛍", title: "Bakul Setempat", desc: "Aktif berdagang" });
-      if (driverData.data) badges.push({ id: "driver", icon: "🛵", title: "Ojek Setempat", desc: "Aktif mengantar" });
-      if (rewangData.data) badges.push({ id: "rewang", icon: "🤝", title: "Rewang Setempat", desc: "Aktif membantu" });
+      if (sellerData.data) badges.push({ id: "bakul", icon: "🛍", name: "Bakul Setempat", desc: "Aktif berdagang", category: "role" });
+      if (driverData.data) badges.push({ id: "driver", icon: "🛵", name: "Ojek Setempat", desc: "Aktif mengantar", category: "role" });
+      if (rewangData.data) badges.push({ id: "rewang", icon: "🤝", name: "Rewang Setempat", desc: "Aktif membantu", category: "role" });
 
-      setKontribusi({
-        totalLaporan,
-        totalLikes,
-        totalViews,
-        featuredCount,
-        laporanRamai,
-        laporanBerdampak,
-        levelInfo,
-        gelar,
+      // ========== 11. FORMAT LAPORAN UNTUK TAMPILAN ==========
+      const formattedLaporan = fetchedLaporan.slice(0, 6).map(lap => ({
+        ...lap,
+        lokasi_display: lap.tempat?.name || lap.lokasi_name || lap.lokasi_custom || "Lokasi Setempat"
+      }));
+      setLaporanTerbaru(formattedLaporan);
+
+      // ========== 12. SET STATE ==========
+      setData({
+        reputasi: {
+          skor: reputasiHasil.skor,
+          level: reputasiHasil.level,
+          gelar: reputasiHasil.gelar,
+          color: reputasiHasil.color,
+          bg: reputasiHasil.bg,
+          progress: reputasiHasil.progress,
+          nextLevelSkor: reputasiHasil.nextLevelSkor
+        },
+        poinSetempat: poinSetempat,
+        statistik: {
+          totalLaporan: statistikHasil.totalLaporan,
+          totalFoto: statistikHasil.totalFoto,
+          totalVideo: statistikHasil.totalVideo,
+          hariAktif: statistikHasil.hariAktif,
+          totalLikes: statistikHasil.totalLikes,
+          totalViews: statistikHasil.totalViews,
+          featuredCount: statistikHasil.featuredCount,
+          laporanRamai: statistikHasil.laporanRamai,
+          laporanBerdampak: statistikHasil.laporanBerdampak,
+          laporanByTraffic: laporanByTraffic,
+          laporanByWeather: laporanByWeather
+        },
         badges
       });
 
@@ -198,7 +255,7 @@ export function useRumahWargaData(userId) {
 
   return {
     laporanTerbaru,
-    kontribusi,
+    data,
     loading,
     refetch: fetchData,
     formatTanggal

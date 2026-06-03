@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { 
-  Home, MapPin, Store, Users, LayoutDashboard, MessageSquare, 
-  Plus, AlertCircle, UserPlus, ShoppingBag, Truck, Gift, Bell, Heart 
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  Home, MapPin, Store, Users, LayoutDashboard, MessageSquare,
+  Plus, AlertCircle, UserPlus, ShoppingBag, Truck, Gift, Bell, Heart
 } from 'lucide-react';
 
 // --- SECTIONS & MODALS IMPORTS ---
@@ -31,6 +31,7 @@ import UploadOptions from "@/app/components/upload/UploadOptions";
 
 export default function PekenPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, profile, refreshProfile } = useAuth();
   const { location, placeName } = useLocation();
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -43,21 +44,47 @@ export default function PekenPage() {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showDaftarBakul, setShowDaftarBakul] = useState(false);
   const [localProfile, setLocalProfile] = useState(null);
-  
+
   // Header Scroll Logic
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
+  // 🔥 CEK PARAMETER ACTION DARI URL (TAMBAHKAN INI)
+  useEffect(() => {
+    const action = searchParams.get('action');
+
+    if (!action) return;
+
+    console.log("🔍 Action detected from URL:", action);
+
+    switch (action) {
+      case 'daftar-bakul':
+        setShowDaftarBakul(true);
+        router.replace('/peken', { scroll: false });
+        break;
+      case 'daftar-ojek':
+        toggleModal('daftarOjek', true);
+        router.replace('/peken', { scroll: false });
+        break;
+      case 'daftar-rewang':
+        toggleModal('daftarRewang', true);
+        router.replace('/peken', { scroll: false });
+        break;
+      default:
+        break;
+    }
+  }, [searchParams, router]);
+
   // Status dari profile
 
-const isSeller = localProfile?.is_seller === true;  
-const isDriver = localProfile?.is_driver === true;  
-const isRewang = localProfile?.is_rewang === true;  
-  
+  const isSeller = localProfile?.is_seller === true;
+  const isDriver = localProfile?.is_driver === true;
+  const isRewang = localProfile?.is_rewang === true;
+
   const finalIsSeller = localProfile?.is_seller === true;
   const finalKtpStatus = localProfile?.ktp_status || 'belum_mengajukan';
   const finalKtpRejectionReason = localProfile?.ktp_rejection_reason;
-  
+
   // State untuk modal-modal
   const [modals, setModals] = useState({
     daftarOjek: false,
@@ -66,23 +93,23 @@ const isRewang = localProfile?.is_rewang === true;
     sambat: false,
     formPanyangan: false
   });
-  
+
   const toggleModal = useCallback((key, value) => {
     setModals(prev => ({ ...prev, [key]: value }));
   }, []);
 
   const fetchProfileDirect = useCallback(async () => {
     if (!user?.id) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
-      
+
       if (error) throw error;
-      
+
       console.log("📋 Profile langsung dari DB:", data);
       setLocalProfile(data);
     } catch (error) {
@@ -123,12 +150,12 @@ const isRewang = localProfile?.is_rewang === true;
       if (name) setManualLocationName(name);
     };
     window.addEventListener('location-updated', handleLocationUpdate);
-    
+
     const handleRefreshProfile = () => {
       if (refreshProfile) refreshProfile();
     };
     window.addEventListener('refresh-user-profile', handleRefreshProfile);
-    
+
     return () => {
       window.removeEventListener('location-updated', handleLocationUpdate);
       window.removeEventListener('refresh-user-profile', handleRefreshProfile);
@@ -149,11 +176,10 @@ const isRewang = localProfile?.is_rewang === true;
 
   return (
     <div className="min-h-screen bg-[#FBFBFE] pb-32 max-w-[420px] mx-auto relative shadow-2xl overflow-x-hidden">
-      
+
       {/* HEADER FIXED */}
-      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ease-in-out ${
-        showHeader ? 'translate-y-0' : '-translate-y-full'
-      }`}>
+      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ease-in-out ${showHeader ? 'translate-y-0' : '-translate-y-full'
+        }`}>
         <div className="max-w-[420px] mx-auto bg-[#FBFBFE]/90 backdrop-blur-md border-b border-slate-100 px-6 py-4">
           <div className="flex justify-between items-start">
             <div>
@@ -163,8 +189,8 @@ const isRewang = localProfile?.is_rewang === true;
               </div>
             </div>
             <div className="flex gap-2">
-              <button 
-                onClick={() => window.dispatchEvent(new CustomEvent('open-location-modal'))} 
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-location-modal'))}
                 className="p-2.5 bg-slate-100 rounded-2xl text-slate-600 active:scale-95 transition-all"
               >
                 <MapPin size={18} />
@@ -184,40 +210,40 @@ const isRewang = localProfile?.is_rewang === true;
         {activeTab === 'beranda' && (
           <PekenHome location={finalLocationName} setActiveTab={setActiveTab} />
         )}
-        
+
         {activeTab === 'kabarbakul' && (
           <KabarBakulSection locationName={finalLocationName} location={location} onNavigateToProduct={() => setActiveTab('panyangan')} />
         )}
-        
+
         {activeTab === 'panyangan' && (
           <PanyanganSection locationName={finalLocationName} location={location} userId={user?.id} onBack={() => setActiveTab('beranda')} onAddProduct={handleAddProduct} />
         )}
-        
+
         {activeTab === 'rewang' && (
           <RewangSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />
         )}
-        
+
         {activeTab === 'pesenan' && (
           <PesenanSection userId={user?.id} locationName={finalLocationName} onBack={() => setActiveTab('beranda')} onReviewOrder={(order) => { setSelectedProduct(order.produk); setShowReviewModal(true); }} />
         )}
 
         {activeTab === 'ojek' && <OjekSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />}
         {activeTab === 'donasi' && <DonasiSection onBack={() => setActiveTab('beranda')} locationName={finalLocationName} />}
-        
+
         {activeTab === 'lapakku' && (
-          <LapakkuSection 
-            userId={user?.id} 
-            locationName={finalLocationName} 
-            onBack={() => setActiveTab('beranda')} 
-            onAddProduct={handleAddProduct} 
-            onEditProduct={(product) => { 
-              setEditingProduct(product); 
-              toggleModal('formPanyangan', true); 
-            }} 
+          <LapakkuSection
+            userId={user?.id}
+            locationName={finalLocationName}
+            onBack={() => setActiveTab('beranda')}
+            onAddProduct={handleAddProduct}
+            onEditProduct={(product) => {
+              setEditingProduct(product);
+              toggleModal('formPanyangan', true);
+            }}
             isSeller={finalIsSeller}
-            ktpStatus={finalKtpStatus}                
-            ktpRejectionReason={localProfile?.ktp_rejection_reason} 
-            onOpenDaftarBakul={() => setShowDaftarBakul(true)} 
+            ktpStatus={finalKtpStatus}
+            ktpRejectionReason={localProfile?.ktp_rejection_reason}
+            onOpenDaftarBakul={() => setShowDaftarBakul(true)}
             onRefreshStatus={handleRefreshStatus}
           />
         )}
@@ -241,70 +267,70 @@ const isRewang = localProfile?.is_rewang === true;
           onPanyangan={handleAddProduct}
         />
       )}
-      
+
       {/* SEMUA MODAL */}
-      <FormDaftarBakul 
-        isOpen={showDaftarBakul} 
-        onClose={() => setShowDaftarBakul(false)} 
-        user={user} 
-        profile={profile} 
+      <FormDaftarBakul
+        isOpen={showDaftarBakul}
+        onClose={() => setShowDaftarBakul(false)}
+        user={user}
+        profile={profile}
         onSuccess={() => {
           setShowDaftarBakul(false);
           handleRefreshStatus();
-        }} 
+        }}
       />
-      
-      <FormPanyangan 
-        isOpen={modals.formPanyangan} 
-        onClose={() => { 
-          toggleModal('formPanyangan', false); 
-          setEditingProduct(null); 
-        }} 
-        editingProduct={editingProduct} 
-        onSuccess={() => window.dispatchEvent(new CustomEvent('refresh-lapak'))} 
-        theme={{ isMalam: false }} 
+
+      <FormPanyangan
+        isOpen={modals.formPanyangan}
+        onClose={() => {
+          toggleModal('formPanyangan', false);
+          setEditingProduct(null);
+        }}
+        editingProduct={editingProduct}
+        onSuccess={() => window.dispatchEvent(new CustomEvent('refresh-lapak'))}
+        theme={{ isMalam: false }}
       />
-      
-      <SambatModal 
-        isOpen={modals.sambat} 
-        onClose={() => toggleModal('sambat', false)} 
-        user={user} 
-        profile={profile} 
+
+      <SambatModal
+        isOpen={modals.sambat}
+        onClose={() => toggleModal('sambat', false)}
+        user={user}
+        profile={profile}
       />
-      
-      <DaftarRewangModal 
-        isOpen={modals.daftarRewang} 
-        onClose={() => toggleModal('daftarRewang', false)} 
-        profile={profile} 
+
+      <DaftarRewangModal
+        isOpen={modals.daftarRewang}
+        onClose={() => toggleModal('daftarRewang', false)}
+        profile={profile}
       />
-      
-      <FormOjek 
-        isOpen={modals.daftarOjek} 
-        onClose={() => toggleModal('daftarOjek', false)} 
-        user={user} 
-        profile={profile} 
+
+      <FormOjek
+        isOpen={modals.daftarOjek}
+        onClose={() => toggleModal('daftarOjek', false)}
+        user={user}
+        profile={profile}
       />
-      
-      <FormDonasi 
-        isOpen={modals.donasi} 
-        onClose={() => toggleModal('donasi', false)} 
-        user={user} 
-        profile={profile} 
+
+      <FormDonasi
+        isOpen={modals.donasi}
+        onClose={() => toggleModal('donasi', false)}
+        user={user}
+        profile={profile}
       />
-      
-      <DetailProdukModal 
-        product={selectedProduct} 
-        isOpen={showReviewModal} 
-        onClose={() => { 
-          setShowReviewModal(false); 
-          setSelectedProduct(null); 
-        }} 
-        userId={user?.id} 
-        locationName={finalLocationName} 
-        autoOpenUlasan={true} 
-        onOrderSuccess={() => {}} 
+
+      <DetailProdukModal
+        product={selectedProduct}
+        isOpen={showReviewModal}
+        onClose={() => {
+          setShowReviewModal(false);
+          setSelectedProduct(null);
+        }}
+        userId={user?.id}
+        locationName={finalLocationName}
+        autoOpenUlasan={true}
+        onOrderSuccess={() => { }}
       />
-      
+
     </div>
   );
 }
@@ -314,7 +340,7 @@ function PekenHome({ location, setActiveTab }) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-10">
       <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-[32px] p-6 text-white shadow-xl shadow-orange-100">
-        <h2 className="text-xl font-black leading-tight">Sugeng Rawuh <br/>ing Peken {location}</h2>
+        <h2 className="text-xl font-black leading-tight">Sugeng Rawuh <br />ing Peken {location}</h2>
         <p className="text-orange-100 text-xs mt-2 font-medium opacity-80">Pusat ekonomi & gotong royong warga {location}</p>
       </div>
 
@@ -322,7 +348,7 @@ function PekenHome({ location, setActiveTab }) {
         <MenuCard onClick={() => setActiveTab('panyangan')} icon={Store} title="Panyangan" desc="Hasil bumi & barang" color="bg-blue-50 text-blue-600" />
         <MenuCard onClick={() => setActiveTab('rewang')} icon={Users} title="Rewang" desc="Jasa & Gotong Royong" color="bg-purple-50 text-purple-600" />
         <MenuCard onClick={() => setActiveTab('ojek')} icon={Truck} title="Ojek Warga" desc="Antar jemput & kirim" color="bg-emerald-50 text-emerald-600" />
-        <MenuCard onClick={()=> setActiveTab('donasi')} icon={Gift} title="Donasi" desc="Berbagi ke sesama" color="bg-red-50 text-red-600" />
+        <MenuCard onClick={() => setActiveTab('donasi')} icon={Gift} title="Donasi" desc="Berbagi ke sesama" color="bg-red-50 text-red-600" />
       </div>
 
       <div className="p-8 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center text-center">

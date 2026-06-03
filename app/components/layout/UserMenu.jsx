@@ -8,7 +8,7 @@ import {
   User, LogOut, Loader2, LayoutDashboard, Map, ChevronRight,
   Zap, ShieldCheck, Home, Store, Truck, Briefcase,
   Settings, Bell, HelpCircle, Crown, UserCheck, FileCheck,
-  Smartphone
+  Smartphone, Gift
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
@@ -168,31 +168,38 @@ export default function UserMenu({
 
               {/* Menu List */}
               <div className="p-2 max-h-[60vh] overflow-y-auto">
-                <div className="mb-2">
-                  <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Menu Utama</p>
+                {/* Menu untuk WARGA BIASA */}
+                {!isAdmin && !isSuperAdmin && (
+                  <div className="mb-2">
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Menu Utama</p>
+                    <MenuAction icon={LayoutDashboard} label="Rumah Warga" desc="Badge, kontribusi & reputasi" onClick={() => router.push("/rumah-warga")} theme={theme} color="rose" />
+                  </div>
+                )}
 
-                  {isSuperAdmin ? (
-                    <>
-                      <MenuAction icon={LayoutDashboard} label="Dashboard Pusat" desc="Statistik global" onClick={() => router.push("/admin/dashboard")} theme={theme} color="purple" />
-                      <MenuAction icon={FileCheck} label="Verifikasi KTP" desc="Review warga baru" onClick={handleKTPClick} theme={theme} color="purple" />
-                      <MenuAction icon={UserCheck} label="Angkat RT" desc="Manajemen wilayah" onClick={() => router.push("/admin/angkat-rt")} theme={theme} color="purple" />
-                      <MenuAction icon={Zap} label="Mode Kendali" desc="Edit Konten" onClick={() => toggleEditMode?.()} theme={theme} isActive={isEditActive} color="purple" />
-                    </>
-                  ) : isAdmin ? (
-                    <>
-                      <MenuAction icon={Home} label="Ruang RT" desc="Dashboard wilayah" onClick={() => router.push("/admin/dashboard")} theme={theme} color="orange" />
-                      <MenuAction icon={Store} label="Verifikasi Penjual" desc="Review Bakul" onClick={() => router.push("/admin/verifikasi/penjual")} theme={theme} color="orange" />
-                      <MenuAction icon={Truck} label="Verifikasi Driver" desc="Review Ojek" onClick={() => router.push("/admin/verifikasi/driver")} theme={theme} color="orange" />
-                      <MenuAction icon={Briefcase} label="Verifikasi Rewang" desc="Review Jasa" onClick={() => router.push("/admin/verifikasi/rewang")} theme={theme} color="orange" />
-                    </>
-                  ) : (
-                    <>
-                      <MenuAction icon={LayoutDashboard} label="Rumah Warga" desc="Badge, kontribusi & reputasi" onClick={() => router.push("/rumah-warga")} theme={theme} color="rose" />
-                      <MenuAction icon={Smartphone} label="KTP Digital" desc="Identitas Warga Setempat" onClick={handleKTPClick} theme={theme} color="rose" />
-                    </>
-                  )}
-                </div>
+                {/* Menu untuk SUPERADMIN - DENGAN KELOLA KESEMPATAN */}
+                {isSuperAdmin && (
+                  <div className="mb-2">
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Admin Pusat</p>
+                    <MenuAction icon={LayoutDashboard} label="Dashboard Pusat" desc="Statistik global" onClick={() => router.push("/admin/dashboard")} theme={theme} color="purple" />
+                    <MenuAction icon={Gift} label="Kelola Kesempatan" desc="Buat bounty & program" onClick={() => router.push("/admin/opportunities")} theme={theme} color="purple" />
+                    <MenuAction icon={FileCheck} label="Verifikasi KTP" desc="Review warga baru" onClick={handleKTPClick} theme={theme} color="purple" />
+                    <MenuAction icon={UserCheck} label="Angkat RT" desc="Manajemen wilayah" onClick={() => router.push("/admin/angkat-rt")} theme={theme} color="purple" />
+                    <MenuAction icon={Zap} label="Mode Kendali" desc="Edit Konten" onClick={() => toggleEditMode?.()} theme={theme} isActive={isEditActive} color="purple" />
+                  </div>
+                )}
 
+                {/* Menu untuk ADMIN RT - TANPA KELOLA KESEMPATAN */}
+                {isAdmin && !isSuperAdmin && (
+                  <div className="mb-2">
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Admin Wilayah</p>
+                    <MenuAction icon={Home} label="Ruang RT" desc="Dashboard wilayah" onClick={() => router.push("/admin/dashboard")} theme={theme} color="orange" />
+                    <MenuAction icon={Store} label="Verifikasi Penjual" desc="Review Bakul" onClick={() => router.push("/admin/verifikasi/penjual")} theme={theme} color="orange" />
+                    <MenuAction icon={Truck} label="Verifikasi Driver" desc="Review Ojek" onClick={() => router.push("/admin/verifikasi/driver")} theme={theme} color="orange" />
+                    <MenuAction icon={Briefcase} label="Verifikasi Rewang" desc="Review Jasa" onClick={() => router.push("/admin/verifikasi/rewang")} theme={theme} color="orange" />
+                  </div>
+                )}
+
+                {/* Menu Pengaturan - untuk semua user */}
                 <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
                   <MenuAction icon={Settings} label="Pengaturan" desc="Akun & privasi" onClick={() => router.push("/pengaturan")} theme={theme} />
                   <MenuAction icon={LogOut} label="Keluar" desc="Akhiri sesi" onClick={handleLogout} theme={theme} danger disabled={isLoggingOut} />

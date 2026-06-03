@@ -10,7 +10,7 @@ import {
   Home, User, MapPin, ShoppingBag, Star, Award, Heart, Gift,
   ChevronRight, Clock, Truck, HelpingHand, Coins, Eye, CheckCircle,
   QrCode, ShieldCheck, Share2, Copy, Check, X, Plus, Image as ImageIcon,
-  Fingerprint, Loader2, Flame, Trophy, Zap, ArrowRight, ArrowLeft, HelpCircle, Shield
+  Fingerprint, Loader2, Flame, Trophy, Zap, ArrowRight, ArrowLeft, HelpCircle, Shield, Wallet, Sparkles, Ticket
 } from "lucide-react";
 
 // Import komponen existing
@@ -18,16 +18,50 @@ import KTPModal from "@/app/components/layout/KTPModal";
 import KTPCard from "@/app/components/layout/KTPCard";
 import StoryModalFullscreen from "@/app/components/feed/StoryModal";
 import PointsModal from "./modals/PointsModal";
+import SaldoModal from "./modals/SaldoModal";
 import { useRumahWargaData } from "./hooks/useRumahWargaData";
+import OpportunityModal from "./modals/OpportunityModal";
 
-// ============ KTP WIDGET COMPONENT ============
-function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
+
+// ============ KTP WIDGET COMPONENT (DIPERBAIKI) ============
+function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPoints }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showQRPresenter, setShowQRPresenter] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [qrMessage, setQrMessage] = useState("");
+  const [username, setUsername] = useState(null);
 
-  const profileUrl = `https://setempat.id/${profile?.username || user?.id?.substring(0, 8)}`;
+  useEffect(() => {
+    const getUsername = async () => {
+      if (profile?.username) {
+        setUsername(profile.username);
+        return;
+      }
+      if (user?.user_metadata?.username) {
+        setUsername(user.user_metadata.username);
+        return;
+      }
+      const { data } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", user?.id)
+        .single();
+      if (data?.username) {
+        setUsername(data.username);
+      } else {
+        setUsername(null);
+      }
+    };
+    if (user?.id) getUsername();
+  }, [user?.id, profile?.username, user?.user_metadata?.username]);
+
+  const profileUrl = username
+    ? `https://setempat.id/${username}`
+    : `https://setempat.id/u/${user?.id?.substring(0, 8) || 'warga'}`;
+
   const userName = profile?.full_name?.split(' ')[0] || user?.user_metadata?.full_name?.split(' ')[0] || 'Warga';
+  const displayId = username ? `@${username}` : `ID: ${user?.id?.substring(0, 8) || 'SETEMPAT'}`;
 
   const handleCopyLink = async () => {
     await navigator.clipboard.writeText(profileUrl);
@@ -37,13 +71,40 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
   };
 
   const handleShowQR = () => {
+    setQrData(null);
+    setQrMessage("");
     setShowQRPresenter(true);
     setIsMenuOpen(false);
   };
 
+  useEffect(() => {
+    const handleShowVoucherQR = (event) => {
+      const voucher = event.detail?.voucher;
+      const message = event.detail?.message;
+      const transactionId = event.detail?.transactionId;
+
+      if (voucher && transactionId) {
+        // 🔥 BUAT URL SCAN dengan parameter transaction_id
+        const scanUrl = `https://setempat.id/scan?transaction=${transactionId}&voucher=${encodeURIComponent(voucher.name)}&merchant=${encodeURIComponent(voucher.merchant)}`;
+
+        setQrData(scanUrl);  // ← SEKARANG BERUPA URL!
+        setQrMessage(message || `🎟️ ${voucher.name}\nTunjukkan QR ini ke ${voucher.merchant}`);
+        setShowQRPresenter(true);
+      }
+    };
+
+    window.addEventListener('show-voucher-qr', handleShowVoucherQR);
+    return () => window.removeEventListener('show-voucher-qr', handleShowVoucherQR);
+  }, [user, profile]);
+
   const handleAccessPresensi = () => {
     alert("🚧 Fitur presensi dalam pengembangan");
     setIsMenuOpen(false);
+  };
+
+  const handleVoucherClick = () => {
+    setIsMenuOpen(false);
+    if (onOpenVouchers) onOpenVouchers();
   };
 
   return (
@@ -62,7 +123,7 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
               {profile?.is_verified && <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />}
             </p>
             <p className="text-[10px] text-slate-500 font-mono">
-              ID: {profile?.id?.substring(0, 8) || user?.id?.substring(0, 8) || 'SETEMPAT'}
+              {displayId}
             </p>
           </div>
         </div>
@@ -72,7 +133,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
         </div>
       </button>
 
-      {/* Bottom Sheet Menu */}
       <AnimatePresence>
         {isMenuOpen && (
           <>
@@ -91,7 +151,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
               className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 rounded-t-3xl border-t border-slate-800 shadow-2xl max-w-md mx-auto"
             >
               <div className="w-12 h-1 bg-slate-700 rounded-full mx-auto mt-3 mb-4" />
-
               <div className="px-5 pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
@@ -103,11 +162,27 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
                   </div>
                 </div>
               </div>
-
               <div className="p-4 space-y-2">
+                {/* Tombol Voucher - TAMBAHAN BARU */}
+                <button onClick={handleVoucherClick} className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/40 to-slate-950/50 border border-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-98">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                    <Ticket className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-bold text-slate-200 flex items-center gap-1.5">
+                      Tukar Hadiah & Voucher
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Kamu punya <strong className="text-emerald-400">{userPoints || 0} Poin</strong> siap pakai
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-emerald-500" />
+                </button>
+
                 <button onClick={handleShowQR} className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-slate-950/50 hover:bg-slate-800/50 transition-all active:scale-98">
                   <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center"><QrCode className="w-5 h-5 text-emerald-400" /></div>
-                  <div className="flex-1 text-left"><p className="text-sm font-bold text-slate-200">Tunjukkan ke Klien</p><p className="text-[10px] text-slate-500">Tampilkan QR code ukuran besar</p></div>
+                  <div className="flex-1 text-left"><p className="text-sm font-bold text-slate-200">Tunjukkan ke Klien / Toko</p><p className="text-[10px] text-slate-500">Tampilkan QR KTP untuk validasi cepat</p></div>
                   <ChevronRight className="w-4 h-4 text-slate-600" />
                 </button>
 
@@ -129,7 +204,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
                   <ChevronRight className="w-4 h-4 text-slate-600" />
                 </button>
               </div>
-
               <div className="p-4 pt-0 pb-6">
                 <button onClick={() => setIsMenuOpen(false)} className="w-full py-3.5 rounded-xl bg-slate-800/50 text-slate-400 text-sm font-bold hover:bg-slate-800 transition-all active:scale-98">Tutup</button>
               </div>
@@ -138,15 +212,51 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard }) {
         )}
       </AnimatePresence>
 
-      {/* QR Presenter Modal */}
+      {/* QR Presenter Modal - Versi lengkap dengan voucher */}
       <AnimatePresence>
         {showQRPresenter && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-6">
-            <button onClick={() => setShowQRPresenter(false)} className="absolute top-5 right-5 p-2 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-700" /></button>
-            <div className="text-center mb-8"><p className="text-xs text-slate-500 uppercase tracking-wider">SCAN QR CODE INI</p><p className="text-xl font-bold text-slate-900 mt-1">{profile?.full_name}</p><p className="text-sm text-slate-500">Verifikasi Warga Setempat</p></div>
-            <div className="bg-slate-900 p-6 rounded-3xl shadow-2xl"><QRCode value={profileUrl} size={240} level="H" /></div>
-            <p className="text-center text-xs text-slate-400 mt-6 max-w-xs">Dekatkan layar HP ini ke pemindai untuk verifikasi reputasi toko dan keaslian warga setempat secara instan.</p>
-            <button onClick={() => setShowQRPresenter(false)} className="mt-8 px-6 py-2 bg-slate-900 rounded-full text-white text-sm font-bold">Tutup</button>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6"
+          >
+            <button onClick={() => setShowQRPresenter(false)} className="absolute top-5 right-5 p-2 bg-slate-900 border border-slate-800 rounded-full">
+              <X className="w-5 h-5 text-slate-400" />
+            </button>
+
+            <div className="text-center mb-8">
+              <p className="text-xs text-emerald-400 font-bold uppercase tracking-wider">
+                {qrMessage ? "KLAIM VOUCHER" : "QR CODE WARGA SETEMPAT"}
+              </p>
+              <p className="text-xl font-black text-white mt-1 uppercase tracking-tight">{profile?.full_name}</p>
+              <p className="text-xs text-slate-500">{displayId}</p>
+
+              {qrMessage && (
+                <div className="mt-3 p-2 bg-emerald-500/20 rounded-xl">
+                  <p className="text-xs text-emerald-400 whitespace-pre-line">{qrMessage}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl shadow-2xl shadow-emerald-950/20">
+              <QRCode
+                value={qrData || profileUrl}
+                size={230}
+                level="H"
+                fgColor="#020617"
+              />
+            </div>
+
+            <p className="text-center text-xs text-slate-400 mt-6 max-w-xs leading-relaxed">
+              {qrMessage
+                ? "Dekatkan QR ini ke merchant untuk klaim voucher."
+                : "Dekatkan layar HP ini ke perangkat merchant untuk validasi reputasi, mengecek klaim voucher, atau mencatat presensi warga secara instan."}
+            </p>
+
+            <button onClick={() => setShowQRPresenter(false)} className="mt-8 px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl">
+              Tutup ID Digital
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -181,11 +291,46 @@ export default function RumahWargaPage({ onClose }) {
   const { user, profile, loading, role, isAdmin, refreshProfile } = useAuth();
   const [isKTPCardOpen, setIsKTPCardOpen] = useState(false);
   const [isPointsModalOpen, setIsPointsModalOpen] = useState(false);
+  const [isSaldoModalOpen, setIsSaldoModalOpen] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
+  const [userPoints, setUserPoints] = useState(0);
+  const [userSaldo, setUserSaldo] = useState(0);
 
-  // 🔥 GANTI: Pakai hook yang sudah dibuat
-  const { laporanTerbaru, kontribusi, loading: dataLoading, refetch, formatTanggal } = useRumahWargaData(user?.id);
+  const [selectedOpportunity, setSelectedOpportunity] = useState(null);
+  const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
+  const [opportunities, setOpportunities] = useState([]);
+
+  const handleOpportunityClick = (opportunity) => {
+    setSelectedOpportunity(opportunity);
+    setIsOpportunityModalOpen(true);
+  };
+
+  useEffect(() => {
+    const fetchOpportunities = async () => {
+      const now = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from("opportunities")
+        .select("*")
+        .eq("is_active", true)
+        .gte("deadline", now)
+        .order("deadline", { ascending: true })
+        .limit(10);
+
+      if (data) setOpportunities(data);
+    };
+
+    fetchOpportunities();
+  }, []);
+
+
+  const { laporanTerbaru, data, loading: dataLoading, refetch, formatTanggal } = useRumahWargaData(user?.id);
+
+  const reputasi = data?.reputasi || { level: 1, gelar: "🌱 Warga Baru", color: "text-green-400", bg: "bg-green-500/10", skor: 0, progress: 0, nextLevelSkor: 25 };
+  const poinSetempat = data?.poinSetempat || 0;
+  const statistik = data?.statistik || { totalLaporan: 0, totalFoto: 0, totalVideo: 0, hariAktif: 0, totalLikes: 0, totalViews: 0, featuredCount: 0, laporanRamai: 0, laporanBerdampak: 0 };
+  const badges = data?.badges || [];
 
   const handleStoryClick = (story) => {
     const enrichedStory = {
@@ -205,6 +350,32 @@ export default function RumahWargaPage({ onClose }) {
     setIsStoryModalOpen(true);
   };
 
+  useEffect(() => {
+    const fetchPoints = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("points")
+        .eq("id", user.id)
+        .single();
+      if (data) setUserPoints(data.points);
+    };
+    fetchPoints();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const fetchSaldo = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("saldo_kontribusi")
+        .eq("id", user.id)
+        .single();
+      if (data) setUserSaldo(data.saldo_kontribusi || 0);
+    };
+    fetchSaldo();
+  }, [user?.id]);
+
   if (loading || dataLoading) return <SkeletonLoader />;
   if (!user) {
     return (
@@ -216,18 +387,7 @@ export default function RumahWargaPage({ onClose }) {
 
   const name = profile?.full_name || user?.user_metadata?.full_name || "Warga";
   const initial = name.charAt(0).toUpperCase();
-  const userPoints = profile?.points || 0;
   const isVerified = profile?.is_verified || false;
-
-  // Gunakan data dari hook
-  const stats = {
-    totalReports: kontribusi.totalLaporan,
-    approvedReports: kontribusi.totalLaporan, // semua laporan dianggap approved
-    featuredReports: kontribusi.featuredCount,
-    levelInfo: kontribusi.levelInfo,
-    gelar: kontribusi.gelar,
-    badges: kontribusi.badges
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex justify-center">
@@ -250,7 +410,7 @@ export default function RumahWargaPage({ onClose }) {
         </header>
 
         <main className="p-5 space-y-6">
-          {/* PROFIL HEADER */}
+          {/* PROFIL HEADER - SAMA PERSIS SEPERTI KODE ANDA */}
           <section className="flex justify-between items-start">
             <div>
               <div className="flex items-center gap-1.5"><span className="text-emerald-400 text-[11px] font-bold uppercase flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Warga Setempat</span>{isVerified && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">Terverifikasi</span>}</div>
@@ -263,29 +423,116 @@ export default function RumahWargaPage({ onClose }) {
 
           <hr className="border-slate-800/50" />
 
-          {/* STATS GRID */}
+          {/* STATS GRID - SAMA PERSIS */}
           <div className="grid grid-cols-2 gap-3">
-            <div className={`bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl ${stats.gelar.bg}`}><div className="flex items-center gap-1.5 mb-1"><Flame className={`w-4 h-4 ${stats.gelar.color}`} /><span className={`text-sm font-black ${stats.gelar.color}`}>Lv {stats.levelInfo.level}</span></div><p className={`text-[10px] font-bold uppercase ${stats.gelar.color}`}>{stats.gelar.title.split(" ")[1]} Akamsi</p></div>
-            <div className="bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl"><div className="flex items-center gap-1.5 text-sky-400 mb-1"><Trophy className="w-4 h-4" /><span className="text-sm font-black text-slate-200">{stats.badges.length}</span></div><p className="text-[10px] text-slate-500 font-bold uppercase">Lencana</p></div>
-            <div className="bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl"><div className="flex items-center gap-1.5 text-rose-500 mb-1"><Heart className="w-4 h-4 fill-rose-500/10" /><span className="text-sm font-black text-slate-200">{kontribusi.totalLikes > 0 ? kontribusi.totalLikes * 2 : 132}</span></div><p className="text-[10px] text-slate-500 font-bold uppercase">Terbantu</p></div>
-            <button onClick={() => setIsPointsModalOpen(true)} className="bg-slate-950/40 hover:bg-slate-950/80 border border-slate-800 p-3.5 rounded-2xl text-left transition-all active:scale-95 group"><div className="flex items-center justify-between w-full mb-1"><div className="flex items-center gap-1.5 text-emerald-400"><Coins className="w-4 h-4" /><span className="text-sm font-black">{userPoints}</span></div><HelpCircle className="w-3.5 h-3.5 text-slate-600" /></div><p className="text-[10px] text-slate-500 font-bold uppercase">Poin Saya</p></button>
+            <div className={`bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl ${reputasi.bg}`}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Flame className={`w-4 h-4 ${reputasi.color}`} />
+                <span className={`text-sm font-black ${reputasi.color}`}>Lv {reputasi.level}</span>
+              </div>
+              <p className={`text-[10px] font-bold uppercase ${reputasi.color}`}>
+                {reputasi.gelar.split(' ')[1] || 'Akamsi'}
+              </p>
+            </div>
+
+            <div className="bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl">
+              <div className="flex items-center gap-1.5 text-sky-400 mb-1">
+                <Trophy className="w-4 h-4" />
+                <span className="text-sm font-black text-slate-200">{badges.length}</span>
+              </div>
+              <p className="text-[10px] text-slate-500 font-bold uppercase">Lencana</p>
+            </div>
+
+            <div className="bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl">
+              <div className="flex items-center gap-1.5 text-rose-500 mb-1">
+                <Heart className="w-4 h-4 fill-rose-500/10" />
+                <span className="text-sm font-black text-slate-200">
+                  {statistik.totalLikes > 0 ? statistik.totalLikes * 2 : 132}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 font-bold uppercase">Terbantu</p>
+            </div>
+
+            <button
+              onClick={() => setIsPointsModalOpen(true)}
+              className="bg-slate-950/40 hover:bg-slate-950/80 border border-slate-800 p-3.5 rounded-2xl text-left transition-all active:scale-95 group"
+            >
+              <div className="flex items-center justify-between w-full mb-1">
+                <div className="flex items-center gap-1.5 text-emerald-400">
+                  <Coins className="w-4 h-4" />
+                  <span className="text-sm font-black">{userPoints}</span>
+                </div>
+                <HelpCircle className="w-3.5 h-3.5 text-slate-600" />
+              </div>
+              <p className="text-[10px] text-slate-500 font-bold uppercase">Poin Saya</p>
+            </button>
           </div>
 
-          {/* LEVEL PROGRESS */}
+          {/* LEVEL PROGRESS - SAMA PERSIS */}
           <div className="bg-slate-950/30 border border-slate-800/80 p-4 rounded-2xl space-y-2.5">
-            <div className="flex justify-between items-center text-xs"><div className="flex items-center gap-1.5"><span className="text-sm">{stats.gelar.title.split(" ")[0]}</span><span className={`font-extrabold ${stats.gelar.color}`}>{stats.gelar.title}</span></div><span className="text-[10px] text-slate-500 font-bold">{stats.totalReports} Laporan</span></div>
-            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-sky-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, stats.levelInfo.progress)}%` }} /></div>
-            <div className="flex justify-between items-center text-[9px] text-slate-500 font-semibold uppercase"><span>Lv {stats.levelInfo.level}</span>{stats.levelInfo.reportsLeft > 0 ? <span>Butuh {stats.levelInfo.reportsLeft} laporan lagi ke Lv {stats.levelInfo.level + 1}</span> : <span className="text-emerald-400">Level Maksimal! 🎉</span>}<span>Lv {stats.levelInfo.nextReq === 500 ? 10 : stats.levelInfo.level + 1}</span></div>
+            <div className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">{reputasi.gelar.split(' ')[0] || '🌱'}</span>
+                <span className={`font-extrabold ${reputasi.color}`}>{reputasi.gelar}</span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-bold">{reputasi.skor} Skor</span>
+            </div>
+
+            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-sky-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, reputasi.progress)}%` }}
+              />
+            </div>
+
+            <div className="flex justify-between items-center text-[9px] text-slate-500 font-semibold uppercase">
+              <span>Level {reputasi.level}</span>
+              {reputasi.nextLevelSkor ? (
+                <span>{reputasi.nextLevelSkor - reputasi.skor} skor lagi ke Level {reputasi.level + 1}</span>
+              ) : (
+                <span className="text-emerald-400">Level Maksimal! 🎉</span>
+              )}
+              <span>Level {reputasi.level + 1}</span>
+            </div>
           </div>
 
           <hr className="border-slate-800/50" />
 
-          {/* KTP WIDGET */}
-          <section className="space-y-2"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-2"><span>🪪</span> KTP Warga Setempat</h3><KTPWidget profile={profile} user={user} theme={{ isMalam: true }} onOpenKTPCard={() => setIsKTPCardOpen(true)} /></section>
+          {/* Saldo Kontribusi Card */}
+          <section className="space-y-2">
+            <button
+              onClick={() => setIsSaldoModalOpen(true)}
+              className="w-full bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between group hover:border-emerald-500/50 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                  <Wallet className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider">Dompet Warga</p>
+                  <p className="text-lg font-black text-emerald-400">Rp{userSaldo.toLocaleString()}</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </section>
+
+          {/* KTP WIDGET - SUDAH DIPERBAIKI DENGAN PROPS YANG LENGKAP */}
+          <section className="space-y-2">
+            <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-2"><span>🪪</span> KTP Warga Setempat</h3>
+            <KTPWidget
+              profile={profile}
+              user={user}
+              theme={{ isMalam: true }}
+              onOpenKTPCard={() => setIsKTPCardOpen(true)}
+              onOpenVouchers={() => setIsPointsModalOpen(true)}
+              userPoints={userPoints}
+            />
+          </section>
 
           <hr className="border-slate-800/50" />
 
-          {/* AKTIVITAS TERBARU - GRID 2 KOLOM */}
+          {/* AKTIVITAS TERBARU */}
           <section className="space-y-3">
             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>📍</span> Aktivitas Terbaru</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -323,41 +570,29 @@ export default function RumahWargaPage({ onClose }) {
 
           <hr className="border-slate-800/50" />
 
-          {/* BADGES SECTION */}
-          <section className="space-y-3"><div className="flex justify-between items-center"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>🏆</span> Reputasi Akamsi</h3><span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">{stats.badges.length} Lencana</span></div>
-            <div className="space-y-2">{stats.badges.length > 0 ? stats.badges.map((badge) => (<div key={badge.id} className="bg-slate-950/40 border border-slate-800 p-3 rounded-2xl flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-xl">{badge.icon}</div><div className="flex-1"><h4 className="text-xs font-extrabold text-slate-200">{badge.title}</h4><p className="text-[9px] text-slate-500">{badge.desc}</p></div><CheckCircle className="w-4 h-4 text-emerald-500" /></div>)) : <div className="text-center py-8 bg-slate-950/30 border border-slate-800 rounded-2xl"><Award className="w-10 h-10 text-slate-700 mx-auto mb-2" /><p className="text-xs text-slate-500">Belum ada lencana</p><p className="text-[10px] text-slate-600">Terus berkontribusi!</p></div>}</div></section>
-
-          <hr className="border-slate-800/50" />
-
           {/* DAMPAK SAYA */}
-
-          {/* DAMPAK SAYA - Versi Update dengan metrik baru */}
           <section className="space-y-3">
-            <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-              <span>❤️</span> Dampak Saya
-            </h3>
+            <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>❤️</span> Dampak Saya</h3>
             <div className="bg-slate-950/30 border border-slate-800/60 rounded-2xl p-4 space-y-3 text-xs">
               <div className="flex items-center gap-2 text-slate-300">
                 <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                <span><strong className="text-emerald-400">{kontribusi.totalViews || 0}</strong> warga melihat laporan Anda</span>
+                <span><strong className="text-emerald-400">{statistik.totalViews}</strong> warga melihat laporan Anda</span>
               </div>
               <div className="flex items-center gap-2 text-slate-300 border-t border-slate-800/40 pt-3">
                 <Heart className="w-3.5 h-3.5 text-rose-400" />
-                <span><strong className="text-emerald-400">{kontribusi.totalLikes || 0}</strong> apresiasi dari warga</span>
+                <span><strong className="text-emerald-400">{statistik.totalLikes}</strong> apresiasi dari warga</span>
               </div>
               <div className="flex items-center gap-2 text-slate-300 border-t border-slate-800/40 pt-3">
                 <Star className="w-3.5 h-3.5 text-amber-400" />
-                <span><strong className="text-emerald-400">{kontribusi.featuredCount || 0}</strong> laporan jadi sorotan setempat</span>
+                <span><strong className="text-emerald-400">{statistik.featuredCount}</strong> laporan jadi sorotan setempat</span>
               </div>
-              {/* 🔥 TAMBAHKAN: Laporan Ramai */}
               <div className="flex items-center gap-2 text-slate-300 border-t border-slate-800/40 pt-3">
                 <Flame className="w-3.5 h-3.5 text-orange-400" />
-                <span><strong className="text-emerald-400">{kontribusi.laporanRamai || 0}</strong> laporan ramai dibicarakan</span>
+                <span><strong className="text-emerald-400">{statistik.laporanRamai}</strong> laporan ramai dibicarakan</span>
               </div>
-              {/* 🏆 TAMBAHKAN: Laporan Berdampak */}
               <div className="flex items-center gap-2 text-slate-300 border-t border-slate-800/40 pt-3">
                 <Trophy className="w-3.5 h-3.5 text-emerald-400" />
-                <span><strong className="text-emerald-400">{kontribusi.laporanBerdampak || 0}</strong> laporan berdampak tinggi</span>
+                <span><strong className="text-emerald-400">{statistik.laporanBerdampak}</strong> laporan berdampak tinggi</span>
               </div>
             </div>
           </section>
@@ -369,10 +604,135 @@ export default function RumahWargaPage({ onClose }) {
             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>🎭</span> Peran Saya</h3>
             <div className="flex flex-wrap gap-2">
               <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><MapPin className="w-4 h-4 text-rose-500" /> Akamsi</div>
-              {stats.badges.some(b => b.id === "bakul") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><ShoppingBag className="w-4 h-4 text-amber-500" /> Bakul</div>}
-              {stats.badges.some(b => b.id === "driver") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><Truck className="w-4 h-4 text-sky-500" /> Ojek</div>}
-              {stats.badges.some(b => b.id === "rewang") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><HelpingHand className="w-4 h-4 text-purple-500" /> Rewang</div>}
+              {badges.some(b => b.id === "bakul") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><ShoppingBag className="w-4 h-4 text-amber-500" /> Bakul</div>}
+              {badges.some(b => b.id === "driver") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><Truck className="w-4 h-4 text-sky-500" /> Ojek</div>}
+              {badges.some(b => b.id === "rewang") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><HelpingHand className="w-4 h-4 text-purple-500" /> Rewang</div>}
               <button className="bg-slate-800/40 border border-dashed border-slate-700 p-3 rounded-xl text-slate-500"><Plus className="w-4 h-4" /></button>
+            </div>
+          </section>
+
+          {/* BADGES SECTION */}
+          <section className="space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                <span>🏆</span> Reputasi Akamsi
+              </h3>
+              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                {badges.length} Lencana Diraih
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {badges.length > 0 ? badges.map((badge) => (
+                <div
+                  key={badge.id}
+                  className="bg-slate-950/40 border border-slate-800 rounded-2xl p-3 hover:border-emerald-500/30 transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                      {badge.icon}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-slate-200">{badge.name}</p>
+                      <p className="text-[10px] text-slate-400">{badge.desc}</p>
+                    </div>
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  </div>
+
+                  {badge.perks && (
+                    <div className="mt-2 pt-2 border-t border-slate-700/50">
+                      <p className="text-[9px] text-emerald-400 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        {badge.perks}
+                      </p>
+                    </div>
+                  )}
+
+                  {badge.earnedAt && (
+                    <div className="mt-1">
+                      <p className="text-[8px] text-slate-500">
+                        Diraih: {new Date(badge.earnedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )) : (
+                <div className="text-center py-6 bg-slate-950/30 border border-slate-800 rounded-2xl">
+                  <p className="text-slate-500 text-sm mb-2">✨ Belum ada lencana diraih</p>
+                  <div className="text-left text-[9px] text-slate-500 space-y-1 px-4">
+                    <p className="font-medium text-slate-400 mb-1">Raih lencana spesialisasi untuk membuka:</p>
+                    <p className="flex items-center gap-1">• 🚦 Bounty laporan lalu lintas</p>
+                    <p className="flex items-center gap-1">• 🌧 Bounty laporan cuaca</p>
+                    <p className="flex items-center gap-1">• 📸 Jual konten ke marketplace</p>
+                    <p className="flex items-center gap-1">• 🎥 Royalti video</p>
+                    <p className="flex items-center gap-1">• ⭐ Program mitra desa</p>
+                  </div>
+                  <p className="text-[8px] text-slate-600 mt-3">Fokus pada satu bidang untuk mendapat lencana!</p>
+                </div>
+              )}
+            </div>
+
+            {badges.length > 0 && (
+              <button
+                onClick={() => router.push('/rumah-warga/badges')}
+                className="w-full text-center text-[9px] text-slate-500 hover:text-emerald-400 transition-colors py-1"
+              >
+                Lihat Semua Lencana →
+              </button>
+            )}
+          </section>
+
+          <hr className="border-slate-800/50" />
+
+          {/* KESEMPATAN UNTUK ANDA */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                <span>🎯</span> Kesempatan Untuk Anda
+              </h3>
+              {opportunities.length > 0 && (
+                <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                  {opportunities.length} Baru
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              {opportunities.map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleOpportunityClick(item)}
+                  className={`w-full rounded-2xl p-3 text-left transition-all active:scale-98
+          ${item.rewardType === "money"
+                      ? "bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 hover:bg-emerald-500/20"
+                      : "bg-slate-950/40 border border-slate-800 hover:border-emerald-500/30"
+                    }
+        `}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl
+            ${item.rewardType === "money" ? "bg-emerald-500/20" : "bg-amber-500/20"}
+          `}>
+                      {item.icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-200">{item.title}</p>
+                        <p className={`text-[10px] font-bold ${item.rewardType === "money" ? "text-emerald-400" : "text-amber-400"}`}>
+                          {item.reward}
+                        </p>
+                      </div>
+                      <p className="text-[9px] text-slate-400 mt-0.5">{item.desc}</p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[8px] text-slate-500">📅 {item.deadline}</span>
+                        {item.quota && (
+                          <span className="text-[8px] text-slate-500">👥 {item.quota}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
           </section>
 
@@ -390,19 +750,32 @@ export default function RumahWargaPage({ onClose }) {
           </section>
         </main>
 
-        {/* POINTS MODAL - MENGGUNAKAN KOMPONEN BARU */}
+        {/* MODAL-MODAL - SAMA PERSIS SEPERTI KODE ANDA */}
         <PointsModal
           isOpen={isPointsModalOpen}
           onClose={() => setIsPointsModalOpen(false)}
           userId={user?.id}
           userPoints={userPoints}
-          kontribusi={kontribusi}
+          reputasi={reputasi}
+          poinSetempat={poinSetempat}
+          statistik={statistik}
         />
 
-        {/* KTP CARD MODAL */}
-        {isKTPCardOpen && (<KTPModal isOpen={isKTPCardOpen} onClose={() => setIsKTPCardOpen(false)} theme={{ isMalam: true }}><KTPCard user={user} role={role} theme={{ isMalam: true }} onProfileUpdated={() => { setIsKTPCardOpen(false); refreshProfile(); refetch(); }} /></KTPModal>)}
+        {isSaldoModalOpen && (
+          <SaldoModal
+            isOpen={isSaldoModalOpen}
+            onClose={() => setIsSaldoModalOpen(false)}
+            userId={user?.id}
+            userSaldo={userSaldo}
+          />
+        )}
 
-        {/* STORY MODAL */}
+        {isKTPCardOpen && (
+          <KTPModal isOpen={isKTPCardOpen} onClose={() => setIsKTPCardOpen(false)} theme={{ isMalam: true }}>
+            <KTPCard user={user} role={role} theme={{ isMalam: true }} onProfileUpdated={() => { setIsKTPCardOpen(false); refreshProfile(); refetch(); }} />
+          </KTPModal>
+        )}
+
         {isStoryModalOpen && selectedStory && (
           <StoryModalFullscreen
             isOpen={isStoryModalOpen}
@@ -418,6 +791,19 @@ export default function RumahWargaPage({ onClose }) {
             isAdmin={isAdmin}
           />
         )}
+
+        {isOpportunityModalOpen && selectedOpportunity && (
+          <OpportunityModal
+            isOpen={isOpportunityModalOpen}
+            onClose={() => {
+              setIsOpportunityModalOpen(false);
+              setSelectedOpportunity(null);
+            }}
+            opportunity={selectedOpportunity}
+            userId={user?.id}
+          />
+        )}
+
       </div>
     </div>
   );

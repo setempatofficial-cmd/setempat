@@ -63,7 +63,7 @@ export default function KTPCard({ user, role, theme, onProfileUpdated }) {
       username: username,
       avatar: avatar,
       nik: profile?.nik || user?.id?.substring(0, 12).toUpperCase() || "STMPT-2026-X",
-      profileUrl: `https://setempat.id/${username || user?.id?.substring(0, 8)}`
+      profileUrl: `https://setempat.id/${username}`,
     };
   }, [user, profile]);
 

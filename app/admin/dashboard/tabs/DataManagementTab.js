@@ -23,14 +23,12 @@ export default function SuperAdminDataPage() {
   const [tempatList, setTempatList] = useState([]);
   const [saveLoading, setSaveLoading] = useState(false);
 
-  // Proteksi: hanya SuperAdmin yang bisa akses
   useEffect(() => {
     if (!isLoading && !isSuperAdmin) {
       router.push('/admin/dashboard');
     }
   }, [isLoading, isSuperAdmin, router]);
 
-  // Fetch daftar tempat untuk dropdown
   const fetchTempatList = useCallback(async () => {
     const { data } = await supabase
       .from('tempat')
@@ -39,7 +37,7 @@ export default function SuperAdminDataPage() {
     setTempatList(data || []);
   }, []);
 
-  // Fetch data sesuai tab aktif
+  // PERBAIKAN: fetchData dengan query JOIN langsung
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -68,37 +66,31 @@ export default function SuperAdminDataPage() {
         });
 
         setDataList(formattedData);
-      } else {
-        // ========== UNTUK SEMUA TAB RELASI ==========
-        // Ambil data utama dari tabel terkait
-        const { data: mainData, error: mainError } = await supabase
-          .from(activeTab)
+      }
+      else if (activeTab === 'tempat_koneksi') {
+        // Ambil semua data dari tempat_koneksi
+        const { data: koneksiData, error: koneksiError } = await supabase
+          .from('tempat_koneksi')
           .select('*');
 
-        if (mainError) throw mainError;
+        if (koneksiError) throw koneksiError;
 
-        if (!mainData || mainData.length === 0) {
+        if (!koneksiData || koneksiData.length === 0) {
           setDataList([]);
-          setLoading(false);
           return;
         }
 
-        // Kumpulkan semua tempat_id yang perlu diambil
-        const tempatIds = new Set();
-        mainData.forEach(item => {
-          if (activeTab === 'tempat_koneksi') {
-            if (item.tempat_id_1) tempatIds.add(item.tempat_id_1);
-            if (item.tempat_id_2) tempatIds.add(item.tempat_id_2);
-          } else {
-            if (item.tempat_id) tempatIds.add(item.tempat_id);
-          }
+        // Kumpulkan semua ID tempat
+        const semuaIds = [];
+        koneksiData.forEach(item => {
+          semuaIds.push(item.tempat_id_1, item.tempat_id_2);
         });
 
-        // Ambil data tempat
+        // Ambil nama tempat (tanpa JOIN, pakai IN query)
         const { data: tempatData, error: tempatError } = await supabase
           .from('tempat')
           .select('id, name')
-          .in('id', Array.from(tempatIds));
+          .in('id', semuaIds);
 
         if (tempatError) throw tempatError;
 
@@ -107,21 +99,68 @@ export default function SuperAdminDataPage() {
         tempatData?.forEach(t => tempatMap.set(t.id, t));
 
         // Gabungkan data
-        let formattedData;
-        if (activeTab === 'tempat_koneksi') {
-          formattedData = mainData.map(item => ({
-            ...item,
-            tempat1: tempatMap.get(item.tempat_id_1) || null,
-            tempat2: tempatMap.get(item.tempat_id_2) || null
-          }));
-        } else {
-          formattedData = mainData.map(item => ({
-            ...item,
-            tempat: tempatMap.get(item.tempat_id) || null
-          }));
-        }
+        const finalData = koneksiData.map(item => ({
+          ...item,
+          tempat1: tempatMap.get(item.tempat_id_1),
+          tempat2: tempatMap.get(item.tempat_id_2)
+        }));
 
-        setDataList(formattedData);
+        console.log('Final Koneksi Data:', finalData);
+        setDataList(finalData);
+      }
+      else if (activeTab === 'tempat_layanan_terkait') {
+        // ========== UNTUK LAYANAN ==========
+        const { data, error } = await supabase
+          .from('tempat_layanan_terkait')
+          .select(`
+          *,
+          tempat:tempat!fk_layanan_tempat(id, name)
+        `);
+
+        if (error) throw error;
+        setDataList(data || []);
+      }
+      else if (activeTab === 'tempat_aktivitas_berkala') {
+        // ========== UNTUK AKTIVITAS BERKALA ==========
+        const { data, error } = await supabase
+          .from('tempat_aktivitas_berkala')
+          .select(`
+          *,
+          tempat:tempat!fk_aktivitas_tempat(id, name)
+        `);
+
+        if (error) throw error;
+        setDataList(data || []);
+      }
+      else if (activeTab === 'tempat_insiden_historis') {
+        // ========== UNTUK INSIDEN HISTORIS ==========
+        const { data, error } = await supabase
+          .from('tempat_insiden_historis')
+          .select(`
+          *,
+          tempat:tempat!fk_insiden_tempat(id, name)
+        `);
+
+        if (error) throw error;
+        setDataList(data || []);
+      }
+      else if (activeTab === 'tempat_bantuan_tersedia') {
+        // ========== UNTUK BANTUAN ==========
+        const { data, error } = await supabase
+          .from('tempat_bantuan_tersedia')
+          .select(`
+          *,
+          tempat:tempat!fk_bantuan_tempat(id, name)
+        `);
+
+        if (error) throw error;
+        setDataList(data || []);
+      }
+      else {
+        // Fallback untuk tab lain
+        const { data, error } = await supabase.from(activeTab).select('*');
+        if (error) throw error;
+        setDataList(data || []);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -140,7 +179,6 @@ export default function SuperAdminDataPage() {
     }
   }, [activeTab, isSuperAdmin, fetchData, fetchTempatList]);
 
-  // CRUD Operations
   const handleSave = async () => {
     if (saveLoading) return;
     setSaveLoading(true);
@@ -264,9 +302,6 @@ export default function SuperAdminDataPage() {
 
   const handleSaveOther = async () => {
     const cleanedData = { ...formData };
-    delete cleanedData.tempat;
-    delete cleanedData.tempat1;
-    delete cleanedData.tempat2;
 
     if (editingItem) {
       const { error } = await supabase
@@ -493,6 +528,7 @@ function renderForm(activeTab, formData, setFormData, tempatList, editingItem, g
                 <option value="pom_bensin">⛽ SPBU</option>
                 <option value="pasar">🛒 Pasar</option>
                 <option value="umum">📍 Umum</option>
+                <option value="jalan">📍 Jalan</option>
               </select>
             </div>
             <div className="border rounded-lg p-3 bg-blue-50">
@@ -578,8 +614,26 @@ function renderForm(activeTab, formData, setFormData, tempatList, editingItem, g
             <input type="number" step="0.1" required className="w-full border rounded-lg px-3 py-2" value={formData.jarak_km || ''} onChange={(e) => setFormData({ ...formData, jarak_km: e.target.value })} placeholder="2.5" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Estimasi Waktu (menit)</label>
-            <input type="number" className="w-full border rounded-lg px-3 py-2" value={formData.estimasi_waktu_menit || ''} onChange={(e) => setFormData({ ...formData, estimasi_waktu_menit: e.target.value })} placeholder="10" />
+            <label className="block text-sm font-medium mb-1">Estimasi Waktu Tempuh (menit)</label>
+            <input type="number" className="w-full border rounded-lg px-3 py-2" value={formData.estimasi_waktu_tempuh_menit || ''} onChange={(e) => setFormData({ ...formData, estimasi_waktu_tempuh_menit: e.target.value })} placeholder="10" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipe Koneksi</label>
+            <select className="w-full border rounded-lg px-3 py-2" value={formData.tipe_koneksi || 'satu_kawasan'} onChange={(e) => setFormData({ ...formData, tipe_koneksi: e.target.value })}>
+              <option value="satu_kawasan">Satu Kawasan</option>
+              <option value="berdekatan">Berdekatan</option>
+              <option value="jauh">Jauh</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Pengaruh T1→T2</label>
+              <input type="number" step="0.1" min="0" max="1" className="w-full border rounded-lg px-3 py-2" value={formData.tingkat_pengaruh_t1_ke_t2 || ''} onChange={(e) => setFormData({ ...formData, tingkat_pengaruh_t1_ke_t2: e.target.value })} placeholder="0.6" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Pengaruh T2→T1</label>
+              <input type="number" step="0.1" min="0" max="1" className="w-full border rounded-lg px-3 py-2" value={formData.tingkat_pengaruh_t2_ke_t1 || ''} onChange={(e) => setFormData({ ...formData, tingkat_pengaruh_t2_ke_t1: e.target.value })} placeholder="0.5" />
+            </div>
           </div>
         </div>
       );
@@ -620,7 +674,6 @@ function renderForm(activeTab, formData, setFormData, tempatList, editingItem, g
   }
 }
 
-// ==================== TABLE RENDERER ====================
 // ==================== TABLE RENDERER ====================
 function renderTable(activeTab, dataList, handleEdit, handleDelete, loading) {
   if (loading) {
@@ -671,18 +724,26 @@ function renderTable(activeTab, dataList, handleEdit, handleDelete, loading) {
               <tr>
                 <th className="p-3 text-left">Dari</th>
                 <th className="p-3 text-left">Ke</th>
+                <th className="p-3 text-left">Tipe</th>
                 <th className="p-3 text-left">Jarak (km)</th>
-                <th className="p-3 text-left">Estimasi Waktu</th>
+                <th className="p-3 text-left">Pengaruh</th>
                 <th className="p-3 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {dataList.map((item) => (
                 <tr key={item.id} className="border-t hover:bg-gray-50">
-                  <td className="p-3">{item.tempat1?.name || '-'}</td>
-                  <td className="p-3">{item.tempat2?.name || '-'}</td>
+                  <td className="p-3 font-medium">{item.tempat1?.name || '-'}</td>
+                  <td className="p-3 font-medium">{item.tempat2?.name || '-'}</td>
+                  <td className="p-3">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                      {item.tipe_koneksi || '-'}
+                    </span>
+                  </td>
                   <td className="p-3">{item.jarak_km || '-'}</td>
-                  <td className="p-3">{item.estimasi_waktu_menit ? `${item.estimasi_waktu_menit} menit` : '-'}</td>
+                  <td className="p-3">
+                    {item.tingkat_pengaruh_t1_ke_t2 ? `${item.tingkat_pengaruh_t1_ke_t2} → ${item.tingkat_pengaruh_t2_ke_t1}` : '-'}
+                  </td>
                   <td className="p-3 text-center space-x-2">
                     <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-800"><Edit size={16} /></button>
                     <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 size={16} /></button>
