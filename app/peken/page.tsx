@@ -3,7 +3,8 @@
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// 1. TAMBAHKAN Suspense DI IMPORT REACT
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Home, MapPin, Store, Users, LayoutDashboard, MessageSquare,
@@ -32,13 +33,14 @@ import { useLocation } from "@/components/LocationProvider";
 import { supabase } from '@/lib/supabaseClient';
 import UploadOptions from "@/app/components/upload/UploadOptions";
 
-export default function PekenPage() {
+// 2. BUAT KOMPONEN KONTEN YANG BERISI LOGIKA ASLI
+function PekenContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, profile, refreshProfile } = useAuth();
   const { location, placeName } = useLocation();
 
-  // 1. SEMUA STATE
+  // (Semua state dan useEffect milikmu tetap di sini tanpa ada yang diubah)
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [activeTab, setActiveTab] = useState('beranda');
   const [manualLocationName, setManualLocationName] = useState(null);
@@ -50,7 +52,6 @@ export default function PekenPage() {
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // 2. STATE MODALS
   const [modals, setModals] = useState({
     daftarOjek: false,
     daftarRewang: false,
@@ -59,7 +60,6 @@ export default function PekenPage() {
     formPanyangan: false
   });
 
-  // 3. FUNCTIONS (DEFINISIKAN DULUAN)
   const toggleModal = useCallback((key, value) => {
     setModals(prev => ({ ...prev, [key]: value }));
   }, []);
@@ -80,7 +80,6 @@ export default function PekenPage() {
     }
   }, [user]);
 
-  // ✅ HANYA SATU DEFINISI handleAddProduct
   const handleAddProduct = useCallback(() => {
     setEditingProduct(null);
     toggleModal('formPanyangan', true);
@@ -93,7 +92,6 @@ export default function PekenPage() {
     window.dispatchEvent(new CustomEvent('refresh-lapak-status'));
   }, [refreshProfile]);
 
-  // 4. useEffect untuk action parameter
   useEffect(() => {
     const action = searchParams.get('action');
     if (!action) return;
@@ -118,7 +116,6 @@ export default function PekenPage() {
     }
   }, [searchParams, router, toggleModal]);
 
-  // 5. useEffect lainnya
   useEffect(() => {
     fetchProfileDirect();
   }, [fetchProfileDirect]);
@@ -156,7 +153,6 @@ export default function PekenPage() {
     };
   }, [refreshProfile]);
 
-  // 6. Derived values
   const isSeller = localProfile?.is_seller === true;
   const isDriver = localProfile?.is_driver === true;
   const isRewang = localProfile?.is_rewang === true;
@@ -170,7 +166,6 @@ export default function PekenPage() {
     return "Pasuruan";
   }, [placeName, manualLocationName]);
 
-  // 7. RETURN JSX (sama seperti sebelumnya)
   return (
     <div className="min-h-screen bg-[#FBFBFE] pb-32 max-w-[420px] mx-auto relative shadow-2xl overflow-x-hidden">
       {/* HEADER FIXED */}
@@ -316,6 +311,15 @@ export default function PekenPage() {
         onOrderSuccess={() => { }}
       />
     </div>
+  );
+}
+
+// 3. EXPORT DEFAULT KOMPONEN YANG DIBUNGKUS SUSPENSE
+export default function PekenPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#FBFBFE] flex items-center justify-center">Loading...</div>}>
+      <PekenContent />
+    </Suspense>
   );
 }
 
