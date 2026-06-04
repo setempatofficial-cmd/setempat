@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Bell, Inbox, ArrowRight, AtSign, MessageSquare, Heart, UserPlus } from "lucide-react";
+import { Loader2, Bell, Inbox, ArrowRight, AtSign, MessageSquare, Heart, Gift, UserPlus } from "lucide-react";
 
 export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   const router = useRouter();
@@ -50,6 +50,13 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
             <UserPlus size={18} className={iconClass} />
           </div>
         );
+      case 'voucher':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
+            <Gift size={18} className={iconClass} />
+          </div>
+        );
+
       default:
         return (
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
@@ -67,6 +74,9 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
       }
       return notif.message;
     }
+    if (notif.type === 'voucher') {
+      return notif.message || "Voucher Anda telah diklaim oleh merchant";
+    }
     return notif.message;
   };
 
@@ -82,6 +92,33 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
       return `/post/${notif.tempat_id}`;
     }
     return null;
+  };
+
+  // ==================== HANDLE KLIK NOTIFIKASI ====================
+  const handleNotificationClick = async (notif) => {
+    if (!notif.is_read) {
+      const updatedNotif = notifications.map(n =>
+        n.id === notif.id ? { ...n, is_read: true } : n
+      );
+      setNotifications(updatedNotif);
+      updateUnreadCount(updatedNotif);
+
+      await supabase
+        .from("warung_info")
+        .update({ is_read: true })
+        .eq("id", notif.id);
+    }
+
+    // 🔥 TAMBAHKAN INI: Jika notifikasi voucher, arahkan ke Rumah Warga
+    if (notif.type === 'voucher') {
+      router.push("/rumah-warga");
+      return;
+    }
+
+    const link = getNotificationLink(notif);
+    if (link) {
+      router.push(link);
+    }
   };
 
   // ==================== FETCH DATA & REALTIME ====================
@@ -133,27 +170,6 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
       supabase.removeChannel(channel);
     };
   }, [user?.id]);
-
-  // ==================== HANDLE KLIK NOTIFIKASI ====================
-  const handleNotificationClick = async (notif) => {
-    if (!notif.is_read) {
-      const updatedNotif = notifications.map(n =>
-        n.id === notif.id ? { ...n, is_read: true } : n
-      );
-      setNotifications(updatedNotif);
-      updateUnreadCount(updatedNotif);
-
-      await supabase
-        .from("warung_info")
-        .update({ is_read: true })
-        .eq("id", notif.id);
-    }
-
-    const link = getNotificationLink(notif);
-    if (link) {
-      router.push(link);
-    }
-  };
 
   // ==================== LOADING STATE ====================
   if (loading) {
@@ -265,7 +281,23 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                   </div>
                 )}
 
-                {isUnread && (
+                {/* Tombol khusus untuk voucher - PAKAI DIV BUKAN BUTTON */}
+                {notif.type === 'voucher' && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push("/rumah-warga");
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-[10px] font-bold transition-all cursor-pointer inline-block"
+                    >
+                      Lihat Poin Saya →
+                    </div>
+                  </div>
+                )}
+
+                {/* Link Detail untuk non-voucher - BUKAN BUTTON */}
+                {isUnread && notif.type !== 'voucher' && (
                   <div className="flex items-center gap-1.5 mt-3 text-orange-500 text-[10px] font-black uppercase tracking-widest">
                     <span>Lihat Detail</span>
                     <ArrowRight size={10} />

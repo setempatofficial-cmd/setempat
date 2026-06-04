@@ -70,32 +70,25 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
     setIsMenuOpen(false);
   };
 
-  const handleShowQR = () => {
-    setQrData(null);
-    setQrMessage("");
+  const handleShowQR = async () => {
+    // Generate token acak
+    const token = crypto.randomUUID() + Date.now();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 15);
+
+    // Simpan token
+    await supabase.from("access_tokens").insert({
+      token: token,
+      user_id: user.id,
+      expires_at: expiresAt.toISOString(),
+      is_used: false
+    });
+
+    // QR Code berisi link + token
+    const qrLink = `https://setempat.id/${username}?token=${token}`;
+    setQrData(qrLink);
     setShowQRPresenter(true);
-    setIsMenuOpen(false);
   };
-
-  useEffect(() => {
-    const handleShowVoucherQR = (event) => {
-      const voucher = event.detail?.voucher;
-      const message = event.detail?.message;
-      const transactionId = event.detail?.transactionId;
-
-      if (voucher && transactionId) {
-        // 🔥 BUAT URL SCAN dengan parameter transaction_id
-        const scanUrl = `https://setempat.id/scan?transaction=${transactionId}&voucher=${encodeURIComponent(voucher.name)}&merchant=${encodeURIComponent(voucher.merchant)}`;
-
-        setQrData(scanUrl);  // ← SEKARANG BERUPA URL!
-        setQrMessage(message || `🎟️ ${voucher.name}\nTunjukkan QR ini ke ${voucher.merchant}`);
-        setShowQRPresenter(true);
-      }
-    };
-
-    window.addEventListener('show-voucher-qr', handleShowVoucherQR);
-    return () => window.removeEventListener('show-voucher-qr', handleShowVoucherQR);
-  }, [user, profile]);
 
   const handleAccessPresensi = () => {
     alert("🚧 Fitur presensi dalam pengembangan");

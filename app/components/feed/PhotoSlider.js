@@ -59,18 +59,15 @@ export default function PhotoSlider({
   onPhotoClick,
   isDetail = false,
 }) {
-
   const router = useRouter();
   const currentTimeKey = useTimeKey();
 
   const [officialPhotosState, setOfficialPhotosState] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [cctvUrlState, setCctvUrlState] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasInitialized, setHasInitialized] = useState(false); // Track if sudah initialize
-  const prevTempatIdRef = useRef(null); // Track perubahan tempatId
+  const prevTempatIdRef = useRef(null);
 
   const sliderRef = useRef(null);
-  const channelRef = useRef(null);
 
   const themeClasses = useMemo(() => {
     if (isHujan) return "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-indigo-200";
@@ -82,22 +79,19 @@ export default function PhotoSlider({
     }
   }, [currentTimeKey, isHujan]);
 
-  // FIX: Reset index foto HANYA saat tempatId berubah (bukan setiap re-render)
+  // FIX: Reset index aman saat tempatId berubah
   useEffect(() => {
-    // Cek apakah tempatId benar-benar berubah
     if (prevTempatIdRef.current !== tempatId) {
       prevTempatIdRef.current = tempatId;
-      setHasInitialized(false); // Reset flag saat ganti tempat
-
       if (setSelectedPhotoIndex) {
         setSelectedPhotoIndex(0);
       }
     }
   }, [tempatId, setSelectedPhotoIndex]);
 
-  // Ambil data dari Supabase
+  // Fetch data awal dari Supabase
   useEffect(() => {
-    if (!tempatId || isNaN(tempatId)) return;
+    if (!tempatId) return;
 
     const fetchData = async () => {
       setIsLoading(true);
@@ -112,10 +106,8 @@ export default function PhotoSlider({
 
         setOfficialPhotosState(normalizeOfficialPhotos(data?.photos));
         setCctvUrlState(data?.image_url || null);
-        setHasInitialized(true);
       } catch (error) {
         console.error('Error fetching data:', error.message);
-        setHasInitialized(true);
       } finally {
         setIsLoading(false);
       }
@@ -124,11 +116,11 @@ export default function PhotoSlider({
     fetchData();
   }, [tempatId]);
 
-  // Realtime subscription - dengan perlindungan agar tidak reset index
+  // Realtime subscription dengan pembersihan timeout (Anti-Memory Leak)
   useEffect(() => {
     if (!tempatId || !supabase) return;
 
-    // Simpan current index sebelum update
+    let timeoutId = null;
     const currentIndex = selectedPhotoIndex;
 
     const channel = supabase
@@ -139,40 +131,35 @@ export default function PhotoSlider({
         table: 'tempat',
         filter: `id=eq.${tempatId}`,
       }, (payload) => {
-        // Update state tanpa mereset index
         setOfficialPhotosState(normalizeOfficialPhotos(payload.new?.photos));
         setCctvUrlState(payload.new?.image_url || null);
 
-        // RESTORE index yang sama setelah update
         if (setSelectedPhotoIndex && currentIndex !== undefined) {
-          // Gunakan setTimeout untuk memastikan state update selesai
-          setTimeout(() => {
+          // Bersihkan timeout sebelumnya jika ada pergerakan cepat
+          if (timeoutId) clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
             setSelectedPhotoIndex(currentIndex);
           }, 0);
         }
       })
       .subscribe();
 
-    channelRef.current = channel;
-
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+      if (timeoutId) clearTimeout(timeoutId);
+      supabase.removeChannel(channel);
     };
   }, [tempatId, selectedPhotoIndex, setSelectedPhotoIndex]);
 
-  // Logic filter media - tanpa mengganggu index
+  // Ambil media saat ini berdasarkan prioritas (CCTV > Warga > Official)
   const currentPhoto = useMemo(() => {
-    // CCTV
+    // 1. Validasi & Ambil CCTV
     if (cctvUrlState && typeof cctvUrlState === 'string' && cctvUrlState.trim() !== "") {
-      const isEmbed = cctvUrlState.includes('pasuruankota.go.id') ||
-        cctvUrlState.includes('cam') ||
-        cctvUrlState.includes('cctv');
+      const urlTrimmed = cctvUrlState.trim();
+      const isEmbed = urlTrimmed.includes('pasuruankota.go.id') || urlTrimmed.includes('cam') || urlTrimmed.includes('cctv');
 
       if (isEmbed) {
         return {
-          url: cctvUrlState.trim(),
+          url: urlTrimmed,
           type: 'official',
           isVideo: false,
           caption: 'Live Streaming',
@@ -183,7 +170,7 @@ export default function PhotoSlider({
       }
     }
 
-    // Foto Warga
+    // 2. Filter & Urutkan Foto Warga sesuai Waktu Sekarang
     if (photos && photos.length > 0) {
       const matchedWargaPhotos = photos.filter(p => {
         const createdAt = p.created_at || p.timestamp;
@@ -211,26 +198,22 @@ export default function PhotoSlider({
       }
     }
 
-    // Foto Official dari props
+    // 3. Ambil Foto Official dari Props
     if (officialPhotosData) {
       const timePhotos = officialPhotosData[currentTimeKey];
-      if (timePhotos && timePhotos.length > 0) {
-        const singlePhoto = timePhotos[0];
-        const targetUrl = singlePhoto?.url || singlePhoto;
-        if (targetUrl) {
-          return { url: targetUrl, type: 'official', isVideo: isVideoUrl(targetUrl), caption: singlePhoto?.caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
-        }
+      const singlePhoto = timePhotos?.[0];
+      const targetUrl = singlePhoto?.url || singlePhoto;
+      if (targetUrl) {
+        return { url: targetUrl, type: 'official', isVideo: isVideoUrl(targetUrl), caption: singlePhoto?.caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
       }
     }
 
-    // Foto Official dari database
+    // 4. Ambil Foto Official dari Database State
     const timePhotosFromDb = officialPhotosState[currentTimeKey];
-    if (timePhotosFromDb && timePhotosFromDb.length > 0) {
-      const singlePhoto = timePhotosFromDb[0];
-      const targetUrl = singlePhoto?.url || singlePhoto;
-      if (targetUrl) {
-        return { url: targetUrl, type: 'official', isVideo: isVideoUrl(targetUrl), caption: timePhotosFromDb[0].caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
-      }
+    const singlePhotoDb = timePhotosFromDb?.[0];
+    const targetUrlDb = singlePhotoDb?.url || singlePhotoDb;
+    if (targetUrlDb) {
+      return { url: targetUrlDb, type: 'official', isVideo: isVideoUrl(targetUrlDb), caption: singlePhotoDb?.caption || 'Suasana', created_at: null, isCctv: false, isEmbed: false };
     }
 
     return null;
@@ -242,63 +225,52 @@ export default function PhotoSlider({
     }
   }, [onPhotoClick, currentPhoto]);
 
-  const handleContextMenu = useCallback((e) => {
-    e.preventDefault();
-  }, []);
-
   return (
     <div
       ref={sliderRef}
-      onContextMenu={handleContextMenu}
+      onContextMenu={(e) => e.preventDefault()}
       className="relative h-full w-full overflow-hidden bg-zinc-950 rounded-t-[30px] rounded-b-none shadow-2xl border border-white/5 group select-none transform-gpu"
     >
       {currentPhoto?.url ? (
         <>
-          <div
-            className="absolute inset-0 z-0 cursor-pointer"
-            onClick={handlePhotoClick}
-          >
-
+          <div className="absolute inset-0 z-0 cursor-pointer" onClick={handlePhotoClick}>
             {currentPhoto.isEmbed ? (
               <div className="absolute inset-0 z-0 w-full h-full overflow-hidden rounded-t-[30px] bg-zinc-950">
-                {/* Iframe full width/height, center dengan object-contain */}
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full">
                   <iframe
                     src={currentPhoto.url}
                     scrolling="no"
                     className="w-full h-full border-0"
-                    style={{
-                      objectFit: 'contain',
-                      aspectRatio: '9/16'
-                    }}
+                    style={{ objectFit: 'contain', aspectRatio: '9/16' }}
                     allow="autoplay; encrypted-media"
                     allowFullScreen
                   />
                 </div>
-
-                <div className="absolute inset-0 bg-transparent cursor-pointer" />
-                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+                {/* Overlay transparan dengan z-index pasti agar onClick div induk bekerja */}
+                <div className="absolute inset-0 bg-transparent z-10 cursor-pointer" />
+                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-20" />
               </div>
             ) : (
               <OptimizedMedia
                 src={currentPhoto.url}
                 className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
                 alt={namaTempat}
-                autoPlay={true}
-                muted={true}
-                loop={true}
+                autoPlay
+                muted
+                loop
                 controls={false}
-                playsInline={true}
+                playsInline
                 fetchPriority={priority ? "high" : "auto"}
                 priority={priority}
               />
             )}
 
-            <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none rounded-t-[30px]" />
-            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none rounded-b-none" />
+            <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/60 via-black/20 to-transparent pointer-events-none rounded-t-[30px] z-20" />
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none rounded-b-none z-20" />
           </div>
 
-          <div className="absolute bottom-4 right-4 z-10 max-w-[60%] text-[10px] tracking-wide text-white transform-gpu pointer-events-none">
+          {/* Label status di pojok kanan bawah */}
+          <div className="absolute bottom-4 right-4 z-30 max-w-[60%] text-[10px] tracking-wide text-white transform-gpu pointer-events-none">
             {currentPhoto.type === 'warga' ? (
               <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full">
                 <Users size={11} className="opacity-80" />
@@ -319,8 +291,10 @@ export default function PhotoSlider({
           </div>
         </>
       ) : (
+        /* Tampilan Fallback jika data foto kosong */
         <div className={`absolute inset-0 flex items-center justify-center p-6 text-center overflow-hidden ${themeClasses}`}>
-          <div className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-t-[30px]"
+          <div
+            className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-t-[30px]"
             style={{
               backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
               backgroundSize: '16px 16px',
@@ -335,16 +309,14 @@ export default function PhotoSlider({
             </div>
 
             <p className="text-[11px] text-white/80 text-center font-mono leading-relaxed tracking-wide max-w-[90%]">
-              {deskripsiTempat || "Menampilkan rekaman visual dan pembaruan aktivitas area sekitar secara real-time."}
+              {deskripsiTempat || "Aktivitas area sekitar secara real-time."}
               <span className="inline-block w-1 h-3 bg-cyan-400 ml-1 animate-pulse" />
             </p>
 
             {!isDetail && (
               <button
                 onClick={() => {
-                  if (tempatId) {
-                    router.push(`/post/${tempatId}`);
-                  }
+                  if (tempatId) router.push(`/post/${tempatId}`);
                 }}
                 className="mt-3 px-4 py-1 bg-cyan-500 text-black font-extrabold text-[9px] uppercase tracking-widest rounded shadow-md hover:bg-cyan-400 active:scale-95 transition-all"
               >
@@ -361,7 +333,7 @@ export default function PhotoSlider({
         </div>
       )}
 
-      {isHujan && <div className="absolute inset-0 pointer-events-none z-[5] bg-indigo-500/5 mix-blend-overlay rounded-t-[30px] rounded-b-none" />}
+      {isHujan && <div className="absolute inset-0 pointer-events-none z-[25] bg-indigo-500/5 mix-blend-overlay rounded-t-[30px] rounded-b-none" />}
     </div>
   );
 }

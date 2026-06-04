@@ -7,6 +7,195 @@ import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
 import { useWeather, getWeatherAsSignal } from "@/hooks/useWeather";
 
+// ==================== CONSTANTS ====================
+const STATUS_CONFIG = {
+  FRESH_REPORT_HOURS: 12,
+  CACHE_TTL_MS: 60000,
+  RECENT_REPORT_HOURS: 2,
+  MAX_PASSIVE_SIGNALS: 4,
+  MAX_DISPLAY_REPORTS: 4
+};
+
+const WEATHER_PRIORITY = {
+  'Hujan Petir': 5,
+  'Hujan Lebat': 5,
+  'Hujan Sedang': 4,
+  'Kabut': 3,
+  'Hujan Ringan': 2
+};
+
+const DEFAULT_WEATHER_LEVEL = 1;
+
+// ==================== HELPER FUNCTIONS ====================
+const getWeatherLevel = (condition) => {
+  if (!condition) return DEFAULT_WEATHER_LEVEL;
+  return WEATHER_PRIORITY[condition] || DEFAULT_WEATHER_LEVEL;
+};
+
+const isWeatherCondition = (condition, type) => {
+  const conditions = {
+    lightRain: ['Hujan Ringan'],
+    moderateRain: ['Hujan Sedang'],
+    heavyRain: ['Hujan Lebat', 'Hujan Petir'],
+    fog: ['Kabut']
+  };
+  return conditions[type]?.includes(condition) ?? false;
+};
+
+const getFreshReports = (reports, maxHours = STATUS_CONFIG.FRESH_REPORT_HOURS) => {
+  if (!reports?.length) return [];
+  const now = Date.now();
+  return reports.filter(report => {
+    if (!report?.created_at) return false;
+    const hoursDiff = (now - new Date(report.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursDiff <= maxHours;
+  });
+};
+
+const getHoursSinceLastReport = (reports) => {
+  if (!reports?.length) return null;
+  const latest = reports[0];
+  if (!latest?.created_at) return null;
+  const hoursDiff = (Date.now() - new Date(latest.created_at).getTime()) / (1000 * 60 * 60);
+  return Math.floor(hoursDiff);
+};
+
+const getRelativeTime = (createdAt) => {
+  if (!createdAt) return null;
+  const diffMin = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+  if (diffMin < 1) return "Baru saja";
+  if (diffMin < 60) return `${diffMin}m lalu`;
+  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}j lalu`;
+  return `${Math.floor(diffMin / 1440)}hari lalu`;
+};
+
+// ==================== SUB-COMPONENTS ====================
+const WeatherBadge = ({ weather, hasFreshData }) => {
+  if (!weather || hasFreshData) return null;
+
+  const getBadgeConfig = () => {
+    if (isWeatherCondition(weather.condition, 'heavyRain')) {
+      return { icon: '⚠️', text: `${weather.icon} ${weather.temp}°`, className: 'text-red-600 bg-red-50 border-red-200 animate-pulse' };
+    }
+    if (isWeatherCondition(weather.condition, 'moderateRain')) {
+      return { icon: '🌧️', text: `${weather.temp}°`, className: 'text-blue-600 bg-blue-50 border-blue-200 animate-pulse' };
+    }
+    if (isWeatherCondition(weather.condition, 'lightRain')) {
+      return { icon: weather.icon, text: `${weather.temp}°`, className: 'text-slate-700 bg-slate-100 border-slate-200' };
+    }
+    if (isWeatherCondition(weather.condition, 'fog')) {
+      return { icon: '🌫️', text: `${weather.temp}°`, className: 'text-amber-600 bg-amber-50 border-amber-200' };
+    }
+    return { icon: '', text: `${weather.temp}°`, className: 'text-slate-400 bg-transparent' };
+  };
+
+  const config = getBadgeConfig();
+  return (
+    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${config.className}`}>
+      {config.icon && `${config.icon} `}{config.text}
+    </span>
+  );
+};
+
+const WeatherDetail = ({ weather, hasFreshData }) => {
+  if (!weather || hasFreshData) return null;
+
+  const isHeavyRain = isWeatherCondition(weather.condition, 'heavyRain');
+  const isModerateRain = isWeatherCondition(weather.condition, 'moderateRain');
+  const isLightRain = isWeatherCondition(weather.condition, 'lightRain');
+  const isFog = isWeatherCondition(weather.condition, 'fog');
+
+  const getRecommendation = () => {
+    if (isHeavyRain) return "⚠️ Hindari aktivitas di luar ruangan jika tidak mendesak.";
+    if (isLightRain) return "☔ Bawa payung atau jas hujan. Jalanan mungkin sedikit licin, kurangi kecepatan.";
+    if (isModerateRain) return "🌧️ Gunakan jas hujan, kurangi kecepatan, dan waspadai genangan air.";
+    if (isFog) return "🌫️ Kurangi kecepatan, nyalakan lampu kendaraan, dan jaga jarak aman.";
+    return null;
+  };
+
+  const getBgClass = () => {
+    if (isHeavyRain) return 'bg-red-50/80 border-red-200';
+    if (isModerateRain) return 'bg-blue-50/80 border-blue-200';
+    if (isLightRain) return 'bg-slate-50/80 border-slate-200';
+    if (isFog) return 'bg-amber-50/80 border-amber-200';
+    return 'bg-blue-50/80 border-blue-200';
+  };
+
+  const getTitleClass = () => {
+    if (isHeavyRain) return 'text-red-700';
+    if (isModerateRain) return 'text-blue-700';
+    if (isLightRain) return 'text-slate-700';
+    if (isFog) return 'text-amber-700';
+    return 'text-blue-700';
+  };
+
+  const recommendation = getRecommendation();
+
+  return (
+    <div className={`p-3 rounded-xl border ${getBgClass()}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">{weather.icon}</span>
+        <span className={`text-xs font-bold uppercase ${getTitleClass()}`}>
+          {isHeavyRain && '⚠️ Peringatan Cuaca Ekstrem'}
+          {isModerateRain && '🌧️ Hujan Sedang'}
+          {isLightRain && '☔ Informasi Hujan Ringan'}
+          {isFog && '🌫️ Kabut'}
+          {!isHeavyRain && !isModerateRain && !isLightRain && !isFog && '🌤️ Informasi Cuaca'}
+        </span>
+      </div>
+      <p className="text-sm font-medium text-slate-700">{weather.statusText}</p>
+
+      <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-200/50">
+        <div className="text-center">
+          <p className="text-[10px] text-slate-500">Suhu</p>
+          <p className="text-sm font-bold text-slate-700">{weather.temp}°C</p>
+        </div>
+        <div className="text-center">
+          <p className="text-[10px] text-slate-500">Kelembaban</p>
+          <p className="text-sm font-bold text-slate-700">{weather.humidity}%</p>
+        </div>
+        <div className="text-center">
+          <p className="text-[10px] text-slate-500">Angin</p>
+          <p className="text-sm font-bold text-slate-700">{weather.windSpeed} km/h</p>
+        </div>
+      </div>
+
+      {recommendation && (
+        <div className={`mt-2 p-2 rounded-lg text-[11px] font-medium ${isHeavyRain ? 'bg-red-100/50 text-red-700' :
+            isModerateRain ? 'bg-blue-100/50 text-blue-700' :
+              isLightRain ? 'bg-slate-100/50 text-slate-700' :
+                'bg-amber-100/50 text-amber-700'
+          }`}>
+          {recommendation}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AvatarGroup = ({ reports, count, type }) => {
+  const displayReports = reports?.slice(0, STATUS_CONFIG.MAX_DISPLAY_REPORTS) || [];
+
+  return (
+    <div className="flex -space-x-1.5 overflow-hidden">
+      {displayReports.map((report, idx) => (
+        <div key={idx} className="w-5 h-5 rounded-full bg-amber-100 border border-white flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">
+          {report.user_avatar ? (
+            <img
+              src={report.user_avatar}
+              className="h-full w-full object-cover rounded-full"
+              alt=""
+              loading="lazy"
+              onError={(e) => e.target.style.display = 'none'}
+            />
+          ) : report.user_name?.charAt(0).toUpperCase() || (type === 'warga' ? 'W' : '👤')}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ==================== MAIN COMPONENT ====================
 export default function StatusIsland({
   item,
   tempatId = null,
@@ -23,7 +212,7 @@ export default function StatusIsland({
   const passiveCacheRef = useRef(new Map());
   const abortControllerRef = useRef(null);
 
-  const { weather, loading: weatherLoading, error: weatherError, refreshWeather } = useWeather(locationName);
+  const { weather, refreshWeather } = useWeather(locationName);
 
   const isExpanded = externalExpanded ?? internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
@@ -37,7 +226,7 @@ export default function StatusIsland({
   const allReportsRaw = allReports?.length ? allReports : (realtimeData?.recentReports || item?.laporan_terbaru || []);
 
   const reportStats = useMemo(() => {
-    const fresh = getFreshReports(allReportsRaw, 12);
+    const fresh = getFreshReports(allReportsRaw);
     const hoursSince = getHoursSinceLastReport(allReportsRaw);
     return {
       freshReports: fresh,
@@ -50,6 +239,7 @@ export default function StatusIsland({
 
   const { freshReports, latestFreshReport, hoursSinceLastReport, hasFreshData, freshCount } = reportStats;
 
+  // Fetch passive signals
   useEffect(() => {
     if (!targetId || hasFreshData) {
       setPassiveSignal(null);
@@ -58,26 +248,22 @@ export default function StatusIsland({
 
     const cacheKey = `${targetId}_with_weather`;
     const cached = passiveCacheRef.current.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < 60000) {
+    if (cached && (Date.now() - cached.timestamp) < STATUS_CONFIG.CACHE_TTL_MS) {
       setPassiveSignal(cached.data);
       return;
     }
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-
     let isMounted = true;
     setIsLoadingPassive(true);
 
     const fetchSignals = async () => {
       try {
-        const result = await getPassiveSignals(targetId, 4);
-
+        const result = await getPassiveSignals(targetId, STATUS_CONFIG.MAX_PASSIVE_SIGNALS);
         let finalResult = result;
+
         if (weather && !hasFreshData) {
           const weatherSignal = getWeatherAsSignal(weather);
           finalResult = {
@@ -93,37 +279,21 @@ export default function StatusIsland({
 
         if (isMounted && !abortController.signal.aborted) {
           setPassiveSignal(finalResult);
-          passiveCacheRef.current.set(cacheKey, {
-            data: finalResult,
-            timestamp: Date.now()
-          });
+          passiveCacheRef.current.set(cacheKey, { data: finalResult, timestamp: Date.now() });
         }
       } catch (err) {
-        if (isMounted && !abortController.signal.aborted) {
-          if (weather && !hasFreshData) {
-            const weatherOnly = {
-              weather: getWeatherAsSignal(weather),
-              total: 1,
-              hasWeatherAlert: true
-            };
-            setPassiveSignal(weatherOnly);
-          } else {
-            setPassiveSignal(null);
-          }
+        if (isMounted && !abortController.signal.aborted && weather && !hasFreshData) {
+          setPassiveSignal({ weather: getWeatherAsSignal(weather), total: 1, hasWeatherAlert: true });
+        } else if (isMounted && !abortController.signal.aborted) {
+          setPassiveSignal(null);
         }
       } finally {
-        if (isMounted && !abortController.signal.aborted) {
-          setIsLoadingPassive(false);
-        }
+        if (isMounted && !abortController.signal.aborted) setIsLoadingPassive(false);
       }
     };
 
     fetchSignals();
-
-    return () => {
-      isMounted = false;
-      abortController.abort();
-    };
+    return () => { isMounted = false; abortController.abort(); };
   }, [targetId, hasFreshData, weather]);
 
   const seed = targetId || "default";
@@ -132,23 +302,16 @@ export default function StatusIsland({
     return getDefaultTextByTime(seed, category);
   }, [seed, item?.category]);
 
-  // Helper untuk menentukan level cuaca
-  const getWeatherLevel = (condition) => {
-    if (!condition) return 1;
-    if (condition === 'Hujan Lebat' || condition === 'Hujan Petir') return 5;
-    if (condition === 'Hujan Sedang') return 4;
-    if (condition === 'Hujan Ringan') return 2;
-    if (condition === 'Kabut') return 3;
-    return 1;
-  };
-
-  // Update status dengan gradasi cuaca yang lebih baik dan prioritas yang benar
+  // Build status with priority system
   const status = useMemo(() => {
     const weatherLevel = passiveSignal?.weather ? getWeatherLevel(passiveSignal.weather.condition) : 0;
-    const isLightRain = passiveSignal?.weather?.condition === 'Hujan Ringan';
+    const isLightRain = isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain');
+    const isModerateRain = isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain');
+    const isHeavyRain = isWeatherCondition(passiveSignal?.weather?.condition, 'heavyRain');
+    const isFog = isWeatherCondition(passiveSignal?.weather?.condition, 'fog');
 
-    // PRIORITAS 1: Weather EXTREME (Hujan Lebat, Hujan Petir)
-    if (weatherLevel >= 4 && !hasFreshData) {
+    // Priority 1: Extreme Weather
+    if ((isHeavyRain || weatherLevel >= 4) && !hasFreshData) {
       return {
         text: passiveSignal.weather.statusText,
         color: "text-red-600",
@@ -160,8 +323,8 @@ export default function StatusIsland({
       };
     }
 
-    // PRIORITAS 2: Kabut
-    if (passiveSignal?.weather?.condition === 'Kabut' && !hasFreshData) {
+    // Priority 2: Fog
+    if (isFog && !hasFreshData) {
       return {
         text: `🌫️ Kabut (${passiveSignal.weather.temp}°C)`,
         color: "text-amber-600",
@@ -173,8 +336,8 @@ export default function StatusIsland({
       };
     }
 
-    // PRIORITAS 3: Hujan Sedang
-    if (passiveSignal?.weather?.condition === 'Hujan Sedang' && !hasFreshData) {
+    // Priority 3: Moderate Rain
+    if (isModerateRain && !hasFreshData) {
       return {
         text: `🌧️ Hujan Sedang (${passiveSignal.weather.temp}°C)`,
         color: "text-blue-600",
@@ -186,11 +349,11 @@ export default function StatusIsland({
       };
     }
 
-    // PRIORITAS 4: Hujan Ringan - DITINGKATKAN PRIORITASNYA
+    // Priority 4: Light Rain
     if (isLightRain && !hasFreshData) {
       return {
         text: `🌧️ Hujan Ringan (${passiveSignal.weather.temp}°C)`,
-        color: "text-slate-700", // Lebih gelap agar lebih terlihat
+        color: "text-slate-700",
         bgColor: "bg-slate-400",
         icon: "🌧️",
         badge: "HUJAN RINGAN",
@@ -199,12 +362,12 @@ export default function StatusIsland({
       };
     }
 
-    // PRIORITAS 5: Fresh data (laporan warga)
+    // Priority 5: Fresh Reports
     if (hasFreshData && latestFreshReport) {
       const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
       const trafficCondition = latestFreshReport?.traffic_condition;
       const isRecent = latestFreshReport?.created_at
-        ? (Date.now() - new Date(latestFreshReport.created_at).getTime()) < (2 * 60 * 60 * 1000)
+        ? (Date.now() - new Date(latestFreshReport.created_at).getTime()) < (STATUS_CONFIG.RECENT_REPORT_HOURS * 60 * 60 * 1000)
         : false;
 
       return generateStatusText({
@@ -220,14 +383,14 @@ export default function StatusIsland({
       });
     }
 
-    // PRIORITAS 6: Passive signal (aktivitas ramai/minat) - hanya jika TIDAK ADA cuaca
+    // Priority 6: Passive Signals (no weather)
     if (passiveSignal?.total > 0 && !hasFreshData && !passiveSignal?.weather) {
       const passiveStatus = getPassiveStatusText(passiveSignal);
       if (passiveStatus) return passiveStatus;
     }
 
-    // PRIORITAS 7: Cuaca Normal (Cerah/Berawan)
-    if (passiveSignal?.weather && !hasFreshData && weatherLevel === 1) {
+    // Priority 7: Normal Weather
+    if (passiveSignal?.weather && !hasFreshData && weatherLevel === DEFAULT_WEATHER_LEVEL) {
       return {
         text: defaultSuasana,
         color: "text-slate-500",
@@ -239,16 +402,14 @@ export default function StatusIsland({
       };
     }
 
-    // PRIORITAS 8: Default text
+    // Priority 8: Default
     return {
       text: defaultSuasana,
       color: "text-slate-500",
       bgColor: "bg-slate-500",
       icon: "📍",
       badge: "NORMAL",
-      vibe: hoursSinceLastReport
-        ? `Belum ada laporan dalam ${hoursSinceLastReport} jam`
-        : "Belum ada laporan",
+      vibe: hoursSinceLastReport ? `Belum ada laporan dalam ${hoursSinceLastReport} jam` : "Belum ada laporan",
       level: 1,
     };
   }, [hasFreshData, latestFreshReport, freshCount, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
@@ -256,34 +417,26 @@ export default function StatusIsland({
   const ringkasanMultiUser = useMemo(() => {
     if (hasFreshData && freshReports.length) {
       let ringkasan = generateRingkasanMultiUser(freshReports, item?.category || "general");
-      // Tambah info cuaca jika signifikan (termasuk hujan ringan)
-      if (weather && (weather.condition === 'Hujan Ringan' || weather.condition === 'Hujan Sedang' || weather.condition === 'Hujan Lebat' || weather.condition === 'Hujan Petir' || weather.condition === 'Kabut')) {
-        ringkasan += ` ☁️ Cuaca ${weather.short} ${weather.temp}°C, ${weather.condition === 'Hujan Ringan' ? 'jangan lupa bawa payung.' : 'waspada saat bepergian.'}`;
+      if (weather && (isWeatherCondition(weather.condition, 'lightRain') ||
+        isWeatherCondition(weather.condition, 'moderateRain') ||
+        isWeatherCondition(weather.condition, 'heavyRain') ||
+        isWeatherCondition(weather.condition, 'fog'))) {
+        const isLightRain = isWeatherCondition(weather.condition, 'lightRain');
+        ringkasan += ` ☁️ Cuaca ${weather.short} ${weather.temp}°C, ${isLightRain ? 'jangan lupa bawa payung.' : 'waspada saat bepergian.'}`;
       }
       return ringkasan;
     }
 
     if (passiveSignal?.weather) {
-      const weatherInfo = passiveSignal.weather;
-      if (weatherInfo.isExtreme) {
-        return `⚠️ PERINGATAN CUACA EKSTREM: ${weatherInfo.statusText}. ${weatherInfo.vibe} Hindari aktivitas luar ruangan jika tidak perlu.`;
-      }
-      if (weatherInfo.isWarning && weatherInfo.condition !== 'Hujan Ringan') {
-        return `🌧️ INFO CUACA: ${weatherInfo.statusText}. ${weatherInfo.vibe} Bawa perlengkapan hujan jika berpergian.`;
-      }
-      if (weatherInfo.condition === 'Hujan Ringan') {
-        return `☔ HUJAN RINGAN: ${weatherInfo.temp}°C, kelembaban ${weatherInfo.humidity}%. Jangan lupa bawa payung, jalanan mungkin sedikit licin.`;
-      }
-      if (weatherInfo.condition === 'Kabut') {
-        return `🌫️ KABUT: ${weatherInfo.temp}°C, jarak pandang terbatas. Kurangi kecepatan dan nyalakan lampu.`;
-      }
-      return `☀️ Cuaca: ${weatherInfo.statusText}. Kondisi mendukung aktivitas normal.`;
+      const w = passiveSignal.weather;
+      if (w.isExtreme) return `⚠️ PERINGATAN CUACA EKSTREM: ${w.statusText}. ${w.vibe} Hindari aktivitas luar ruangan jika tidak perlu.`;
+      if (w.isWarning && !isWeatherCondition(w.condition, 'lightRain')) return `🌧️ INFO CUACA: ${w.statusText}. ${w.vibe} Bawa perlengkapan hujan jika berpergian.`;
+      if (isWeatherCondition(w.condition, 'lightRain')) return `☔ HUJAN RINGAN: ${w.temp}°C, kelembaban ${w.humidity}%. Jangan lupa bawa payung, jalanan mungkin sedikit licin.`;
+      if (isWeatherCondition(w.condition, 'fog')) return `🌫️ KABUT: ${w.temp}°C, jarak pandang terbatas. Kurangi kecepatan dan nyalakan lampu.`;
+      return `☀️ Cuaca: ${w.statusText}. Kondisi mendukung aktivitas normal.`;
     }
 
-    if (passiveSignal?.total > 0) {
-      return getPassiveRingkasan(passiveSignal, item?.name);
-    }
-
+    if (passiveSignal?.total > 0) return getPassiveRingkasan(passiveSignal, item?.name);
     return "Belum ada laporan terbaru dari warga sekitar.";
   }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal, weather]);
 
@@ -294,45 +447,31 @@ export default function StatusIsland({
     return num < 1 ? `${Math.round(num * 1000)} m` : `${num.toFixed(1)} km`;
   }, [item?.distance]);
 
-  const waktuUpdate = useMemo(() => {
-    if (!latestFreshReport?.created_at) return null;
-    const diffMin = Math.floor((Date.now() - new Date(latestFreshReport.created_at).getTime()) / 60000);
-    if (diffMin < 1) return "Baru saja";
-    if (diffMin < 60) return `${diffMin}m lalu`;
-    if (diffMin < 1440) return `${Math.floor(diffMin / 60)}j lalu`;
-    return `${Math.floor(diffMin / 1440)}hari lalu`;
-  }, [latestFreshReport]);
+  const waktuUpdate = useMemo(() => getRelativeTime(latestFreshReport?.created_at), [latestFreshReport]);
 
-  // Hujan ringan dan semua kondisi cuaca bisa trigger expand
-  const canExpand =
-    (status.level >= 2 && hasFreshData) || // Ubah dari level 3 ke level 2
-    (passiveSignal?.weather?.isExtreme) ||
-    (passiveSignal?.weather?.condition === 'Hujan Sedang') ||
-    (passiveSignal?.weather?.condition === 'Hujan Ringan') || // Tambahkan hujan ringan
-    (passiveSignal?.weather?.condition === 'Kabut') ||
-    (passiveSignal?.total > 0); // Ubah dari >1 ke >0
+  const canExpand = (status.level >= 2 && hasFreshData) ||
+    passiveSignal?.weather?.isExtreme ||
+    isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') ||
+    isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ||
+    isWeatherCondition(passiveSignal?.weather?.condition, 'fog') ||
+    (passiveSignal?.total > 0);
 
-  // Glow untuk semua kondisi cuaca termasuk hujan ringan
-  const glowStyle = (hasFreshData && status.level >= 2)
-    ? 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20'
-    : (passiveSignal?.weather?.isExtreme)
-      ? 'shadow-[0_0_20px_-3px_rgba(220,38,38,0.2)] border-red-500/30 animate-pulse'
-      : (passiveSignal?.weather?.condition === 'Hujan Sedang')
-        ? 'shadow-[0_0_15px_-3px_rgba(59,130,246,0.15)] border-blue-500/20'
-        : (passiveSignal?.weather?.condition === 'Hujan Ringan')
-          ? 'shadow-[0_0_10px_-3px_rgba(100,116,139,0.15)] border-slate-300/40' // Glow subtle untuk hujan ringan
-          : (passiveSignal?.weather?.condition === 'Kabut')
-            ? 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20'
-            : (passiveSignal?.total > 0)
-              ? 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20'
-              : 'border-slate-100/80 shadow-sm';
+  const getGlowStyle = () => {
+    if (hasFreshData && status.level >= 2) return 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20';
+    if (passiveSignal?.weather?.isExtreme) return 'shadow-[0_0_20px_-3px_rgba(220,38,38,0.2)] border-red-500/30 animate-pulse';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain')) return 'shadow-[0_0_15px_-3px_rgba(59,130,246,0.15)] border-blue-500/20';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain')) return 'shadow-[0_0_10px_-3px_rgba(100,116,139,0.15)] border-slate-300/40';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'fog')) return 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20';
+    if (passiveSignal?.total > 0) return 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20';
+    return 'border-slate-100/80 shadow-sm';
+  };
 
   return (
     <div className="mx-3 -mt-5 relative z-10 transition-all duration-300">
       <div
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         className={`backdrop-blur-md bg-white/90 p-3.5 flex flex-col rounded-2xl border transition-all duration-300
-          ${glowStyle}
+          ${getGlowStyle()}
           ${canExpand ? 'cursor-pointer hover:bg-white active:scale-[0.99]' : ''}
           ${isExpanded ? 'rounded-b-none pb-2' : ''}
         `}
@@ -344,13 +483,11 @@ export default function StatusIsland({
               <p className={`text-xs font-black tracking-wide uppercase truncate ${status.color}`}>
                 {status.text}
               </p>
-              {hasFreshData && (
-                <span className="text-[10px] text-slate-400 font-medium">Laporan Aktif Warga</span>
-              )}
-              {!hasFreshData && passiveSignal?.weather?.condition === 'Hujan Ringan' && (
+              {hasFreshData && <span className="text-[10px] text-slate-400 font-medium">Laporan Aktif Warga</span>}
+              {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') && (
                 <span className="text-[10px] text-slate-500 font-medium animate-pulse">☔ Hujan ringan, bawa payung</span>
               )}
-              {!hasFreshData && passiveSignal?.weather?.condition === 'Hujan Sedang' && (
+              {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') && (
                 <span className="text-[10px] text-blue-500 font-medium animate-pulse">🌧️ Hujan sedang, waspada</span>
               )}
               {!hasFreshData && passiveSignal?.weather?.isExtreme && (
@@ -363,41 +500,7 @@ export default function StatusIsland({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Weather badge dengan gradasi lengkap */}
-            {weather && !hasFreshData && (
-              <>
-                {/* Hujan Lebat/Petir */}
-                {(weather.condition === 'Hujan Lebat' || weather.condition === 'Hujan Petir') && (
-                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg border text-red-600 bg-red-50 border-red-200 animate-pulse">
-                    ⚠️ {weather.icon} {weather.temp}°
-                  </span>
-                )}
-                {/* Hujan Sedang */}
-                {weather.condition === 'Hujan Sedang' && (
-                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg border text-blue-600 bg-blue-50 border-blue-200 animate-pulse">
-                    🌧️ {weather.temp}°
-                  </span>
-                )}
-                {/* Hujan Ringan - lebih terlihat */}
-                {weather.condition === 'Hujan Ringan' && (
-                  <span className="text-[10px] font-medium px-2.5 py-1 rounded-lg text-slate-700 bg-slate-100 border border-slate-200">
-                    {weather.icon} {weather.temp}°
-                  </span>
-                )}
-                {/* Kabut */}
-                {weather.condition === 'Kabut' && (
-                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg border text-amber-600 bg-amber-50 border-amber-200">
-                    🌫️ {weather.temp}°
-                  </span>
-                )}
-                {/* Cerah/Berawan - minimal */}
-                {(weather.condition === 'Cerah' || weather.condition === 'Cerah Berawan' || weather.condition === 'Berawan') && (
-                  <span className="text-[10px] text-slate-400 bg-transparent px-1">
-                    {weather.temp}°
-                  </span>
-                )}
-              </>
-            )}
+            <WeatherBadge weather={weather} hasFreshData={hasFreshData} />
 
             {passiveSignal && !hasFreshData && passiveSignal.total > 0 && !passiveSignal?.weather && (
               <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
@@ -434,92 +537,25 @@ export default function StatusIsland({
       {isExpanded && canExpand && (
         <div className="bg-white/95 backdrop-blur-md rounded-b-2xl border-x border-b border-slate-100/80 shadow-lg shadow-slate-100/50 overflow-hidden animate-in slide-in-from-top-1 duration-200">
           <div className="p-4 pt-1 space-y-4">
-            {/* Weather Alert Section - untuk SEMUA kondisi cuaca termasuk hujan ringan */}
-            {passiveSignal?.weather && !hasFreshData && (
-              <div className={`p-3 rounded-xl border ${passiveSignal.weather.isExtreme ? 'bg-red-50/80 border-red-200' :
-                passiveSignal.weather.condition === 'Hujan Sedang' ? 'bg-blue-50/80 border-blue-200' :
-                  passiveSignal.weather.condition === 'Hujan Ringan' ? 'bg-slate-50/80 border-slate-200' :
-                    passiveSignal.weather.condition === 'Kabut' ? 'bg-amber-50/80 border-amber-200' :
-                      'bg-blue-50/80 border-blue-200'
-                }`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">{passiveSignal.weather.icon}</span>
-                  <span className={`text-xs font-bold uppercase ${passiveSignal.weather.isExtreme ? 'text-red-700' :
-                    passiveSignal.weather.condition === 'Hujan Sedang' ? 'text-blue-700' :
-                      passiveSignal.weather.condition === 'Hujan Ringan' ? 'text-slate-700' :
-                        passiveSignal.weather.condition === 'Kabut' ? 'text-amber-700' :
-                          'text-blue-700'
-                    }`}>
-                    {passiveSignal.weather.isExtreme && '⚠️ Peringatan Cuaca Ekstrem'}
-                    {passiveSignal.weather.condition === 'Hujan Sedang' && '🌧️ Hujan Sedang'}
-                    {passiveSignal.weather.condition === 'Hujan Ringan' && '☔ Informasi Hujan Ringan'}
-                    {passiveSignal.weather.condition === 'Kabut' && '🌫️ Kabut'}
-                    {!passiveSignal.weather.isExtreme && !passiveSignal.weather.condition?.includes('Hujan') && passiveSignal.weather.condition !== 'Kabut' && '🌤️ Informasi Cuaca'}
-                  </span>
-                </div>
-                <p className="text-sm font-medium text-slate-700">
-                  {passiveSignal.weather.statusText}
-                </p>
-                <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-200/50">
-                  <div className="text-center">
-                    <p className="text-[10px] text-slate-500">Suhu</p>
-                    <p className="text-sm font-bold text-slate-700">{weather?.temp}°C</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-slate-500">Kelembaban</p>
-                    <p className="text-sm font-bold text-slate-700">{weather?.humidity}%</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-slate-500">Angin</p>
-                    <p className="text-sm font-bold text-slate-700">{weather?.windSpeed} km/h</p>
-                  </div>
-                </div>
-                {passiveSignal.weather.isExtreme && (
-                  <div className="mt-2 p-2 bg-red-100/50 rounded-lg text-[11px] text-red-700 font-medium">
-                    ⚠️ {passiveSignal.weather.vibe} Hindari aktivitas di luar ruangan jika tidak mendesak.
-                  </div>
-                )}
-                {passiveSignal.weather.condition === 'Hujan Ringan' && (
-                  <div className="mt-2 p-2 bg-slate-100/50 rounded-lg text-[11px] text-slate-700">
-                    ☔ Rekomendasi: Bawa payung atau jas hujan. Jalanan mungkin sedikit licin, kurangi kecepatan berkendara.
-                  </div>
-                )}
-                {passiveSignal.weather.condition === 'Hujan Sedang' && (
-                  <div className="mt-2 p-2 bg-blue-100/50 rounded-lg text-[11px] text-blue-700">
-                    🌧️ Rekomendasi: Gunakan jas hujan, kurangi kecepatan, dan waspadai genangan air.
-                  </div>
-                )}
-                {passiveSignal.weather.condition === 'Kabut' && (
-                  <div className="mt-2 p-2 bg-amber-100/50 rounded-lg text-[11px] text-amber-700">
-                    🌫️ Rekomendasi: Kurangi kecepatan, nyalakan lampu kendaraan, dan jaga jarak aman.
-                  </div>
-                )}
-              </div>
-            )}
+            <WeatherDetail weather={passiveSignal?.weather} hasFreshData={hasFreshData} />
 
             {/* Context Summary Box */}
             <div className={`p-3 rounded-xl border text-[13px] leading-relaxed shadow-inner
-              ${hasFreshData
-                ? 'bg-amber-50/40 border-amber-100 text-slate-700'
-                : passiveSignal?.weather?.isExtreme
-                  ? 'bg-red-50/40 border-red-100'
-                  : passiveSignal?.weather?.condition === 'Hujan Ringan'
-                    ? 'bg-slate-50/40 border-slate-200'
-                    : 'bg-purple-50/40 border-purple-100 text-slate-700'}
+              ${hasFreshData ? 'bg-amber-50/40 border-amber-100 text-slate-700' :
+                passiveSignal?.weather?.isExtreme ? 'bg-red-50/40 border-red-100' :
+                  isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'bg-slate-50/40 border-slate-200' :
+                    'bg-purple-50/40 border-purple-100 text-slate-700'}
             `}>
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-[9px] font-extrabold uppercase tracking-widest ${hasFreshData ? 'text-amber-600' :
-                  passiveSignal?.weather?.isExtreme ? 'text-red-600' :
-                    passiveSignal?.weather?.condition === 'Hujan Ringan' ? 'text-slate-600' :
-                      'text-purple-600'
+                    passiveSignal?.weather?.isExtreme ? 'text-red-600' :
+                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'text-slate-600' :
+                        'text-purple-600'
                   }`}>
-                  {hasFreshData
-                    ? `💬 Ringkasan ${freshCount} Warga`
-                    : passiveSignal?.weather?.isExtreme
-                      ? '⚠️ Peringatan Cuaca'
-                      : passiveSignal?.weather?.condition === 'Hujan Ringan'
-                        ? '☔ Info Cuaca'
-                        : '👀 Analisis Situasi'}
+                  {hasFreshData ? `💬 Ringkasan ${freshCount} Warga` :
+                    passiveSignal?.weather?.isExtreme ? '⚠️ Peringatan Cuaca' :
+                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Info Cuaca' :
+                        '👀 Analisis Situasi'}
                 </span>
                 {!hasFreshData && passiveSignal?.total > 0 && (
                   <span className="text-[9px] text-slate-400 font-medium">4 jam terakhir</span>
@@ -532,30 +568,16 @@ export default function StatusIsland({
 
               {/* Avatar Pile */}
               <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-100">
-                <div className="flex -space-x-1.5 overflow-hidden">
-                  {hasFreshData
-                    ? freshReports.slice(0, 4).map((report, idx) => (
-                      <div key={idx} className="w-5 h-5 rounded-full bg-amber-100 border border-white flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">
-                        {report.user_avatar ? (
-                          <img src={report.user_avatar} className="h-full w-full object-cover rounded-full" alt="" loading="lazy" />
-                        ) : report.user_name?.charAt(0).toUpperCase() || "W"}
-                      </div>
-                    ))
-                    : passiveSignal?.total > 0 && Array(Math.min(passiveSignal.total, 4)).fill().map((_, idx) => (
-                      <div key={idx} className="w-5 h-5 rounded-full bg-purple-100 border border-white flex items-center justify-center text-[9px] shrink-0">
-                        👤
-                      </div>
-                    ))
-                  }
-                </div>
+                {hasFreshData ? (
+                  <AvatarGroup reports={freshReports} count={freshCount} type="warga" />
+                ) : passiveSignal?.total > 0 && (
+                  <AvatarGroup reports={Array(Math.min(passiveSignal.total, 4)).fill({})} count={passiveSignal.total} type="passive" />
+                )}
                 <span className="text-[10px] text-slate-400 font-medium">
-                  {hasFreshData
-                    ? `${freshCount} warga ikut bersuara`
-                    : passiveSignal?.weather?.isExtreme
-                      ? '⚠️ Tetap waspada'
-                      : passiveSignal?.weather?.condition === 'Hujan Ringan'
-                        ? '☔ Siapkan perlengkapan hujan'
-                        : `${passiveSignal?.total || 0} interaksi lokal`}
+                  {hasFreshData ? `${freshCount} warga ikut bersuara` :
+                    passiveSignal?.weather?.isExtreme ? '⚠️ Tetap waspada' :
+                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Siapkan perlengkapan hujan' :
+                        `${passiveSignal?.total || 0} interaksi lokal`}
                 </span>
               </div>
             </div>
@@ -576,11 +598,11 @@ export default function StatusIsland({
                 {weather && !hasFreshData && (
                   <div className="border-l border-slate-100 pl-4 flex flex-col gap-0.5">
                     <span className="font-medium text-[9px] text-slate-400">Cuaca</span>
-                    <span className={`font-extrabold text-[11px] ${weather.condition === 'Hujan Lebat' || weather.condition === 'Hujan Petir' ? 'text-red-600' :
-                      weather.condition === 'Hujan Sedang' ? 'text-blue-600' :
-                        weather.condition === 'Hujan Ringan' ? 'text-slate-700' :
-                          weather.condition === 'Kabut' ? 'text-amber-600' :
-                            'text-slate-500'
+                    <span className={`font-extrabold text-[11px] ${isWeatherCondition(weather.condition, 'heavyRain') ? 'text-red-600' :
+                        isWeatherCondition(weather.condition, 'moderateRain') ? 'text-blue-600' :
+                          isWeatherCondition(weather.condition, 'lightRain') ? 'text-slate-700' :
+                            isWeatherCondition(weather.condition, 'fog') ? 'text-amber-600' :
+                              'text-slate-500'
                       }`}>
                       {weather.icon} {weather.temp}°
                     </span>
@@ -600,22 +622,3 @@ export default function StatusIsland({
     </div>
   );
 }
-
-// Helper functions
-const getFreshReports = (reports, maxHours = 12) => {
-  if (!reports?.length) return [];
-  const now = Date.now();
-  return reports.filter(report => {
-    if (!report?.created_at) return false;
-    const hoursDiff = (now - new Date(report.created_at).getTime()) / (1000 * 60 * 60);
-    return hoursDiff <= maxHours;
-  });
-};
-
-const getHoursSinceLastReport = (reports) => {
-  if (!reports?.length) return null;
-  const latest = reports[0];
-  if (!latest?.created_at) return null;
-  const hoursDiff = (Date.now() - new Date(latest.created_at).getTime()) / (1000 * 60 * 60);
-  return Math.floor(hoursDiff);
-};

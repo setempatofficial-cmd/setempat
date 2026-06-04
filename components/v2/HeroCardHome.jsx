@@ -23,12 +23,12 @@ const normalizeOfficialPhotos = (photos) => {
 const officialPhotosCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
-export default function HeroCard({ 
-  tempatId, 
-  namaTempat, 
+export default function HeroCard({
+  tempatId,
+  namaTempat,
   status = "LANCAR", // Default status jika tidak ada
   photos = [],
-  priority = true 
+  priority = true
 }) {
   const [timeKey, setTimeKey] = useState(() => getIndonesianTimeLabel().toLowerCase());
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
@@ -102,13 +102,12 @@ export default function HeroCard({
           <h2 className="text-2xl font-bold text-white tracking-tight leading-none">
             {namaTempat}
           </h2>
-          
+
           <div className="flex items-center gap-2 mt-1">
             {/* Status Indicator */}
-            <div className={`px-2.5 py-0.5 rounded-full flex items-center gap-1.5 border ${
-              status === 'LANCAR' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 
+            <div className={`px-2.5 py-0.5 rounded-full flex items-center gap-1.5 border ${status === 'LANCAR' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
               'bg-orange-500/10 border-orange-500/20 text-orange-400'
-            }`}>
+              }`}>
               <div className={`w-1.5 h-1.5 rounded-full ${status === 'LANCAR' ? 'bg-emerald-500' : 'bg-orange-500'} animate-pulse`} />
               <span className="text-[10px] font-bold tracking-widest uppercase">{status}</span>
             </div>
@@ -118,10 +117,10 @@ export default function HeroCard({
 
         {/* Info Ringkas AI (Hanya 1 baris, tidak makan tempat) */}
         <div className="mt-4 flex items-start gap-2 text-white/70 max-w-[85%]">
-           <Activity size={14} className="mt-0.5 text-cyan-400 shrink-0" />
-           <p className="text-xs leading-relaxed line-clamp-1 italic font-light">
-             Lalu lintas lancar di {namaTempat}, aktivitas warga terpantau normal.
-           </p>
+          <Activity size={14} className="mt-0.5 text-cyan-400 shrink-0" />
+          <p className="text-xs leading-relaxed line-clamp-1 italic font-light">
+            Lalu lintas lancar di {namaTempat}, aktivitas warga terpantau normal.
+          </p>
         </div>
       </div>
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { MapPin, Activity, RefreshCw } from "lucide-react";
+import { useState, useEffect, useMemo, forwardRef } from "react";
+import { motion } from "framer-motion";
+import { MapPin, Activity, RefreshCw, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getIndonesianTimeLabel } from "@/utils/timeUtils";
 import OptimizedMedia from "@/components/OptimizedMedia";
@@ -52,7 +53,7 @@ const getMediaUrl = (item) => {
   return null;
 };
 
-export default function HeroCard({
+const HeroCard = forwardRef(({
   tempatId,
   namaTempat,
   status = "LANCAR",
@@ -66,7 +67,10 @@ export default function HeroCard({
   onBackToOriginal,
   userName,
   userAvatar,
-}) {
+  isStoryOpen = false,
+  onOpenStoryTrip,
+  totalLaporanFoto = 0
+}, ref) => {
   const [timeKey] = useState(() => getIndonesianTimeLabel().toLowerCase());
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -140,12 +144,33 @@ export default function HeroCard({
   }, [userName]);
 
   if (isLoading && currentPhotos.length === 0 && !videoUrl) {
-    return <div className="w-full aspect-[1/1] bg-zinc-800/20 animate-pulse rounded-2xl" />;
+    return <div className="w-full aspect-[4/3] bg-zinc-800/20 animate-pulse rounded-2xl mb-4" />;
   }
 
   return (
-    <div className="relative w-full mb-4">
-      <div className="relative aspect-[1/1] w-full overflow-hidden rounded-2xl bg-black/50 border border-white/10 group shadow-2xl">
+    <motion.div
+      ref={ref}
+      // OPTIMASI: Ditambahkan 'transform-gpu' dan 'will-change-transform' untuk menstabilkan piksel render
+      className="relative w-full flex flex-col items-center transform-gpu will-change-transform"
+      style={{
+        WebkitFontSmoothing: "antialiased",
+        MozOsxFontSmoothing: "grayscale",
+        backfaceVisibility: "hidden"
+      }}
+      animate={{
+        scale: isStoryOpen ? 0.94 : 1, // Diubah ke 0.94 agar tidak terlalu ekstrem penyusutannya
+        y: isStoryOpen ? -20 : 0,
+      }}
+      transition={{
+        type: "spring",
+        damping: 25,
+        stiffness: 200,
+        mass: 0.8
+      }}
+    >
+      {/* KOTAK KONTEN UTAMA */}
+      <div className={`relative aspect-[1/1] w-full overflow-hidden rounded-3xl bg-black/50 border border-white/10 group transition-all duration-300 ${isStoryOpen ? 'shadow-2xl shadow-cyan-500/20' : 'shadow-xl'
+        }`}>
 
         {hasVideo ? (
           <video
@@ -160,7 +185,8 @@ export default function HeroCard({
         ) : currentPhoto?.url ? (
           <OptimizedMedia
             src={currentPhoto.url}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+            // OPTIMASI: Ditambahkan utilitas rendering gambar berkontras tinggi untuk mencegah blur bawaan CSS perkecil
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 [image-rendering:-webkit-optimize-contrast]"
             alt={namaTempat}
             priority={priority}
           />
@@ -201,10 +227,10 @@ export default function HeroCard({
         </div>
 
         {/* Bottom Section */}
-        <div className="absolute inset-x-0 bottom-0 p-5 z-10 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-20">
+        <div className="absolute inset-x-0 bottom-0 p-5 z-10 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-24 flex flex-col gap-3">
 
           {/* Header Info - Status & Waktu */}
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2">
             {!isStoryMode && (
               <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${statusColors[status] || statusColors.LANCAR}`}>
                 {status}
@@ -216,11 +242,11 @@ export default function HeroCard({
           </div>
 
           {/* Main Title */}
-          <h3 className="text-2xl font-[1000] text-white uppercase tracking-tighter leading-none mb-3 drop-shadow-md">
+          <h3 className="text-2xl font-[1000] text-white uppercase tracking-tighter leading-none drop-shadow-md">
             {displayName}
           </h3>
 
-          {/* Description DENGAN NAMA PENGIRIM DI SAMPINGNYA */}
+          {/* Description */}
           <div className="flex items-start gap-2 text-white/90 flex-wrap">
             <Activity size={14} className="mt-0.5 text-cyan-400 shrink-0" />
             <p className="text-xs italic font-light leading-relaxed opacity-90">
@@ -235,9 +261,21 @@ export default function HeroCard({
             </p>
           </div>
 
-          {/* Avatar kecil di pojok (opsional, sangat kecil) */}
+          {/* Tombol Lihat Pantauan Warga */}
+          {totalLaporanFoto > 0 && !isStoryOpen && onOpenStoryTrip && (
+            <motion.button
+              onClick={onOpenStoryTrip}
+              whileTap={{ scale: 0.97 }}
+              className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white shadow-lg text-[10px] font-black uppercase tracking-wider transition-all border border-white/20"
+            >
+              <span>📸 Lihat Pantauan Warga ({totalLaporanFoto})</span>
+              <ChevronDown size={12} className="opacity-70 animate-bounce" />
+            </motion.button>
+          )}
+
+          {/* Avatar */}
           {displayUsername && userAvatar && (
-            <div className="absolute bottom-3 right-3 opacity-30">
+            <div className="absolute top-4 right-4 opacity-40 z-20">
               <img
                 src={userAvatar}
                 alt={userName}
@@ -249,18 +287,21 @@ export default function HeroCard({
 
         {/* Navigation Dots */}
         {!hasVideo && hasMultiplePhotos && (
-          <div className="absolute bottom-24 left-0 right-0 flex justify-center gap-1.5 z-10">
+          <div className="absolute bottom-28 left-0 right-0 flex justify-center gap-1.5 z-10">
             {currentPhotos.slice(0, 5).map((_, idx) => (
               <button
                 key={idx}
                 onClick={() => setCurrentPhotoIndex(idx)}
-                className={`h-1 rounded-full transition-all duration-300 ${idx === currentPhotoIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40'
-                  }`}
+                className={`h-1 transition-all duration-300 ${idx === currentPhotoIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40'}`}
               />
             ))}
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
-}
+});
+
+HeroCard.displayName = "HeroCard";
+
+export default HeroCard;

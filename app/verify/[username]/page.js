@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Loader2, User, Ticket, Gift, Coffee, Utensils, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, User, Ticket, Gift, Coffee, Utensils, CheckCircle, XCircle, Shield, Lock } from "lucide-react";
 import KTPCardPublic from "@/app/components/layout/KTPCardPublic";
 
 // 🎨 Map icon berdasarkan nama icon dari database
@@ -20,20 +20,73 @@ const getIconComponent = (iconName) => {
 
 export default function UsernameProfilePage() {
   const { username } = useParams();
+  const searchParams = useSearchParams();
+  const token = searchParams.get('token'); // 🔥 TOKEN dari QR Code
+  
+  // State untuk verifikasi
+  const [isVerified, setIsVerified] = useState(false);
+  const [verificationError, setVerificationError] = useState(null);
+  const [verifying, setVerifying] = useState(true);
+  
+  // State original (tetap sama)
   const [profile, setProfile] = useState(null);
   const [user, setUser] = useState(null);
   const [vouchers, setVouchers] = useState([]);
-  const [allVouchers, setAllVouchers] = useState([]); // Untuk referensi data voucher
+  const [allVouchers, setAllVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [error, setError] = useState(null);
 
+  // 🔐 STEP 1: VERIFIKASI TOKEN (PERTAMA KALI)
+  useEffect(() => {
+    const verifyAccess = async () => {
+      if (!token) {
+        setVerificationError("❌ Akses ditolak. QR Code tidak valid.");
+        setVerifying(false);
+        return;
+      }
+
+      // Cek token di database
+      const { data: tokenData, error: tokenError } = await supabase
+        .from("access_tokens")
+        .select("*")
+        .eq("token", token)
+        .eq("is_used", false)
+        .gt("expires_at", new Date().toISOString())
+        .single();
+
+      if (tokenError || !tokenData) {
+        setVerificationError("❌ QR Code sudah kadaluarsa atau sudah digunakan.");
+        setVerifying(false);
+        return;
+      }
+
+      // Tandai token sudah digunakan
+      await supabase
+        .from("access_tokens")
+        .update({ 
+          is_used: true, 
+          used_at: new Date().toISOString(),
+          used_for_username: username 
+        })
+        .eq("id", tokenData.id);
+
+      setIsVerified(true);
+      setVerifying(false);
+    };
+
+    verifyAccess();
+  }, [token, username]);
+
+  // 📦 STEP 2: FETCH DATA (HANYA JIKA VERIFIKASI BERHASIL)
   useEffect(() => {
     const fetchData = async () => {
+      if (!isVerified) return;
+      
       setLoading(true);
 
-      // 1. Ambil semua voucher yang aktif (untuk referensi nama, merchant, dll)
+      // 1. Ambil semua voucher yang aktif
       const { data: vouchersData } = await supabase
         .from("vouchers")
         .select("*")
@@ -69,20 +122,20 @@ export default function UsernameProfilePage() {
       const { data: transactionData } = await supabase
         .from("voucher_transactions")
         .select(`
-    id,
-    points_spent,
-    expired_at,
-    redeemed_at,
-    vouchers!inner (
-      id,
-      name,
-      merchant,
-      icon,
-      code,
-      quota,
-      used_count
-    )
-  `)
+          id,
+          points_spent,
+          expired_at,
+          redeemed_at,
+          vouchers!inner (
+            id,
+            name,
+            merchant,
+            icon,
+            code,
+            quota,
+            used_count
+          )
+        `)
         .eq("user_id", profileData.id)
         .eq("status", "pending")
         .order("redeemed_at", { ascending: true });
@@ -103,9 +156,10 @@ export default function UsernameProfilePage() {
       setLoading(false);
     };
 
-    if (username) fetchData();
-  }, [username]);
+    fetchData();
+  }, [isVerified, username]);
 
+  // 🎫 FUNGSI KLAIM VOUCHER (SAMA PERSIS DENGAN KODE ASLI)
   const handleClaimVoucher = async (voucher) => {
     setClaimingId(voucher.id);
     setSuccessMessage(null);
@@ -158,7 +212,7 @@ export default function UsernameProfilePage() {
         .eq("id", voucher.voucher_id);
     }
 
-    // 🔥 TAMBAHKAN NOTIFIKASI KE WARUNG_INFO
+    // 🔥 NOTIFIKASI KE WARUNG_INFO (TETAP ADA!)
     await supabase
       .from("warung_info")
       .insert({
@@ -179,6 +233,31 @@ export default function UsernameProfilePage() {
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
+  // 🔐 TAMPILAN VERIFIKASI GAGAL
+  if (verifying) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+
+  if (verificationError) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-5">
+        <div className="text-center max-w-sm">
+          <Lock className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-white mb-2">Akses Ditolak</h1>
+          <p className="text-slate-400 mb-4">{verificationError}</p>
+          <p className="text-[10px] text-slate-500">
+            Silakan minta pemilik KTP untuk menampilkan QR Code kembali.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // LOADING DATA
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -187,6 +266,7 @@ export default function UsernameProfilePage() {
     );
   }
 
+  // ERROR PROFILE
   if (error && !profile) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-5">
@@ -199,6 +279,7 @@ export default function UsernameProfilePage() {
     );
   }
 
+  // ✅ TAMPILAN UTAMA (SAMA PERSIS DENGAN KODE ASLI)
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 p-5">
       <div className="max-w-[420px] mx-auto space-y-5">

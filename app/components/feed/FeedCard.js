@@ -56,10 +56,10 @@ const useWindowSize = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    let timeoutId;
+    let TimeoutId;
     const handleResize = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
+      clearTimeout(TimeoutId);
+      TimeoutId = setTimeout(() => {
         setWindowSize({
           width: window.innerWidth,
           height: window.innerHeight,
@@ -72,7 +72,7 @@ const useWindowSize = () => {
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      clearTimeout(timeoutId);
+      clearTimeout(TimeoutId);
     };
   }, []);
 
@@ -808,7 +808,6 @@ function FeedCardV2Premium({
   useEffect(() => {
     if (!tempatId) return;
 
-    // Hanya subscribe ke field lain yang perlu realtime, BUKAN vibe_count
     const channel = supabase
       .channel(`tempat_status_${tempatId}`)
       .on('postgres_changes', {
@@ -817,17 +816,28 @@ function FeedCardV2Premium({
         table: 'tempat',
         filter: `id=eq.${tempatId}`
       }, (payload) => {
-        // Update hanya untuk status, isViral, isRamai
-        // JANGAN update validationCount
-        console.log('🔄 Real-time: status updated to', payload.new?.status);
-        // setLocalData prev => ({ ...prev, status: payload.new?.status }); // jika perlu
+        const newData = payload.new;
+
+        // ✅ Update hanya field yang perlu
+        setLocalData(prev => ({
+          ...prev,
+          status: newData?.status,
+          isViral: newData?.isViral,
+          isRamai: newData?.isRamai
+          // ❌ JANGAN update vibe_count (validationCount)
+        }));
+
+        // Optional: Trigger refresh ringan
+        if (onRefreshNeeded) {
+          onRefreshNeeded(); // Bisa dipanggil dengan debounce
+        }
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [tempatId]); // Hapus setLocalData dari dependencies
+  }, [tempatId, setLocalData, onRefreshNeeded]);
 
   const totalSaksi = useMemo(() => localValidationCount + (safeItem.vibe_count || 0), [localValidationCount, safeItem.vibe_count]);
 
@@ -920,7 +930,7 @@ function FeedCardV2Premium({
   const handleLikeChange = useCallback((isLiked, newCount) => { }, []);
 
   const handleValidationChange = useCallback((isValidated, newCount) => {
-    console.log('✅ Validation changed:', { isValidated, newCount, tempatId: safeItem.id });
+
 
     // Update local state
     setLocalData(prev => ({
