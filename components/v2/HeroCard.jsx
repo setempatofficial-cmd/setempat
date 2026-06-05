@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, forwardRef } from "react";
-import { motion } from "framer-motion";
-import { MapPin, Activity, RefreshCw, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { MapPin, Activity, RefreshCw, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getIndonesianTimeLabel } from "@/utils/timeUtils";
 import OptimizedMedia from "@/components/OptimizedMedia";
@@ -24,13 +24,24 @@ const normalizeOfficialPhotos = (photos) => {
 const officialPhotosCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
+// FIX AKURASI WAKTU: Menghindari bug NaN / timezone offset mismatch
 const formatTimeAgo = (dateString) => {
   if (!dateString) return "Baru saja";
-  const diffMins = Math.floor((Date.now() - new Date(dateString)) / 60000);
+
+  const parsedDate = Date.parse(dateString);
+  if (isNaN(parsedDate)) return "Baru saja";
+
+  const diffMs = Date.now() - parsedDate;
+  const diffMins = Math.floor(diffMs / 60000);
+
   if (diffMins < 1) return "Baru saja";
   if (diffMins < 60) return `${diffMins} menit lalu`;
-  if (diffMins < 1440) return `${Math.floor(diffMins / 60)} jam lalu`;
-  return `${Math.floor(diffMins / 1440)} hari lalu`;
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} jam lalu`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} hari lalu`;
 };
 
 const isVideoUrl = (url) => {
@@ -69,13 +80,22 @@ const HeroCard = forwardRef(({
   userAvatar,
   isStoryOpen = false,
   onOpenStoryTrip,
-  totalLaporanFoto = 0
+  totalLaporanFoto = 0,
+  storySlideshowOpen = false,
+  storySlideshowStories = [],
+  storySlideshowIndex = 0,
+  onCloseStorySlideshow,
+  onStoryIndexChange
 }, ref) => {
   const [timeKey] = useState(() => getIndonesianTimeLabel().toLowerCase());
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [videoUrl, setVideoUrl] = useState(null);
+  const [localIndex, setLocalIndex] = useState(storySlideshowIndex);
+
+  useEffect(() => {
+    setLocalIndex(storySlideshowIndex);
+  }, [storySlideshowIndex, storySlideshowStories]);
 
   useEffect(() => {
     async function fetchPhotos() {
@@ -96,40 +116,73 @@ const HeroCard = forwardRef(({
     if (tempatId) fetchPhotos();
   }, [tempatId]);
 
-  useEffect(() => {
-    if (!photos || !Array.isArray(photos)) return;
-    for (let item of photos) {
-      const url = getMediaUrl(item);
-      if (url && isVideoUrl(url)) {
-        setVideoUrl(url);
-        break;
-      }
+  const currentActiveStory = useMemo(() => {
+    if (storySlideshowStories && storySlideshowStories.length > 0) {
+      const safeIndex = localIndex >= storySlideshowStories.length ? 0 : localIndex;
+      return storySlideshowStories[safeIndex];
     }
-  }, [photos]);
+    return null;
+  }, [storySlideshowStories, localIndex]);
 
-  const currentPhotos = useMemo(() => {
-    let result = [];
+  const mediaSource = useMemo(() => {
+    if (currentActiveStory) {
+      const url = currentActiveStory.video_url || currentActiveStory.photo_url || currentActiveStory.image_url || getMediaUrl(currentActiveStory);
+      return { url: url, isVideo: isVideoUrl(url) };
+    }
+
     if (photos && photos.length > 0) {
-      result = photos
-        .filter(item => {
-          const url = getMediaUrl(item);
-          return url && !isVideoUrl(url);
-        })
-        .map(item => ({ url: getMediaUrl(item) }));
-    }
-    if (result.length === 0) {
-      const timePhotos = officialPhotos[timeKey] || [];
-      result = timePhotos.map(p => ({ url: typeof p === 'string' ? p : p?.url || p }));
-    }
-    return result.filter(p => p.url);
-  }, [photos, officialPhotos, timeKey]);
+      const foundVideo = photos.find(item => isVideoUrl(getMediaUrl(item)));
+      if (foundVideo) return { url: getMediaUrl(foundVideo), isVideo: true };
 
+      const filteredPhotos = photos.filter(item => !isVideoUrl(getMediaUrl(item)));
+      if (filteredPhotos.length > 0) return { url: getMediaUrl(filteredPhotos[currentPhotoIndex]), isVideo: false };
+    }
+
+    const timePhotos = officialPhotos[timeKey] || [];
+    if (timePhotos.length > 0) {
+      const p = timePhotos[0];
+      const url = typeof p === 'string' ? p : p?.url || p;
+      return { url: url, isVideo: isVideoUrl(url) };
+    }
+
+    return { url: null, isVideo: false };
+  }, [currentActiveStory, photos, currentPhotoIndex, officialPhotos, timeKey]);
+
+  const displayDescription = useMemo(() => {
+    if (currentActiveStory) {
+      return currentActiveStory.title || currentActiveStory.caption || currentActiveStory.description || "Menampilkan arsip momen.";
+    }
+    return description || `Lalu lintas ${status.toLowerCase()} di ${namaTempat}.`;
+  }, [currentActiveStory, description, status, namaTempat]);
+
+  const displaySubLabel = useMemo(() => {
+    if (currentActiveStory) {
+      if (currentActiveStory.type === 'sejarah' || currentActiveStory.tahun) {
+        return `📜 Era Tahun ${currentActiveStory.tahun || 'Tempo Dulu'}`;
+      }
+      if (currentActiveStory.type === 'official' || currentActiveStory.is_official) {
+        return `🏛️ Informasi Resmi`;
+      }
+      return `@${(currentActiveStory.user_name || userName || "Warga").replace(/\s+/g, '').toLowerCase()}`;
+    }
+    return userName ? `@${userName.replace(/\s+/g, '').toLowerCase()}` : null;
+  }, [currentActiveStory, userName]);
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    const newIndex = localIndex < storySlideshowStories.length - 1 ? localIndex + 1 : 0;
+    setLocalIndex(newIndex);
+    onStoryIndexChange?.(newIndex);
+  };
+
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    const newIndex = localIndex > 0 ? localIndex - 1 : storySlideshowStories.length - 1;
+    setLocalIndex(newIndex);
+    onStoryIndexChange?.(newIndex);
+  };
   const waktuLalu = formatTimeAgo(lastUpdate);
-  const displayDescription = description || `Lalu lintas ${status.toLowerCase()} di ${namaTempat}.`;
-  const hasMultiplePhotos = currentPhotos.length > 1;
-  const hasVideo = !!videoUrl;
-  const currentPhoto = currentPhotos[currentPhotoIndex];
-  const displayName = isStoryMode ? `📖 ${namaTempat}` : namaTempat;
+  const displayName = currentActiveStory ? `📖 ${namaTempat}` : namaTempat;
 
   const statusColors = {
     "LANCAR": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -137,56 +190,27 @@ const HeroCard = forwardRef(({
     "MACET": "bg-red-500/20 text-red-400 border-red-500/30",
   };
 
-  const displayUsername = useMemo(() => {
-    if (!userName) return null;
-    const name = typeof userName === 'string' ? userName : userName.toString();
-    return `@${name.replace(/\s+/g, '').toLowerCase()}`;
-  }, [userName]);
-
-  if (isLoading && currentPhotos.length === 0 && !videoUrl) {
-    return <div className="w-full aspect-[4/3] bg-zinc-800/20 animate-pulse rounded-2xl mb-4" />;
+  if (isLoading && !mediaSource.url) {
+    return <div className="w-full aspect-[1/1] bg-zinc-800/20 animate-pulse rounded-2xl mb-4" />;
   }
 
   return (
-    <motion.div
-      ref={ref}
-      // OPTIMASI: Ditambahkan 'transform-gpu' dan 'will-change-transform' untuk menstabilkan piksel render
-      className="relative w-full flex flex-col items-center transform-gpu will-change-transform"
-      style={{
-        WebkitFontSmoothing: "antialiased",
-        MozOsxFontSmoothing: "grayscale",
-        backfaceVisibility: "hidden"
-      }}
-      animate={{
-        scale: isStoryOpen ? 0.94 : 1, // Diubah ke 0.94 agar tidak terlalu ekstrem penyusutannya
-        y: isStoryOpen ? -20 : 0,
-      }}
-      transition={{
-        type: "spring",
-        damping: 25,
-        stiffness: 200,
-        mass: 0.8
-      }}
-    >
-      {/* KOTAK KONTEN UTAMA */}
-      <div className={`relative aspect-[1/1] w-full overflow-hidden rounded-3xl bg-black/50 border border-white/10 group transition-all duration-300 ${isStoryOpen ? 'shadow-2xl shadow-cyan-500/20' : 'shadow-xl'
-        }`}>
+    <div ref={ref} className="relative w-full flex flex-col items-center">
+      <div className="relative aspect-[1/1] w-full overflow-hidden rounded-3xl bg-black/50 border border-white/10 group shadow-xl">
 
-        {hasVideo ? (
+        {/* Media Port Player Utama */}
+        {mediaSource.url && mediaSource.isVideo ? (
           <video
-            key={videoUrl}
-            src={videoUrl}
+            key={mediaSource.url}
+            src={mediaSource.url}
             className="absolute inset-0 w-full h-full object-cover"
-            autoPlay
-            loop
-            muted
-            playsInline
+            autoPlay loop muted playsInline
           />
-        ) : currentPhoto?.url ? (
+        ) : mediaSource.url ? (
           <OptimizedMedia
-            src={currentPhoto.url}
-            // OPTIMASI: Ditambahkan utilitas rendering gambar berkontras tinggi untuk mencegah blur bawaan CSS perkecil
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 [image-rendering:-webkit-optimize-contrast]"
+            key={mediaSource.url}
+            src={mediaSource.url}
+            className="w-full h-full object-cover"
             alt={namaTempat}
             priority={priority}
           />
@@ -198,40 +222,31 @@ const HeroCard = forwardRef(({
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
 
-        {/* Top Section */}
+        {/* Top Badges */}
         <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10">
           <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${status === 'LANCAR' ? 'bg-emerald-400' :
-              status === 'RAMAI' ? 'bg-amber-400' : 'bg-red-400'
-              } animate-pulse`} />
+            <div className={`w-2 h-2 rounded-full ${status === 'LANCAR' ? 'bg-emerald-400' : status === 'RAMAI' ? 'bg-amber-400' : 'bg-red-400'} animate-pulse`} />
             <span className="text-[10px] font-black text-white uppercase tracking-wider">
-              {hasVideo ? 'VIDEO' : isStoryMode ? 'STORY' : 'LIVE'}
+              {mediaSource.isVideo ? 'VIDEO' : currentActiveStory ? `${currentActiveStory.type}` : 'LIVE'}
             </span>
           </div>
 
           <div className="flex gap-2">
-            {isStoryMode && onBackToOriginal && (
-              <button
-                onClick={onBackToOriginal}
-                className="p-2 bg-amber-500/50 backdrop-blur-md rounded-full active:scale-90 transition-all border border-white/10"
-              >
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+            {currentActiveStory && onBackToOriginal && (
+              <button onClick={onBackToOriginal} className="p-2 bg-red-500/80 backdrop-blur-md rounded-full border border-white/10 active:scale-95 transition-all text-white">
+                <X size={14} />
               </button>
             )}
-            <button onClick={onRefresh} className="p-2 bg-black/50 backdrop-blur-md rounded-full active:scale-90 transition-transform border border-white/10">
+            <button onClick={onRefresh} className="p-2 bg-black/50 backdrop-blur-md rounded-full border border-white/10 active:scale-95 transition-all">
               <RefreshCw className={`w-4 h-4 text-white/90 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
 
-        {/* Bottom Section */}
+        {/* Bottom Panel Text Info */}
         <div className="absolute inset-x-0 bottom-0 p-5 z-10 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-24 flex flex-col gap-3">
-
-          {/* Header Info - Status & Waktu */}
           <div className="flex items-center gap-2">
-            {!isStoryMode && (
+            {!currentActiveStory && (
               <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${statusColors[status] || statusColors.LANCAR}`}>
                 {status}
               </span>
@@ -241,67 +256,40 @@ const HeroCard = forwardRef(({
             </span>
           </div>
 
-          {/* Main Title */}
-          <h3 className="text-2xl font-[1000] text-white uppercase tracking-tighter leading-none drop-shadow-md">
+          <h3 className="text-lg font-extrabold text-white uppercase tracking-normal leading-none drop-shadow-md">
             {displayName}
           </h3>
 
-          {/* Description */}
           <div className="flex items-start gap-2 text-white/90 flex-wrap">
             <Activity size={14} className="mt-0.5 text-cyan-400 shrink-0" />
             <p className="text-xs italic font-light leading-relaxed opacity-90">
               "{displayDescription}"
-              {displayUsername && (
+              {displaySubLabel && (
                 <span className="inline-block ml-2">
-                  <span className="text-[9px] text-white/40 font-normal not-italic">
-                    — {displayUsername}
-                  </span>
+                  <span className="text-[10px] text-cyan-300 font-bold not-italic">— {displaySubLabel}</span>
                 </span>
               )}
             </p>
           </div>
 
-          {/* Tombol Lihat Pantauan Warga */}
-          {totalLaporanFoto > 0 && !isStoryOpen && onOpenStoryTrip && (
-            <motion.button
-              onClick={onOpenStoryTrip}
-              whileTap={{ scale: 0.97 }}
-              className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white shadow-lg text-[10px] font-black uppercase tracking-wider transition-all border border-white/20"
+          {/* BUTTON MEMANGGIL STORY STRIP */}
+          {totalLaporanFoto > 0 && onOpenStoryTrip && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenStoryTrip(); }}
+              className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-[10px] font-black uppercase tracking-wider border border-white/20 active:scale-98 transition-transform pointer-events-auto"
             >
               <span>📸 Lihat Pantauan Warga ({totalLaporanFoto})</span>
-              <ChevronDown size={12} className="opacity-70 animate-bounce" />
-            </motion.button>
+              <ChevronDown size={12} className="opacity-70" />
+            </button>
           )}
 
-          {/* Avatar */}
-          {displayUsername && userAvatar && (
-            <div className="absolute top-4 right-4 opacity-40 z-20">
-              <img
-                src={userAvatar}
-                alt={userName}
-                className="w-6 h-6 rounded-full object-cover border border-white/20"
-              />
-            </div>
-          )}
+
         </div>
 
-        {/* Navigation Dots */}
-        {!hasVideo && hasMultiplePhotos && (
-          <div className="absolute bottom-28 left-0 right-0 flex justify-center gap-1.5 z-10">
-            {currentPhotos.slice(0, 5).map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentPhotoIndex(idx)}
-                className={`h-1 transition-all duration-300 ${idx === currentPhotoIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40'}`}
-              />
-            ))}
-          </div>
-        )}
       </div>
-    </motion.div>
+    </div>
   );
 });
 
 HeroCard.displayName = "HeroCard";
-
 export default HeroCard;

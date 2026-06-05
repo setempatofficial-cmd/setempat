@@ -144,7 +144,41 @@ export default function IkutiKesempatanPage() {
 
   const handleUploadStart = () => setUploadProgress(true);
 
-  // Handler untuk program pendaftaran
+  // 🔥 FUNGSI UNTUK MENAMBAHKAN REWARD KE POIN ATAU SALDO
+  const addRewardToUser = async (rewardValue, rewardType) => {
+    // Ambil data profile terbaru
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("points, saldo_kontribusi")
+      .eq("id", user.id)
+      .single();
+
+    let updatedPoints = profile?.points || 0;
+    let updatedSaldo = profile?.saldo_kontribusi || 0;
+
+    if (rewardType === "point") {
+      updatedPoints += rewardValue;
+    } else if (rewardType === "money") {
+      updatedSaldo += rewardValue;
+    }
+
+    // Update profile
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        points: updatedPoints,
+        saldo_kontribusi: updatedSaldo
+      })
+      .eq("id", user.id);
+
+    if (updateError) {
+      console.error("Error updating profile:", updateError);
+      return false;
+    }
+    return true;
+  };
+
+  // Handler untuk program pendaftaran (REVISI)
   const handleRegisterProgram = async () => {
     if (!user) {
       alert("Silakan login terlebih dahulu");
@@ -186,29 +220,35 @@ export default function IkutiKesempatanPage() {
       .insert([profileData]);
 
     if (!insertError) {
-      // Catat partisipasi
-      await supabase.from("user_opportunities").insert({
-        user_id: user.id,
-        opportunity_id: opportunity.id,
-        status: "approved",
-        completed_at: new Date().toISOString()
-      });
+      // 🔥 TAMBAHKAN REWARD (POIN ATAU SALDO)
+      const rewardValue = opportunity.reward_value || 0;
+      const rewardType = opportunity.reward_type || "point";
 
-      // Tambah poin reward
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("points")
-        .eq("id", user.id)
-        .single();
+      const success = await addRewardToUser(rewardValue, rewardType);
 
-      await supabase
-        .from("profiles")
-        .update({ points: (profile?.points || 0) + opportunity.reward_value })
-        .eq("id", user.id);
+      if (success) {
+        // Catat partisipasi
+        await supabase.from("user_opportunities").insert({
+          user_id: user.id,
+          opportunity_id: opportunity.id,
+          status: "approved",
+          completed_at: new Date().toISOString(),
+          reward_type: rewardType,
+          reward_value: rewardValue
+        });
 
-      setSubmitted(true);
-      setSubmissionStatus("approved");
-      alert(`✅ Selamat! Anda berhasil mendaftar ${opportunity.title}\n\nReward: ${opportunity.reward_text} telah ditambahkan ke akun Anda.`);
+        setSubmitted(true);
+        setSubmissionStatus("approved");
+
+        // Pesan sesuai jenis reward
+        if (rewardType === "money") {
+          alert(`✅ Selamat! Anda berhasil mendaftar ${opportunity.title}\n\nReward: Rp${rewardValue.toLocaleString()} telah ditambahkan ke Dompet Warga Anda.`);
+        } else {
+          alert(`✅ Selamat! Anda berhasil mendaftar ${opportunity.title}\n\nReward: ${rewardValue} Poin telah ditambahkan ke akun Anda.`);
+        }
+      } else {
+        alert("Gagal menambahkan reward. Silakan hubungi admin.");
+      }
     } else {
       alert("Gagal mendaftar: " + insertError.message);
     }
@@ -216,6 +256,7 @@ export default function IkutiKesempatanPage() {
     setSubmitting(false);
   };
 
+  // Handler untuk submit bounty (REVISI)
   const handleSubmit = async () => {
     if (!user) {
       alert("Silakan login terlebih dahulu");
@@ -279,6 +320,8 @@ export default function IkutiKesempatanPage() {
       media_type: mediaType,
       status: "pending",
       submitted_at: new Date().toISOString(),
+      reward_type: opportunity.reward_type || "point",
+      reward_value: opportunity.reward_value || 0,
       metadata: {
         lokasi: lokasiName,
         opportunity_title: opportunity.title,
@@ -330,9 +373,20 @@ export default function IkutiKesempatanPage() {
       .insert([submissionData]);
 
     if (!error) {
+      // 🔥 TAMBAHKAN REWARD (POIN ATAU SALDO) LANGSUNG SETELAH SUBMIT
+      const rewardValue = opportunity.reward_value || 0;
+      const rewardType = opportunity.reward_type || "point";
+
+      await addRewardToUser(rewardValue, rewardType);
+
       setSubmitted(true);
       setSubmissionStatus("pending");
-      alert(`✅ Berhasil mengirim!\n\n${isBountyLaporan ? "Konten akan tayang setelah diverifikasi." : "Konten akan masuk ke marketplace."}\nReward: ${opportunity.reward_text}`);
+
+      const rewardText = rewardType === "money"
+        ? `Rp${rewardValue.toLocaleString()} akan masuk ke Dompet Warga`
+        : `${rewardValue} Poin akan ditambahkan`;
+
+      alert(`✅ Berhasil mengirim!\n\n${isBountyLaporan ? "Konten akan tayang setelah diverifikasi." : "Konten akan masuk ke marketplace."}\nReward: ${rewardText}`);
     } else {
       alert("Gagal mengirim: " + error.message);
     }
@@ -380,7 +434,6 @@ export default function IkutiKesempatanPage() {
     );
   }
 
-  const isMoney = opportunity.reward_type === "money";
   const deadline = new Date(opportunity.deadline);
   const isExpired = deadline < new Date();
 
@@ -442,8 +495,8 @@ export default function IkutiKesempatanPage() {
 
         {/* Header Kesempatan */}
         <div className={`rounded-2xl p-5 mb-6 border ${isProgram ? "bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border-blue-500/30" :
-            isBountyLaporan ? "bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border-emerald-500/30"
-              : "bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30"
+          isBountyLaporan ? "bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border-emerald-500/30"
+            : "bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30"
           }`}>
           <div className="text-5xl mb-3 text-center">
             {isProgram ? getProgramIcon() : opportunity.icon}
@@ -454,8 +507,8 @@ export default function IkutiKesempatanPage() {
           {/* Badge jenis */}
           <div className="mt-3 flex justify-center">
             <span className={`text-[8px] px-2 py-0.5 rounded-full ${isProgram ? "bg-blue-500/20 text-blue-400" :
-                isBountyLaporan ? "bg-emerald-500/20 text-emerald-400"
-                  : "bg-purple-500/20 text-purple-400"
+              isBountyLaporan ? "bg-emerald-500/20 text-emerald-400"
+                : "bg-purple-500/20 text-purple-400"
               }`}>
               {isProgram ? "🎯 Program Pendaftaran" : isBountyLaporan ? "📢 Bounty Laporan" : "🎬 Bounty Konten"}
             </span>
@@ -469,18 +522,22 @@ export default function IkutiKesempatanPage() {
             </div>
           )}
 
+          {/* Reward Display */}
           <div className={`mt-4 p-3 rounded-xl text-center ${isProgram ? "bg-blue-500/20" :
-              isBountyLaporan ? "bg-emerald-500/20" : "bg-purple-500/20"
+            isBountyLaporan ? "bg-emerald-500/20" : "bg-purple-500/20"
             }`}>
             <p className="text-[10px] text-slate-400 uppercase tracking-wider">Reward</p>
             <p className={`text-2xl font-black ${isProgram ? "text-blue-400" :
-                isBountyLaporan ? "text-emerald-400" : "text-purple-400"
+              isBountyLaporan ? "text-emerald-400" : "text-purple-400"
               }`}>
               {opportunity.reward_text}
             </p>
-            {isProgram && <p className="text-[8px] text-slate-500 mt-1">🎁 Poin + akses fitur</p>}
-            {isBountyLaporan && <p className="text-[8px] text-slate-500 mt-1">🎁 Poin + tayang di feed</p>}
-            {!isProgram && !isBountyLaporan && <p className="text-[8px] text-slate-500 mt-1">💰 Royalti + masuk marketplace</p>}
+            {opportunity.reward_type === "money" && (
+              <p className="text-[8px] text-emerald-400 mt-1">💰 Masuk ke Dompet Warga</p>
+            )}
+            {opportunity.reward_type === "point" && (
+              <p className="text-[8px] text-amber-400 mt-1">🎁 Masuk ke Poin Anda</p>
+            )}
           </div>
 
           <div className="flex items-center justify-center gap-2 mt-3 text-xs text-slate-400">

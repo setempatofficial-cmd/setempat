@@ -70,9 +70,11 @@ function PostDetailContent({ id }) {
   const { user } = useAuth();
   const { location, status: locationStatus, placeName } = useLocation();
 
-  // --- Refs ---
+  // --- Refs untuk Memory Leak Protection ---
   const radarRef = useRef(null);
   const heroRef = useRef(null);
+  const refreshTimerRef = useRef(null);
+  const storyTimerRef = useRef(null);
 
   // --- Data Fetching ---
   const { data: postData, loading, error: fetchError } = usePostDetail(id, {
@@ -81,7 +83,7 @@ function PostDetailContent({ id }) {
 
   const item = postData?.item || null;
   const tempatName = item?.name || "tempat ini";
-  const kategori = item?.category || "umum"; // LOGIKA MEMASTIKAN FALLBACK KE KATA KUNCI DATABASE YANG BENAR
+  const kategori = item?.category || "umum"; // Aman, sudah fallback ke 'category' sesuai struktur DB
   const adminPhone = item?.admin_phone || "628123456789";
 
   // --- States ---
@@ -112,6 +114,14 @@ function PostDetailContent({ id }) {
     if (!item?.laporan_terbaru) return 0;
     return item.laporan_terbaru.filter((l) => l?.photo_url || l?.image_url).length;
   }, [item?.laporan_terbaru]);
+
+  // --- Clean Up Timers on Unmount ---
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      if (storyTimerRef.current) clearTimeout(storyTimerRef.current);
+    };
+  }, []);
 
   // --- Effects ---
 
@@ -153,7 +163,7 @@ function PostDetailContent({ id }) {
     };
   }, []);
 
-  // 3. Log View Detail (Debounced menggunakan AbortController asli Supabase)
+  // 3. Log View Detail (Debounced & Safe dari duplicate call ganda)
   useEffect(() => {
     if (!item?.id || !user?.id) return;
 
@@ -191,7 +201,9 @@ function PostDetailContent({ id }) {
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     router.refresh();
-    setTimeout(() => setRefreshing(false), 800);
+
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => setRefreshing(false), 800);
   }, [router]);
 
   const handleOpenAIModal = useCallback(
@@ -217,31 +229,29 @@ function PostDetailContent({ id }) {
     [user, item]
   );
 
-  const handleSelectStory = useCallback(
-    (story, index) => {
-      if (!story) return;
-      const formattedStory = {
-        ...story,
-        id: story.id,
-        name: item?.name,
-        parentName: item?.name,
-        latest_condition: story.status || "NORMAL",
-        status: story.status || "NORMAL",
-        created_at: story.created_at,
-        updated_at: story.created_at,
-        photo_url: story.photo_url || story.image_url,
-        deskripsi: story.deskripsi || story.content,
-        laporan_terbaru: [story]
-      };
-      setSelectedHeroStory(formattedStory);
+  const handleSelectStory = useCallback((story, fullCategoryStories, categoryId, storyIndex) => {
+    if (!story) return;
 
-      // Scroll halus ke puncak kartu utama
-      setTimeout(() => {
-        heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 60);
-    },
-    [item?.name]
-  );
+    const formattedStory = {
+      ...story,
+      id: story.id,
+      name: item?.name,
+      photo_url: story.photo_url,
+      video_url: story.video_url || null, // Amankan jika ada tipe video
+      title: story.title,
+      user_name: story.user_name,
+      deskripsi: story.title,
+      status: story.type === "warga" ? "STORY" : "OFFICIAL",
+
+      // FIX UTAMA: Inject full stories dari kategori aktif ke dalam object 
+      // agar HeroCard bisa membaca total array barunya secara live
+      laporan_terbaru: fullCategoryStories,
+      currentCategoryId: categoryId,
+      currentStoryIndex: storyIndex
+    };
+
+    setSelectedHeroStory(formattedStory);
+  }, [item?.name]);
 
   const handleBackToOriginal = useCallback(() => {
     setSelectedHeroStory(null);
@@ -270,7 +280,7 @@ function PostDetailContent({ id }) {
   return (
     <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-500 pb-32 overflow-x-hidden`}>
 
-      {/* Ambient Background Glow */}
+      {/* Ambient Background Glow - Context Aware */}
       <div className="fixed inset-0 pointer-events-none z-0 flex justify-center overflow-hidden">
         <div className={`w-full max-w-[420px] h-[50vh] opacity-20 blur-[130px] rounded-full transition-colors duration-500 ${isMalam ? "bg-cyan-950" : "bg-cyan-200"}`} />
       </div>
@@ -294,12 +304,7 @@ function PostDetailContent({ id }) {
 
           {/* ============ STACK 1 & 2: HERO + LIVE STORY COLLAPSIBLE ============ */}
           <div ref={heroRef} className="flex flex-col w-full relative">
-            <div
-              // KUNCINYA DI SINI, CAK:
-              // z-10 murni dan will-change-transform akan memaksa GPU mengisolasi HeroCard 
-              // agar tidak ikut terkena efek backdrop-blur dari modal StoryStrip.
-              className="w-full relative z-10 [will-change:transform]"
-            >
+            <div className="w-full relative z-10 [will-change:transform]">
               <div className="rounded-[32px] overflow-hidden w-full shadow-xl bg-zinc-900/10 dark:bg-black/10">
                 <HeroCard
                   tempatId={heroData?.id}
@@ -307,9 +312,10 @@ function PostDetailContent({ id }) {
                   userAvatar={item.user_avatar}
                   namaTempat={heroData?.name}
                   status={heroData?.latest_condition || heroData?.status || "LANCAR"}
-                  photos={selectedHeroStory ? [selectedHeroStory] : (heroData?.laporan_terbaru || heroData?.photos || [])}
+                  photos={item?.laporan_terbaru || item?.photos || []}
+                  activeIndex={selectedHeroStory ? (item?.laporan_terbaru || []).findIndex(l => l.id === selectedHeroStory.id) : 0}
                   priority={true}
-                  lastUpdate={heroData?.updated_at || heroData?.created_at}
+                  lastUpdate={item?.updated_at || item?.created_at}
                   description={selectedHeroStory?.deskripsi || heroData?.laporan_terbaru?.[0]?.deskripsi}
                   onRefresh={handleRefresh}
                   refreshing={refreshing}
@@ -318,6 +324,18 @@ function PostDetailContent({ id }) {
                   isStoryOpen={isStoryOpen}
                   onOpenStoryTrip={() => setIsStoryOpen(true)}
                   totalLaporanFoto={totalLaporanFoto}
+
+                  // ================= FIX UTAMA DI SINI =================
+                  storySlideshowStories={selectedHeroStory ? selectedHeroStory.laporan_terbaru : []}
+                  storySlideshowIndex={selectedHeroStory ? selectedHeroStory.currentStoryIndex : 0}
+                  onStoryIndexChange={(newIndex) => {
+                    if (selectedHeroStory) {
+                      setSelectedHeroStory({
+                        ...selectedHeroStory,
+                        currentStoryIndex: newIndex
+                      });
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -328,7 +346,6 @@ function PostDetailContent({ id }) {
             <motion.div
               key={selectedHeroStory ? `flashback-${selectedHeroStory.id}` : "live"}
               initial={{ opacity: 0, y: 10 }}
-              // DIOPTIMALKAN: Jangan turunkan opacity komponen ini saat story open agar teks tetap tajam
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
               className="w-full pt-2"
@@ -346,7 +363,6 @@ function PostDetailContent({ id }) {
           </AnimatePresence>
 
           {/* ============ STACK 4: SMART ACTION HUB ============ */}
-          {/* DIOPTIMALKAN: Hapus bungkus motion.div opacity yang memicu sub-pixel antialiasing blur */}
           <div className="w-full">
             <SmartCitizenButton
               tempatId={item.id}
@@ -363,7 +379,6 @@ function PostDetailContent({ id }) {
           </div>
 
           {/* ============ STACK 5: SECTION TABS & HEADER ============ */}
-          {/* DIOPTIMALKAN: Diubah menjadi div biasa tanpa animasi opacity */}
           <div className="flex items-center justify-between pt-4 px-1">
             <div className="flex flex-col">
               <h2 className="text-lg font-[1000] tracking-tight italic">DETAIL INFO</h2>
@@ -389,7 +404,6 @@ function PostDetailContent({ id }) {
           <motion.section
             ref={radarRef}
             initial={{ opacity: 0, y: 15 }}
-            // DIOPTIMALKAN: Tetap biarkan tampil penuh tanpa redup saat story aktif
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
             className={`p-5 rounded-[32px] border ${isMalam ? "bg-zinc-950/60 border-white/10" : "bg-white border-black/5"} backdrop-blur-3xl shadow-xl relative overflow-hidden transform-gpu`}
@@ -456,16 +470,11 @@ function PostDetailContent({ id }) {
       {/* ============ GLOBAL MODAL STORY STRIP (BOTTOM SHEET) ============ */}
       <StoryStrip
         isOpen={isStoryOpen}
-        onClose={() => {
-          setIsStoryOpen(false);
-          handleBackToOriginal();
-        }}
+        onClose={() => setIsStoryOpen(false)}
         laporanWarga={item.laporan_terbaru || []}
-        tempatId={item.id}
-        namaTempat={item.name}
+        tempat={item}
         onSelectStory={handleSelectStory}
-        activeStoryId={selectedHeroStory?.id}
-        theme={theme}
+        activeStoryId={selectedHeroStory?.id}  // ← penting untuk tracking
       />
 
       {/* ============ FLOATING ACTION BUTTON (DOCK-STYLE) ============ */}
@@ -564,10 +573,11 @@ function PostDetailContent({ id }) {
 
       {/* ============ MODALS & OVERLAYS ============ */}
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+
+      {/* BARIS YANG SUDAH DIPERBAIKI: */}
       <LocationModal isOpen={isLocationModalOpen} onClose={() => setIsLocationModalOpen(false)} />
       <AIModalDetail isOpen={showAIModal} onClose={() => setShowAIModal(false)} item={selectedTempat} userId={user?.id} initialQuery={initialQuery} />
       <KomentarModal isOpen={showKomentarModal} onClose={() => setShowKomentarModal(false)} tempat={selectedTempat} />
-
       <SmartBottomNav />
     </div>
   );

@@ -661,7 +661,7 @@ const StorySlide = ({ report, isActive, viewCount, likedLaporan, laporanLikeCoun
   );
 };
 
-// ========== MAIN COMPONENT ==========
+// ========== MAIN COMPONENT (AMANDED FOR SAFE NAVIGATION UNMOUNT) ==========
 export default function FullscreenStoryModal({
   isOpen,
   reports = [],
@@ -696,20 +696,18 @@ export default function FullscreenStoryModal({
   );
   const { scheduleRecordView } = useStoryViewTracker(userId, onViewRecorded);
 
-  // ========== 3. 🔥 LISTENER UPDATE KOMENTAR (TEMPATKAN DISINI) ==========
+  // ========== 1. LISTENER UPDATE KOMENTAR ==========
   useEffect(() => {
     if (!isOpen) return;
 
     const handleCommentChange = (event) => {
       const laporanId = event.detail?.laporanId;
       if (laporanId) {
-        console.log('🔄 FullscreenStoryModal: Refreshing comment count for laporan:', laporanId);
         setStoryRefreshTrigger(prev => prev + 1);
       }
     };
 
     window.addEventListener('laporan-comment-changed', handleCommentChange);
-
     return () => {
       window.removeEventListener('laporan-comment-changed', handleCommentChange);
     };
@@ -726,15 +724,13 @@ export default function FullscreenStoryModal({
     }
   }, [currentVideoIndex, reports, playActiveVideo]);
 
-  // ✅ TAMBAHKAN EFFECT INI - Untuk pause dari LaporPanel
+  // Pause dari LaporPanel
   useEffect(() => {
     if (!isOpen) return;
 
     if (isPaused) {
-      // Story di-pause dari luar (LaporPanel terbuka)
       pauseAllVideos();
     } else {
-      // Story di-resume setelah LaporPanel ditutup
       const timer = setTimeout(() => {
         if (currentVideoIndex !== null && reports[currentVideoIndex]?.video_url) {
           const videoId = `story-${reports[currentVideoIndex]?.id}`;
@@ -745,7 +741,7 @@ export default function FullscreenStoryModal({
     }
   }, [isPaused, isOpen, pauseAllVideos, playActiveVideo, currentVideoIndex, reports]);
 
-  // Modal animation
+  // Modal animation & Murni Cleanup Total saat Unmount mendadak
   useEffect(() => {
     if (isOpen) {
       setIsRendered(true);
@@ -755,6 +751,11 @@ export default function FullscreenStoryModal({
       const timer = setTimeout(() => setIsRendered(false), 150);
       return () => clearTimeout(timer);
     }
+
+    // ✅ FORCE CLEANUP: Jika user pindah halaman via Bottom Nav, fungsi ini menjamin video mati seketika
+    return () => {
+      pauseAllVideos();
+    };
   }, [isOpen, pauseAllVideos, resumeCurrentVideo]);
 
   // Handle search view
@@ -782,23 +783,19 @@ export default function FullscreenStoryModal({
     }
   }, [isOpen, initialIndex, reports, scrollToIndex, setCurrentIndex]);
 
-  // Di dalam FullscreenStoryModal component, tambahkan:
+  // Infinite Scroll Trigger
   useEffect(() => {
     if (!reports.length) return;
-
-    // Hitung berapa slide tersisa
     const remainingSlides = reports.length - (currentIndex || 0);
-
-    // Jika tersisa 3 slide atau kurang, load lebih (seperti TikTok)
     if (remainingSlides <= 3 && hasMore && onLoadMore && !isLoadingMore) {
-      console.log(`📱 Load more stories: ${remainingSlides} slides remaining`);
       onLoadMore();
     }
   }, [currentIndex, reports.length, hasMore, onLoadMore, isLoadingMore]);
 
-  // Handle back button
+  // ✅ FIX POPSTATE: Amankan State History Browser saat Berpindah Halaman Luar
   useEffect(() => {
     if (!isOpen) return;
+
     const handlePopState = (e) => {
       e.preventDefault();
       if (currentIndex > 0) {
@@ -806,20 +803,33 @@ export default function FullscreenStoryModal({
         setCurrentIndex(newIdx);
         setCurrentVideoIndex(newIdx);
         scrollToIndex(newIdx, 'smooth');
+        window.history.pushState(null, '', window.location.href); // Kembalikan trap pushState
       } else {
         onClose();
       }
-      window.history.pushState(null, '', window.location.href);
     };
+
     window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      // ✅ JIKA UNMOUNT mendadak (pindah page), pastikan trap pushState dihapus dengan memicu back virtual halus
+      if (typeof window !== "undefined" && window.history.state === null) {
+        window.history.back();
+      }
+    };
   }, [isOpen, currentIndex, setCurrentIndex, scrollToIndex, onClose]);
 
-  // Lock body scroll
+  // ✅ FIX OVERFLOW: Kunci Body Scroll & Reset Mutlak Saat Komponen Hilang
   useEffect(() => {
-    if (!isOpen) return;
-    document.body.style.overflow = 'hidden';
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    // ✅ Jaminan 100% jika dilempar router push dari bottom nav, scroll utama akan kembali hidup
     return () => {
       document.body.style.overflow = '';
     };
@@ -878,7 +888,6 @@ export default function FullscreenStoryModal({
               onRegisterVideo={registerVideo}
               onUnregisterVideo={unregisterVideo}
               refreshTrigger={storyRefreshTrigger}
-
             />
           ))}
         </div>

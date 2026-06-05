@@ -19,11 +19,10 @@ import KTPCard from "@/app/components/layout/KTPCard";
 import StoryModalFullscreen from "@/app/components/feed/StoryModal";
 import PointsModal from "./modals/PointsModal";
 import SaldoModal from "./modals/SaldoModal";
-import { useRumahWargaData } from "./hooks/useRumahWargaData";
 import OpportunityModal from "./modals/OpportunityModal";
+import { useRumahWargaData } from "./hooks/useRumahWargaData";
 
-
-// ============ KTP WIDGET COMPONENT (DIPERBAIKI) ============
+// ============ KTP WIDGET COMPONENT ============
 function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPoints }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -71,12 +70,10 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
   };
 
   const handleShowQR = async () => {
-    // Generate token acak
     const token = crypto.randomUUID() + Date.now();
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
-    // Simpan token
     await supabase.from("access_tokens").insert({
       token: token,
       user_id: user.id,
@@ -84,7 +81,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
       is_used: false
     });
 
-    // QR Code berisi link + token
     const qrLink = `https://setempat.id/${username}?token=${token}`;
     setQrData(qrLink);
     setShowQRPresenter(true);
@@ -156,7 +152,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
                 </div>
               </div>
               <div className="p-4 space-y-2">
-                {/* Tombol Voucher - TAMBAHAN BARU */}
                 <button onClick={handleVoucherClick} className="w-full flex items-center gap-4 p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/40 to-slate-950/50 border border-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-98">
                   <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
                     <Ticket className="w-5 h-5 text-emerald-400" />
@@ -205,7 +200,6 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
         )}
       </AnimatePresence>
 
-      {/* QR Presenter Modal - Versi lengkap dengan voucher */}
       <AnimatePresence>
         {showQRPresenter && (
           <motion.div
@@ -290,33 +284,45 @@ export default function RumahWargaPage({ onClose }) {
   const [userPoints, setUserPoints] = useState(0);
   const [userSaldo, setUserSaldo] = useState(0);
 
+  // State untuk kesempatan yang sudah dipisah
+  const [pointOpportunities, setPointOpportunities] = useState([]);
+  const [moneyOpportunities, setMoneyOpportunities] = useState([]);
+
+  // State untuk modal opportunity
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
-  const [opportunities, setOpportunities] = useState([]);
 
-  const handleOpportunityClick = (opportunity) => {
-    setSelectedOpportunity(opportunity);
-    setIsOpportunityModalOpen(true);
-  };
-
+  // Fetch opportunities berdasarkan reward_type
   useEffect(() => {
     const fetchOpportunities = async () => {
       const now = new Date().toISOString();
 
-      const { data, error } = await supabase
+      // Fetch POINT opportunities
+      const { data: pointData } = await supabase
         .from("opportunities")
         .select("*")
         .eq("is_active", true)
+        .eq("reward_type", "point")
         .gte("deadline", now)
         .order("deadline", { ascending: true })
-        .limit(10);
+        .limit(5);
 
-      if (data) setOpportunities(data);
+      // Fetch MONEY opportunities
+      const { data: moneyData } = await supabase
+        .from("opportunities")
+        .select("*")
+        .eq("is_active", true)
+        .eq("reward_type", "money")
+        .gte("deadline", now)
+        .order("deadline", { ascending: true })
+        .limit(5);
+
+      if (pointData) setPointOpportunities(pointData);
+      if (moneyData) setMoneyOpportunities(moneyData);
     };
 
     fetchOpportunities();
   }, []);
-
 
   const { laporanTerbaru, data, loading: dataLoading, refetch, formatTanggal } = useRumahWargaData(user?.id);
 
@@ -369,6 +375,14 @@ export default function RumahWargaPage({ onClose }) {
     fetchSaldo();
   }, [user?.id]);
 
+  // Handler untuk klik opportunity - membuka modal, BUKAN navigasi
+  const handleOpportunityClick = (opportunity) => {
+    setIsPointsModalOpen(false);
+    setIsSaldoModalOpen(false);
+    setSelectedOpportunity(opportunity);
+    setIsOpportunityModalOpen(true);
+  };
+
   if (loading || dataLoading) return <SkeletonLoader />;
   if (!user) {
     return (
@@ -403,7 +417,7 @@ export default function RumahWargaPage({ onClose }) {
         </header>
 
         <main className="p-5 space-y-6">
-          {/* PROFIL HEADER - SAMA PERSIS SEPERTI KODE ANDA */}
+          {/* PROFIL HEADER */}
           <section className="flex justify-between items-start">
             <div>
               <div className="flex items-center gap-1.5"><span className="text-emerald-400 text-[11px] font-bold uppercase flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Warga Setempat</span>{isVerified && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">Terverifikasi</span>}</div>
@@ -416,7 +430,7 @@ export default function RumahWargaPage({ onClose }) {
 
           <hr className="border-slate-800/50" />
 
-          {/* STATS GRID - SAMA PERSIS */}
+          {/* STATS GRID */}
           <div className="grid grid-cols-2 gap-3">
             <div className={`bg-slate-950/40 border border-slate-800 p-3.5 rounded-2xl ${reputasi.bg}`}>
               <div className="flex items-center gap-1.5 mb-1">
@@ -461,7 +475,7 @@ export default function RumahWargaPage({ onClose }) {
             </button>
           </div>
 
-          {/* LEVEL PROGRESS - SAMA PERSIS */}
+          {/* LEVEL PROGRESS */}
           <div className="bg-slate-950/30 border border-slate-800/80 p-4 rounded-2xl space-y-2.5">
             <div className="flex justify-between items-center text-xs">
               <div className="flex items-center gap-1.5">
@@ -510,7 +524,7 @@ export default function RumahWargaPage({ onClose }) {
             </button>
           </section>
 
-          {/* KTP WIDGET - SUDAH DIPERBAIKI DENGAN PROPS YANG LENGKAP */}
+          {/* KTP WIDGET */}
           <section className="space-y-2">
             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-2"><span>🪪</span> KTP Warga Setempat</h3>
             <KTPWidget
@@ -677,60 +691,6 @@ export default function RumahWargaPage({ onClose }) {
 
           <hr className="border-slate-800/50" />
 
-          {/* KESEMPATAN UNTUK ANDA */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                <span>🎯</span> Kesempatan Untuk Anda
-              </h3>
-              {opportunities.length > 0 && (
-                <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                  {opportunities.length} Baru
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {opportunities.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleOpportunityClick(item)}
-                  className={`w-full rounded-2xl p-3 text-left transition-all active:scale-98
-          ${item.rewardType === "money"
-                      ? "bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 hover:bg-emerald-500/20"
-                      : "bg-slate-950/40 border border-slate-800 hover:border-emerald-500/30"
-                    }
-        `}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl
-            ${item.rewardType === "money" ? "bg-emerald-500/20" : "bg-amber-500/20"}
-          `}>
-                      {item.icon}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-slate-200">{item.title}</p>
-                        <p className={`text-[10px] font-bold ${item.rewardType === "money" ? "text-emerald-400" : "text-amber-400"}`}>
-                          {item.reward}
-                        </p>
-                      </div>
-                      <p className="text-[9px] text-slate-400 mt-0.5">{item.desc}</p>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[8px] text-slate-500">📅 {item.deadline}</span>
-                        {item.quota && (
-                          <span className="text-[8px] text-slate-500">👥 {item.quota}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <hr className="border-slate-800/50" />
-
           {/* PENGATURAN */}
           <section className="space-y-3 pb-4">
             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>⚙️</span> Pengaturan</h3>
@@ -743,7 +703,7 @@ export default function RumahWargaPage({ onClose }) {
           </section>
         </main>
 
-        {/* MODAL-MODAL - SAMA PERSIS SEPERTI KODE ANDA */}
+        {/* MODALS */}
         <PointsModal
           isOpen={isPointsModalOpen}
           onClose={() => setIsPointsModalOpen(false)}
@@ -752,6 +712,8 @@ export default function RumahWargaPage({ onClose }) {
           reputasi={reputasi}
           poinSetempat={poinSetempat}
           statistik={statistik}
+          pointOpportunities={pointOpportunities}
+          onOpportunityClick={handleOpportunityClick}
         />
 
         {isSaldoModalOpen && (
@@ -760,6 +722,8 @@ export default function RumahWargaPage({ onClose }) {
             onClose={() => setIsSaldoModalOpen(false)}
             userId={user?.id}
             userSaldo={userSaldo}
+            moneyOpportunities={moneyOpportunities}
+            onOpportunityClick={handleOpportunityClick}
           />
         )}
 
@@ -785,6 +749,7 @@ export default function RumahWargaPage({ onClose }) {
           />
         )}
 
+        {/* MODAL OPPORTUNITY (KESEMPATAN) */}
         {isOpportunityModalOpen && selectedOpportunity && (
           <OpportunityModal
             isOpen={isOpportunityModalOpen}

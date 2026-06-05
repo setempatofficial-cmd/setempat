@@ -2,18 +2,24 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Wallet, History, Banknote, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { X, Wallet, Banknote, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldoUpdated }) {
+export default function SaldoModal({
+  isOpen,
+  onClose,
+  userId,
+  userSaldo,
+  moneyOpportunities = [],
+  onOpportunityClick  // 🔥 PROPS UNTUK NAVIGASI
+}) {
   const [transactions, setTransactions] = useState([]);
   const [withdrawRequests, setWithdrawRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showWithdrawForm, setShowWithdrawForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState("income"); // "income" atau "withdraw"
+  const [activeTab, setActiveTab] = useState("income");
 
-  // Form withdraw
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
@@ -28,7 +34,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Eksekusi semua query secara paralel agar load super kencang
         const [bountyRes, programRes, withdrawRes] = await Promise.all([
           supabase
             .from("bounty_submissions")
@@ -53,7 +58,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
             .limit(10)
         ]);
 
-        // Olah data transaksi masuk
         const allTransactions = [
           ...(bountyRes.data || []).map(t => ({
             id: t.id,
@@ -118,7 +122,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
       setBankName("");
       setAccountNumber("");
       setAccountName("");
-      if (onSaldoUpdated) onSaldoUpdated();
     } else {
       alert("Gagal mengajukan penarikan: " + error.message);
     }
@@ -159,7 +162,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
           className="bg-slate-900 border border-slate-800/80 rounded-t-3xl sm:rounded-2xl w-full max-w-[380px] max-h-[85vh] overflow-y-auto shadow-2xl pb-6 scrollbar-none"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* ==================== HEADER ==================== */}
           <div className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/60 px-5 py-4 flex justify-between items-center">
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -173,7 +175,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
           </div>
 
           <div className="p-5 space-y-5">
-            {/* ==================== SALDO CARD ==================== */}
             <div className="bg-gradient-to-b from-slate-800/40 to-slate-800/10 rounded-2xl p-5 border border-slate-800/80 text-center">
               <p className="text-xs font-semibold text-slate-400 tracking-wide uppercase">Saldo Anda</p>
               <h2 className="text-3xl font-black text-emerald-400 my-1.5 tracking-tight">
@@ -186,7 +187,43 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
               )}
             </div>
 
-            {/* ==================== PENARIKAN FORM / TRIGGER BUTTON ==================== */}
+            {/* KESEMPATAN DAPAT SALDO */}
+            {moneyOpportunities.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <Banknote className="w-4 h-4 text-emerald-400" />
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Kesempatan Dapat Saldo
+                  </h4>
+                </div>
+                <div className="space-y-2">
+                  {moneyOpportunities.map((opp) => (
+                    <button
+                      key={opp.id}
+                      onClick={() => {
+                        if (onOpportunityClick) {
+                          onOpportunityClick(opp);
+                        }
+                      }}
+                      className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-left hover:bg-emerald-500/20 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="text-xl">{opp.icon || "💰"}</div>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-slate-200">{opp.title}</p>
+                          <p className="text-[9px] text-slate-400 line-clamp-1">{opp.description}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-emerald-400">+Rp{opp.reward_value?.toLocaleString()}</p>
+                          <p className="text-[8px] text-slate-500">📅 {new Date(opp.deadline).toLocaleDateString('id-ID')}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {!showWithdrawForm ? (
               <button
                 onClick={() => setShowWithdrawForm(true)}
@@ -257,7 +294,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
               </motion.div>
             )}
 
-            {/* ==================== TABS MUTASI HISTORY ==================== */}
             <div className="space-y-3">
               <div className="flex border-b border-slate-800">
                 <button
@@ -276,14 +312,12 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
                 </button>
               </div>
 
-              {/* RENDER LIST BERDASARKAN TAB */}
               <div className="space-y-2 min-h-[150px]">
                 {loading ? (
                   <div className="flex items-center justify-center h-32">
                     <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : activeTab === "income" ? (
-                  // TAB PEMASUKAN
                   transactions.length > 0 ? (
                     transactions.map((item) => (
                       <div key={item.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-800/10 border border-slate-800/40">
@@ -304,7 +338,6 @@ export default function SaldoModal({ isOpen, onClose, userId, userSaldo, onSaldo
                     </div>
                   )
                 ) : (
-                  // TAB PENARIKAN
                   withdrawRequests.length > 0 ? (
                     withdrawRequests.map((req) => (
                       <div key={req.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-800/10 border border-slate-800/40">

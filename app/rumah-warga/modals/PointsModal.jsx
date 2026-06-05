@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Gift, Target, Award, Coffee, Utensils, Ticket, CheckCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-// 🎨 Map icon
 const getIconComponent = (iconName) => {
   const icons = {
     Coffee: Coffee,
@@ -17,15 +16,21 @@ const getIconComponent = (iconName) => {
   return Icon;
 };
 
-export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, onPointsUpdated }) {
+export default function PointsModal({
+  isOpen,
+  onClose,
+  userId,
+  userPoints = 0,
+  pointOpportunities = [],
+  onOpportunityClick
+}) {
   const [localPoints, setLocalPoints] = useState(userPoints);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [redeeming, setRedeeming] = useState(false);
   const [redeemSuccess, setRedeemSuccess] = useState(false);
-  const [vouchers, setVouchers] = useState([]); // 🔥 STATE DI DALAM KOMPONEN
+  const [vouchers, setVouchers] = useState([]);
 
-  // 🔥 Fetch voucher dari database
   useEffect(() => {
     const fetchVouchers = async () => {
       const { data } = await supabase
@@ -40,12 +45,10 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
     if (isOpen) fetchVouchers();
   }, [isOpen]);
 
-  // Sinkronisasi poin
   useEffect(() => {
     setLocalPoints(userPoints);
   }, [userPoints]);
 
-  // Fetch poin terbaru
   useEffect(() => {
     if (!isOpen || !userId) return;
 
@@ -67,12 +70,33 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
     fetchCurrentPoints();
   }, [isOpen, userId]);
 
-  // Hitung target voucher berikutnya
+  // 🔥 FILTER VOUCHER: Hanya tampilkan voucher yang mendekati (max 3 target ke depan)
+  const getRelevantVouchers = () => {
+    if (vouchers.length === 0) return [];
+
+    // Cari voucher yang bisa ditukar (poin cukup)
+    const availableVouchers = vouchers.filter(v => v.points_required <= localPoints);
+
+    // Cari voucher target berikutnya (belum bisa ditukar)
+    const nextVoucherIndex = vouchers.findIndex(v => v.points_required > localPoints);
+    const upcomingVouchers = nextVoucherIndex !== -1
+      ? vouchers.slice(nextVoucherIndex, nextVoucherIndex + 2)  // Ambil 2 target ke depan
+      : [];
+
+    // Gabungkan: maksimal 3 voucher available + 2 upcoming = total 5 voucher
+    const relevant = [...availableVouchers.slice(-3), ...upcomingVouchers];
+
+    // Urutkan berdasarkan points_required
+    return relevant.sort((a, b) => a.points_required - b.points_required);
+  };
+
+  const relevantVouchers = getRelevantVouchers();
   const nextVoucher = vouchers.find((v) => v.points_required > localPoints);
   const isMaxed = !nextVoucher;
   const targetVoucher = nextVoucher || vouchers[vouchers.length - 1];
   const progressToNext = isMaxed || !targetVoucher ? 100 : Math.min(100, (localPoints / targetVoucher.points_required) * 100);
   const pointsNeeded = isMaxed || !targetVoucher ? 0 : targetVoucher.points_required - localPoints;
+  const hiddenVouchersCount = vouchers.length - relevantVouchers.length;
 
   const handleRedeem = async () => {
     if (!selectedVoucher || localPoints < selectedVoucher.points_required || redeeming) return;
@@ -83,7 +107,6 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
       const expiredAt = new Date();
       expiredAt.setDate(expiredAt.getDate() + 7);
 
-      // 🔥 PERBAIKAN: Hapus voucher_code
       const { error: insertError } = await supabase
         .from("voucher_transactions")
         .insert({
@@ -97,6 +120,18 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
 
       if (insertError) throw insertError;
 
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("points")
+        .eq("id", userId)
+        .single();
+
+      await supabase
+        .from("profiles")
+        .update({ points: (profile?.points || 0) - selectedVoucher.points_required })
+        .eq("id", userId);
+
+      setLocalPoints(prev => prev - selectedVoucher.points_required);
       setRedeemSuccess(true);
 
     } catch (err) {
@@ -144,7 +179,7 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                   <p className="text-xs text-slate-500">Kumpulkan terus untuk ditukar dengan voucher</p>
                 </div>
 
-                {/* PROGRESS NEXT REWARD */}
+                {/* PROGRESS TARGET */}
                 {vouchers.length > 0 && targetVoucher && (
                   <div className="bg-slate-800/20 rounded-2xl p-4 border border-slate-800/50">
                     <div className="flex items-center justify-between mb-2">
@@ -178,20 +213,27 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                   </div>
                 )}
 
-                {/* TUKAR HADIAH */}
+                {/* TUKAR HADIAH - HANYA VOUCHER RELEVAN */}
                 <div>
-                  <div className="flex items-center gap-2 mb-3 px-1">
-                    <Gift className="w-4 h-4 text-slate-400" />
-                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Pilihan Voucher</h4>
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <div className="flex items-center gap-2">
+                      <Gift className="w-4 h-4 text-slate-400" />
+                      <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Pilihan Voucher</h4>
+                    </div>
+                    {hiddenVouchersCount > 0 && (
+                      <span className="text-[9px] text-slate-500">
+                        +{hiddenVouchersCount} voucher lainnya
+                      </span>
+                    )}
                   </div>
 
                   <div className="space-y-2.5">
-                    {vouchers.length === 0 ? (
+                    {relevantVouchers.length === 0 ? (
                       <div className="text-center py-8">
                         <p className="text-slate-400 text-sm">Belum ada voucher tersedia</p>
                       </div>
                     ) : (
-                      vouchers.map((voucher) => {
+                      relevantVouchers.map((voucher) => {
                         const isAvailable = localPoints >= voucher.points_required;
                         const Icon = getIconComponent(voucher.icon);
                         return (
@@ -199,7 +241,7 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                             key={voucher.id}
                             className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${isAvailable
                               ? "bg-slate-800/20 border-slate-800 hover:border-slate-700"
-                              : "bg-slate-900/40 border-slate-800/40 opacity-50"
+                              : "bg-slate-900/40 border-slate-800/40 opacity-70"
                               }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
@@ -231,7 +273,7 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
                                   }`}
                               >
-                                Tukar
+                                {isAvailable ? "Tukar" : `${voucher.points_required - localPoints} Poin Lagi`}
                               </button>
                             </div>
                           </div>
@@ -240,6 +282,43 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                     )}
                   </div>
                 </div>
+
+                {/* KESEMPATAN DAPAT POIN */}
+                {pointOpportunities.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <Target className="w-4 h-4 text-amber-400" />
+                      <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                        Kesempatan Dapat Poin
+                      </h4>
+                    </div>
+                    <div className="space-y-2">
+                      {pointOpportunities.map((opp) => (
+                        <button
+                          key={opp.id}
+                          onClick={() => {
+                            if (onOpportunityClick) {
+                              onOpportunityClick(opp);
+                            }
+                          }}
+                          className="w-full p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left hover:bg-amber-500/20 transition-all"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="text-xl">{opp.icon || "🎯"}</div>
+                            <div className="flex-1">
+                              <p className="text-xs font-bold text-slate-200">{opp.title}</p>
+                              <p className="text-[9px] text-slate-400 line-clamp-1">{opp.description}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-bold text-amber-400">+{opp.reward_value} Poin</p>
+                              <p className="text-[8px] text-slate-500">📅 {new Date(opp.deadline).toLocaleDateString('id-ID')}</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -282,7 +361,7 @@ export default function PointsModal({ isOpen, onClose, userId, userPoints = 0, o
                       setShowConfirmModal(false);
                       setSelectedVoucher(null);
                       setRedeeming(false);
-                      onClose();  // 🔥 TUTUP MODAL UTAMA JUGA
+                      onClose();
                     }}
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-colors"
                   >

@@ -41,11 +41,15 @@ const LoadingFallback = () => (
 );
 
 export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = true, isInteractive = false }) {
-  const [isClient, setIsClient] = useState(false);
-  const [leafletLoaded, setLeafletLoaded] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
+    // Tunggu sampai komponen mount di client
+    setIsReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isReady) return;
 
     const loadLeaflet = async () => {
       try {
@@ -59,18 +63,16 @@ export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = tr
           iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-icon.png',
           shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
         });
-
-        setLeafletLoaded(true);
       } catch (error) {
         console.error('Failed to load Leaflet:', error);
       }
     };
 
     loadLeaflet();
-  }, []);
+  }, [isReady]);
 
   // Selama loading, tampilkan placeholder
-  if (!isClient || !leafletLoaded) {
+  if (!isReady) {
     return <LoadingFallback />;
   }
 
@@ -86,15 +88,20 @@ export default function MiniMapV2({ lat, lng, theme, radius = 1, showRadius = tr
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10">
       <MapContainer
+        key={`map-${lat}-${lng}`}
         center={[lat, lng]}
         zoom={14}
         scrollWheelZoom={isInteractive}
         dragging={isInteractive}
         style={{ height: '100%', width: '100%' }}
         className="z-0"
+        whenReady={() => {
+          // Optional: Map sudah siap digunakan
+          console.log('Map is ready');
+        }}
       >
         <TileLayer
-          url={theme.isMalam
+          url={theme?.isMalam
             ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           }

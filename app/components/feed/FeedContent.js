@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import AuthModal from "@/app/components/auth/AuthModal";
@@ -19,13 +19,13 @@ import FeedCardWrapper from "@/components/FeedCardWrapper";
 import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import UploadModal from "@/components/UploadModal";
 import BreakCard from "@/components/BreakCard";
+import SplashScreen from "@/app/components/ui/SplashScreen";
 
 // Import extracted modules
 import {
   FEED_CONFIG,
   getDynamicLimit,
   haversineDistance,
-  getDistanceScore,
   calculateHybridScore,
   cachedProcessFeedItem
 } from "@/lib/feedUtils";
@@ -48,10 +48,34 @@ const SearchModal = React.lazy(() => import("./SearchModal"));
 
 // ========== MAIN COMPONENT ==========
 export default function FeedContent() {
+  // ========== HYDRATION GUARD ==========
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
   const router = useRouter();
   const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
   const { user, isAdmin, profile } = useAuth();
   const theme = useTheme();
+
+  // ========== SPLASH SCREEN STATE ==========
+  const [showSplash, setShowSplash] = useState(() => {
+    // Hanya jalankan di client-side
+    if (typeof window === 'undefined') return true;
+
+    // Cek apakah splash sudah ditampilkan di session ini
+    const splashShown = sessionStorage.getItem('splash_shown');
+
+    // Jika sudah pernah, skip splash
+    if (splashShown === 'true') {
+      return false;
+    }
+
+    // Jika belum, tampilkan splash
+    return true;
+  });
 
   // ========== NETWORK STATE ==========
   const [networkInfo, setNetworkInfo] = useState({
@@ -68,7 +92,11 @@ export default function FeedContent() {
   const [hasMore, setHasMore] = useState(true);
   const [comments, setComments] = useState({});
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
-  const [initialLoad, setInitialLoad] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const hasCache = !!sessionStorage.getItem('feed_backup');
+    return !hasCache;
+  });
   const [error, setError] = useState(null);
   const searchRadius = activeMode === 'general' ? 40 : FEED_CONFIG.DEFAULT_RADIUS;
 
@@ -102,7 +130,6 @@ export default function FeedContent() {
   const lastLocationCacheKeyRef = useRef(
     typeof window !== 'undefined' ? sessionStorage.getItem('last_location_key') : null
   );
-  const abortControllerRef = useRef(null);
   const lastLoadedIdRef = useRef(null);
   const existingIdsRef = useRef(new Set());
   const initialLoadDoneRef = useRef(false);
@@ -120,15 +147,17 @@ export default function FeedContent() {
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
 
   const { villageLocation, districtLocation } = useMemo(() => {
-    if (!placeName) return { villageLocation: "Pilih Lokasi", districtLocation: "" };
+    if (!isHydrated || !placeName) {
+      return { villageLocation: "Memuat...", districtLocation: "" };
+    }
     const parts = placeName.split(",").map(p => p.trim());
     return { villageLocation: parts[0] || "Lokasi", districtLocation: parts[1] || "" };
-  }, [placeName]);
+  }, [isHydrated, placeName]);
 
   const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
 
   // ========== BREAK CARDS ==========
-  const { generateBreakCard, openAIModalWithKentongan } = useBreakCardGenerator({
+  const { generateBreakCard } = useBreakCardGenerator({
     kentonganForFeed,
     onOpenAIModal: (kentongan) => {
       setSelectedTempat(null);
@@ -416,23 +445,6 @@ export default function FeedContent() {
     }
   }, [hasMore, loading, dynamicLimit]);
 
-  // ========== RESET FEED ==========
-  const resetFeed = useCallback((soft = false) => {
-    if (soft) {
-      setHasMore(true);
-      setInitialLoad(false);
-      setError(null);
-    } else {
-      setOrderedIds([]);
-      setItemsMap(new Map());
-      setHasMore(true);
-      setInitialLoad(true);
-      setError(null);
-      lastLoadedIdRef.current = null;
-      existingIdsRef.current.clear();
-    }
-  }, []);
-
   // ========== NETWORK INFO EFFECT ==========
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
@@ -600,14 +612,26 @@ export default function FeedContent() {
   useEffect(() => {
     const fetchKentongan = async () => {
       if (!user?.id) return;
-      const { getKentonganForFeed } = await import("@/lib/kentongan");
-      const data = await getKentonganForFeed(user.id);
-      setKentonganForFeed(data);
+      try {
+        const { getKentonganForFeed } = await import("@/lib/kentongan");
+        const data = await getKentonganForFeed(user.id);
+        setKentonganForFeed(data);
+      } catch (err) {
+        console.warn("Error fetching kentongan:", err.message);
+      }
     };
     fetchKentongan();
   }, [user?.id]);
 
-  // ========== HANDLERS ==========
+  // ========== SPLASH HANDLER ==========
+  const handleSplashComplete = useCallback(() => {
+    // Tandai splash sudah ditampilkan di session ini
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('splash_shown', 'true');
+    }
+    setShowSplash(false);
+  }, []);
+
   const handleLocationChanged = useCallback(async () => {
     setIsTransitioningLocation(true);
     setFeedOpacity(0.7);
@@ -706,11 +730,16 @@ export default function FeedContent() {
     handleRadiusChange(searchRadius + 5);
   }, [handleRadiusChange, searchRadius]);
 
-  // ========== GET USER AUTH ==========
+  // ========== GET USER AUTH (AMAN dengan timeout) ==========
   useEffect(() => {
     let isMounted = true;
+    let timeoutId;
+
     const getUser = async () => {
       try {
+        // Delay kecil untuk memastikan cookie siap
+        await new Promise(resolve => { timeoutId = setTimeout(resolve, 100); });
+
         const { data: { session } } = await supabase.auth.getSession();
         const authUser = session?.user;
         if (authUser && isMounted) {
@@ -723,23 +752,44 @@ export default function FeedContent() {
           setUserRole(profileData?.role || 'warga');
         }
       } catch (err) {
-        console.warn("Auth error:", err.message);
+        // Silent fail - error sudah ditangani oleh splash screen
+        console.debug("Auth not ready yet");
       }
     };
+
     getUser();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
-  // ========== RENDER ==========
+  // Client-side hydration guard
+  if (!isHydrated) {
+    return (
+      <main className="relative min-h-screen mx-auto w-full max-w-[420px] bg-transparent">
+        <SkeletonLoader />
+      </main>
+    );
+  }
+
+  // Tampilkan splash screen saat pertama kali load
+  if (showSplash) {
+    return <SplashScreen onComplete={handleSplashComplete} />;
+  }
+
   return (
-    <main className="relative min-h-screen mx-auto w-full max-w-[420px] bg-transparent">
+    <main
+      className="relative min-h-screen mx-auto w-full max-w-[420px] bg-transparent"
+      suppressHydrationWarning
+    >
       <PullToRefreshIndicator refreshing={refreshing} />
 
       <Header
         user={user}
         isAdmin={isAdmin}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        locationReady={locationReady}
+        locationReady={locationReady && isHydrated}
         villageLocation={villageLocation}
         districtLocation={districtLocation}
         isScrolled={isScrolled}
@@ -784,6 +834,7 @@ export default function FeedContent() {
       />
 
       <motion.div
+        key={isHydrated ? getCacheKey() : 'loading'}
         className="pt-[72px] space-y-2 min-h-[60vh] relative"
         animate={{ opacity: feedOpacity }}
         transition={{ duration: FEED_CONFIG.LOCATION_TRANSITION_DELAY / 1000 }}

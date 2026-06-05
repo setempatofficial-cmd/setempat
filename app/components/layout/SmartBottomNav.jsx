@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Contact2, Store, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -12,7 +12,7 @@ export default function SmartBottomNav({
   onOpenNotification,
   onOpenProfile,
   onOpenUpload,
-  onRefreshFeed,  // Props untuk refresh feed
+  onRefreshFeed,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -22,7 +22,7 @@ export default function SmartBottomNav({
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isPressing, setIsPressing] = useState(false); // ✅ State untuk sentuhan
+  const [pressingTab, setPressingTab] = useState(null); // ✅ Diubah ke ID Tab agar tidak nge-scale semua tombol
 
   // Ambil jumlah notifikasi yang belum dibaca
   useEffect(() => {
@@ -73,9 +73,10 @@ export default function SmartBottomNav({
 
   const canUpload = isSuperAdmin || isAdmin;
 
+  // ✅ Sinkronisasi murni dari URL Pathname (Source of Truth tunggal)
   useEffect(() => {
     if (pathname === "/") setActiveTab("Home");
-    else if (pathname === "/search" || pathname === "/explore") setActiveTab("Sekitar");
+    else if (pathname.startsWith("/explore") || pathname.startsWith("/search")) setActiveTab("Sekitar");
     else if (pathname.startsWith("/woro")) setActiveTab("Woro");
     else if (
       pathname.startsWith("/peken") ||
@@ -96,42 +97,33 @@ export default function SmartBottomNav({
     return () => window.removeEventListener("trigger-open-upload", triggerUpload);
   }, [onOpenUpload, onOpenLaporanForm]);
 
-  // ✅ FUNGSI REFRESH DENGAN FEEDBACK VISUAL
   const handleHomePress = async () => {
-    // Jika sudah di halaman home, lakukan refresh
     if (pathname === "/") {
-      if (isRefreshing) return; // Cegah double refresh
-
+      if (isRefreshing) return;
       setIsRefreshing(true);
 
-      // Trigger refresh
       if (onRefreshFeed) {
         await onRefreshFeed();
       } else {
         window.dispatchEvent(new CustomEvent("refresh-feed"));
       }
-
-      // Animasi refresh selesai setelah 1 detik
       setTimeout(() => setIsRefreshing(false), 1000);
     } else {
-      // Jika tidak di home, navigasi ke home
       router.push("/");
     }
   };
 
-  // ✅ HANDLE NAVIGASI DENGAN FEEDBACK SENTUHAN
+  // ✅ Pindah Halaman Bersih tanpa merusak State Internal sebelum URL berubah
   const handleNavigation = async (tabId) => {
-    setActiveTab(tabId);
-
-    // Feedback sentuhan: scale effect
-    setIsPressing(true);
-    setTimeout(() => setIsPressing(false), 150);
+    setPressingTab(tabId);
+    setTimeout(() => setPressingTab(null), 150);
 
     switch (tabId) {
       case "Home":
         await handleHomePress();
         break;
       case "Sekitar":
+        // Gunakan router bawaan Next agar tumpukan history tersinkronisasi dengan baik
         router.push("/explore");
         break;
       case "Woro":
@@ -146,13 +138,9 @@ export default function SmartBottomNav({
 
   const handleLapor = () => {
     if (typeof window !== "undefined") {
-      // Jika Admin, tampilkan pilihan
       if (isSuperAdmin || isAdmin) {
-        // Kamu bisa menggunakan CustomEvent untuk memicu Modal Pilihan di Layout Utama
         window.dispatchEvent(new CustomEvent("open-admin-upload-options"));
-      }
-      // Jika bukan admin (fallback)
-      else {
+      } else {
         onOpenLaporanForm?.() || window.dispatchEvent(new CustomEvent("open-laporan-form"));
       }
     }
@@ -161,7 +149,7 @@ export default function SmartBottomNav({
   if (!mounted) return null;
 
   const tabs = [
-    { id: "Home", icon: <Home size={22} />, refreshIcon: <RefreshCw size={22} />, label: "Home" },
+    { id: "Home", icon: <Home size={22} />, label: "Home" },
     { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
     ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
@@ -184,6 +172,7 @@ export default function SmartBottomNav({
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const isHomeRefreshing = tab.id === "Home" && isRefreshing && pathname === "/";
+          const isCurrentPressing = pressingTab === tab.id; // ✅ Cek hanya tab ini yang ditekan
 
           if (tab.isAction) {
             return (
@@ -208,7 +197,7 @@ export default function SmartBottomNav({
               className={`
                 relative flex flex-col items-center justify-center flex-1 h-full pt-1
                 transition-transform duration-150
-                ${isPressing ? 'scale-95' : 'scale-100'}
+                ${isCurrentPressing ? 'scale-95' : 'scale-100'}
               `}
             >
               <div
@@ -217,7 +206,6 @@ export default function SmartBottomNav({
                     ? "text-orange-500 -translate-y-0.5"
                     : isMalam ? "text-white/40" : "text-slate-400"}`}
               >
-                {/* ✅ Tampilkan icon refresh berputar saat proses refresh di home */}
                 {isHomeRefreshing ? (
                   <RefreshCw size={22} className="animate-spin" />
                 ) : (

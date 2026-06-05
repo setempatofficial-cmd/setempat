@@ -253,7 +253,7 @@ function CitizenHubContent({ userId, userRole }) {
     if (typeof window !== 'undefined') {
       const reportId = validReports[index]?.id;
       if (reportId) {
-        window.history.pushState({}, '', `/explore?story=${reportId}`);
+        router.push(`/explore?story=${reportId}`, { scroll: false });
       }
     }
   }, [validReports]);
@@ -392,7 +392,10 @@ function CitizenHubContent({ userId, userRole }) {
               viewCounts={viewCounts}
               likedLaporan={likedLaporan}
               laporanLikeCounts={laporanLikeCounts}
-              onClose={() => setViewMode('grid')}
+              onClose={() => {
+                setViewMode('grid');
+                router.push('/explore', { scroll: false });
+              }}
               onLike={handleLaporanLike}
               onShare={handleShare}
               onOpenAIChat={openAIChat}
