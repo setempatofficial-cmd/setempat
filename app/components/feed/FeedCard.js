@@ -645,6 +645,7 @@ function FeedCardV2Premium({
   cardIndex = 0,
   userProfile,
   userAvatar,
+  hideActionButtons = false,
 }) {
 
   const { user } = useAuth();
@@ -1031,7 +1032,7 @@ function FeedCardV2Premium({
         <div
           className="relative w-full overflow-hidden transition-all duration-500 ease-in-out"
           style={{
-            aspectRatio: isDetail ? '16/10' : '1/1', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
+            aspectRatio: isDetail ? '16/10' : '4/3', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
             maxHeight: isDetail ? '45vh' : 'none'
           }}
         >
@@ -1070,7 +1071,7 @@ function FeedCardV2Premium({
                   {safeItem.isViral && <ViralBadge />}
                 </div>
 
-                <h3 className="text-xl sm:text-2xl font-[1000] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
+                <h3 className="text-base sm:text-lg font-[800] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight">
                   <span className="text-cyan-400 mr-2">●</span>{safeItem.name}
                 </h3>
               </div>
@@ -1100,7 +1101,7 @@ function FeedCardV2Premium({
 
         {/* STATUS ISLAND */}
         {!isDetail && showStatusIsland && (
-          <div className={`${paddingX} pt-4 pb-2`}>
+          <div className={`${paddingX} pt-3 pb-1`}>
             <StatusIsland
               item={safeItem}
               theme={theme}
@@ -1108,6 +1109,8 @@ function FeedCardV2Premium({
               isExpanded={isExpanded}
               setIsExpanded={(value) => setUiState({ isExpanded: value })}
               jumlahWarga={totalSaksi}
+              compact={true}
+              maxLines={2}
             />
           </div>
         )}
@@ -1136,7 +1139,7 @@ function FeedCardV2Premium({
           )}
 
           <div className="flex flex-col gap-3">
-            {!isDetail && (
+            {!isDetail && !hideActionButtons && (
               <div className="flex gap-2">
                 <ValidationButton
                   tempatId={safeItem.id}
@@ -1162,31 +1165,25 @@ function FeedCardV2Premium({
 
             {!isDetail && (
               <div className="flex flex-col gap-2">
-                <p className={`text-[9px] font-medium italic opacity-50 px-1 ${theme.isMalam ? 'text-white' : 'text-black'}`}>
+                <p className={`text-[11px] font-medium italic opacity-50 px-1 ${theme.isMalam ? 'text-white' : 'text-black'}`}>
                   "{getPinarakText()}"
                 </p>
 
                 <motion.button
                   onClick={handleGoToDetail}
-                  whileTap={{ scale: 0.97 }}
+                  whileTap={{ scale: 0.95 }}
                   className={`
-                    w-full py-4 rounded-xl
-                    flex items-center justify-center gap-3
-                    text-[10px] sm:text-[11px] font-black uppercase tracking-[0.25em]
-                    transition-all duration-200
-                    ${theme.isMalam
-                      ? "bg-white text-black hover:bg-gray-100"
-                      : "bg-black text-white hover:bg-zinc-800"
+    self-end px-4 py-2 rounded-full  // Tidak full width
+    flex items-center gap-1.5
+    text-[10px] font-bold uppercase tracking-wide
+    ${theme.isMalam
+                      ? "bg-white/10 text-white"
+                      : "bg-black/5 text-black"
                     }
-                  `}
+  `}
                 >
                   <span>PINARAK</span>
-                  <motion.div
-                    animate={{ x: [0, 3, 0] }}
-                    transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                  >
-                    <ChevronRight size={16} strokeWidth={3} />
-                  </motion.div>
+                  <ChevronRight size={12} />
                 </motion.button>
               </div>
             )}

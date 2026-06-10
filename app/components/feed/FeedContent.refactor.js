@@ -398,7 +398,53 @@ export default function FeedContent() {
         processedItems.push(processed);
       }
 
-      processedItems.sort((a, b) => (b._hybridScore || 0) - (a._hybridScore || 0));
+      processedItems.sort((a, b) => {
+        const distA = a._distance !== null && a._distance !== undefined ? a._distance : 999999;
+        const distB = b._distance !== null && b._distance !== undefined ? b._distance : 999999;
+        return distA - distB;
+      });
+
+      // 2. Pisahkan konten viral dan non-viral
+      const nonViral = processedItems.filter(item => !item.isViral);
+      const viral = processedItems.filter(item => item.isViral);
+
+      // 3. Bangun ulang urutan: 
+      //    - Posisi 1-2: terdekat (non-viral)
+      //    - Posisi 3: viral terbaik
+      //    - Posisi 4-5: terdekat berikutnya
+      //    - Posisi 6: viral kedua
+      //    - Sisa: sesuai jarak
+      const finalOrder = [];
+
+      // Ambil 2 terdekat non-viral
+      for (let i = 0; i < Math.min(2, nonViral.length); i++) {
+        finalOrder.push(nonViral[i]);
+      }
+
+      // Ambil 1 viral terbaik (yang jaraknya paling dekat)
+      if (viral.length > 0) {
+        viral.sort((a, b) => (a._distance || 999) - (b._distance || 999));
+        finalOrder.push(viral[0]);
+      }
+
+      // Ambil sisa non-viral (mulai dari urutan 3 dan seterusnya)
+      for (let i = 2; i < nonViral.length; i++) {
+        finalOrder.push(nonViral[i]);
+      }
+
+      // Ambil sisa viral (kecuali yang sudah dipakai)
+      for (let i = 1; i < viral.length; i++) {
+        finalOrder.push(viral[i]);
+      }
+
+      processedItems = finalOrder;
+
+      console.log('📊 URUTAN FINAL:', processedItems.map((item, idx) => ({
+        peringkat: idx + 1,
+        nama: item.name,
+        jarak: item._distance?.toFixed(2) + 'km',
+        viral: item.isViral ? '🔥' : ''
+      })));
 
       // Update state
       if (reset) {

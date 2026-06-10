@@ -48,34 +48,14 @@ const SearchModal = React.lazy(() => import("./SearchModal"));
 
 // ========== MAIN COMPONENT ==========
 export default function FeedContent() {
-  // ========== HYDRATION GUARD ==========
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+  // ========== MOUNTED & SPLASH STATE ==========
+  const [mounted, setMounted] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const router = useRouter();
   const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
   const { user, isAdmin, profile } = useAuth();
   const theme = useTheme();
-
-  // ========== SPLASH SCREEN STATE ==========
-  const [showSplash, setShowSplash] = useState(() => {
-    // Hanya jalankan di client-side
-    if (typeof window === 'undefined') return true;
-
-    // Cek apakah splash sudah ditampilkan di session ini
-    const splashShown = sessionStorage.getItem('splash_shown');
-
-    // Jika sudah pernah, skip splash
-    if (splashShown === 'true') {
-      return false;
-    }
-
-    // Jika belum, tampilkan splash
-    return true;
-  });
 
   // ========== NETWORK STATE ==========
   const [networkInfo, setNetworkInfo] = useState({
@@ -143,16 +123,26 @@ export default function FeedContent() {
   const [kentonganForFeed, setKentonganForFeed] = useState([]);
   const [selectedKentongan, setSelectedKentongan] = useState(null);
 
+  // ========== MOUNTED EFFECT ==========
+  useEffect(() => {
+    setMounted(true);
+    // Cek session storage setelah mounted
+    const splashShown = sessionStorage.getItem('splash_shown');
+    if (splashShown === 'true') {
+      setShowSplash(false);
+    }
+  }, []);
+
   // ========== MEMOIZED VALUES ==========
   const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
 
   const { villageLocation, districtLocation } = useMemo(() => {
-    if (!isHydrated || !placeName) {
-      return { villageLocation: "Memuat...", districtLocation: "" };
+    if (!placeName) {
+      return { villageLocation: "Pilih Lokasi", districtLocation: "" };
     }
     const parts = placeName.split(",").map(p => p.trim());
     return { villageLocation: parts[0] || "Lokasi", districtLocation: parts[1] || "" };
-  }, [isHydrated, placeName]);
+  }, [placeName]);
 
   const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
 
@@ -172,50 +162,11 @@ export default function FeedContent() {
   const feedItemsWithBreaks = useMemo(() => {
     if (!tempat.length) return [];
 
-    const itemsToProcess = tempat.slice(0, FEED_CONFIG.LIMIT_VISIBLE);
-    const remainingItems = tempat.slice(FEED_CONFIG.LIMIT_VISIBLE);
-    const result = [];
-    let cardsSinceLastBreak = 0;
+    // Langsung return tempat tanpa break card
+    return tempat;
 
-    for (let i = 0; i < itemsToProcess.length; i++) {
-      result.push(itemsToProcess[i]);
-      cardsSinceLastBreak++;
-
-      const shouldAddBreak = (() => {
-        if (cardsSinceLastBreak < FEED_CONFIG.MIN_CARDS_BEFORE_BREAK) return false;
-        if (cardsSinceLastBreak >= FEED_CONFIG.MAX_CARDS_BEFORE_BREAK) return true;
-
-        const recentPlaces = itemsToProcess.slice(Math.max(0, i - 2), i + 1);
-        const hasViral = recentPlaces.some(p => p.isViral === true);
-        const hasManyReports = recentPlaces.some(p => (p.laporan_terbaru?.length || 0) > 3);
-
-        let hasStatusChange = false;
-        if (recentPlaces.length >= 2) {
-          const statuses = recentPlaces.map(p => p.isRamai ? "ramai" : (p.isViral ? "viral" : "normal"));
-          hasStatusChange = statuses[0] !== statuses[statuses.length - 1];
-        }
-
-        return (hasViral || hasManyReports || hasStatusChange) || cardsSinceLastBreak >= 4;
-      })();
-
-      if (shouldAddBreak && i !== itemsToProcess.length - 1) {
-        const breakCard = generateBreakCard(i + 1, itemsToProcess.slice(0, i + 1), itemsToProcess);
-        if (breakCard) {
-          result.push({
-            _isBreak: true,
-            id: `break-${i}-${Date.now()}`,
-            type: breakCard.type,
-            level: breakCard.level,
-            data: breakCard.data,
-            onClick: breakCard.onClick,
-          });
-        }
-        cardsSinceLastBreak = 0;
-      }
-    }
-
-    return [...result, ...remainingItems];
-  }, [tempat, generateBreakCard]);
+    // Hapus atau comment semua logic break card sebelumnya
+  }, [tempat]);
 
   // ========== GET CACHE KEY ==========
   const getCacheKey = useCallback(() => {
@@ -243,6 +194,7 @@ export default function FeedContent() {
     setTimeout(() => setToast({ show: false, message: "" }), FEED_CONFIG.TOAST_DURATION);
   }, []);
 
+  // ========== LOAD PLACES (CORE LOGIC) ==========
   // ========== LOAD PLACES (CORE LOGIC) ==========
   const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
     if (isFetchingRef.current && !reset) return;
@@ -431,21 +383,15 @@ export default function FeedContent() {
     }
   }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager, preloadImages, showToast]);
 
-  // ========== PREFETCH NEXT PAGE ==========
-  const prefetchNextPage = useCallback(async () => {
-    if (!hasMore || loading || !lastLoadedIdRef.current) return;
-    try {
-      await supabase
-        .from("feed_view")
-        .select("id")
-        .lt('id', lastLoadedIdRef.current)
-        .limit(dynamicLimit);
-    } catch (err) {
-      // Silent ignore
+  // ========== LOAD DATA AFTER MOUNTED ==========
+  useEffect(() => {
+    if (mounted && !showSplash && !initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      loadPlaces(true, false);
     }
-  }, [hasMore, loading, dynamicLimit]);
+  }, [mounted, showSplash, loadPlaces]);
 
-  // ========== NETWORK INFO EFFECT ==========
+  // ========== NETWORK INFO ==========
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.connection) return;
 
@@ -464,172 +410,34 @@ export default function FeedContent() {
     return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
   }, []);
 
-  // ========== POLLING FOR NEW CONTENT ==========
-  useEffect(() => {
-    let pollInterval = null;
-    let lastKnownFirstId = orderedIds[0];
-
-    const checkForNewContent = async () => {
-      if (!locationReady || !hasMore || loading || !lastKnownFirstId) return;
-
-      try {
-        const { data } = await supabase
-          .from("feed_view")
-          .select("id")
-          .gt('id', lastKnownFirstId)
-          .limit(1)
-          .single();
-
-        if (data) {
-          loadPlaces(true, false);
-        }
-
-        if (orderedIds[0] && orderedIds[0] !== lastKnownFirstId) {
-          lastKnownFirstId = orderedIds[0];
-        }
-      } catch (err) {
-        // Silent ignore
-      }
-    };
-
-    pollInterval = setInterval(checkForNewContent, FEED_CONFIG.POLLING_INTERVAL_MS);
-    return () => { if (pollInterval) clearInterval(pollInterval); };
-  }, [locationReady, hasMore, loading, loadPlaces, orderedIds[0]]);
-
-  // ========== INFINITE SCROLL OBSERVER ==========
-  useEffect(() => {
-    if (!lastCardRef.current || !hasMore || loading) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          setTimeout(() => {
-            loadPlaces(false);
-            setTimeout(() => prefetchNextPage(), 100);
-          }, 100);
-        }
-      },
-      { threshold: FEED_CONFIG.INTERSECTION_THRESHOLD, rootMargin: FEED_CONFIG.INTERSECTION_ROOT_MARGIN }
-    );
-
-    observer.observe(lastCardRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadPlaces, feedItemsWithBreaks.length, prefetchNextPage]);
-
-  // ========== PULL TO REFRESH ==========
-  useEffect(() => {
-    let startY = 0;
-    let isPulling = false;
-
-    const handleTouchStart = (e) => {
-      if (window.scrollY === 0 && !loading && !refreshing) {
-        startY = e.touches[0].pageY;
-        isPulling = true;
-      }
-    };
-
-    const handleTouchMove = (e) => {
-      if (!isPulling || window.scrollY > 0) return;
-      const pullDistance = e.touches[0].pageY - startY;
-      if (pullDistance > 60 && !refreshing) setRefreshing(true);
-    };
-
-    const handleTouchEnd = () => {
-      if (refreshing && !loading) {
-        cacheManager.invalidate();
-        loadPlaces(true);
-        setTimeout(() => setRefreshing(false), FEED_CONFIG.REFRESH_RESET_DELAY);
-      }
-      isPulling = false;
-    };
-
-    window.addEventListener('touchstart', handleTouchStart);
-    window.addEventListener('touchmove', handleTouchMove);
-    window.addEventListener('touchend', handleTouchEnd);
-    return () => {
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [refreshing, loading, cacheManager, loadPlaces]);
-
-  // ========== RESTORE FROM SESSION STORAGE ==========
-  useEffect(() => {
-    if (hasInitializedRef.current) return;
-
-    const backup = sessionStorage.getItem('feed_backup');
-    if (backup && !initialLoadDoneRef.current) {
-      try {
-        const data = JSON.parse(backup);
-        const isFresh = (Date.now() - data.timestamp) < FEED_CONFIG.SESSION_CACHE_DURATION;
-
-        if (data.orderedIds?.length > 0 && isFresh && data.version === '2.0') {
-          const maxRestore = Math.min(data.orderedIds.length, FEED_CONFIG.SESSION_CACHE_MAX_ITEMS);
-          const limitedIds = data.orderedIds.slice(0, maxRestore);
-          const limitedMap = new Map(data.itemsMap.slice(0, maxRestore));
-
-          setItemsMap(limitedMap);
-          setOrderedIds(limitedIds);
-          setInitialLoad(false);
-          setLoading(false);
-          initialLoadDoneRef.current = true;
-          hasInitializedRef.current = true;
-          preloadImages(limitedIds);
-          return;
-        } else if (data.version !== '2.0') {
-          sessionStorage.removeItem('feed_backup');
-        }
-      } catch (e) {
-        sessionStorage.removeItem('feed_backup');
-      }
+  // ========== PREFETCH NEXT PAGE ==========
+  const prefetchNextPage = useCallback(async () => {
+    if (!hasMore || loading || !lastLoadedIdRef.current) return;
+    try {
+      await supabase
+        .from("feed_view")
+        .select("id")
+        .lt('id', lastLoadedIdRef.current)
+        .limit(dynamicLimit);
+    } catch (err) {
+      // Silent ignore
     }
-
-    if (!initialLoadDoneRef.current) {
-      initialLoadDoneRef.current = true;
-      hasInitializedRef.current = true;
-      loadPlaces(true, false);
-    }
-  }, [preloadImages, loadPlaces]);
-
-  // ========== LOCATION CHANGE EFFECT ==========
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) return;
-    if (!locationReady) return;
-
-    const currentCacheKey = getCacheKey();
-    if (lastLocationCacheKeyRef.current === currentCacheKey) return;
-
-    lastLocationCacheKeyRef.current = currentCacheKey;
-    sessionStorage.setItem('last_location_key', currentCacheKey);
-
-    cacheManager.invalidate();
-    sessionStorage.removeItem('feed_backup');
-    loadPlaces(true, true);
-    showToast(`📍 Feed diperbarui untuk lokasi: ${villageLocation}`);
-  }, [getCacheKey, locationReady, cacheManager, villageLocation, loadPlaces, showToast]);
-
-  // ========== FETCH KENTONGAN ==========
-  useEffect(() => {
-    const fetchKentongan = async () => {
-      if (!user?.id) return;
-      try {
-        const { getKentonganForFeed } = await import("@/lib/kentongan");
-        const data = await getKentonganForFeed(user.id);
-        setKentonganForFeed(data);
-      } catch (err) {
-        console.warn("Error fetching kentongan:", err.message);
-      }
-    };
-    fetchKentongan();
-  }, [user?.id]);
+  }, [hasMore, loading, dynamicLimit]);
 
   // ========== SPLASH HANDLER ==========
   const handleSplashComplete = useCallback(() => {
-    // Tandai splash sudah ditampilkan di session ini
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('splash_shown', 'true');
     }
     setShowSplash(false);
+  }, []);
+
+  const handleSearchWithQuery = useCallback((q, item = null) => {
+    setInitialQuery(q);
+    setSelectedTempat(item);
+    setSelectedUploadSuccess(null);
+    setAiContext("search");
+    setShowAIModal(true);
   }, []);
 
   const handleLocationChanged = useCallback(async () => {
@@ -686,14 +494,6 @@ export default function FeedContent() {
     setShowAIModal(true);
   }, []);
 
-  const handleSearchWithQuery = useCallback((q, item = null) => {
-    setInitialQuery(q);
-    setSelectedTempat(item);
-    setSelectedUploadSuccess(null);
-    setAiContext("search");
-    setShowAIModal(true);
-  }, []);
-
   const openKomentarModal = useCallback((item) => {
     setSelectedTempat(item);
     setShowKomentarModal(true);
@@ -730,54 +530,18 @@ export default function FeedContent() {
     handleRadiusChange(searchRadius + 5);
   }, [handleRadiusChange, searchRadius]);
 
-  // ========== GET USER AUTH (AMAN dengan timeout) ==========
-  useEffect(() => {
-    let isMounted = true;
-    let timeoutId;
-
-    const getUser = async () => {
-      try {
-        // Delay kecil untuk memastikan cookie siap
-        await new Promise(resolve => { timeoutId = setTimeout(resolve, 100); });
-
-        const { data: { session } } = await supabase.auth.getSession();
-        const authUser = session?.user;
-        if (authUser && isMounted) {
-          setUserId(authUser.id);
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', authUser.id)
-            .maybeSingle();
-          setUserRole(profileData?.role || 'warga');
-        }
-      } catch (err) {
-        // Silent fail - error sudah ditangani oleh splash screen
-        console.debug("Auth not ready yet");
-      }
-    };
-
-    getUser();
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, []);
-
-  // Client-side hydration guard
-  if (!isHydrated) {
-    return (
-      <main className="relative min-h-screen mx-auto w-full max-w-[420px] bg-transparent">
-        <SkeletonLoader />
-      </main>
-    );
+  // ========== RENDER LOGIC ==========
+  // Selama belum mounted, return null (server & client render sama)
+  if (!mounted) {
+    return null;
   }
 
-  // Tampilkan splash screen saat pertama kali load
+  // Tampilkan splash jika perlu
   if (showSplash) {
     return <SplashScreen onComplete={handleSplashComplete} />;
   }
 
+  // Konten utama
   return (
     <main
       className="relative min-h-screen mx-auto w-full max-w-[420px] bg-transparent"
@@ -789,7 +553,7 @@ export default function FeedContent() {
         user={user}
         isAdmin={isAdmin}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        locationReady={locationReady && isHydrated}
+        locationReady={locationReady}  // ← FIX: hapus && isHydrated
         villageLocation={villageLocation}
         districtLocation={districtLocation}
         isScrolled={isScrolled}
@@ -834,7 +598,7 @@ export default function FeedContent() {
       />
 
       <motion.div
-        key={isHydrated ? getCacheKey() : 'loading'}
+        key={mounted ? getCacheKey() : 'loading'}
         className="pt-[72px] space-y-2 min-h-[60vh] relative"
         animate={{ opacity: feedOpacity }}
         transition={{ duration: FEED_CONFIG.LOCATION_TRANSITION_DELAY / 1000 }}
@@ -892,6 +656,7 @@ export default function FeedContent() {
                           userProfile={profile}
                           userAvatar={profile?.avatar_url}
                           showLiveInsight={false}
+                          hideActionButtons={true}
                         />
                       </FeedCardWrapper>
                     </motion.div>

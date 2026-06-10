@@ -1,94 +1,111 @@
 'use client';
 
-import { Store, Truck, UserPlus, Heart, AlertCircle } from 'lucide-react';
+import { Store, Truck, UserPlus, Heart, AlertCircle, Video } from 'lucide-react'; // TAMBAHKAN IMPORT Video
 
-export default function UploadOptions({ 
+export default function UploadOptions({
   onClose,
   onSambat,
-  onDaftarRewang,     // ← rename biar jelas
+  onDaftarRewang,
   onPanyangan,
   onDaftarOjek,
   onDonasi,
-  onDaftarBakul,      // ← tambahkan ini
+  onDaftarBakul,
+  onUploadVideo,      // TAMBAHKAN PROPS INI
   isSeller,
   isDriver,
   isRewang
 }) {
-  
+
   const options = [];
-  
-  // 1. DAFTAR BAKUL (hanya jika BELUM jadi seller)
+
+  // CEK APAKAH USER SUDAH PUNYA ROLE (Bisa upload video)
+  const sudahPunyaRole = isSeller || isDriver || isRewang;
+
+  // 1. UPLOAD VIDEO (hanya jika SUDAH punya role)
+  if (sudahPunyaRole && onUploadVideo) {
+    options.push({
+      label: 'Upload Video Peken',
+      sub: 'Promosi jualan / jasa',
+      icon: Video,
+      color: 'text-orange-500',
+      bg: 'bg-gradient-to-r from-orange-500/10 to-red-500/10',
+      border: 'border-orange-200',
+      onClick: onUploadVideo
+    });
+  }
+
+  // 2. DAFTAR BAKUL (hanya jika BELUM jadi seller)
   if (!isSeller) {
-    options.push({ 
-      label: 'Daftar Jadi Bakul', 
-      sub: 'Mulai jualan di Panyangan', 
-      icon: Store, 
-      color: 'text-orange-500', 
-      bg: 'bg-orange-100', 
-      border: 'border-orange-200', 
+    options.push({
+      label: 'Daftar Jadi Bakul',
+      sub: 'Mulai jualan di Panyangan',
+      icon: Store,
+      color: 'text-orange-500',
+      bg: 'bg-orange-100',
+      border: 'border-orange-200',
       onClick: onDaftarBakul
     });
   }
-  
-  // 2. GELAR DAGANGAN (hanya jika SUDAH jadi seller)
+
+  // 3. GELAR DAGANGAN (hanya jika SUDAH jadi seller)
   if (isSeller) {
-    options.push({ 
-      label: 'Gelar Dagangan', 
-      sub: 'Panyangan Rojo Koyo', 
-      icon: Store, 
-      color: 'text-orange-500', 
-      bg: 'bg-orange-50', 
-      border: 'border-orange-100', 
-      onClick: onPanyangan 
+    options.push({
+      label: 'Gelar Dagangan',
+      sub: 'Panyangan Rojo Koyo',
+      icon: Store,
+      color: 'text-orange-500',
+      bg: 'bg-orange-50',
+      border: 'border-orange-100',
+      onClick: onPanyangan
     });
   }
-  
-  // 3. DAFTAR OJEK (hanya jika BELUM jadi driver)
+
+  // 4. DAFTAR OJEK (hanya jika BELUM jadi driver)
   if (!isDriver) {
-    options.push({ 
-      label: 'Daftar Ojek', 
-      sub: 'Jadi rider antar jemput', 
-      icon: Truck, 
-      color: 'text-emerald-600', 
-      bg: 'bg-emerald-50', 
-      border: 'border-emerald-100', 
-      onClick: onDaftarOjek 
+    options.push({
+      label: 'Daftar Ojek',
+      sub: 'Jadi rider antar jemput',
+      icon: Truck,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-100',
+      onClick: onDaftarOjek
     });
   }
-  
-  // 4. DAFTAR REWANG (hanya jika BELUM jadi rewang)
+
+  // 5. DAFTAR REWANG (hanya jika BELUM jadi rewang)
   if (!isRewang) {
-    options.push({ 
-      label: 'Daftar Rewang', 
-      sub: 'Menawarkan jasa warga', 
-      icon: UserPlus, 
-      color: 'text-purple-600', 
-      bg: 'bg-purple-50', 
-      border: 'border-purple-100', 
-      onClick: onDaftarRewang 
+    options.push({
+      label: 'Daftar Rewang',
+      sub: 'Menawarkan jasa warga',
+      icon: UserPlus,
+      color: 'text-purple-600',
+      bg: 'bg-purple-50',
+      border: 'border-purple-100',
+      onClick: onDaftarRewang
     });
   }
-  
-  // 5. BERBAGI / DONASI (SEMUA USER - selalu tampil)
-  options.push({ 
-    label: 'Berbagi / Donasi', 
-    sub: 'Sedekah barang & bantuan', 
-    icon: Heart, 
-    color: 'text-rose-600', 
-    bg: 'bg-rose-50', 
-    border: 'border-rose-100', 
-    onClick: onDonasi 
+
+  // 6. BERBAGI / DONASI (SEMUA USER - selalu tampil)
+  options.push({
+    label: 'Berbagi / Donasi',
+    sub: 'Sedekah barang & bantuan',
+    icon: Heart,
+    color: 'text-rose-600',
+    bg: 'bg-rose-50',
+    border: 'border-rose-100',
+    onClick: onDonasi
   });
-  
-  // 6. SAMBAT BANTUAN (SEMUA USER - selalu tampil)
-  options.push({ 
-    label: 'Sambat Bantuan', 
-    sub: 'Butuh bantuan segera', 
-    icon: AlertCircle, 
-    color: 'text-red-600', 
-    bg: 'bg-red-50', 
-    border: 'border-red-100', 
-    onClick: onSambat 
+
+  // 7. SAMBAT BANTUAN (SEMUA USER - selalu tampil)
+  options.push({
+    label: 'Sambat Bantuan',
+    sub: 'Butuh bantuan segera',
+    icon: AlertCircle,
+    color: 'text-red-600',
+    bg: 'bg-red-50',
+    border: 'border-red-100',
+    onClick: onSambat
   });
 
   return (
@@ -99,7 +116,14 @@ export default function UploadOptions({
         <h3 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tighter italic">Mau Posting Apa?</h3>
         <div className="grid gap-3 max-h-[60vh] overflow-y-auto no-scrollbar pr-1">
           {options.map((opt, i) => (
-            <button key={i} onClick={() => { onClose(); setTimeout(() => opt.onClick(), 200); }} className={`w-full flex items-center p-4 ${opt.bg} rounded-[28px] border ${opt.border} active:scale-95 transition-all group`}>
+            <button
+              key={i}
+              onClick={() => {
+                onClose();
+                setTimeout(() => opt.onClick(), 200);
+              }}
+              className={`w-full flex items-center p-4 ${opt.bg} rounded-[28px] border ${opt.border} active:scale-95 transition-all group`}
+            >
               <div className={`p-3 bg-white rounded-2xl mr-4 ${opt.color} shadow-sm border border-white group-hover:scale-110 transition-transform`}>
                 <opt.icon size={20} strokeWidth={2.5} />
               </div>

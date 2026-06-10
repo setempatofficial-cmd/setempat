@@ -11,7 +11,7 @@ import { useLaporanWarga } from "@/hooks/useOptimizedFetch";
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center h-full w-full bg-black">
     <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Ronda Cerita Warga Setempat...
+      Cerita Ronda Warga Setempat...
     </div>
   </div>
 );
@@ -19,7 +19,7 @@ const LoadingSpinner = () => (
 const InitialLoadingScreen = () => (
   <div className="h-[100dvh] w-full bg-black flex items-center justify-center">
     <div className="animate-pulse font-black text-xs tracking-[0.2em] text-[#25F4EE]">
-      Ronda Cerita Warga Setempat...
+      Cerita Ronda Warga Setempat...
     </div>
   </div>
 );
@@ -92,6 +92,7 @@ function CitizenHubContent({ userId, userRole }) {
   const [sessionUserId, setSessionUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [mounted, setMounted] = useState(false);
+
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);

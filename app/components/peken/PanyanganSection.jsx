@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation'; // ← TAMBAHKAN
 import {
   ArrowLeft, Search,
   Package, ShoppingBag,
   User, MapPin, MessageCircle, Store
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
-import DetailProdukModal from './DetailProdukModal'; // ← IMPORT MODAL
+import DetailProdukModal from './DetailProdukModal';
 
-// Daftar kategori dengan sentuhan lokal
 const CATEGORIES = [
   { id: 'all', label: 'Kabeh', icon: '🌈' },
   { id: 'makanan', label: 'Panganan', icon: '🍿' },
@@ -23,17 +23,50 @@ export default function PanyanganSection({
   locationName = 'Pasuruan',
   userId,
   onBack,
+  openProductId,
+  onClearProductId,
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showHeader, setShowHeader] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
-  
-  // 🆕 State untuk modal detail
+
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // 🔥 CEK PARAMETER PRODUCT DARI URL
+  useEffect(() => {
+    const productId = searchParams.get('product');
+    if (productId && products.length > 0) {
+      const product = products.find(p => p.id === productId);
+      if (product) {
+        setSelectedProduct(product);
+        setShowDetailModal(true);
+
+        // Hapus parameter dari URL tanpa reload
+        router.replace('/peken/panyangan', { scroll: false });
+      }
+    }
+  }, [searchParams, products, router]);
+
+  useEffect(() => {
+    if (!openProductId) return;
+
+    // Tunggu sampai products tidak loading
+    if (!loading && products.length > 0) {
+      const product = products.find(p => p.id === openProductId);
+      if (product) {
+        setSelectedProduct(product);
+        setShowDetailModal(true);
+        onClearProductId?.();
+      }
+    }
+  }, [openProductId, products, loading, onClearProductId]);
 
   // --- LOGIKA SMART HEADER ---
   useEffect(() => {
@@ -68,63 +101,63 @@ export default function PanyanganSection({
         .from('produk')
         .select('*')
         .eq('is_active', true);
-      
+
       // Filter kategori (jika bukan 'all')
       if (selectedCategory !== 'all') {
         query = query.eq('kategori', selectedCategory);
       }
-      
+
       const { data: productsData, error: productsError } = await query
         .order('created_at', { ascending: false });
-      
+
       if (productsError) throw productsError;
-      
+
       if (!productsData || productsData.length === 0) {
         setProducts([]);
         return;
       }
-      
+
       // STEP 2: Ambil data penjual (profiles)
       const userIds = [...new Set(productsData.map(p => p.user_id).filter(Boolean))];
-      
+
       let profilesData = [];
       if (userIds.length > 0) {
         const { data, error: profilesError } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url, toko_name, phone, alamat, desa, kecamatan')
           .in('id', userIds);
-        
+
         if (profilesError) throw profilesError;
         profilesData = data || [];
       }
-      
+
       // STEP 3: Gabungkan data
       let productsWithSeller = productsData.map(product => {
-  const penjual = profilesData.find(p => p.id === product.user_id);
-  
-  // Jika ada toko_name, pakai itu. Jika tidak, pakai full_name.
-  const displayName = penjual?.toko_name || penjual?.full_name || 'Warga';
-  const isBusiness = !!penjual?.toko_name; // Cek apakah dia toko atau personal
+        const penjual = profilesData.find(p => p.id === product.user_id);
 
-  return {
-    ...product,
-    display_name: displayName,
-    is_business: isBusiness,
-    penjual_foto: penjual?.avatar_url,
-    penjual_desa: penjual?.desa || 'Pasuruan',
-    penjual_phone: penjual?.phone
-  };
-});
-      
+        // Jika ada toko_name, pakai itu. Jika tidak, pakai full_name.
+        const displayName = penjual?.toko_name || penjual?.full_name || 'Warga';
+        const isBusiness = !!penjual?.toko_name; // Cek apakah dia toko atau personal
+
+        return {
+          ...product,
+          display_name: displayName,
+          is_business: isBusiness,
+          penjual_foto: penjual?.avatar_url,
+          penjual_desa: penjual?.desa || 'Pasuruan',
+          penjual_phone: penjual?.phone
+        };
+      });
+
       // STEP 4: Filter search (client-side)
       if (searchQuery) {
         productsWithSeller = productsWithSeller.filter(product =>
           product.nama_barang.toLowerCase().includes(searchQuery.toLowerCase())
         );
       }
-      
+
       setProducts(productsWithSeller);
-      
+
     } catch (err) {
       console.error('Error fetching products:', err);
       setProducts([]);
@@ -147,20 +180,20 @@ export default function PanyanganSection({
 
   const handleChat = (product) => {
     const phoneNumber = product.penjual_phone;
-    
+
     if (!phoneNumber) {
       alert('Maaf, nomor WhatsApp penjual belum tersedia');
       return;
     }
-    
+
     let cleanPhone = phoneNumber.toString().replace(/[^0-9]/g, '');
-    
+
     if (cleanPhone.startsWith('0')) {
       cleanPhone = '62' + cleanPhone.substring(1);
     } else if (!cleanPhone.startsWith('62') && cleanPhone.length > 0) {
       cleanPhone = '62' + cleanPhone;
     }
-    
+
     window.open(`https://wa.me/${cleanPhone}`, '_blank');
   };
 
@@ -168,11 +201,10 @@ export default function PanyanganSection({
     <div className="relative min-h-screen bg-[#FBFBFE]">
 
       {/* HEADER & SEARCH */}
-      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ${
-        showHeader ? 'translate-y-0' : '-translate-y-[50px]'
-      }`}>
+      <div className={`fixed top-0 left-0 right-0 z-[110] transition-all duration-300 ${showHeader ? 'translate-y-0' : '-translate-y-[50px]'
+        }`}>
         <div className="max-w-[420px] mx-auto bg-white/80 backdrop-blur-md border-b border-slate-100">
-          
+
           {/* Baris 1: Navigasi & Lokasi Aktif */}
           <div className="flex items-center justify-between px-6 py-3">
             <div className="flex items-center gap-2">
@@ -215,11 +247,10 @@ export default function PanyanganSection({
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all border ${
-                    selectedCategory === cat.id
-                      ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200'
-                      : 'bg-white border-slate-100 text-slate-500 hover:border-orange-200'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all border ${selectedCategory === cat.id
+                    ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200'
+                    : 'bg-white border-slate-100 text-slate-500 hover:border-orange-200'
+                    }`}
                 >
                   <span className="mr-1">{cat.icon}</span>
                   {cat.label}
@@ -276,16 +307,15 @@ export default function PanyanganSection({
 
                   {/* BADGE STATUS */}
                   <div className="absolute top-2 left-2">
-                    <span className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase tracking-tighter backdrop-blur-md shadow-sm ${
-                      product.stok_ready ? 'bg-emerald-500/80 text-white' : 'bg-red-500/80 text-white'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase tracking-tighter backdrop-blur-md shadow-sm ${product.stok_ready ? 'bg-emerald-500/80 text-white' : 'bg-red-500/80 text-white'
+                      }`}>
                       {product.stok_ready ? 'Ready' : 'Entek'}
                     </span>
                   </div>
                 </div>
 
-                
-{/* DETAIL DAGANGAN */}
+
+                {/* DETAIL DAGANGAN */}
                 <div className="p-3 flex flex-col h-full">
                   {/* 1. NAMA BARANG */}
                   <h4 className="text-[11px] font-black text-slate-800 leading-tight uppercase line-clamp-2 italic tracking-tight mb-1">
@@ -303,24 +333,22 @@ export default function PanyanganSection({
                   {/* 3. FOOTER (PENJUAL & SAPA) */}
                   <div className="mt-auto pt-2 border-t border-dashed border-slate-100">
                     <div className="flex items-center justify-between gap-2">
-                      
+
                       {/* KIRI: INFO PENJUAL */}
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <div className={`w-4 h-4 rounded-full overflow-hidden border shadow-sm flex-shrink-0 ${
-                            product.is_business ? 'border-orange-100' : 'border-blue-50'
-                          }`}>
+                          <div className={`w-4 h-4 rounded-full overflow-hidden border shadow-sm flex-shrink-0 ${product.is_business ? 'border-orange-100' : 'border-blue-50'
+                            }`}>
                             {(product.penjual_foto || product.avatar_url || product.profiles?.avatar_url) ? (
-                              <img 
-                                src={product.penjual_foto || product.avatar_url || product.profiles?.avatar_url} 
+                              <img
+                                src={product.penjual_foto || product.avatar_url || product.profiles?.avatar_url}
                                 alt={product.display_name}
                                 className="w-full h-full object-cover"
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <div className={`w-full h-full flex items-center justify-center ${
-                                product.is_business ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'
-                              }`}>
+                              <div className={`w-full h-full flex items-center justify-center ${product.is_business ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'
+                                }`}>
                                 {product.is_business ? <Store size={8} /> : <User size={8} />}
                               </div>
                             )}
@@ -329,7 +357,7 @@ export default function PanyanganSection({
                             {product.display_name}
                           </span>
                         </div>
-                        
+
                         {/* LOKASI */}
                         <div className="flex items-center gap-0.5 ml-0.5">
                           <MapPin size={7} className="text-slate-400" />
@@ -340,11 +368,11 @@ export default function PanyanganSection({
                       </div>
 
                       {/* KANAN: TOMBOL SAPA */}
-                      <button 
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleChat(product);
-                        }} 
+                        }}
                         className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 text-white rounded-xl shadow-md shadow-emerald-100 active:scale-90 transition-all hover:bg-emerald-600 flex-shrink-0"
                       >
                         <MessageCircle size={10} fill="currentColor" />

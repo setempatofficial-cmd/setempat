@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { CldUploadWidget } from "next-cloudinary";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Check, Loader2, X, AlertCircle, Link as LinkIcon, Send } from "lucide-react";
+import { Camera, Check, Loader2, X, AlertCircle, Link as LinkIcon, Send, Building2, History } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, onSuccess }) {
@@ -13,9 +13,10 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
   const [isUploading, setIsUploading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [tempUrl, setTempUrl] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
   const [mediaType, setMediaType] = useState("image");
   const [caption, setCaption] = useState("");
+  const [kategori, setKategori] = useState("official"); // 'official' atau 'sejarah'
+  const [tahun, setTahun] = useState("");
   const [toast, setToast] = useState({ show: false, message: "", isError: false });
   const [mounted, setMounted] = useState(false);
 
@@ -28,62 +29,76 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
     setTimeout(() => setToast({ show: false, message: "", isError: false }), 3000);
   };
 
-  const getCurrentTimeTag = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 11) return "pagi";
-    if (hour >= 11 && hour < 15) return "siang";
-    if (hour >= 15 && hour < 18) return "sore";
-    return "malam";
-  };
-
   const handleSaveToDatabase = async (url, type = "image") => {
     if (!tempatId) return showToast("ID tempat tidak valid", true);
-    
+
     setIsUploading(true);
-    const timeTag = getCurrentTimeTag();
 
     try {
-      const { data: currentData } = await supabase
+      // Ambil data photos yang sudah ada (dalam bentuk array)
+      const { data: currentData, error: fetchError } = await supabase
         .from("tempat")
         .select("photos")
         .eq("id", Number(tempatId))
         .single();
 
-      const mediaData = {
-        url,
-        type,
-        caption: caption.trim() || `Suasana ${timeLabel}`,
-        updated_at: new Date().toISOString()
+      if (fetchError) throw fetchError;
+
+      // Parse existing photos (harus array)
+      let existingPhotos = [];
+      if (currentData?.photos) {
+        if (Array.isArray(currentData.photos)) {
+          existingPhotos = currentData.photos;
+        } else if (typeof currentData.photos === 'object') {
+          // Konversi dari object ke array jika perlu
+          existingPhotos = Object.values(currentData.photos);
+        }
+      }
+
+      // Data foto baru dengan kategori
+      const newPhoto = {
+        id: Date.now(),
+        url: url,
+        type: type,
+        caption: caption.trim() || (kategori === "sejarah" ? "Dokumen Sejarah" : `Suasana ${timeLabel}`),
+        kategori: kategori, // 'official' atau 'sejarah'
+        uploader: "Admin",
+        created_at: new Date().toISOString()
       };
 
-      const updatedPhotos = {
-        ...(currentData?.photos || {}),
-        [timeTag]: mediaData,
-        official: url,
-        official_type: type
-      };
+      // Tambah tahun jika kategori sejarah
+      if (kategori === "sejarah" && tahun) {
+        newPhoto.tahun = tahun;
+      }
 
-      const { error } = await supabase
+      // Gabungkan dengan existing
+      const updatedPhotos = [...existingPhotos, newPhoto];
+
+      // Update ke database
+      const { error: updateError } = await supabase
         .from("tempat")
-        .update({ photos: updatedPhotos, image_url: url })
+        .update({
+          photos: updatedPhotos,
+          // Jika kategori official dan belum ada image_url, set sebagai image_url
+          ...(kategori === "official" && !currentData?.image_url ? { image_url: url } : {})
+        })
         .eq("id", Number(tempatId));
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      showToast(`Berhasil memperbarui ${timeLabel}!`);
-      
+      showToast(`Berhasil menambahkan ke ${kategori === "sejarah" ? "Sejarah 📜" : "Official Media 🏢"}!`);
+
       if (onRefreshNeeded) onRefreshNeeded();
-      
+
       setTimeout(() => {
         resetModal();
         if (onSuccess) {
           onSuccess(tempatId);
-        } else {
-          router.push(`/post/${tempatId}`);
         }
       }, 1500);
-      
+
     } catch (err) {
+      console.error("Error saving:", err);
       showToast(err.message || "Gagal menyimpan", true);
       setIsUploading(false);
     }
@@ -92,8 +107,9 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
   const resetModal = () => {
     setShowModal(false);
     setTempUrl("");
-    setVideoUrl("");
     setCaption("");
+    setTahun("");
+    setKategori("official");
     setIsUploading(false);
   };
 
@@ -101,56 +117,78 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
 
   return (
     <div className="w-full max-w-md mx-auto space-y-3">
-      <div className="grid grid-cols-5 gap-2">
-        <div className="col-span-2 relative">
-          <input
-            type="text"
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
-            placeholder="URL Video..."
-            className="w-full h-full pl-4 pr-10 bg-zinc-900/50 border border-white/10 rounded-2xl text-xs text-white focus:ring-1 focus:ring-white/30 outline-none"
-          />
-          <button 
-            onClick={() => {
-                if(videoUrl.includes('http')) {
-                    setTempUrl(videoUrl);
-                    setMediaType("external");
-                    setShowModal(true);
-                } else {
-                    showToast("URL tidak valid", true);
-                }
-            }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 rounded-lg text-zinc-400 hover:text-white"
-          >
-            <LinkIcon size={14} />
-          </button>
-        </div>
-
-        <CldUploadWidget
-          uploadPreset="setempat_preset"
-          onSuccess={(res) => {
-            setTempUrl(res.info.secure_url);
-            setMediaType("image");
-            setShowModal(true);
-          }}
-          options={{ 
-            maxFiles: 1, 
-            clientAllowedFormats: ["jpg", "webp", "jpeg"],
-            maxImageFileSize: 3000000
-          }}
+      {/* Pilih Kategori */}
+      <div className="flex gap-2 p-1 bg-zinc-900/50 rounded-2xl">
+        <button
+          onClick={() => setKategori("official")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${kategori === "official"
+            ? "bg-blue-600 text-white shadow-lg"
+            : "text-zinc-400 hover:text-white"
+            }`}
         >
-          {({ open }) => (
-            <button
-              onClick={() => open()}
-              className="col-span-3 flex items-center justify-center gap-2 bg-white text-zinc-950 font-bold py-3 rounded-2xl shadow-sm active:scale-95 transition-all"
-            >
-              <Camera size={18} />
-              <span className="text-sm">Foto {timeLabel}</span>
-            </button>
-          )}
-        </CldUploadWidget>
+          <Building2 size={16} />
+          Official Media
+        </button>
+        <button
+          onClick={() => setKategori("sejarah")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${kategori === "sejarah"
+            ? "bg-amber-600 text-white shadow-lg"
+            : "text-zinc-400 hover:text-white"
+            }`}
+        >
+          <History size={16} />
+          Sejarah
+        </button>
       </div>
 
+      {/* Input URL / Upload */}
+      <div className="relative">
+        <input
+          type="text"
+          value={tempUrl}
+          onChange={(e) => setTempUrl(e.target.value)}
+          placeholder="URL Foto atau Video..."
+          className="w-full pl-4 pr-24 py-3 bg-zinc-900/50 border border-white/10 rounded-2xl text-sm text-white focus:ring-1 focus:ring-white/30 outline-none"
+        />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+          <CldUploadWidget
+            uploadPreset="setempat_preset"
+            onSuccess={(res) => {
+              setTempUrl(res.info.secure_url);
+              setMediaType(res.info.resource_type || "image");
+              setShowModal(true);
+            }}
+            options={{
+              maxFiles: 1,
+              clientAllowedFormats: ["jpg", "png", "webp", "jpeg", "mp4", "mov", "avi"],
+              maxFileSize: 10000000 // 10MB
+            }}
+          >
+            {({ open }) => (
+              <button
+                onClick={() => open()}
+                className="p-2 bg-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all"
+              >
+                <Camera size={16} />
+              </button>
+            )}
+          </CldUploadWidget>
+          <button
+            onClick={() => {
+              if (tempUrl.includes('http')) {
+                setShowModal(true);
+              } else {
+                showToast("URL tidak valid", true);
+              }
+            }}
+            className="p-2 bg-blue-600 rounded-xl text-white hover:bg-blue-700 transition-all"
+          >
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Modal Konfirmasi */}
       {createPortal(
         <AnimatePresence>
           {showModal && (
@@ -163,23 +201,42 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
               >
                 <div className="p-6">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-white font-medium">Konfirmasi Upload</h3>
-                    <button onClick={resetModal} className="p-2 bg-zinc-900 rounded-full text-zinc-400"><X size={18}/></button>
+                    <h3 className="text-white font-medium flex items-center gap-2">
+                      {kategori === "sejarah" ? <History size={16} /> : <Building2 size={16} />}
+                      Tambah ke {kategori === "sejarah" ? "Sejarah" : "Official Media"}
+                    </h3>
+                    <button onClick={resetModal} className="p-2 bg-zinc-900 rounded-full text-zinc-400">
+                      <X size={18} />
+                    </button>
                   </div>
 
+                  {/* Preview */}
                   <div className="aspect-video w-full bg-zinc-900 rounded-2xl mb-4 overflow-hidden border border-white/5">
-                    {mediaType === "image" ? (
+                    {tempUrl && mediaType === "image" ? (
                       <img src={tempUrl} className="w-full h-full object-cover" alt="Preview" />
+                    ) : tempUrl && mediaType !== "image" ? (
+                      <video src={tempUrl} className="w-full h-full object-cover" controls />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500">
-                        <LinkIcon size={32} className="mb-2 opacity-20" />
-                        <span className="text-[10px] px-4 text-center truncate w-full">{tempUrl}</span>
+                      <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                        <Camera size={32} className="opacity-20" />
                       </div>
                     )}
                   </div>
 
+                  {/* Input Tahun (khusus sejarah) */}
+                  {kategori === "sejarah" && (
+                    <input
+                      type="text"
+                      placeholder="Tahun (contoh: 1990, 2005)"
+                      value={tahun}
+                      onChange={(e) => setTahun(e.target.value)}
+                      className="w-full bg-zinc-900 border border-white/5 rounded-xl p-3 text-sm text-white focus:outline-none mb-3"
+                    />
+                  )}
+
+                  {/* Caption */}
                   <textarea
-                    placeholder="Tambah caption..."
+                    placeholder="Caption atau deskripsi..."
                     value={caption}
                     onChange={(e) => setCaption(e.target.value)}
                     className="w-full bg-zinc-900 border border-white/5 rounded-xl p-3 text-sm text-white focus:outline-none mb-4 resize-none"
@@ -191,8 +248,8 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
                     disabled={isUploading}
                     className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    {isUploading ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>}
-                    Simpan Perubahan
+                    {isUploading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                    Simpan ke {kategori === "sejarah" ? "Sejarah" : "Official"}
                   </button>
                 </div>
               </motion.div>
@@ -202,17 +259,17 @@ export default function UploaderAdmin({ tempatId, timeLabel, onRefreshNeeded, on
         document.body
       )}
 
+      {/* Toast Notifikasi */}
       <AnimatePresence>
         {toast.show && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-full flex items-center gap-2 border shadow-xl ${
-              toast.isError ? "bg-red-950 border-red-500/50 text-red-200" : "bg-zinc-900 border-white/10 text-white"
-            }`}
+            className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-full flex items-center gap-2 border shadow-xl ${toast.isError ? "bg-red-950 border-red-500/50 text-red-200" : "bg-zinc-900 border-white/10 text-white"
+              }`}
           >
-            {toast.isError ? <AlertCircle size={14}/> : <Check size={14} className="text-green-400"/>}
+            {toast.isError ? <AlertCircle size={14} /> : <Check size={14} className="text-green-400" />}
             <span className="text-xs font-medium">{toast.message}</span>
           </motion.div>
         )}

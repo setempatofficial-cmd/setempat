@@ -24,10 +24,8 @@ const normalizeOfficialPhotos = (photos) => {
 const officialPhotosCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
-// FIX AKURASI WAKTU: Menghindari bug NaN / timezone offset mismatch
 const formatTimeAgo = (dateString) => {
   if (!dateString) return "Baru saja";
-
   const parsedDate = Date.parse(dateString);
   if (isNaN(parsedDate)) return "Baru saja";
 
@@ -85,13 +83,28 @@ const HeroCard = forwardRef(({
   storySlideshowStories = [],
   storySlideshowIndex = 0,
   onCloseStorySlideshow,
-  onStoryIndexChange
+  onStoryIndexChange,
+  aspectRatio = "1/1",
+  isDetail = false,
+  removeBorderRadius = false,
+  containerClassName = "",
 }, ref) => {
   const [timeKey] = useState(() => getIndonesianTimeLabel().toLowerCase());
   const [officialPhotos, setOfficialPhotos] = useState({ pagi: [], siang: [], sore: [], malam: [] });
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [localIndex, setLocalIndex] = useState(storySlideshowIndex);
+
+  const finalAspectRatio = isDetail ? "16/10" : aspectRatio;
+
+  const aspectClass = {
+    "1/1": "aspect-square",
+    "4/3": "aspect-[4/3]",
+    "16/10": "aspect-[16/10]",
+    "16/9": "aspect-video"
+  }[finalAspectRatio] || "aspect-square";
+
+  const borderRadiusClass = removeBorderRadius ? "" : "rounded-2xl md:rounded-3xl";
 
   useEffect(() => {
     setLocalIndex(storySlideshowIndex);
@@ -158,10 +171,10 @@ const HeroCard = forwardRef(({
   const displaySubLabel = useMemo(() => {
     if (currentActiveStory) {
       if (currentActiveStory.type === 'sejarah' || currentActiveStory.tahun) {
-        return `📜 Era Tahun ${currentActiveStory.tahun || 'Tempo Dulu'}`;
+        return `Era ${currentActiveStory.tahun || 'Tempo Dulu'}`;
       }
       if (currentActiveStory.type === 'official' || currentActiveStory.is_official) {
-        return `🏛️ Informasi Resmi`;
+        return `Informasi Resmi`;
       }
       return `@${(currentActiveStory.user_name || userName || "Warga").replace(/\s+/g, '').toLowerCase()}`;
     }
@@ -181,24 +194,58 @@ const HeroCard = forwardRef(({
     setLocalIndex(newIndex);
     onStoryIndexChange?.(newIndex);
   };
+
   const waktuLalu = formatTimeAgo(lastUpdate);
   const displayName = currentActiveStory ? `📖 ${namaTempat}` : namaTempat;
 
   const statusColors = {
-    "LANCAR": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    "RAMAI": "bg-amber-500/20 text-amber-400 border-amber-500/30",
-    "MACET": "bg-red-500/20 text-red-400 border-red-500/30",
+    "LANCAR": "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    "RAMAI": "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    "MACET": "bg-rose-500/10 text-rose-400 border-rose-500/20",
   };
 
   if (isLoading && !mediaSource.url) {
-    return <div className="w-full aspect-[1/1] bg-zinc-800/20 animate-pulse rounded-2xl mb-4" />;
+    return <div className={`w-full ${aspectClass} bg-zinc-900/50 animate-pulse ${borderRadiusClass} mb-4`} />;
   }
 
   return (
-    <div ref={ref} className="relative w-full flex flex-col items-center">
-      <div className="relative aspect-[1/1] w-full overflow-hidden rounded-3xl bg-black/50 border border-white/10 group shadow-xl">
+    <div ref={ref} className={`relative w-full flex flex-col items-center ${containerClassName}`}>
+      <div className={`relative ${aspectClass} w-full overflow-hidden ${borderRadiusClass} bg-zinc-950 border border-white/[0.06] group shadow-2xl`}>
 
-        {/* Media Port Player Utama */}
+        {/* Navigation Buttons for Story */}
+        {currentActiveStory && storySlideshowStories.length > 1 && (
+          <>
+            <button
+              onClick={handlePrev}
+              className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/10 hover:bg-black/60 transition-all opacity-0 group-hover:opacity-100 active:scale-90"
+            >
+              <ChevronLeft size={18} className="text-white" />
+            </button>
+            <button
+              onClick={handleNext}
+              className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/10 hover:bg-black/60 transition-all opacity-0 group-hover:opacity-100 active:scale-90"
+            >
+              <ChevronRight size={18} className="text-white" />
+            </button>
+
+            {/* Story Progress Indicators */}
+            <div className="absolute top-3 left-0 right-0 z-20 flex justify-center gap-1 px-4">
+              {storySlideshowStories.map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-[3px] flex-1 rounded-full overflow-hidden bg-white/20"
+                >
+                  <div
+                    className={`h-full bg-white transition-all duration-300 ${idx === localIndex ? 'w-full' : idx < localIndex ? 'w-full opacity-40' : 'w-0'
+                      }`}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Main Media Player */}
         {mediaSource.url && mediaSource.isVideo ? (
           <video
             key={mediaSource.url}
@@ -210,84 +257,94 @@ const HeroCard = forwardRef(({
           <OptimizedMedia
             key={mediaSource.url}
             src={mediaSource.url}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
             alt={namaTempat}
             priority={priority}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
-            <MapPin className="text-white/20" size={48} />
+          <div className="w-full h-full flex flex-col gap-2 items-center justify-center bg-zinc-900">
+            <MapPin className="text-zinc-700 animate-bounce" size={40} />
+            <span className="text-xs text-zinc-500 font-medium">Gagal memuat media</span>
           </div>
         )}
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
+        {/* Ambient Dark Overlay Gradients */}
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
-        {/* Top Badges */}
+        {/* Top Floating Action Badges - MODIFIKASI */}
         <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10">
-          <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${status === 'LANCAR' ? 'bg-emerald-400' : status === 'RAMAI' ? 'bg-amber-400' : 'bg-red-400'} animate-pulse`} />
-            <span className="text-[10px] font-black text-white uppercase tracking-wider">
-              {mediaSource.isVideo ? 'VIDEO' : currentActiveStory ? `${currentActiveStory.type}` : 'LIVE'}
-            </span>
+          {/* Left side: Status badge + Nama Tempat */}
+          <div className="flex flex-col items-start gap-2 max-w-[70%]">
+            <div className="bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/[0.08] flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${status === 'LANCAR' ? 'bg-emerald-400' : status === 'RAMAI' ? 'bg-amber-400' : 'bg-rose-400'} animate-pulse`} />
+              <span className="text-[11px] font-semibold text-zinc-200 uppercase tracking-widest">
+                {mediaSource.isVideo ? 'VIDEO' : currentActiveStory ? `${currentActiveStory.type === 'sejarah' ? 'SEJARAH' : currentActiveStory.type?.toUpperCase() || 'STORY'}` : 'LIVE'}
+              </span>
+            </div>
+
+            {/* 🆕 NAMA TEMPAT - Pindah ke sini (pojok kiri atas) */}
+            <h3 className="text-base sm:text-lg font-[800] text-white uppercase tracking-tighter drop-shadow-2xl leading-tight"><span className="text-cyan-400 mr-2">●</span>
+              {displayName}
+            </h3>
           </div>
 
+          {/* Right side: Action buttons (refresh & back) */}
           <div className="flex gap-2">
             {currentActiveStory && onBackToOriginal && (
-              <button onClick={onBackToOriginal} className="p-2 bg-red-500/80 backdrop-blur-md rounded-full border border-white/10 active:scale-95 transition-all text-white">
+              <button onClick={onBackToOriginal} className="w-8 h-8 flex items-center justify-center bg-rose-500/20 backdrop-blur-md rounded-full border border-rose-500/30 active:scale-95 transition-all text-rose-300 hover:bg-rose-500/40">
                 <X size={14} />
               </button>
             )}
-            <button onClick={onRefresh} className="p-2 bg-black/50 backdrop-blur-md rounded-full border border-white/10 active:scale-95 transition-all">
-              <RefreshCw className={`w-4 h-4 text-white/90 ${refreshing ? 'animate-spin' : ''}`} />
+            <button onClick={onRefresh} className="w-8 h-8 flex items-center justify-center bg-black/30 backdrop-blur-md rounded-full border border-white/[0.08] active:scale-95 transition-all hover:bg-black/50">
+              <RefreshCw className={`w-3.5 h-3.5 text-white/90 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
 
-        {/* Bottom Panel Text Info */}
-        <div className="absolute inset-x-0 bottom-0 p-5 z-10 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-24 flex flex-col gap-3">
+        {/* Bottom Information Panel */}
+        <div className="absolute inset-x-0 bottom-0 p-4 md:p-5 z-10 flex flex-col gap-2.5 pointer-events-none">
+
+          {/* Status & Time row */}
           <div className="flex items-center gap-2">
             {!currentActiveStory && (
-              <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${statusColors[status] || statusColors.LANCAR}`}>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${statusColors[status] || statusColors.LANCAR}`}>
                 {status}
               </span>
             )}
-            <span className="text-[10px] text-white/60 font-medium flex items-center gap-1">
-              <span className="text-cyan-400">●</span> {waktuLalu}
+            <span className="text-[11px] text-zinc-300 font-medium bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/[0.04]">
+              {waktuLalu}
             </span>
           </div>
 
-          <h3 className="text-lg font-extrabold text-white uppercase tracking-normal leading-none drop-shadow-md">
-            {displayName}
-          </h3>
-
-          <div className="flex items-start gap-2 text-white/90 flex-wrap">
-            <Activity size={14} className="mt-0.5 text-cyan-400 shrink-0" />
-            <p className="text-xs italic font-light leading-relaxed opacity-90">
-              "{displayDescription}"
+          {/* Description & Sublabel */}
+          <div className="flex items-start gap-2 text-zinc-200">
+            <Activity size={14} className="mt-1 text-cyan-400 shrink-0" />
+            <p className="text-xs md:text-[13px] font-normal leading-relaxed text-zinc-200/90 drop-shadow">
+              {displayDescription}
               {displaySubLabel && (
-                <span className="inline-block ml-2">
-                  <span className="text-[10px] text-cyan-300 font-bold not-italic">— {displaySubLabel}</span>
+                <span className="inline-flex items-center ml-2 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded">
+                  {displaySubLabel}
                 </span>
               )}
             </p>
           </div>
 
-          {/* BUTTON MEMANGGIL STORY STRIP */}
+          {/* Call To Action Button */}
           {totalLaporanFoto > 0 && onOpenStoryTrip && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenStoryTrip(); }}
-              className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-[10px] font-black uppercase tracking-wider border border-white/20 active:scale-98 transition-transform pointer-events-auto"
+              className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-zinc-950 hover:bg-zinc-100 text-xs font-bold tracking-wide shadow-lg transition-all active:scale-[0.98] pointer-events-auto"
             >
-              <span>📸 Lihat Pantauan Warga ({totalLaporanFoto})</span>
-              <ChevronDown size={12} className="opacity-70" />
+              <span>Pantauan Warga ({totalLaporanFoto})</span>
+              <ChevronDown size={14} className="text-zinc-600" />
             </button>
           )}
-
 
         </div>
 
       </div>
-    </div>
+    </div >
   );
 });
 
