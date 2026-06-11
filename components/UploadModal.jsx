@@ -14,7 +14,7 @@ const SEARCH_LIMIT = 100;
 
 export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const router = useRouter();
-  
+
   // ========== STATE ==========
   const [tempatList, setTempatList] = useState([]);
   const [selectedTempat, setSelectedTempat] = useState(null);
@@ -24,41 +24,36 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   const [isAuthorized, setIsAuthorized] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [timeLabel, setTimeLabel] = useState(getIndonesianTimeLabelLower());
-  
+
   const abortControllerRef = useRef(null);
-  
+
+
+
   // ========== UPDATE TIME LABEL EVERY MINUTE ==========
   useEffect(() => {
     const interval = setInterval(() => {
       setTimeLabel(getIndonesianTimeLabelLower());
     }, 60000); // Update every minute
-    
+
     return () => clearInterval(interval);
   }, []);
 
-  // ========== VALIDASI AKSES ==========
-  useEffect(() => {
-    const hasAccess = userId && ALLOWED_ROLES.includes(userRole?.toLowerCase());
-    setIsAuthorized(hasAccess);
-    if (!hasAccess && isOpen) {
-      setErrorMessage("Akses ditolak. Hanya Super Admin dan Admin yang dapat mengupload foto official.");
-    }
-  }, [userId, userRole, isOpen]);
+
 
 
   // ========== LOAD TEMPAT ==========
   useEffect(() => {
     if (!isOpen || !isAuthorized) return;
-    
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
-    
+
     const loadTempat = async () => {
       setLoading(true);
       setErrorMessage("");
-      
+
       try {
         const { data, error } = await supabase
           .from("tempat")
@@ -66,10 +61,10 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
           .order("name", { ascending: true })
           .limit(SEARCH_LIMIT)
           .abortSignal(abortControllerRef.current.signal);
-        
+
         if (error) throw error;
         if (data) setTempatList(data);
-        
+
       } catch (err) {
         if (err.name !== 'AbortError') {
           console.error("Load tempat error:", err);
@@ -79,9 +74,9 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
         setLoading(false);
       }
     };
-    
+
     loadTempat();
-    
+
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -90,13 +85,13 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
   }, [isOpen, isAuthorized]);
 
   // ========== FILTER TEMPAT ==========
-  const filteredTempat = searchQuery.trim() 
+  const filteredTempat = searchQuery.trim()
     ? tempatList.filter(item => {
-        const term = searchQuery.toLowerCase();
-        return item.name?.toLowerCase().includes(term) ||
-               item.category?.toLowerCase().includes(term) ||
-               item.alamat?.toLowerCase().includes(term);
-      })
+      const term = searchQuery.toLowerCase();
+      return item.name?.toLowerCase().includes(term) ||
+        item.category?.toLowerCase().includes(term) ||
+        item.alamat?.toLowerCase().includes(term);
+    })
     : [];
 
   const handleRefreshNeeded = useCallback(() => {
@@ -165,7 +160,7 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
         </div>
 
         <div className="p-4 max-h-[80vh] overflow-y-auto space-y-4">
-          
+
           {/* Error Message */}
           {errorMessage && (
             <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
@@ -189,7 +184,7 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
                     autoFocus
                   />
                 </div>
-                
+
                 {/* Hasil pencarian */}
                 {searchQuery && (
                   <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
@@ -244,7 +239,7 @@ export default function UploadModal({ isOpen, onClose, userId, userRole }) {
               </div>
 
               {/* UPLOADERADMIN COMPONENT */}
-              <UploaderAdmin 
+              <UploaderAdmin
                 key={`${refreshKey}-${selectedTempat.id}`}
                 tempatId={selectedTempat.id}
                 timeLabel={timeLabel}

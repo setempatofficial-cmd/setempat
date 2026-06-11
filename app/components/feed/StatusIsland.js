@@ -1,7 +1,8 @@
 "use client";
 
 import { useDataContext } from "@/contexts/DataContext";
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion"; // Dioptimasi menggunakan framer-motion
 import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusText";
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
@@ -75,23 +76,23 @@ const WeatherBadge = ({ weather, hasFreshData }) => {
 
   const getBadgeConfig = () => {
     if (isWeatherCondition(weather.condition, 'heavyRain')) {
-      return { icon: '⚠️', text: `${weather.icon} ${weather.temp}°`, className: 'text-red-600 bg-red-50 border-red-200 animate-pulse' };
+      return { icon: '⚠️', text: `${weather.icon} ${weather.temp}°`, className: 'text-red-600 bg-red-50/80 border-red-200 shadow-sm shadow-red-100 animate-pulse' };
     }
     if (isWeatherCondition(weather.condition, 'moderateRain')) {
-      return { icon: '🌧️', text: `${weather.temp}°`, className: 'text-blue-600 bg-blue-50 border-blue-200 animate-pulse' };
+      return { icon: '🌧️', text: `${weather.temp}°`, className: 'text-blue-600 bg-blue-50/80 border-blue-200 shadow-sm shadow-blue-100 animate-pulse' };
     }
     if (isWeatherCondition(weather.condition, 'lightRain')) {
-      return { icon: weather.icon, text: `${weather.temp}°`, className: 'text-slate-700 bg-slate-100 border-slate-200' };
+      return { icon: weather.icon, text: `${weather.temp}°`, className: 'text-slate-700 bg-slate-100/80 border-slate-200/60 shadow-sm' };
     }
     if (isWeatherCondition(weather.condition, 'fog')) {
-      return { icon: '🌫️', text: `${weather.temp}°`, className: 'text-amber-600 bg-amber-50 border-amber-200' };
+      return { icon: '🌫️', text: `${weather.temp}°`, className: 'text-amber-600 bg-amber-50/80 border-amber-200/60 shadow-sm' };
     }
-    return { icon: '', text: `${weather.temp}°`, className: 'text-slate-400 bg-transparent' };
+    return { icon: '', text: `${weather.temp}°`, className: 'text-slate-400 bg-transparent border-transparent' };
   };
 
   const config = getBadgeConfig();
   return (
-    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${config.className}`}>
+    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border backdrop-blur-xs transition-all duration-300 ${config.className}`}>
       {config.icon && `${config.icon} `}{config.text}
     </span>
   );
@@ -114,11 +115,11 @@ const WeatherDetail = ({ weather, hasFreshData }) => {
   };
 
   const getBgClass = () => {
-    if (isHeavyRain) return 'bg-red-50/80 border-red-200';
-    if (isModerateRain) return 'bg-blue-50/80 border-blue-200';
-    if (isLightRain) return 'bg-slate-50/80 border-slate-200';
-    if (isFog) return 'bg-amber-50/80 border-amber-200';
-    return 'bg-blue-50/80 border-blue-200';
+    if (isHeavyRain) return 'bg-red-50/60 border-red-100/80';
+    if (isModerateRain) return 'bg-blue-50/60 border-blue-100/80';
+    if (isLightRain) return 'bg-slate-50/60 border-slate-200/60';
+    if (isFog) return 'bg-amber-50/60 border-amber-200/60';
+    return 'bg-blue-50/60 border-blue-100/80';
   };
 
   const getTitleClass = () => {
@@ -132,10 +133,10 @@ const WeatherDetail = ({ weather, hasFreshData }) => {
   const recommendation = getRecommendation();
 
   return (
-    <div className={`p-3 rounded-xl border ${getBgClass()}`}>
+    <div className={`p-3 rounded-xl border backdrop-blur-xs shadow-inner/50 ${getBgClass()}`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{weather.icon}</span>
-        <span className={`text-xs font-bold uppercase ${getTitleClass()}`}>
+        <span className={`text-[11px] font-extrabold uppercase tracking-wide ${getTitleClass()}`}>
           {isHeavyRain && '⚠️ Peringatan Cuaca Ekstrem'}
           {isModerateRain && '🌧️ Hujan Sedang'}
           {isLightRain && '☔ Informasi Hujan Ringan'}
@@ -143,28 +144,28 @@ const WeatherDetail = ({ weather, hasFreshData }) => {
           {!isHeavyRain && !isModerateRain && !isLightRain && !isFog && '🌤️ Informasi Cuaca'}
         </span>
       </div>
-      <p className="text-sm font-medium text-slate-700">{weather.statusText}</p>
+      <p className="text-xs font-semibold text-slate-700 leading-relaxed">{weather.statusText}</p>
 
-      <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-200/50">
+      <div className="grid grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-slate-200/40">
         <div className="text-center">
-          <p className="text-[10px] text-slate-500">Suhu</p>
-          <p className="text-sm font-bold text-slate-700">{weather.temp}°C</p>
+          <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">Suhu</p>
+          <p className="text-xs font-bold text-slate-700 mt-0.5">{weather.temp}°C</p>
         </div>
         <div className="text-center">
-          <p className="text-[10px] text-slate-500">Kelembaban</p>
-          <p className="text-sm font-bold text-slate-700">{weather.humidity}%</p>
+          <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">Kelembaban</p>
+          <p className="text-xs font-bold text-slate-700 mt-0.5">{weather.humidity}%</p>
         </div>
         <div className="text-center">
-          <p className="text-[10px] text-slate-500">Angin</p>
-          <p className="text-sm font-bold text-slate-700">{weather.windSpeed} km/h</p>
+          <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">Angin</p>
+          <p className="text-xs font-bold text-slate-700 mt-0.5">{weather.windSpeed} km/h</p>
         </div>
       </div>
 
       {recommendation && (
-        <div className={`mt-2 p-2 rounded-lg text-[11px] font-medium ${isHeavyRain ? 'bg-red-100/50 text-red-700' :
-            isModerateRain ? 'bg-blue-100/50 text-blue-700' :
-              isLightRain ? 'bg-slate-100/50 text-slate-700' :
-                'bg-amber-100/50 text-amber-700'
+        <div className={`mt-2.5 p-2 rounded-lg text-[10px] font-semibold leading-relaxed shadow-xs ${isHeavyRain ? 'bg-red-100/40 text-red-700' :
+            isModerateRain ? 'bg-blue-100/40 text-blue-700' :
+              isLightRain ? 'bg-slate-100/50 text-slate-600' :
+                'bg-amber-100/40 text-amber-700'
           }`}>
           {recommendation}
         </div>
@@ -179,7 +180,7 @@ const AvatarGroup = ({ reports, count, type }) => {
   return (
     <div className="flex -space-x-1.5 overflow-hidden">
       {displayReports.map((report, idx) => (
-        <div key={idx} className="w-5 h-5 rounded-full bg-amber-100 border border-white flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">
+        <div key={idx} className="w-5 h-5 rounded-full bg-amber-100 border border-white flex items-center justify-center text-[9px] font-extrabold text-amber-700 shrink-0 ring-1 ring-black/5">
           {report.user_avatar ? (
             <img
               src={report.user_avatar}
@@ -212,7 +213,7 @@ export default function StatusIsland({
   const passiveCacheRef = useRef(new Map());
   const abortControllerRef = useRef(null);
 
-  const { weather, refreshWeather } = useWeather(locationName);
+  const { weather } = useWeather(locationName);
 
   const isExpanded = externalExpanded ?? internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
@@ -302,7 +303,6 @@ export default function StatusIsland({
     return getDefaultTextByTime(seed, category);
   }, [seed, item?.category]);
 
-  // Build status with priority system
   const status = useMemo(() => {
     const weatherLevel = passiveSignal?.weather ? getWeatherLevel(passiveSignal.weather.condition) : 0;
     const isLightRain = isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain');
@@ -310,11 +310,10 @@ export default function StatusIsland({
     const isHeavyRain = isWeatherCondition(passiveSignal?.weather?.condition, 'heavyRain');
     const isFog = isWeatherCondition(passiveSignal?.weather?.condition, 'fog');
 
-    // Priority 1: Extreme Weather
     if ((isHeavyRain || weatherLevel >= 4) && !hasFreshData) {
       return {
         text: passiveSignal.weather.statusText,
-        color: "text-red-600",
+        color: "text-red-600 dark:text-red-400",
         bgColor: "bg-red-500",
         icon: passiveSignal.weather.icon,
         badge: weatherLevel === 5 ? "⚠️ HUJAN LEBAT" : "🌧️ HUJAN SEDANG",
@@ -323,11 +322,10 @@ export default function StatusIsland({
       };
     }
 
-    // Priority 2: Fog
     if (isFog && !hasFreshData) {
       return {
         text: `🌫️ Kabut (${passiveSignal.weather.temp}°C)`,
-        color: "text-amber-600",
+        color: "text-amber-600 dark:text-amber-400",
         bgColor: "bg-amber-500",
         icon: "🌫️",
         badge: "KABUT",
@@ -336,11 +334,10 @@ export default function StatusIsland({
       };
     }
 
-    // Priority 3: Moderate Rain
     if (isModerateRain && !hasFreshData) {
       return {
         text: `🌧️ Hujan Sedang (${passiveSignal.weather.temp}°C)`,
-        color: "text-blue-600",
+        color: "text-blue-600 dark:text-blue-400",
         bgColor: "bg-blue-500",
         icon: "🌧️",
         badge: "HUJAN SEDANG",
@@ -349,11 +346,10 @@ export default function StatusIsland({
       };
     }
 
-    // Priority 4: Light Rain
     if (isLightRain && !hasFreshData) {
       return {
         text: `🌧️ Hujan Ringan (${passiveSignal.weather.temp}°C)`,
-        color: "text-slate-700",
+        color: "text-slate-700 dark:text-slate-300",
         bgColor: "bg-slate-400",
         icon: "🌧️",
         badge: "HUJAN RINGAN",
@@ -362,7 +358,6 @@ export default function StatusIsland({
       };
     }
 
-    // Priority 5: Fresh Reports
     if (hasFreshData && latestFreshReport) {
       const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
       const trafficCondition = latestFreshReport?.traffic_condition;
@@ -383,17 +378,15 @@ export default function StatusIsland({
       });
     }
 
-    // Priority 6: Passive Signals (no weather)
     if (passiveSignal?.total > 0 && !hasFreshData && !passiveSignal?.weather) {
       const passiveStatus = getPassiveStatusText(passiveSignal);
       if (passiveStatus) return passiveStatus;
     }
 
-    // Priority 7: Normal Weather
     if (passiveSignal?.weather && !hasFreshData && weatherLevel === DEFAULT_WEATHER_LEVEL) {
       return {
         text: defaultSuasana,
-        color: "text-slate-500",
+        color: "text-slate-600 dark:text-slate-400",
         bgColor: "bg-slate-500",
         icon: "📍",
         badge: "NORMAL",
@@ -402,10 +395,9 @@ export default function StatusIsland({
       };
     }
 
-    // Priority 8: Default
     return {
       text: defaultSuasana,
-      color: "text-slate-500",
+      color: "text-slate-600 dark:text-slate-400",
       bgColor: "bg-slate-500",
       icon: "📍",
       badge: "NORMAL",
@@ -457,44 +449,46 @@ export default function StatusIsland({
     (passiveSignal?.total > 0);
 
   const getGlowStyle = () => {
-    if (hasFreshData && status.level >= 2) return 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20';
-    if (passiveSignal?.weather?.isExtreme) return 'shadow-[0_0_20px_-3px_rgba(220,38,38,0.2)] border-red-500/30 animate-pulse';
-    if (isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain')) return 'shadow-[0_0_15px_-3px_rgba(59,130,246,0.15)] border-blue-500/20';
-    if (isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain')) return 'shadow-[0_0_10px_-3px_rgba(100,116,139,0.15)] border-slate-300/40';
-    if (isWeatherCondition(passiveSignal?.weather?.condition, 'fog')) return 'shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)] border-amber-500/20';
-    if (passiveSignal?.total > 0) return 'shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] border-purple-500/20';
-    return 'border-slate-100/80 shadow-sm';
+    if (hasFreshData && status.level >= 2) return 'shadow-[0_8px_30px_-4px_rgba(245,158,11,0.12)] border-amber-500/20';
+    if (passiveSignal?.weather?.isExtreme) return 'shadow-[0_8px_30px_-4px_rgba(220,38,38,0.18)] border-red-500/25';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain')) return 'shadow-[0_8px_30px_-4px_rgba(59,130,246,0.12)] border-blue-500/20';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain')) return 'shadow-[0_6px_20px_-4px_rgba(100,116,139,0.1)] border-slate-300/30';
+    if (isWeatherCondition(passiveSignal?.weather?.condition, 'fog')) return 'shadow-[0_8px_30px_-4px_rgba(245,158,11,0.12)] border-amber-500/20';
+    if (passiveSignal?.total > 0) return 'shadow-[0_8px_30px_-4px_rgba(168,85,247,0.12)] border-purple-500/20';
+    return 'border-slate-100/70 shadow-md shadow-slate-100/40';
   };
 
   return (
-    <div className="mx-3 -mt-5 relative z-10 transition-all duration-300">
-      <div
+    <div className="mx-3 -mt-5 relative z-10 transition-all duration-300 select-none">
+      {/* Container Utama menggunakan motion untuk feedback ketukan haptic-look */}
+      <motion.div
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
-        className={`backdrop-blur-md bg-white/90 p-3.5 flex flex-col rounded-2xl border transition-all duration-300
+        whileTap={canExpand ? { scale: 0.98 } : {}}
+        className={`backdrop-blur-lg bg-white/85 p-3.5 flex flex-col border transition-colors duration-300
           ${getGlowStyle()}
-          ${canExpand ? 'cursor-pointer hover:bg-white active:scale-[0.99]' : ''}
-          ${isExpanded ? 'rounded-b-none pb-2' : ''}
+          ${canExpand ? 'cursor-pointer hover:bg-white/95' : ''}
+          ${isExpanded ? 'rounded-t-2xl rounded-b-none pb-2' : 'rounded-2xl'}
         `}
       >
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <span className="text-base shrink-0">{status.icon}</span>
+            <span className="text-base shrink-0 transition-transform duration-300">{status.icon}</span>
             <div className="flex flex-col min-w-0">
-              <p className={`text-xs font-black tracking-wide uppercase truncate ${status.color}`}>
+              <p className={`text-[11px] font-black tracking-wider uppercase truncate ${status.color}`}>
                 {status.text}
               </p>
-              {hasFreshData && <span className="text-[10px] text-slate-400 font-medium">Laporan Aktif Warga</span>}
+              {hasFreshData && <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Laporan Aktif Warga</span>}
               {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') && (
-                <span className="text-[10px] text-slate-500 font-medium animate-pulse">☔ Hujan ringan, bawa payung</span>
+                <span className="text-[9px] text-slate-500 font-medium animate-pulse mt-0.5">☔ Hujan ringan, bawa payung</span>
               )}
               {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') && (
-                <span className="text-[10px] text-blue-500 font-medium animate-pulse">🌧️ Hujan sedang, waspada</span>
+                <span className="text-[9px] text-blue-500 font-medium animate-pulse mt-0.5">🌧️ Hujan sedang, waspada</span>
               )}
               {!hasFreshData && passiveSignal?.weather?.isExtreme && (
-                <span className="text-[10px] text-red-500 font-medium animate-pulse">⚠️ Peringatan Cuaca Ekstrem!</span>
+                <span className="text-[9px] text-red-500 font-medium animate-pulse mt-0.5">⚠️ Peringatan Cuaca Ekstrem!</span>
               )}
               {!hasFreshData && !passiveSignal?.weather && isLoadingPassive && (
-                <span className="text-[10px] text-purple-400 font-medium animate-pulse">🔍 Cek Situasi...</span>
+                <span className="text-[9px] text-purple-400 font-semibold animate-pulse mt-0.5">🔍 Cek Situasi...</span>
               )}
             </div>
           </div>
@@ -503,122 +497,130 @@ export default function StatusIsland({
             <WeatherBadge weather={weather} hasFreshData={hasFreshData} />
 
             {passiveSignal && !hasFreshData && passiveSignal.total > 0 && !passiveSignal?.weather && (
-              <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
+              <span className="text-[10px] font-bold text-purple-600 bg-purple-50/80 px-2.5 py-1 rounded-full border border-purple-100 shadow-xs">
                 ⚡ {passiveSignal.total} Aktivitas
               </span>
             )}
 
             {waktuUpdate ? (
-              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                 {waktuUpdate}
               </span>
             ) : weather && !hasFreshData ? (
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
                 {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
               </span>
             ) : (
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
                 🟢 Normal
               </span>
             )}
 
             {canExpand && (
-              <div className={`p-1 rounded-lg transition-colors ${isExpanded ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
-                <svg className={`w-3.5 h-3.5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <div className={`p-1 rounded-lg transition-colors duration-200 ${isExpanded ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
+                <svg className={`w-3.5 h-3.5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
               </div>
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Expandable Detail Section */}
-      {isExpanded && canExpand && (
-        <div className="bg-white/95 backdrop-blur-md rounded-b-2xl border-x border-b border-slate-100/80 shadow-lg shadow-slate-100/50 overflow-hidden animate-in slide-in-from-top-1 duration-200">
-          <div className="p-4 pt-1 space-y-4">
-            <WeatherDetail weather={passiveSignal?.weather} hasFreshData={hasFreshData} />
+      {/* Expandable Detail Section dengan Animasi Elastis & AnimatePresence */}
+      <AnimatePresence>
+        {isExpanded && canExpand && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: "spring", duration: 0.4, bounce: 0.15 }}
+            className="bg-white/90 backdrop-blur-lg rounded-b-2xl border-x border-b border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden"
+          >
+            <div className="p-4 pt-1 space-y-4">
+              <WeatherDetail weather={passiveSignal?.weather} hasFreshData={hasFreshData} />
 
-            {/* Context Summary Box */}
-            <div className={`p-3 rounded-xl border text-[13px] leading-relaxed shadow-inner
-              ${hasFreshData ? 'bg-amber-50/40 border-amber-100 text-slate-700' :
-                passiveSignal?.weather?.isExtreme ? 'bg-red-50/40 border-red-100' :
-                  isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'bg-slate-50/40 border-slate-200' :
-                    'bg-purple-50/40 border-purple-100 text-slate-700'}
-            `}>
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-[9px] font-extrabold uppercase tracking-widest ${hasFreshData ? 'text-amber-600' :
+              {/* Context Summary Box */}
+              <div className={`p-3 rounded-xl border text-xs leading-relaxed shadow-xs
+                ${hasFreshData ? 'bg-amber-50/30 border-amber-100/70 text-slate-700' :
+                  passiveSignal?.weather?.isExtreme ? 'bg-red-50/30 border-red-100/70' :
+                    isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'bg-slate-50/50 border-slate-200/60' :
+                      'bg-purple-50/30 border-purple-100/70 text-slate-700'}
+              `}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-[9px] font-black uppercase tracking-widest ${hasFreshData ? 'text-amber-600' :
                     passiveSignal?.weather?.isExtreme ? 'text-red-600' :
-                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'text-slate-600' :
+                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'text-slate-500' :
                         'text-purple-600'
-                  }`}>
-                  {hasFreshData ? `💬 Ringkasan ${freshCount} Warga` :
-                    passiveSignal?.weather?.isExtreme ? '⚠️ Peringatan Cuaca' :
-                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Info Cuaca' :
-                        '👀 Analisis Situasi'}
-                </span>
-                {!hasFreshData && passiveSignal?.total > 0 && (
-                  <span className="text-[9px] text-slate-400 font-medium">4 jam terakhir</span>
-                )}
-              </div>
-
-              <p className={`font-medium ${hasFreshData ? "italic text-slate-600" : "text-slate-600"}`}>
-                {ringkasanMultiUser}
-              </p>
-
-              {/* Avatar Pile */}
-              <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-100">
-                {hasFreshData ? (
-                  <AvatarGroup reports={freshReports} count={freshCount} type="warga" />
-                ) : passiveSignal?.total > 0 && (
-                  <AvatarGroup reports={Array(Math.min(passiveSignal.total, 4)).fill({})} count={passiveSignal.total} type="passive" />
-                )}
-                <span className="text-[10px] text-slate-400 font-medium">
-                  {hasFreshData ? `${freshCount} warga ikut bersuara` :
-                    passiveSignal?.weather?.isExtreme ? '⚠️ Tetap waspada' :
-                      isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Siapkan perlengkapan hujan' :
-                        `${passiveSignal?.total || 0} interaksi lokal`}
-                </span>
-              </div>
-            </div>
-
-            {/* Footer Mini Stats */}
-            <div className="flex items-center justify-between px-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              <div className="flex gap-4">
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium text-[9px] text-slate-400">Saksi</span>
-                  <span className="text-slate-700 font-extrabold text-[11px]">🗃️ {jumlahWarga || 0}</span>
+                    }`}>
+                    {hasFreshData ? `💬 Ringkasan ${freshCount} Warga` :
+                      passiveSignal?.weather?.isExtreme ? '⚠️ Peringatan Cuaca' :
+                        isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Info Cuaca' :
+                          '👀 Analisis Situasi'}
+                  </span>
+                  {!hasFreshData && passiveSignal?.total > 0 && (
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">4 jam terakhir</span>
+                  )}
                 </div>
-                <div className="border-l border-slate-100 pl-4 flex flex-col gap-0.5">
-                  <span className="font-medium text-[9px] text-slate-400">{hasFreshData ? 'Laporan' : 'Interaksi'}</span>
-                  <span className="text-slate-700 font-extrabold text-[11px]">
-                    {hasFreshData ? `👥 ${freshCount}` : `👥 ${passiveSignal?.total || 0}`}
+
+                <p className={`font-medium ${hasFreshData ? "italic text-slate-600" : "text-slate-600"}`}>
+                  {ringkasanMultiUser}
+                </p>
+
+                {/* Avatar Pile */}
+                <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-200/30">
+                  {hasFreshData ? (
+                    <AvatarGroup reports={freshReports} count={freshCount} type="warga" />
+                  ) : passiveSignal?.total > 0 && (
+                    <AvatarGroup reports={Array(Math.min(passiveSignal.total, 4)).fill({})} count={passiveSignal.total} type="passive" />
+                  )}
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    {hasFreshData ? `${freshCount} warga ikut bersuara` :
+                      passiveSignal?.weather?.isExtreme ? '⚠️ Tetap waspada' :
+                        isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Siapkan perlengkapan hujan' :
+                          `${passiveSignal?.total || 0} interaksi lokal`}
                   </span>
                 </div>
-                {weather && !hasFreshData && (
-                  <div className="border-l border-slate-100 pl-4 flex flex-col gap-0.5">
-                    <span className="font-medium text-[9px] text-slate-400">Cuaca</span>
-                    <span className={`font-extrabold text-[11px] ${isWeatherCondition(weather.condition, 'heavyRain') ? 'text-red-600' :
-                        isWeatherCondition(weather.condition, 'moderateRain') ? 'text-blue-600' :
-                          isWeatherCondition(weather.condition, 'lightRain') ? 'text-slate-700' :
-                            isWeatherCondition(weather.condition, 'fog') ? 'text-amber-600' :
-                              'text-slate-500'
-                      }`}>
-                      {weather.icon} {weather.temp}°
+              </div>
+
+              {/* Footer Mini Stats */}
+              <div className="flex items-center justify-between px-0.5 text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                <div className="flex gap-4">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-[9px] text-slate-400/80">Saksi</span>
+                    <span className="text-slate-700 font-extrabold text-[11px]">🗃️ {jumlahWarga || 0}</span>
+                  </div>
+                  <div className="border-l border-slate-200/60 pl-4 flex flex-col gap-0.5">
+                    <span className="font-bold text-[9px] text-slate-400/80">{hasFreshData ? 'Laporan' : 'Interaksi'}</span>
+                    <span className="text-slate-700 font-extrabold text-[11px]">
+                      {hasFreshData ? `👥 ${freshCount}` : `👥 ${passiveSignal?.total || 0}`}
                     </span>
+                  </div>
+                  {weather && !hasFreshData && (
+                    <div className="border-l border-slate-200/60 pl-4 flex flex-col gap-0.5">
+                      <span className="font-bold text-[9px] text-slate-400/80">Cuaca</span>
+                      <span className={`font-extrabold text-[11px] ${isWeatherCondition(weather.condition, 'heavyRain') ? 'text-red-600' :
+                          isWeatherCondition(weather.condition, 'moderateRain') ? 'text-blue-600' :
+                            isWeatherCondition(weather.condition, 'lightRain') ? 'text-slate-600' :
+                              isWeatherCondition(weather.condition, 'fog') ? 'text-amber-600' :
+                                'text-slate-500'
+                        }`}>
+                        {weather.icon} {weather.temp}°
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {jarakFix && (
+                  <div className="flex flex-col gap-0.5 items-end">
+                    <span className="font-bold text-[9px] text-slate-400/80">Jarak Anda</span>
+                    <span className="text-indigo-600 font-black text-[10px] bg-indigo-50/80 border border-indigo-100/60 px-1.5 py-0.5 rounded-full shadow-xs">📍 {jarakFix}</span>
                   </div>
                 )}
               </div>
-              {jarakFix && (
-                <div className="flex flex-col gap-0.5 items-end">
-                  <span className="font-medium text-[9px] text-slate-400">Jarak Anda</span>
-                  <span className="text-indigo-600 font-black text-[11px] bg-indigo-50 px-1.5 py-0.5 rounded">📍 {jarakFix}</span>
-                </div>
-              )}
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

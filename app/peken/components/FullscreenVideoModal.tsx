@@ -1,8 +1,7 @@
-// app/peken/components/FullscreenVideoModal.tsx
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { X, Eye, Heart, Share2, ShoppingBag, MessageCircle, MapPin, ExternalLink } from "lucide-react";
+import { Eye, Heart, Share2, ShoppingBag, MessageSquareCode, MapPin, MessageCircle } from "lucide-react";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import { supabase } from "@/lib/supabaseClient";
 import VideoPlayer from "@/components/media/VideoPlayer";
@@ -116,51 +115,58 @@ const useVideoLike = (userId) => {
   const [likedVideos, setLikedVideos] = useState(new Set());
   const [likeCounts, setLikeCounts] = useState({});
 
-  const toggleLike = useCallback(async (video) => {
+  useEffect(() => {
     if (!userId) return;
+    const loadLikedVideos = async () => {
+      const { data } = await supabase
+        .from('video_peken_likes')
+        .select('video_id')
+        .eq('user_id', userId);
+      if (data) setLikedVideos(new Set(data.map(item => item.video_id)));
+    };
+    loadLikedVideos();
+  }, [userId]);
 
-    const isLiked = likedVideos.has(video.id);
+  const toggleLike = useCallback(async (video) => {
+    if (!userId || !video?.id) return;
+
+    const isCurrentlyLiked = likedVideos.has(video.id);
+
+    setLikedVideos(prev => {
+      const newSet = new Set(prev);
+      if (isCurrentlyLiked) newSet.delete(video.id);
+      else newSet.add(video.id);
+      return newSet;
+    });
+
+    setLikeCounts(prev => ({
+      ...prev,
+      [video.id]: (prev[video.id] || video.likes || 0) + (isCurrentlyLiked ? -1 : 1)
+    }));
 
     try {
-      if (isLiked) {
-        const { error } = await supabase
+      if (isCurrentlyLiked) {
+        await supabase
           .from('video_peken_likes')
           .delete()
           .eq('video_id', video.id)
           .eq('user_id', userId);
-
-        if (!error) {
-          setLikedVideos(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(video.id);
-            return newSet;
-          });
-          setLikeCounts(prev => ({
-            ...prev,
-            [video.id]: Math.max((prev[video.id] || 0) - 1, 0)
-          }));
-          await supabase.rpc('decrement_video_likes', { video_id: video.id });
-        }
       } else {
-        const { error } = await supabase
+        await supabase
           .from('video_peken_likes')
-          .insert({
-            video_id: video.id,
-            user_id: userId,
-            created_at: new Date().toISOString()
-          });
-
-        if (!error) {
-          setLikedVideos(prev => new Set([...prev, video.id]));
-          setLikeCounts(prev => ({
-            ...prev,
-            [video.id]: (prev[video.id] || 0) + 1
-          }));
-          await supabase.rpc('increment_video_likes', { video_id: video.id });
-        }
+          .insert({ video_id: video.id, user_id: userId });
       }
     } catch (err) {
-      console.error("Error toggling like:", err);
+      setLikedVideos(prev => {
+        const newSet = new Set(prev);
+        if (isCurrentlyLiked) newSet.add(video.id);
+        else newSet.delete(video.id);
+        return newSet;
+      });
+      setLikeCounts(prev => ({
+        ...prev,
+        [video.id]: (prev[video.id] || video.likes || 0) - (isCurrentlyLiked ? -1 : 1)
+      }));
     }
   }, [userId, likedVideos]);
 
@@ -261,29 +267,109 @@ const RoleBadge = ({ roleType }) => {
   const current = config[roleType] || config.bakul;
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase border ${current.bg}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border tracking-wider backdrop-blur-sm ${current.bg}`}>
       {current.icon} {current.label}
     </span>
   );
 };
 
+// ========== VIDEO ACTIONS COMPONENT ==========
+// HAPUS onCommentRefresh dari VideoActions karena tidak perlu
+const VideoActions = ({
+  videoId,
+  isLiked,
+  likeCount,
+  commentCount,
+  onLike,
+  onComment,
+  onShare,
+  userId
+}) => {
+  const [localLikeCount, setLocalLikeCount] = useState(likeCount);
+  const [localIsLiked, setLocalIsLiked] = useState(isLiked);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    setLocalLikeCount(likeCount);
+    setLocalIsLiked(isLiked);
+  }, [likeCount, isLiked]);
+
+  const handleLike = async () => {
+    if (isProcessing || !userId) return;
+    setIsProcessing(true);
+
+    const newIsLiked = !localIsLiked;
+    setLocalIsLiked(newIsLiked);
+    setLocalLikeCount(prev => newIsLiked ? prev + 1 : prev - 1);
+
+    try {
+      await onLike();
+    } catch (error) {
+      setLocalIsLiked(!newIsLiked);
+      setLocalLikeCount(prev => !newIsLiked ? prev + 1 : prev - 1);
+      console.error("Like error:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // HAPUS useEffect untuk video-comment-changed
+
+  return (
+    <div className="flex flex-col items-center gap-5">
+      <button onClick={handleLike} className="group flex flex-col items-center gap-1">
+        <div className={`w-12 h-12 rounded-full backdrop-blur-md flex items-center justify-center border transition-all duration-300 active:scale-75 ${localIsLiked
+          ? 'bg-red-500 border-red-400 shadow-lg shadow-red-500/50'
+          : 'bg-black/30 border-white/15 hover:border-white/30'
+          }`}>
+          <Heart size={22} className={`transition-transform duration-200 group-hover:scale-110 ${localIsLiked ? 'text-white fill-white' : 'text-white'
+            }`} />
+        </div>
+        <span className="text-[11px] font-bold text-white drop-shadow-md">
+          {localLikeCount >= 1000 ? `${(localLikeCount / 1000).toFixed(1)}k` : localLikeCount || 0}
+        </span>
+      </button>
+
+      <button onClick={onComment} className="group flex flex-col items-center gap-1">
+        <div className="w-12 h-12 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center border border-white/15 hover:border-white/30 active:scale-75 transition-all">
+          <MessageCircle size={20} className="text-white group-hover:scale-110 transition-transform" />
+        </div>
+        <span className="text-[11px] font-bold text-white/90">
+          {commentCount >= 1000 ? `${(commentCount / 1000).toFixed(1)}k` : commentCount || 0}
+        </span>
+      </button>
+
+      <button onClick={onShare} className="group flex flex-col items-center gap-1">
+        <div className="w-12 h-12 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center border border-white/15 hover:border-white/30 active:scale-75 transition-all">
+          <Share2 size={20} className="text-white group-hover:rotate-12 transition-transform" />
+        </div>
+        <span className="text-[11px] font-medium text-white/90">Bagikan</span>
+      </button>
+    </div>
+  );
+};
+
 // ========== VIDEO SLIDE COMPONENT ==========
+// HAPUS refreshTrigger dan onCommentRefresh dari VideoSlide
 const VideoSlide = ({
   video,
   isActive,
   viewCount,
   isLiked,
   likeCount,
+  commentCount,
   onLike,
   onShare,
   onBuy,
   onChat,
+  onComment,
   onProductClick,
   onRegisterVideo,
-  onUnregisterVideo
+  onUnregisterVideo,
+  userId,
 }) => {
   const slideId = useMemo(() => `video-${video.id}`, [video.id]);
-  const videoContainerRef = useRef<HTMLDivElement>(null);
+  const videoContainerRef = useRef(null);
 
   const handleVideoElement = useCallback((videoElement) => {
     if (videoElement && onRegisterVideo) {
@@ -299,7 +385,7 @@ const VideoSlide = ({
     };
   }, [slideId, onUnregisterVideo]);
 
-  const profileName = video.profiles?.username || video.profiles?.name || video.profiles?.full_name || 'Warga Setempat';
+  const profileName = video.profiles?.full_name || video.profiles?.username || 'Warga Setempat';
   const avatarUrl = video.profiles?.avatar_url ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(profileName)}&background=0D8ABC&color=fff&length=2`;
 
@@ -307,12 +393,12 @@ const VideoSlide = ({
     ? 'w-full h-full object-contain'
     : 'w-full h-full object-cover';
 
-  // Generate share URL (ke halaman Peken, bukan ke Cloudinary)
   const shareUrl = `${window.location.origin}/peken?video=${video.id}`;
 
+  // HAPUS useEffect untuk refreshTrigger
+
   return (
-    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-black overflow-hidden">
-      {/* Video Background */}
+    <div className="h-[100dvh] w-full snap-start snap-always relative flex flex-col bg-black overflow-hidden select-none">
       <div ref={videoContainerRef} className="absolute inset-0 w-full h-full overflow-hidden bg-black">
         <VideoPlayer
           src={video.video_url}
@@ -326,133 +412,104 @@ const VideoSlide = ({
           showControls={false}
           hideSpinner={false}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 pointer-events-none" />
       </div>
 
-      {/* Close Button */}
       <button
         onClick={() => window.dispatchEvent(new CustomEvent('close-video-modal'))}
-        className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 active:scale-95 transition-transform"
+        className="absolute top-5 left-4 z-30 w-10 h-10 rounded-full bg-black/20 backdrop-blur-md flex items-center justify-center text-white border border-white/10 active:scale-90 transition-all duration-200"
+        aria-label="Kembali"
       >
-        <X size={18} />
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
       </button>
 
-      {/* Bottom Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 z-20">
-
-
-        {/* User Info - Dengan foto profil yang benar */}
-        <div className="flex items-center gap-2 mb-2">
+      <div className="absolute bottom-0 left-0 right-0 p-4 pb-10 z-20 flex flex-col justify-end pr-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-20">
+        <div className="flex items-center gap-3 mb-3">
           <div className="relative">
+            <div className="absolute -inset-0.5 bg-gradient-to-tr from-orange-500 to-yellow-400 rounded-full blur-sm opacity-70 animate-pulse" />
             <img
-              src={video.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profileName)}&background=0D8ABC&color=fff&length=2&bold=true&size=32`}
-              className="w-8 h-8 rounded-full object-cover border-2 border-white/30"
+              src={avatarUrl}
+              className="relative w-10 h-10 rounded-full object-cover border-2 border-white"
               alt={profileName}
               onError={(e) => {
-                // Jika gambar gagal load, fallback ke UI Avatars
-                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileName)}&background=0D8ABC&color=fff&length=2&bold=true&size=32`;
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileName)}&background=0D8ABC&color=fff&length=2&bold=true&size=40`;
               }}
             />
-            {/* Indicator online (opsional) */}
-            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+            <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-black" />
           </div>
 
-          <div className="flex-1">
+          <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-white text-sm font-bold">
+              <span className="text-white text-sm font-semibold tracking-wide drop-shadow-md">
                 {profileName}
               </span>
               <RoleBadge roleType={video.role_type} />
             </div>
-            <div className="flex items-center gap-1 text-white/50 text-[10px]">
-              <MapPin size={10} />
-              <span>{video.profiles?.desa || video.profiles?.kecamatan || 'Pasuruan'}</span>
-              <span className="w-1 h-1 rounded-full bg-white/30" />
+            <div className="flex items-center gap-1.5 text-white/70 text-[11px]">
+              <MapPin size={11} className="text-orange-400" />
+              <span className="font-medium">{video.profiles?.desa || video.profiles?.kecamatan || 'Pasuruan'}</span>
+              <span className="w-1 h-1 rounded-full bg-white/40" />
               <span>{formatTimeAgo(video.created_at)}</span>
             </div>
           </div>
         </div>
 
-        {/* Caption */}
-        <div className="mb-2">
-          <p className="text-white text-sm font-medium leading-tight">
+        <div className="mb-4 max-h-[120px] overflow-y-auto no-scrollbar">
+          <h3 className="text-white text-sm font-bold leading-snug tracking-wide mb-1 drop-shadow">
             {video.judul}
-          </p>
+          </h3>
           {video.deskripsi && (
-            <p className="text-white/70 text-xs mt-1 line-clamp-2">
+            <p className="text-white/80 text-xs font-normal leading-relaxed break-words">
               {video.deskripsi}
             </p>
           )}
         </div>
 
+        <div className="flex items-center gap-2 w-full mt-1">
+          <button
+            onClick={() => onChat?.(video)}
+            className="flex-none p-3 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 rounded-xl text-white transition-all duration-200 flex items-center justify-center backdrop-blur-md"
+            title="Tanya Warga / Hubungi"
+          >
+            <MessageSquareCode size={20} className="text-emerald-400" />
+          </button>
 
-        {/* Action Buttons - SIMPLE TAPI DINAMIS */}
-        <button
-          onClick={() => {
-            if (video.product_link) {
-              onProductClick?.(video.product_link);
-            } else {
-              onBuy?.(video);
-            }
-          }}
-          className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 active:scale-95 rounded-full text-white text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-        >
-          <ShoppingBag size={14} className="transition-transform duration-200 group-hover:scale-110" />
-          <span>{video.product_link ? "Lihat Produk" : "Beli / Pesan"}</span>
-          {video.product_link && (
-            <span className="text-white/80 text-[10px]">→</span>
-          )}
-        </button>
+          <button
+            onClick={() => {
+              if (video.product_link) {
+                onProductClick?.(video.product_link);
+              } else {
+                onBuy?.(video);
+              }
+            }}
+            className="flex-1 py-3 px-4 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:brightness-110 active:scale-[0.98] rounded-xl text-white text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30 font-sans tracking-wide"
+          >
+            <ShoppingBag size={15} className="animate-bounce" />
+            <span className="uppercase tracking-wider">{video.product_link ? "Lihat Produk" : "Ambil / Pesan"}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Right Side Actions */}
-      <div className="absolute right-3 bottom-28 z-20 flex flex-col items-center gap-4">
-        {/* Like Button */}
-        <button
-          onClick={() => onLike?.(video)}
-          className="flex flex-col items-center gap-0.5"
-        >
-          <div className={`w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center border transition-all active:scale-95 ${isLiked ? 'bg-red-500/80 border-red-500/50' : 'bg-black/40 border-white/20'
-            }`}>
-            <Heart size={20} className={isLiked ? 'text-white fill-white' : 'text-white'} />
-          </div>
-          <span className="text-[10px] font-bold text-white/80">
-            {(likeCount || 0) >= 1000 ? `${(likeCount / 1000).toFixed(1)}k` : (likeCount || 0)}
-          </span>
-        </button>
+      <div className="absolute right-2.5 bottom-24 z-20 flex flex-col items-center gap-4">
+        <VideoActions
+          videoId={video.id}
+          isLiked={isLiked}
+          likeCount={likeCount}
+          commentCount={commentCount}
+          onLike={() => onLike?.(video)}
+          onComment={() => onComment?.(video)}
+          onShare={onShare}
+          userId={userId}
+        />
 
-        {/* Share Button - PAKAI SHARE URL KE HALAMAN PEKEN */}
-        <button
-          onClick={() => {
-            if (navigator.share) {
-              navigator.share({
-                title: video.judul,
-                text: video.deskripsi || 'Video menarik di Peken!',
-                url: shareUrl,
-              }).catch(() => {
-                navigator.clipboard.writeText(shareUrl);
-                alert('Link video telah disalin!');
-              });
-            } else {
-              navigator.clipboard.writeText(shareUrl);
-              alert('Link video telah disalin!');
-            }
-          }}
-          className="flex flex-col items-center gap-0.5"
-        >
-          <div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/20 active:scale-95 transition-all">
-            <Share2 size={18} className="text-white" />
+        <div className="flex flex-col items-center gap-1 opacity-70 transition-opacity hover:opacity-100">
+          <div className="w-11 h-11 rounded-full bg-black/25 backdrop-blur-md flex items-center justify-center border border-white/10 shadow-sm">
+            <Eye size={18} className="text-white/90" />
           </div>
-          <span className="text-[9px] text-white/70">Bagikan</span>
-        </button>
-
-        {/* View Count */}
-        <div className="flex flex-col items-center gap-0.5">
-          <div className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center">
-            <Eye size={18} className="text-white/80" />
-          </div>
-          <span className="text-[10px] font-bold text-white/80">
-            {(viewCount || 0) >= 1000 ? `${(viewCount / 1000).toFixed(1)}k` : (viewCount || 0)}
+          <span className="text-[10px] font-bold text-white/90 drop-shadow-md tracking-wide">
+            {(viewCount || 0) >= 1000 ? `${(viewCount / 1000).toFixed(1)}k` : viewCount || 0}
           </span>
         </div>
       </div>
@@ -466,14 +523,18 @@ export default function FullscreenVideoModal({
   videos = [],
   initialIndex = 0,
   viewCounts,
+  commentCounts = {},
   onClose,
   onBuy,
   onChat,
   onShare,
+  onComment,
+  onCommentRefresh,
   userId,
 }) {
   const [isRendered, setIsRendered] = useState(false);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(initialIndex);
+
   const { registerVideo, unregisterVideo, playActiveVideo, pauseAllVideos } = useVideoManager();
   const { containerRef, currentIndex, handleScroll, scrollToIndex } = useVideoScroll(
     videos?.length || 0,
@@ -484,25 +545,18 @@ export default function FullscreenVideoModal({
 
   const handleProductClick = useCallback((productLink) => {
     if (!productLink) return;
-
-    // Extract product ID
     const productId = productLink.split('product=')[1];
 
-    // Tutup modal video
+    // Langsung dispatch event, tanpa setTimeout
+    window.dispatchEvent(new CustomEvent('open-product-detail', {
+      detail: { productId }
+    }));
+    window.dispatchEvent(new CustomEvent('set-active-tab', {
+      detail: { tab: 'panyangan' }
+    }));
+
+    // Tutup modal setelah event di-dispatch
     onClose();
-
-    // Gunakan event untuk komunikasi antar komponen
-    setTimeout(() => {
-      // Dispatch event yang akan didengarkan oleh PanyanganSection
-      window.dispatchEvent(new CustomEvent('open-product-detail', {
-        detail: { productId }
-      }));
-
-      // Pindah ke tab Panyangan
-      window.dispatchEvent(new CustomEvent('set-active-tab', {
-        detail: { tab: 'panyangan' }
-      }));
-    }, 300);
   }, [onClose]);
 
   useEffect(() => {
@@ -573,6 +627,8 @@ export default function FullscreenVideoModal({
     };
   }, [isOpen, currentIndex, scrollToIndex, onClose]);
 
+  // HAPUS useEffect untuk listener komentar yang menyebabkan infinite loop
+
   if (!isRendered || !videos.length) return null;
 
   return (
@@ -584,23 +640,30 @@ export default function FullscreenVideoModal({
           className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar touch-pan-y"
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
-          {videos.map((video, idx) => (
-            <VideoSlide
-              key={video.id}
-              video={video}
-              isActive={idx === currentIndex}
-              viewCount={viewCounts?.[video.id] || video.views || 0}
-              isLiked={likedVideos.has(video.id)}
-              likeCount={likeCounts[video.id] || video.likes || 0}
-              onLike={toggleLike}
-              onShare={onShare}
-              onBuy={onBuy}
-              onChat={onChat}
-              onProductClick={handleProductClick}
-              onRegisterVideo={registerVideo}
-              onUnregisterVideo={unregisterVideo}
-            />
-          ))}
+          {videos.map((video, idx) => {
+            const commentCount = commentCounts?.[video.id] || 0;
+
+            return (
+              <VideoSlide
+                key={video.id}
+                video={video}
+                isActive={idx === currentIndex}
+                viewCount={viewCounts?.[video.id] || video.views || 0}
+                commentCount={commentCount}
+                isLiked={likedVideos.has(video.id)}
+                likeCount={likeCounts[video.id] || video.likes || 0}
+                onLike={toggleLike}
+                onShare={onShare}
+                onBuy={onBuy}
+                onChat={onChat}
+                onComment={onComment}
+                onProductClick={handleProductClick}
+                onRegisterVideo={registerVideo}
+                onUnregisterVideo={unregisterVideo}
+                userId={userId}
+              />
+            );
+          })}
         </div>
       </div>
     </div>

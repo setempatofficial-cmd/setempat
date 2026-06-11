@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { X, MapPin, ShieldCheck, Eye, Trash2, Share2, MoreVertical, Compass, Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { X, MapPin, ShieldCheck, Eye, Trash2, Share2, MoreVertical, Compass, Plus, ChevronDown, ChevronLeft, ChevronUp } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { formatTimeAgo } from "@/utils/timeUtils";
 import MediaRenderer from "@/components/media/MediaRenderer";
@@ -633,12 +633,17 @@ export default function StoryModalFullscreen({
         className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-sm flex items-center justify-center"
       >
         <div className="relative w-full max-w-[450px] h-[100dvh] bg-black overflow-hidden shadow-2xl">
-          {/* Close Button */}
+          {/* Back Button - GANTI X DENGAN PANAH KIRI */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 z-50 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 hover:bg-black/60 active:scale-95 transition-all"
+            className="absolute top-4 left-4 z-50 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/10 hover:bg-black/60 active:scale-95 transition-all group"
+            aria-label="Kembali"
           >
-            <X size={20} />
+            <ChevronLeft
+              size={20}
+              strokeWidth={2.5}
+              className="group-hover:-translate-x-0.5 transition-transform duration-200"
+            />
           </button>
 
           {/* Menu Dropdown */}

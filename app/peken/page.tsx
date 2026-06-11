@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo, useCallback, Suspense, lazy } from
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, MapPin, Store, Users, LayoutDashboard, MessageSquare, Plus, AlertCircle, Truck, Gift, Bell, X, Play } from 'lucide-react';
 import UserMenu from "@/app/components/layout/UserMenu";
+import VideoCommentsModal from "@/app/peken/components/VideoCommentsModal";
 
 // --- LAZY LOAD MODALS FOR BETTER PERFORMANCE ---
 const RewangSection = lazy(() => import("@/app/components/peken/RewangSection"));
@@ -33,6 +34,8 @@ import UploadOptions from "@/app/components/upload/UploadOptions";
 
 // Import komponen UploadVideoModal versi Cloudinary
 import { UploadVideoModal } from "@/app/peken/components/UploadVideoModal";
+
+// HAPUS state dari sini! State harus di dalam komponen
 
 // ========== TYPES ==========
 interface Video {
@@ -248,6 +251,8 @@ function PekenHome({ location, setActiveTab, userId, isSeller, isDriver, isRewan
     document.body.style.overflow = '';
   }, []);
 
+  // HAPUS event listener dari sini! Pindahkan ke PekenContent
+
   const handleVideoClick = useCallback((index: number) => {
     if (onOpenVideoModal && allVideos.length > 0) {
       const actualVideo = videos[index];
@@ -267,6 +272,7 @@ function PekenHome({ location, setActiveTab, userId, isSeller, isDriver, isRewan
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-10">
+      {/* ... konten PekenHome tetap sama ... */}
       <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-[32px] p-6 text-white shadow-xl shadow-orange-100">
         <h2 className="text-xl font-black leading-tight">
           Sugeng Rawuh <br />ing Peken {location}
@@ -412,7 +418,12 @@ function PekenContent() {
   const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
   const [allVideos, setAllVideos] = useState<Video[]>([]);
   const [videoViewCounts, setVideoViewCounts] = useState<Record<string, number>>({});
+  const [videoCommentCounts, setVideoCommentCounts] = useState<Record<string, number>>({});
   const [openProductId, setOpenProductId] = useState<string | null>(null);
+
+  // ✅ STATE UNTUK MODAL KOMENTAR (DIPINDAHKAN KE SINI)
+  const [showVideoComments, setShowVideoComments] = useState(false);
+  const [selectedVideoForComment, setSelectedVideoForComment] = useState<any>(null);
 
   const [modals, setModals] = useState<ModalState>({
     daftarOjek: false,
@@ -461,6 +472,7 @@ function PekenContent() {
           is_active,
           views,
           likes,
+          comment_count,
           product_link,
           product_title,
           kategori,
@@ -482,7 +494,7 @@ function PekenContent() {
       if (userIds.length > 0) {
         const { data: profilesData } = await supabase
           .from('profiles')
-          .select('id, name, username, full_name, avatar_url, desa, kecamatan')
+          .select('id, username, full_name, avatar_url, desa, kecamatan')
           .in('id', userIds);
 
         if (profilesData) {
@@ -518,10 +530,13 @@ function PekenContent() {
       setAllVideos(videosWithProfile);
 
       const viewsMap: Record<string, number> = {};
+      const commentsMap: Record<string, number> = {};
       videosWithProfile.forEach(v => {
         viewsMap[v.id] = v.views || 0;
+        commentsMap[v.id] = v.comment_count || 0;
       });
       setVideoViewCounts(viewsMap);
+      setVideoCommentCounts(commentsMap);
 
     } catch (err) {
       console.error("Error fetching all videos:", err);
@@ -541,7 +556,6 @@ function PekenContent() {
     await fetchProfileDirect();
   }, [refreshProfile, fetchProfileDirect]);
 
-  // FUNGSI UNTUK TOMBOL PLUS - BUKA UPLOAD OPTIONS
   const handleOpenUploadOptions = useCallback(() => {
     if (!user?.id) {
       router.push('/login?redirect=/peken');
@@ -550,13 +564,11 @@ function PekenContent() {
     setShowUploadOptions(true);
   }, [user, router]);
 
-  // FUNGSI UNTUK MEMBUKA MODAL UPLOAD VIDEO (dari UploadOptions)
   const handleOpenUploadVideoDirect = useCallback(() => {
     setShowUploadOptions(false);
     toggleModal('uploadVideo', true);
   }, [toggleModal]);
 
-  // FUNGSI UNTUK UPLOAD VIDEO SUCCESS
   const handleVideoUploadSuccess = useCallback(() => {
     setRefreshVideos(prev => prev + 1);
     toggleModal('uploadVideo', false);
@@ -580,6 +592,16 @@ function PekenContent() {
     setSelectedVideoIndex(0);
     fetchAllVideos();
   }, [fetchAllVideos]);
+
+  // ✅ EVENT LISTENER UNTUK KOMENTAR (DIPINDAHKAN KE SINI)
+  useEffect(() => {
+    const handleOpenVideoComments = (e: CustomEvent) => {
+      setSelectedVideoForComment(e.detail);
+      setShowVideoComments(true);
+    };
+    window.addEventListener('open-video-comments', handleOpenVideoComments as EventListener);
+    return () => window.removeEventListener('open-video-comments', handleOpenVideoComments as EventListener);
+  }, []);
 
   // Fetch data on mount and refresh
   useEffect(() => {
@@ -653,16 +675,13 @@ function PekenContent() {
     };
   }, [refreshProfile, fetchProfileDirect, fetchAllVideos]);
 
-  // Tambahkan ini setelah semua useEffect yang sudah ada, sebelum return statement
   useEffect(() => {
-    // Listener untuk membuka produk dari video
     const handleOpenProductDetail = (e: CustomEvent) => {
       const { productId } = e.detail;
       setActiveTab('panyangan');
       setOpenProductId(productId);
     };
 
-    // Listener untuk pindah tab
     const handleSetActiveTab = (e: CustomEvent) => {
       const { tab } = e.detail;
       setActiveTab(tab);
@@ -696,7 +715,6 @@ function PekenContent() {
         }`}>
         <div className="max-w-[420px] mx-auto bg-[#FBFBFE]/90 backdrop-blur-md border-b border-slate-100 px-6 py-4">
           <div className="flex justify-between items-center">
-            {/* Kiri: Tombol Back ke Home + Logo */}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/')}
@@ -714,7 +732,6 @@ function PekenContent() {
               </div>
             </div>
 
-            {/* Kanan: Tombol Location + UserMenu */}
             <div className="flex gap-2">
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('open-location-modal'))}
@@ -863,6 +880,8 @@ function PekenContent() {
           videos={allVideos}
           initialIndex={selectedVideoIndex}
           viewCounts={videoViewCounts}
+          commentCounts={videoCommentCounts}
+          userId={user?.id}
           onClose={closeVideoModal}
           onBuy={(video) => {
             if (video.product_link) {
@@ -886,9 +905,31 @@ function PekenContent() {
               alert('Link video telah disalin!');
             }
           }}
-          userId={user?.id}
+          onComment={(video) => {
+            window.dispatchEvent(new CustomEvent('open-video-comments', {
+              detail: {
+                id: video.id,
+                videoTitle: video.judul,
+                videoOwnerId: video.user_id
+              }
+            }));
+          }}
+          onCommentRefresh={() => {
+            fetchAllVideos(); // Refresh semua data video
+          }}
         />
       </Suspense>
+
+      {/* ✅ VIDEO COMMENTS MODAL - DITAMBAHKAN DI SINI */}
+      <VideoCommentsModal
+        isOpen={showVideoComments}
+        onClose={() => {
+          setShowVideoComments(false);
+          setSelectedVideoForComment(null);
+        }}
+        video={selectedVideoForComment}
+        isAdmin={false}
+      />
 
       <Suspense fallback={null}>
         <FormDaftarBakul

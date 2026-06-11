@@ -986,7 +986,7 @@ function FeedCardV2Premium({
       return `Delok pemandangan di ${name}`;
     }
 
-    return `Monggo pinarak, pirsani kondisi terkini wonten ${name}`;
+    return `Lihat kondisi terkini wonten ${name}`;
   };
 
   return (
@@ -1032,7 +1032,7 @@ function FeedCardV2Premium({
         <div
           className="relative w-full overflow-hidden transition-all duration-500 ease-in-out"
           style={{
-            aspectRatio: isDetail ? '16/10' : '4/3', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
+            aspectRatio: isDetail ? '16/10' : '1/1', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
             maxHeight: isDetail ? '45vh' : 'none'
           }}
         >
@@ -1101,7 +1101,7 @@ function FeedCardV2Premium({
 
         {/* STATUS ISLAND */}
         {!isDetail && showStatusIsland && (
-          <div className={`${paddingX} pt-3 pb-1`}>
+          <div className={`${paddingX} pt-4 pb-1.5`}>
             <StatusIsland
               item={safeItem}
               theme={theme}
@@ -1163,29 +1163,44 @@ function FeedCardV2Premium({
               </div>
             )}
 
-            {!isDetail && (
-              <div className="flex flex-col gap-2">
-                <p className={`text-[11px] font-medium italic opacity-50 px-1 ${theme.isMalam ? 'text-white' : 'text-black'}`}>
-                  "{getPinarakText()}"
-                </p>
 
-                <motion.button
-                  onClick={handleGoToDetail}
-                  whileTap={{ scale: 0.95 }}
+            {/* BOX INTEGRASI PINARAK (Gabungan Teks + Tombol dadi siji container premium) */}
+            {!isDetail && (
+              <motion.div
+                onClick={handleGoToDetail}
+                whileHover={!prefersReducedMotion ? { scale: 1.01, x: 2 } : {}}
+                whileTap={!prefersReducedMotion ? { scale: 0.99 } : {}}
+                className={`
+                  group cursor-pointer p-3 rounded-xl sm:rounded-2xl
+                  flex items-center justify-between gap-3
+                  border border-black/5 dark:border-white/5
+                  transition-all duration-300 backdrop-blur-sm
+                  ${theme.isMalam
+                    ? "bg-white/[0.04] hover:bg-white/[0.08] text-white"
+                    : "bg-black/[0.03] hover:bg-black/[0.06] text-black"
+                  }
+                `}
+              >
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className={`text-[9px] font-black uppercase tracking-[0.15em] opacity-60 ${theme.isMalam ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                    Pinarak, Lur 👋
+                  </span>
+                  <p className="text-xs font-medium italic mt-0.5 line-clamp-1 opacity-90 leading-normal">
+                    "{getPinarakText()}"
+                  </p>
+                </div>
+
+                {/* Indikator Panah Sing Melu Geser Pas di-Hover */}
+                <div
                   className={`
-    self-end px-4 py-2 rounded-full  // Tidak full width
-    flex items-center gap-1.5
-    text-[10px] font-bold uppercase tracking-wide
-    ${theme.isMalam
-                      ? "bg-white/10 text-white"
-                      : "bg-black/5 text-black"
-                    }
-  `}
+                    p-2 rounded-xl shrink-0 transition-all duration-300
+                    group-hover:translate-x-1
+                    ${theme.isMalam ? 'bg-white/10 text-white' : 'bg-black/5 text-black'}
+                  `}
                 >
-                  <span>PINARAK</span>
-                  <ChevronRight size={12} />
-                </motion.button>
-              </div>
+                  <ChevronRight size={14} strokeWidth={3} />
+                </div>
+              </motion.div>
             )}
           </div>
         </div>

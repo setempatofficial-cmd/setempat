@@ -608,13 +608,47 @@ export default function RumahWargaPage({ onClose }) {
 
           {/* PERAN SAYA */}
           <section className="space-y-3">
-            <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5"><span>🎭</span> Peran Saya</h3>
+            <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+              <span>🎭</span> Peran Saya
+            </h3>
             <div className="flex flex-wrap gap-2">
-              <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><MapPin className="w-4 h-4 text-rose-500" /> Akamsi</div>
-              {badges.some(b => b.id === "bakul") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><ShoppingBag className="w-4 h-4 text-amber-500" /> Bakul</div>}
-              {badges.some(b => b.id === "driver") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><Truck className="w-4 h-4 text-sky-500" /> Ojek</div>}
-              {badges.some(b => b.id === "rewang") && <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300"><HelpingHand className="w-4 h-4 text-purple-500" /> Rewang</div>}
-              <button className="bg-slate-800/40 border border-dashed border-slate-700 p-3 rounded-xl text-slate-500"><Plus className="w-4 h-4" /></button>
+              {/* Akamsi (selalu ada) */}
+              <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                <MapPin className="w-4 h-4 text-rose-500" /> Akamsi
+              </div>
+
+              {/* Bakul */}
+              {(profile?.is_seller || badges.some(b => b.id === "bakul")) && (
+                <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                  <ShoppingBag className="w-4 h-4 text-amber-500" /> Bakul
+                </div>
+              )}
+
+              {/* Driver/Ojek */}
+              {(profile?.is_driver || badges.some(b => b.id === "driver")) && (
+                <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                  <Truck className="w-4 h-4 text-sky-500" /> Ojek
+                </div>
+              )}
+
+              {/* Rewang */}
+              {(profile?.is_rewang || badges.some(b => b.id === "rewang")) && (
+                <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                  <HelpingHand className="w-4 h-4 text-purple-500" /> Rewang
+                </div>
+              )}
+
+              {/* Tombol Ambil Peran - jika belum punya role */}
+              {!profile?.is_seller && !profile?.is_driver && !profile?.is_rewang &&
+                !badges.some(b => b.id === "bakul" || b.id === "driver" || b.id === "rewang") && (
+                  <button
+                    onClick={() => router.push('/peken')}
+                    className="flex-1 bg-slate-800/40 border border-dashed border-slate-700 p-3 rounded-xl text-slate-500 hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-400 transition-all active:scale-95 flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-[10px]">Ambil Peran</span>
+                  </button>
+                )}
             </div>
           </section>
 
