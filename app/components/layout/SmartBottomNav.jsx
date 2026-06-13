@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Store, MonitorPlay, RefreshCw } from "lucide-react";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -76,7 +76,7 @@ export default function SmartBottomNav({
   // ✅ Sinkronisasi murni dari URL Pathname (Source of Truth tunggal)
   useEffect(() => {
     if (pathname === "/") setActiveTab("Home");
-    else if (pathname.startsWith("/explore") || pathname.startsWith("/search")) setActiveTab("Sekitar");
+    else if (pathname.startsWith("/explore") || pathname.startsWith("/search")) setActiveTab("Ronda");
     else if (pathname.startsWith("/woro")) setActiveTab("Woro");
     else if (
       pathname.startsWith("/peken") ||
@@ -122,7 +122,7 @@ export default function SmartBottomNav({
       case "Home":
         await handleHomePress();
         break;
-      case "Sekitar":
+      case "Ronda":
         // Gunakan router bawaan Next agar tumpukan history tersinkronisasi dengan baik
         router.push("/explore");
         break;
@@ -150,7 +150,7 @@ export default function SmartBottomNav({
 
   const tabs = [
     { id: "Home", icon: <Home size={22} />, label: "Home" },
-    { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
+    { id: "Ronda", icon: <MonitorPlay size={22} />, label: "Ronda" },
     ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
     { id: "Peken", icon: <Store size={22} />, label: "Peken" },

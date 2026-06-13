@@ -41,60 +41,14 @@ class LRUCache {
 
 const thumbnailCache = new LRUCache(150);
 
-// ── Helper functions ─────────────────
-const isVideoUrl = (url) => {
-  if (!url) return false;
-  const urlLower = url.toLowerCase();
-  return urlLower.includes('.mp4') || urlLower.includes('.m3u8') || urlLower.includes('cctv') ||
-    urlLower.includes('stream') || urlLower.includes('youtube.com') || urlLower.includes('youtu.be');
-};
-
-const extractYouTubeId = (url) => {
-  if (!url) return null;
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([^&?#]+)/,
-    /youtube\.com\/embed\/([^/?]+)/
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-};
-
 const getThumbnail = (item) => {
-  const cached = thumbnailCache.get(item.id);
-  if (cached) return cached;
-
-  const getVideoThumbnail = (url) => {
-    if (!url) return null;
-    const youtubeId = extractYouTubeId(url);
-    if (youtubeId) return `https://img.youtube.com/vi/${youtubeId}/mqdefault.jpg`;
-    const urlLower = url.toLowerCase();
-    if (urlLower.includes('.m3u8') || urlLower.includes('cctv') || urlLower.includes('stream'))
-      return 'https://placehold.co/400x225/1a1a1a/ff0000?text=LIVE';
-    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov'))
-      return 'https://placehold.co/400x225/1a1a1a/3b82f6?text=VIDEO';
-    return null;
-  };
-
-  let result = 'https://placehold.co/400x225/1a1a1a/666666?text=NO+IMAGE';
-
-  if (item.laporan_terbaru?.[0]?.photo_url && !isVideoUrl(item.laporan_terbaru[0].photo_url)) {
-    result = item.laporan_terbaru[0].photo_url;
-  } else if (item.laporan_terbaru?.[0]?.video_url) {
-    const vt = getVideoThumbnail(item.laporan_terbaru[0].video_url);
-    if (vt) result = vt;
-  } else if (item.image_url && !isVideoUrl(item.image_url)) {
-    result = item.image_url;
-  } else if (item.photos && Array.isArray(item.photos) && item.photos[0]) {
-    const firstPhoto = item.photos[0];
-    const photoUrl = typeof firstPhoto === 'string' ? firstPhoto : firstPhoto.url;
-    if (photoUrl && !isVideoUrl(photoUrl)) result = photoUrl;
+  // Pakai image_url langsung
+  if (item.image_url) {
+    return item.image_url;
   }
 
-  thumbnailCache.set(item.id, result);
-  return result;
+  // Kalau tidak ada, baru pakai placeholder
+  return `https://placehold.co/400x225/1a1a1a/666666?text=${item.name?.charAt(0) || '?'}`;
 };
 
 const getBadgeColor = (tipe) => {
@@ -182,6 +136,19 @@ function SearchContent() {
   const isTypingDeferred = useDeferredValue(isTyping);
 
   const inputRef = useRef(null);
+
+  // ===== PERBAIKAN: Auto-focus saat halaman pertama kali dibuka =====
+  useEffect(() => {
+    // Fokus ke input setelah komponen mount
+    if (inputRef.current) {
+      // Delay kecil untuk memastikan DOM benar-benar siap
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
+    }
+  }, []); // Empty dependency array - hanya berjalan sekali saat mount
 
   // Kata kunci kontekstual untuk pencarian situasi/lalu lintas
   const contextualKeywords = {
@@ -474,7 +441,7 @@ function SearchContent() {
         const [tempatResult, laporanResult] = await Promise.all([
           supabase
             .from("tempat")
-            .select("id, name, category, latitude, longitude")
+            .select("id, name, category, latitude, longitude, image_url")
             .limit(100)
             .order("name", { ascending: true }),
           supabase
@@ -591,11 +558,12 @@ function SearchContent() {
             </motion.button>
 
 
-            {/* Search Input - OPTIMIZED */}
+            {/* Search Input - OPTIMIZED with autoFocus */}
             <div className="flex-1 relative">
               <input
                 ref={inputRef}
                 type="search"  // ✅ Tepat untuk kolom pencarian
+                autoFocus={true}  // 🔥 PERBAIKAN: Auto focus saat halaman dibuka
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);

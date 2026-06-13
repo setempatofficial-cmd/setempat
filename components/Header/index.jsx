@@ -129,9 +129,11 @@ export default function Header({
       <div
         className={`absolute inset-0 transition-all duration-1000 -z-10 ${isScrolled
           ? theme.isMalam
-            ? "bg-[#0a0a0a]/80 backdrop-blur-2xl border-b border-white/5 shadow-2xl"
-            : "bg-white/80 backdrop-blur-2xl border-b border-black/5 shadow-sm"
-          : "bg-transparent"
+            ? "bg-black/95 backdrop-blur-2xl border-b border-white/20 shadow-2xl"
+            : "bg-white/95 backdrop-blur-2xl border-b border-black/10 shadow-md"
+          : theme.isMalam
+            ? "bg-black/80 backdrop-blur-md border-b border-white/10"
+            : "bg-white/80 backdrop-blur-md border-b border-black/5"
           }`}
       />
 
@@ -157,7 +159,7 @@ export default function Header({
                   />
                 )}
               </AnimatePresence>
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#E3655B] to-[#ff7d72] shadow-lg shadow-[#E3655B]/20">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#E3655B] to-[#ff7d72] shadow-lg shadow-[#E3655B]/40">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 </svg>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Store, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Store, MonitorPlay, RefreshCw } from "lucide-react";
 // Hapus import useTheme karena tidak diperlukan lagi
 // import { useTheme } from "@/app/hooks/useTheme";
 
@@ -29,7 +29,7 @@ export default function SmartBottomNavWarga({
 
   useEffect(() => {
     if (pathname === "/") setActiveTab("Home");
-    else if (pathname === "/search" || pathname === "/explore") setActiveTab("Sekitar");
+    else if (pathname === "/search" || pathname === "/explore") setActiveTab("Ronda");
     else if (pathname.startsWith("/woro")) setActiveTab("Woro");
     else if (
       pathname.startsWith("/peken") ||
@@ -72,7 +72,7 @@ export default function SmartBottomNavWarga({
       case "Home":
         await handleHomePress();
         break;
-      case "Sekitar":
+      case "Ronda":
         router.push("/explore");
         break;
       case "Woro":
@@ -89,7 +89,7 @@ export default function SmartBottomNavWarga({
 
   const tabs = [
     { id: "Home", icon: <Home size={22} />, label: "Home" },
-    { id: "Sekitar", icon: <Compass size={22} />, label: "Sekitar" },
+    { id: "Ronda", icon: <MonitorPlay size={22} />, label: "Ronda" },
     { id: "WargaLapor", isAction: true }, // Tombol plus untuk warga
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
     { id: "Peken", icon: <Store size={22} />, label: "Peken" },

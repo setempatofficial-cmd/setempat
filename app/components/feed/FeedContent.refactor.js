@@ -842,7 +842,7 @@ export default function FeedContent() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.5) }}
-                    className="mb-6"
+                    className="mb-6 mx-auto w-full max-w-[420px]"
                   >
                     <FeedCardWrapper theme={theme}>
                       <FeedCard

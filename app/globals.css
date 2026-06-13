@@ -105,3 +105,205 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+
+/* ========== SNAP SCROLL STYLES (seperti Plexity/TikTok/Reels) ========== */
+
+/* Container utama snap scroll */
+.snap-container {
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overflow-y: auto;
+  height: 100vh;
+  width: 100%;
+}
+
+/* Setiap item card */
+.snap-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Sembunyikan scrollbar di snap container */
+.snap-container::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  background: transparent;
+}
+
+.snap-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Prevent body scroll ketika snap scroll aktif */
+body:has(.snap-container) {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Animasi halus untuk transisi card */
+.snap-item>* {
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+}
+
+/* Card aktif sedikit scale untuk efek fokus */
+.snap-item .active-card {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.snap-item .inactive-card {
+  transform: scale(0.98);
+  opacity: 0.95;
+}
+
+/* Progress indicator dots seperti TikTok */
+.snap-progress-dot {
+  transition: all 0.2s ease-out;
+}
+
+.snap-progress-dot-active {
+  height: 24px;
+  background-color: white;
+  opacity: 1;
+}
+
+.snap-progress-dot-inactive {
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Header auto-hide animation */
+.snap-header {
+  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+}
+
+.snap-header-hidden {
+  transform: translateY(-100%);
+}
+
+.snap-header-visible {
+  transform: translateY(0);
+}
+
+/* Pull to refresh indicator */
+.pull-to-refresh {
+  position: absolute;
+  top: -60px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 60px;
+  transition: transform 0.2s ease-out;
+}
+
+.pull-to-refresh.active {
+  transform: translateY(60px);
+}
+
+/* Loading skeleton untuk snap scroll */
+.snap-skeleton {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+}
+
+/* Safe area untuk notch/hole-punch */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .snap-container {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .snap-header {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Performance optimization */
+.snap-container * {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reduce motion untuk pengguna yang prefer animasi lebih sedikit */
+@media (prefers-reduced-motion: reduce) {
+  .snap-container {
+    scroll-behavior: auto;
+  }
+
+  .snap-item>*,
+  .snap-header,
+  .snap-progress-dot {
+    transition: none;
+  }
+}
+
+/* Landscape mode adjustment */
+@media (orientation: landscape) and (max-height: 500px) {
+  .snap-item {
+    height: 100vh;
+  }
+
+  .snap-item .feed-card-wrapper {
+    transform: scale(0.9);
+  }
+}
+
+/* Touch feedback untuk snap scroll */
+.snap-container:active {
+  cursor: grabbing;
+}
+
+.snap-container:active .snap-item {
+  cursor: grabbing;
+}
+
+/* Fallback untuk browser yang belum support dvh */
+@supports not (height: 100dvh) {
+
+  .snap-container,
+  .snap-item {
+    height: 100vh;
+  }
+}
+
+/* Pastikan body tidak scrolling */
+body {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Agar scroll lebih halus di iOS */
+.snap-container {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Untuk mencegah white flash saat scroll di iOS */
+.snap-container {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Optimasi untuk HP dengan refresh rate tinggi */
+@media (prefers-reduced-motion: no-preference) {
+  .snap-container {
+    scroll-behavior: smooth;
+  }
+}

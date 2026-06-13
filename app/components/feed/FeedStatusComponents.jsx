@@ -3,6 +3,8 @@
 import { memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
+
+
 // ==================== SKELETON LOADER ====================
 export const SkeletonLoader = memo(() => (
   <div className="space-y-6 px-4">
@@ -67,13 +69,33 @@ export const InvisibleLoading = memo(() => (
 InvisibleLoading.displayName = 'InvisibleLoading';
 
 // ==================== END OF FEED ====================
-export const EndOfFeed = memo(() => (
-  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
-    <p className="text-white/40 text-xs">✨ Semua konten di sekitar telah dimuat ✨</p>
+// ==================== END OF FEED ====================
+export const EndOfFeed = memo(({ onScrollToTop }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className="text-center py-10 flex flex-col items-center gap-3"
+  >
+    {/* Ganti text-white/30 menjadi text-white/70 atau text-white */}
+    <p className="text-white/70 text-xs tracking-wider">
+      Kamu sudah melihat semua konten terdekat
+    </p>
+
+    {onScrollToTop && (
+      <motion.button
+        whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.08)" }}
+        whileTap={{ scale: 0.95 }}
+        onClick={onScrollToTop}
+        className="px-4 py-1.5 border border-white/30 rounded-full text-white/70 text-[11px] transition-colors flex items-center gap-1"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="m18 15-6-6-6 6" />
+        </svg>
+        Kembali ke atas
+      </motion.button>
+    )}
   </motion.div>
 ));
-
-EndOfFeed.displayName = 'EndOfFeed';
 
 // ==================== PULL TO REFRESH INDICATOR ====================
 export const PullToRefreshIndicator = memo(({ refreshing }) => (

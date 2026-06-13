@@ -646,6 +646,8 @@ function FeedCardV2Premium({
   userProfile,
   userAvatar,
   hideActionButtons = false,
+  isActive = false,
+  shouldPlayVideo = false,
 }) {
 
   const { user } = useAuth();

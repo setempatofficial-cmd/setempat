@@ -49,7 +49,6 @@ export default function LaporPanel({
 
   const [tempatList, setTempatList] = useState([]);
   const [tempatQuery, setTempatQuery] = useState("");
-  const [showNominatim, setShowNominatim] = useState(false);
   const [nominatimResults, setNominatimResults] = useState([]);
 
   const [isTextOnly, setIsTextOnly] = useState(false);
@@ -86,16 +85,21 @@ export default function LaporPanel({
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(async () => {
-      if (tempatQuery.length > 1 || tempatQuery === "") {
-        await fetchTempatList(tempatQuery);
-        if (tempatQuery.length >= 3 && showNominatim) {
-          await searchNominatim(tempatQuery);
-        } else {
-          setNominatimResults([]);
-        }
+      if (tempatQuery.length < 2) {
+        setTempatList([]);
+        setNominatimResults([]);
+        return;
       }
-    }, 300);
-  }, [tempatQuery, showNominatim]);
+
+      await fetchTempatList(tempatQuery);
+
+      if (tempatQuery.length >= 3 && tempatList.length < 2) {
+        await searchNominatim(tempatQuery);
+      } else {
+        setNominatimResults([]);
+      }
+    }, 500);
+  }, [tempatQuery]);
 
   const fetchTempatList = async (searchQuery = "") => {
     if (abortRef.current) abortRef.current.abort();
@@ -333,38 +337,84 @@ export default function LaporPanel({
                     inputMode="search"
                   />
                 </div>
+                {tempatQuery.length >= 2 && (
+                  <div className="flex items-start gap-2 bg-slate-50 border border-slate-100 p-2.5 rounded-xl mt-1 mb-3">
+                    <span className="text-xs">💡</span>
+                    <p className="text-[10px] leading-relaxed text-slate-500">
+                      Hasil <span className="font-semibold text-slate-700">"🗺️ LOKASI DARI PETA"</span> akan muncul jika tempat tidak terdaftar di database kami.
+                    </p>
+                  </div>
+                )}
 
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showNominatim}
-                    onChange={(e) => setShowNominatim(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-cyan-500/20 border-slate-300"
-                  />
-                  <span className="text-[9px] text-slate-500">🔍 Cari di peta (jalan, simpang)</span>
-                </label>
-
-                <div className="max-h-[200px] overflow-y-auto space-y-1.5">
-                  {allResults.map(t => (
-                    <button
-                      key={t.uniqueId}
-                      onClick={() => selectLocation(t)}
-                      className="w-full flex items-center gap-2 p-2 rounded-xl bg-slate-50 hover:bg-cyan-50 text-left transition-colors"
-                    >
-                      <span className="text-base">{t.source === 'nominatim' ? '🛣️' : '📍'}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-slate-800 truncate">{t.name}</span>
-                          {t.source === 'nominatim' && (
-                            <span className="text-[7px] px-1 py-0.5 rounded bg-blue-100 text-blue-600">Jalan</span>
-                          )}
-                        </div>
-                        <span className="text-[9px] text-slate-500 truncate block">
-                          {t.source === 'nominatim' ? t.fullName : t.category}
-                        </span>
+                <div className="max-h-[250px] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+                  {/* Grup Database */}
+                  {tempatList.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">
+                        📌 Tempat Terdaftar
                       </div>
-                    </button>
-                  ))}
+                      <div className="space-y-1">
+                        {tempatList.map(t => (
+                          <button
+                            key={`db_${t.id}`}
+                            onClick={() => selectLocation(t)}
+                            className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent hover:border-cyan-100 hover:bg-cyan-50/50 transition-all duration-200 group text-left"
+                          >
+                            <div className="w-7 h-7 flex items-center justify-center bg-cyan-50 rounded-lg group-hover:bg-cyan-100 transition-colors">
+                              <span className="text-sm">📍</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-semibold text-slate-700 group-hover:text-cyan-700 transition-colors truncate">
+                                {t.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-medium truncate mt-0.5">
+                                {t.category}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Grup Nominatim */}
+                  {nominatimResults.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">
+                        🗺️ Lokasi dari Peta
+                      </div>
+                      <div className="space-y-1">
+                        {nominatimResults.map(t => (
+                          <button
+                            key={`nom_${t.id}`}
+                            onClick={() => selectLocation(t)}
+                            className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-all duration-200 group text-left"
+                          >
+                            <div className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg group-hover:bg-slate-200 transition-colors">
+                              <span className="text-sm">🛣️</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors truncate">
+                                {t.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                                {t.fullName}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pesan kosong */}
+                  {tempatList.length === 0 && nominatimResults.length === 0 && tempatQuery.length > 2 && (
+                    <div className="text-center py-8 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 my-2">
+                      <div className="text-2xl mb-2">🔍</div>
+                      <p className="text-xs font-medium text-slate-500">Tidak ditemukan hasil</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Coba gunakan kata kunci atau nama jalan lain</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

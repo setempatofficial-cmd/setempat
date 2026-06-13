@@ -564,7 +564,7 @@ export default function FullscreenVideoModal({
       const timer = setTimeout(() => {
         const videoId = `video-${videos[currentVideoIndex]?.id}`;
         playActiveVideo(videoId);
-      }, 150);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [currentVideoIndex, videos, playActiveVideo]);
