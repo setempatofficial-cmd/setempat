@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DataProvider } from "@/contexts/DataContext";
@@ -17,27 +17,36 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// ✅ METADATA (LENGKAP dengan favicon)
 export const metadata: Metadata = {
   title: "SetempatID - Melihat Kehidupan Sekitar",
   description: "Aplikasi untuk menampilkan kondisi terkini di lingkungan sekitar secara real-time",
   manifest: "/manifest.json",
-  themeColor: "#06b6d4",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "72x72", type: "image/x-icon" },
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+    ],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "SetempatID",
   },
-  icons: {
-    apple: [
-      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
-    ],
-  },
+};
+
+// ✅ VIEWPORT
+export const viewport: Viewport = {
+  themeColor: "#06b6d4",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -48,9 +57,16 @@ export default function RootLayout({
   return (
     <html lang="id">
       <head>
+        {/* Meta tags */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="SetempatID" />
+
+        {/* Favicon untuk tab browser */}
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/icons/icon-192x192.png" type="image/png" sizes="192x192" />
+
+        {/* Apple Touch Icon */}
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>

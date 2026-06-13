@@ -209,7 +209,7 @@ export default function StoryModalFullscreen({
     } catch (err) {
       console.error("Error recording view:", err);
     }
-  }, [currentUserId, recordedViews]);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (isOpen && currentStory?.id && !currentStory?.isExploreCTA && !currentStory?.isLaporCTA) {
@@ -235,13 +235,16 @@ export default function StoryModalFullscreen({
     if (!modalScrollRef.current) return;
 
     isAutoScrollingRef.current = true;
-    const targetElement = modalScrollRef.current.children[index];
-    if (targetElement) {
-      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    const targetTop = index * window.innerHeight;
+
+    modalScrollRef.current.scrollTo({
+      top: targetTop,
+      behavior: 'smooth'
+    });
+
     setTimeout(() => {
       isAutoScrollingRef.current = false;
-    }, 500);
+    }, 300); // Kurangi dari 500 jadi 300
   }, []);
 
   useEffect(() => {
@@ -492,7 +495,7 @@ export default function StoryModalFullscreen({
                 muted={!isActive}
                 loop={isActive}
                 playsInline
-                preload={isActive ? "auto" : "none"}
+                preload={isActive ? "auto" : "metadata"}
                 isActive={isActive}
               />
               {!story.video_url && (

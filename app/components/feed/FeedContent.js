@@ -154,6 +154,8 @@ export default function FeedContent() {
     const [mounted, setMounted] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
 
+    const [isStandalone, setIsStandalone] = useState(false);
+
     const router = useRouter();
     const { location, status, placeName, requestLocation, setManualLocation, activeMode } = useLocation();
     const { user, isAdmin, profile } = useAuth();
@@ -250,6 +252,18 @@ export default function FeedContent() {
             }
         }, 2000);
     }, viewportHeight);
+
+    useEffect(() => {
+        const isStandaloneMode = window.matchMedia("(display-mode: standalone)").matches
+            || window.navigator.standalone === true;
+        setIsStandalone(isStandaloneMode);
+
+        // Jika sudah dalam mode standalone PWA, skip splash buatan
+        if (isStandaloneMode) {
+            setShowSplash(false);
+            sessionStorage.setItem('splash_shown', 'true');
+        }
+    }, []);
 
     // ========== MOUNTED EFFECT ==========
     useEffect(() => {
@@ -639,58 +653,83 @@ export default function FeedContent() {
         setShowAIModal(true);
     }, []);
 
+    // ========== UPDATE LOGIC: CLEAN & OPTIMIZED HANDLERS ==========
+
     const handleLocationChanged = useCallback(async () => {
         setIsTransitioningLocation(true);
         setFeedOpacity(0.7);
+
+        // Invalidate cache secara menyeluruh
         cacheManager.invalidate();
         sessionStorage.removeItem('feed_backup');
         sessionStorage.removeItem('last_location_key');
 
-        await loadPlaces(true, true);
+        // Kosongkan state komentar agar tidak memory leak
+        setComments({});
 
-        setIsTransitioningLocation(false);
-        setFeedOpacity(1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // JIKA KAMU INGIN RELOAD HALAMAN:
+        // Tidak perlu memanggil loadPlaces lagi secara async karena reload akan memicu siklus mount baru.
+        window.scrollTo({ top: 0, behavior: 'auto' });
 
-        // ✅ Force reload setelah pindah lokasi
         setTimeout(() => {
             window.location.reload();
-        }, 500);
-    }, [cacheManager, loadPlaces]);
+        }, 150);
+    }, [cacheManager]);
 
     const handleManualLocationSelect = useCallback(async (selectedLocation) => {
         setManualLocation(selectedLocation);
-        await handleLocationChanged();
-        const locationName = selectedLocation?.address || selectedLocation?.name || "lokasi baru";
-        showToast(`📍 Feed diperbarui untuk ${locationName}`);
+        // Berikan jeda sedikit agar state context dari provider ter-update dengan aman
+        setTimeout(async () => {
+            await handleLocationChanged();
+            const locationName = selectedLocation?.address || selectedLocation?.name || "lokasi baru";
+            showToast(`📍 Feed diperbarui untuk ${locationName}`);
+        }, 50);
     }, [setManualLocation, handleLocationChanged, showToast]);
 
     const handleGPSActivation = useCallback(async (mode = 'gps') => {
         await requestLocation(mode);
-        await handleLocationChanged();
-        showToast(`📍 Feed diperbarui untuk lokasi GPS: ${villageLocation}`);
-    }, [requestLocation, handleLocationChanged, villageLocation, showToast]);
+        setTimeout(async () => {
+            await handleLocationChanged();
+            showToast(`📍 Feed diperbarui untuk lokasi GPS`);
+        }, 50);
+    }, [requestLocation, handleLocationChanged, showToast]);
 
     const handleRadiusChange = useCallback((newRadius) => {
         cacheManager.invalidate();
+        // Pastikan scroll kembali ke atas sebelum memuat data radius baru
+        const container = containerRef.current;
+        if (container) container.scrollTop = 0;
+
+        snapToIndex(0, 'auto');
         loadPlaces(true);
         showToast(`🔍 Radius ${newRadius}km`);
-        snapToIndex(0, 'auto');
-    }, [cacheManager, loadPlaces, showToast, snapToIndex]);
+    }, [cacheManager, loadPlaces, showToast, snapToIndex, containerRef]);
 
     const handleSearchSelect = useCallback((item) => {
         if (!item) return;
         setShowSearchModal(false);
+
+        // Reset posisi scroll ke paling atas seketika sebelum memasukkan item baru
+        const container = containerRef.current;
+        if (container) {
+            container.scrollTop = 0;
+        }
+
         setItemsMap(prev => {
             const newMap = new Map(prev);
             newMap.set(item.id, item);
             return newMap;
         });
+
         setOrderedIds(prev => [item.id, ...prev.filter(id => id !== item.id)]);
         setSelectedTempat(item);
-        snapToIndex(0, 'smooth');
-        showToast(`📍 Menampilkan ${item.name}`);
-    }, [showToast, snapToIndex]);
+
+        // Jalankan snap secara smooth ke index 0
+        setTimeout(() => {
+            snapToIndex(0, 'smooth');
+            showToast(`📍 Menampilkan ${item.name}`);
+        }, 50);
+    }, [showToast, snapToIndex, containerRef]);
 
     const openAICardModal = useCallback((item, onUploadSuccess, initialQueryText = "") => {
         setSelectedTempat(item);
@@ -741,7 +780,7 @@ export default function FeedContent() {
         return null;
     }
 
-    if (showSplash) {
+    if (showSplash && !isStandalone) {
         return <SplashScreen onComplete={handleSplashComplete} />;
     }
 
@@ -751,7 +790,7 @@ export default function FeedContent() {
 
     return (
         <main
-            className="relative h-screen overflow-hidden bg-black mx-auto w-[92%] max-w-[420px]"
+            className="relative h-screen overflow-hidden bg-black mx-auto w-full max-w-[420px]"
             suppressHydrationWarning
             style={{ height: viewportHeight }}
         >
@@ -795,7 +834,7 @@ export default function FeedContent() {
                 }}
             >
                 {/* Padding wrapper untuk card margin */}
-                <div className="px-3 sm:px-4">
+                <div className="px-0">
                     <AnimatePresence initial={false}>
                         {tempat.map((item, index) => {
                             const isActive = activeIndex === index;
@@ -861,20 +900,6 @@ export default function FeedContent() {
                 )}
             </div>
 
-            {/* Progress indicator - like TikTok/Reels */}
-            {tempat.length > 0 && (
-                <div className="fixed right-2 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-1">
-                    {tempat.map((_, index) => (
-                        <div
-                            key={index}
-                            className={`w-1 rounded-full transition-all duration-300 ${activeIndex === index
-                                ? 'h-6 bg-white'
-                                : 'h-1.5 bg-white/30'
-                                }`}
-                        />
-                    ))}
-                </div>
-            )}
 
             {/* Modals - same as before */}
             <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />

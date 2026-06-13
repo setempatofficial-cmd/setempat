@@ -19,11 +19,21 @@
   }
 }
 
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  overflow: auto;
+  position: static;
+  height: auto;
+}
+
+/* Class untuk halaman yang butuh snap scroll (ditambahkan via JS) */
+body.feed-locked {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 @layer utilities {
@@ -92,9 +102,7 @@ body {
 /* Sembunyikan scrollbar untuk IE, Edge dan Firefox */
 .hide-scrollbar {
   -ms-overflow-style: none;
-  /* IE and Edge */
   scrollbar-width: none;
-  /* Firefox */
 }
 
 .scrollbar-hide::-webkit-scrollbar {
@@ -106,8 +114,7 @@ body {
   scrollbar-width: none;
 }
 
-
-/* ========== SNAP SCROLL STYLES (seperti Plexity/TikTok/Reels) ========== */
+/* ========== SNAP SCROLL STYLES (seperti TikTok/Reels) ========== */
 
 /* Container utama snap scroll */
 .snap-container {
@@ -140,14 +147,6 @@ body {
 .snap-container {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-
-/* Prevent body scroll ketika snap scroll aktif */
-body:has(.snap-container) {
-  overflow: hidden;
-  position: fixed;
-  width: 100%;
-  height: 100%;
 }
 
 /* Animasi halus untuk transisi card */
@@ -281,14 +280,6 @@ body:has(.snap-container) {
   .snap-item {
     height: 100vh;
   }
-}
-
-/* Pastikan body tidak scrolling */
-body {
-  overflow: hidden;
-  position: fixed;
-  width: 100%;
-  height: 100%;
 }
 
 /* Agar scroll lebih halus di iOS */

@@ -144,8 +144,8 @@ export default function Uploader({
           defaultSource: "camera",
           multiple: false,
           clientAllowedFormats: ["image", "video"],
-          maxImageFileSize: 5000000,
-          maxVideoFileSize: 20000000,
+          maxImageFileSize: 10000000,
+          maxVideoFileSize: 50000000,
           transformations: [{ quality: "auto", fetch_format: "auto", width: 1200, height: 1200, crop: "limit" }],
           styles: {
             palette: {
