@@ -1,41 +1,28 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
-import { useRef } from "react";
+import { motion } from "framer-motion";
 
 export default function FeedCardWrapper({ children, isActive }) {
-  const cardRef = useRef(null);
-
-  // Gunakan scroll progress langsung tanpa spring untuk responsivitas instan
-  const { scrollYProgress } = useScroll({
-    target: cardRef,
-    // Start saat card mulai masuk area bawah, end saat hampir keluar atas
-    offset: ["start end", "end start"]
-  });
-
-  /**
-   * OPTIMASI PERFORMA:
-   * 1. Hapus 'filter: blur' karena sangat berat untuk GPU saat scroll cepat.
-   * 2. Fokus pada Scale dan Opacity (Transformations yang hardware-accelerated).
-   * 3. Range 0.8 ke 1 memastikan efek hanya terjadi di ujung atas layar.
-   */
-  const scale = useTransform(scrollYProgress, [0.8, 1], [1, 0.92]);
-  // Hanya 1 deklarasi opacity, turun ke 0.85 (bukan 0)
-  const opacity = useTransform(scrollYProgress, [0.8, 0.95], [1, 0.85]);
-
   return (
     <motion.div
-      ref={cardRef}
-      style={{
-        scale,
-        opacity,  // ← Gunakan opacity dari atas
+      initial={false}
+      animate={{
+        // Gunakan transform 3D untuk memaksa Hardware Acceleration (GPU)
+        transform: isActive ? "scale(1) translateZ(0)" : "scale(0.98) translateZ(0)",
+        opacity: isActive ? 1 : 0.6,
       }}
-      className={`relative w-full overflow-visible rounded-2xl
-        ${!isActive ? 'ring-1 ring-white/15 shadow-2xl' : ''}
-      `}
+      transition={{
+        duration: 0.25,
+        ease: [0.2, 0.9, 0.4, 1.1] // Efek spring elastis tipis khas Plexity
+      }}
+      className="relative w-full h-full overflow-visible rounded-2xl flex items-center justify-center"
+      style={{
+        // Solusi anti-blur berat: Gunakan backdrop-blur opsional atau lupakan blur mentah-mentah di mobile viewport
+        willChange: "transform, opacity",
+        backfaceVisibility: "hidden",
+        WebkitBackfaceVisibility: "hidden"
+      }}
     >
-      {/* Inner shadow biar tidak tenggelam */}
-      <div className="absolute inset-0 rounded-2xl shadow-inner shadow-white/5 pointer-events-none" />
       {children}
     </motion.div>
   );

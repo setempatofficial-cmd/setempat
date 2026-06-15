@@ -193,8 +193,7 @@ export default function FeedContent() {
     const [refreshing, setRefreshing] = useState(false);
     const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
     const [feedOpacity, setFeedOpacity] = useState(1);
-    const [showHeader, setShowHeader] = useState(true);
-    const headerHideTimeoutRef = useRef(null);
+
 
     // ========== MODAL STATES ==========
     const [showUploadModal, setShowUploadModal] = useState(false);
@@ -227,9 +226,20 @@ export default function FeedContent() {
     const existingIdsRef = useRef(new Set());
     const initialLoadDoneRef = useRef(false);
     const isFetchingRef = useRef(false);
+    const cacheLoadedRef = useRef(false);
 
     // ========== CACHE ==========
     const cacheManager = useFeedCache(networkInfo.isSlowConnection);
+
+
+
+    const isMountedRef = useRef(true);
+
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     // ========== SNAP SCROLL ==========
     const { containerRef, activeIndex, snapToIndex } = useSnapScroll(orderedIds.length, (index) => {
@@ -243,14 +253,7 @@ export default function FeedContent() {
             }
         }
 
-        // Auto-hide header after scrolling
-        if (headerHideTimeoutRef.current) clearTimeout(headerHideTimeoutRef.current);
-        setShowHeader(true);
-        headerHideTimeoutRef.current = setTimeout(() => {
-            if (index > 0) {
-                setShowHeader(false);
-            }
-        }, 2000);
+
     }, viewportHeight);
 
     useEffect(() => {
@@ -307,6 +310,33 @@ export default function FeedContent() {
         });
     }, [itemsMap]);
 
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !cacheLoadedRef.current) {
+            const cacheKey = getCacheKey();
+            const cached = cacheManager.get(cacheKey);
+            if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
+                setItemsMap(cached.itemsMap);
+                setOrderedIds(cached.orderedIds);
+                setInitialLoad(false);
+                cacheLoadedRef.current = true;
+                if (cached.orderedIds.length > 0) {
+                    lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
+                }
+                // Tidak perlu preloadImages di sini, nanti akan ke-load saat render
+            }
+        }
+    }, [getCacheKey, cacheManager]);
+
+    useEffect(() => {
+        const locationChanged = sessionStorage.getItem('location_changed');
+        if (locationChanged === 'true') {
+            sessionStorage.removeItem('location_changed');
+            cacheLoadedRef.current = false;
+            initialLoadDoneRef.current = false;
+            setInitialLoad(true);
+        }
+    }, []);
+
     // ========== SHOW TOAST HELPER ==========
     const showToast = useCallback((message) => {
         setToast({ show: true, message });
@@ -315,6 +345,7 @@ export default function FeedContent() {
 
     // ========== LOAD PLACES (CORE LOGIC) ==========
     const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
+        if (!isMountedRef.current) return;
         if (isFetchingRef.current && !reset) return;
 
         const currentFetchId = ++fetchIdRef.current;
@@ -517,7 +548,7 @@ export default function FeedContent() {
 
     // ========== LOAD DATA AFTER MOUNTED ==========
     useEffect(() => {
-        if (mounted && !showSplash && !initialLoadDoneRef.current) {
+        if (mounted && !showSplash && !initialLoadDoneRef.current && !cacheLoadedRef.current) {
             initialLoadDoneRef.current = true;
             loadPlaces(true, false);
         }
@@ -656,24 +687,32 @@ export default function FeedContent() {
     // ========== UPDATE LOGIC: CLEAN & OPTIMIZED HANDLERS ==========
 
     const handleLocationChanged = useCallback(async () => {
+        // Set flag ke sessionStorage bahwa lokasi berubah
+        sessionStorage.setItem('location_changed', 'true');
+
         setIsTransitioningLocation(true);
         setFeedOpacity(0.7);
 
-        // Invalidate cache secara menyeluruh
+        // Hapus semua cache
         cacheManager.invalidate();
         sessionStorage.removeItem('feed_backup');
         sessionStorage.removeItem('last_location_key');
 
-        // Kosongkan state komentar agar tidak memory leak
-        setComments({});
+        // Hapus semua cache feed v2
+        const keysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            if (key && key.startsWith('feed_v2_')) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => sessionStorage.removeItem(key));
 
-        // JIKA KAMU INGIN RELOAD HALAMAN:
-        // Tidak perlu memanggil loadPlaces lagi secara async karena reload akan memicu siklus mount baru.
+        setComments({});
         window.scrollTo({ top: 0, behavior: 'auto' });
 
-        setTimeout(() => {
-            window.location.reload();
-        }, 150);
+        // Reload tanpa delay
+        window.location.reload();
     }, [cacheManager]);
 
     const handleManualLocationSelect = useCallback(async (selectedLocation) => {
@@ -790,17 +829,11 @@ export default function FeedContent() {
 
     return (
         <main
-            className="relative h-screen overflow-hidden bg-black mx-auto w-full max-w-[420px]"
+            className="relative h-screen bg-black mx-auto w-full max-w-[420px]"
             suppressHydrationWarning
             style={{ height: viewportHeight }}
         >
-            {/* Animated Header - Auto hide on scroll */}
-            <motion.div
-                initial={{ y: 0 }}
-                animate={{ y: showHeader ? 0 : -100 }}
-                transition={{ duration: 0.3 }}
-                className="fixed top-0 left-0 right-0 z-50"
-            >
+            <div className="fixed top-0 left-0 right-0 z-50">
                 <Header
                     className="bg-black/80 backdrop-blur-lg border-b border-white/10"
                     user={user}
@@ -821,16 +854,17 @@ export default function FeedContent() {
                     searchRadius={searchRadius}
                     onRadiusChange={handleRadiusChange}
                 />
-            </motion.div>
+            </div>
 
             {/* Snap Scroll Container */}
             <div
                 ref={containerRef}
                 className="snap-container w-full overflow-y-scroll scroll-smooth"
                 style={{
-                    height: viewportHeight,
+
                     scrollSnapType: 'y mandatory',
                     WebkitOverflowScrolling: 'touch',
+                    height: viewportHeight
                 }}
             >
                 {/* Padding wrapper untuk card margin */}
@@ -842,11 +876,11 @@ export default function FeedContent() {
                             return (
                                 <div
                                     key={item.id}
-                                    className="snap-item"
+                                    className={`snap-item ${isActive ? 'active' : ''}`}
                                     style={{
                                         scrollSnapAlign: 'start',
                                         scrollSnapStop: 'always',
-                                        height: viewportHeight,
+                                        height: 'viewportHeight',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',  // ← tambah ini
@@ -861,7 +895,7 @@ export default function FeedContent() {
                                         transition={{ duration: 0.2 }}
                                         className="w-full max-w-[420px] mx-auto"
                                     >
-                                        <FeedCardWrapper theme={theme}>
+                                        <FeedCardWrapper isActive={isActive}>
                                             <MemoizedFeedCard
                                                 item={item}
                                                 locationReady={locationReady}
@@ -893,7 +927,7 @@ export default function FeedContent() {
                 {loading && !initialLoad && !error && (
                     <div
                         className="snap-item w-full flex items-center justify-center"
-                        style={{ height: viewportHeight }}
+
                     >
                         <InvisibleLoading />
                     </div>
