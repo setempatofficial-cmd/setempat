@@ -50,25 +50,26 @@ const AIModal = React.lazy(() => import("../ai/AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
-// ========== HOOK: VIEWPORT HEIGHT UNTUK HP ==========
 const useViewportHeight = () => {
     const [viewportHeight, setViewportHeight] = useState('100dvh');
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
         const updateHeight = () => {
-            // Gunakan innerHeight untuk akurasi di mobile
-            const height = window.innerHeight;
-            setViewportHeight(`${height}px`);
+            // Gunakan 100dvh jika support, fallback ke innerHeight
+            if (typeof window !== 'undefined') {
+                if (CSS.supports('height', '100dvh')) {
+                    setViewportHeight('100dvh');
+                } else {
+                    // Kurangi 1px untuk menghindari overflow
+                    const height = window.innerHeight - 1;
+                    setViewportHeight(`${height}px`);
+                }
+            }
             setIsReady(true);
-
-            // Juga set CSS variable untuk fallback
-            document.documentElement.style.setProperty('--vh', `${height * 0.01}px`);
         };
 
         updateHeight();
-
-        // Update saat resize, orientation change, dan scroll (untuk address bar)
         window.addEventListener('resize', updateHeight);
         window.addEventListener('orientationchange', updateHeight);
 
@@ -859,82 +860,69 @@ export default function FeedContent() {
             {/* Snap Scroll Container */}
             <div
                 ref={containerRef}
-                className="snap-container w-full overflow-y-scroll scroll-smooth"
+                className="snap-container w-full overflow-y-scroll"
                 style={{
-
                     scrollSnapType: 'y mandatory',
                     WebkitOverflowScrolling: 'touch',
-                    height: viewportHeight
+                    height: viewportReady ? viewportHeight : '100dvh',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none'
                 }}
             >
-                {/* Padding wrapper untuk card margin */}
-                <div className="px-0">
-                    <AnimatePresence initial={false}>
-                        {tempat.map((item, index) => {
-                            const isActive = activeIndex === index;
+                {/* LANGSUNG map items, tanpa div pembungkus px-0 */}
+                <AnimatePresence initial={false}>
+                    {tempat.map((item, index) => {
+                        const isActive = activeIndex === index;
 
-                            return (
-                                <div
-                                    key={item.id}
-                                    className={`snap-item ${isActive ? 'active' : ''}`}
-                                    style={{
-                                        scrollSnapAlign: 'start',
-                                        scrollSnapStop: 'always',
-                                        height: 'viewportHeight',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',  // ← tambah ini
-                                    }}
-                                >
-                                    <motion.div
-                                        initial={false}
-                                        animate={{
-                                            opacity: isActive ? 1 : 0.95,
-
-                                        }}
-                                        transition={{ duration: 0.2 }}
-                                        className="w-full max-w-[420px] mx-auto"
-                                    >
-                                        <FeedCardWrapper isActive={isActive}>
-                                            <MemoizedFeedCard
-                                                item={item}
-                                                locationReady={locationReady}
-                                                location={location}
-                                                comments={comments}
-                                                selectedPhotoIndex={selectedPhotoIndex}
-                                                setSelectedPhotoIndex={setSelectedPhotoIndex}
-                                                openAIModal={openAICardModal}
-                                                openKomentarModal={openKomentarModal}
-                                                onShare={handleShare}
-                                                priority={index < 3}
-                                                userId={user?.id}
-                                                userProfile={profile}
-                                                userAvatar={profile?.avatar_url}
-                                                showLiveInsight={false}
-                                                hideActionButtons={true}
-                                                isActive={isActive}
-                                                shouldPlayVideo={isActive}
-                                            />
-                                        </FeedCardWrapper>
-                                    </motion.div>
+                        return (
+                            <div
+                                key={item.id}
+                                className="snap-item relative"
+                                style={{
+                                    scrollSnapAlign: 'start',
+                                    scrollSnapStop: 'always',
+                                    height: viewportReady ? viewportHeight : '100dvh',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                {/* Card container - tanpa margin/padding */}
+                                <div className="w-full max-w-[420px] mx-auto">
+                                    <FeedCardWrapper isActive={isActive}>
+                                        <MemoizedFeedCard
+                                            item={item}
+                                            locationReady={locationReady}
+                                            location={location}
+                                            comments={comments}
+                                            selectedPhotoIndex={selectedPhotoIndex}
+                                            setSelectedPhotoIndex={setSelectedPhotoIndex}
+                                            openAIModal={openAICardModal}
+                                            openKomentarModal={openKomentarModal}
+                                            onShare={handleShare}
+                                            priority={index < 3}
+                                            userId={user?.id}
+                                            userProfile={profile}
+                                            userAvatar={profile?.avatar_url}
+                                            showLiveInsight={false}
+                                            hideActionButtons={true}
+                                            isActive={isActive}
+                                            shouldPlayVideo={isActive}
+                                        />
+                                    </FeedCardWrapper>
                                 </div>
-                            );
-                        })}
-                    </AnimatePresence>
-                </div>
-
-                {/* Loading & End indicators */}
-                {loading && !initialLoad && !error && (
-                    <div
-                        className="snap-item w-full flex items-center justify-center"
-
-                    >
-                        <InvisibleLoading />
-                    </div>
-                )}
+                            </div>
+                        );
+                    })}
+                </AnimatePresence>
             </div>
 
-
+            {/* Loading indicator - height FIXED, bukan full viewport */}
+            {loading && !initialLoad && !error && (
+                <div className="w-full py-8 flex items-center justify-center">
+                    <InvisibleLoading />
+                </div>
+            )}
             {/* Modals - same as before */}
             <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
@@ -965,22 +953,24 @@ export default function FeedContent() {
             />
 
             {/* Loading overlay for location transition */}
-            {isTransitioningLocation && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
-                    style={{ height: viewportHeight }}
-                >
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="relative h-8 w-8">
-                            <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
+            {
+                isTransitioningLocation && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
+                        style={{ height: viewportHeight }}
+                    >
+                        <div className="flex flex-col items-center gap-3">
+                            <div className="relative h-8 w-8">
+                                <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
+                            </div>
+                            <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
                         </div>
-                        <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
-                    </div>
-                </motion.div>
-            )}
+                    </motion.div>
+                )
+            }
 
             {/* Lazy Modals */}
             <Suspense fallback={null}>
@@ -1035,6 +1025,6 @@ export default function FeedContent() {
             <ToastMessage show={toast.show} message={toast.message} />
             {/* PWA Installer */}
             {!isPWAInstalled && <PWAInstaller />}
-        </main>
+        </main >
     );
 }

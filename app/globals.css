@@ -87,8 +87,9 @@ body.feed-locked {
   }
 }
 
-/* Smooth transition untuk resize - HATI-HATI bisa bikin lag */
-* {
+/* Hanya untuk element feed card, bukan semua * */
+.feed-card,
+.snap-item>div {
   transition-property: padding, margin, gap;
   transition-duration: 0.2s;
   transition-timing-function: ease-out;
@@ -114,30 +115,24 @@ body.feed-locked {
   scrollbar-width: none;
 }
 
-/* ========== SNAP SCROLL STYLES (seperti TikTok/Reels) ========== */
+/* ========== SNAP SCROLL STYLES ========== */
 
 /* Container utama snap scroll */
 .snap-container {
   scroll-snap-type: y mandatory;
   -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
   overflow-y: auto;
-  height: 100vh;
-  width: 100%;
+  position: relative;
 }
 
-/* Setiap item card */
+/* Setiap item card - JANGAN set height di sini */
 .snap-item {
   scroll-snap-align: start;
   scroll-snap-stop: always;
-  height: 100vh;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
-/* Sembunyikan scrollbar di snap container */
+/* Sembunyikan scrollbar */
 .snap-container::-webkit-scrollbar {
   display: none;
   width: 0;
@@ -149,113 +144,25 @@ body.feed-locked {
   scrollbar-width: none;
 }
 
-/* Animasi halus untuk transisi card */
-.snap-item>* {
-  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+/* Performance optimization */
+.snap-container,
+.snap-item {
+  will-change: scroll-position;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Card aktif sedikit scale untuk efek fokus */
-.snap-item .active-card {
-  transform: scale(1);
-  opacity: 1;
-}
-
-.snap-item .inactive-card {
-  transform: scale(0.98);
-  opacity: 0.95;
-}
-
-/* Progress indicator dots seperti TikTok */
-.snap-progress-dot {
-  transition: all 0.2s ease-out;
-}
-
-.snap-progress-dot-active {
-  height: 24px;
-  background-color: white;
-  opacity: 1;
-}
-
-.snap-progress-dot-inactive {
-  height: 6px;
-  background-color: rgba(255, 255, 255, 0.3);
-}
-
-/* Header auto-hide animation */
-.snap-header {
-  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
-}
-
-.snap-header-hidden {
-  transform: translateY(-100%);
-}
-
-.snap-header-visible {
-  transform: translateY(0);
-}
-
-/* Pull to refresh indicator */
-.pull-to-refresh {
-  position: absolute;
-  top: -60px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 60px;
-  transition: transform 0.2s ease-out;
-}
-
-.pull-to-refresh.active {
-  transform: translateY(60px);
-}
-
-/* Loading skeleton untuk snap scroll */
-.snap-skeleton {
-  height: 100vh;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
-}
-
-/* Safe area untuk notch/hole-punch */
+/* Safe area untuk iPhone notch/dynamic island */
 @supports (padding-top: env(safe-area-inset-top)) {
   .snap-container {
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
-
-  .snap-header {
-    padding-top: env(safe-area-inset-top);
-  }
 }
 
-/* Performance optimization */
-.snap-container * {
-  will-change: transform;
-  backface-visibility: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Reduce motion untuk pengguna yang prefer animasi lebih sedikit */
-@media (prefers-reduced-motion: reduce) {
-  .snap-container {
-    scroll-behavior: auto;
-  }
-
-  .snap-item>*,
-  .snap-header,
-  .snap-progress-dot {
-    transition: none;
-  }
-}
-
-/* Landscape mode adjustment */
+/* LANDSCAPE MODE - GABUNGAN (TIDAK DUPLIKAT) */
 @media (orientation: landscape) and (max-height: 500px) {
   .snap-item {
+    padding: 4px 0 !important;
     height: 100vh;
   }
 
@@ -264,7 +171,18 @@ body.feed-locked {
   }
 }
 
-/* Touch feedback untuk snap scroll */
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  .snap-container {
+    scroll-behavior: auto !important;
+  }
+
+  .snap-item>div {
+    transition: none !important;
+  }
+}
+
+/* Touch feedback */
 .snap-container:active {
   cursor: grabbing;
 }
@@ -282,19 +200,13 @@ body.feed-locked {
   }
 }
 
-/* Agar scroll lebih halus di iOS */
+/* iOS smooth scroll */
 .snap-container {
   -webkit-overflow-scrolling: touch;
-}
-
-/* Untuk mencegah white flash saat scroll di iOS */
-.snap-container {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Optimasi untuk HP dengan refresh rate tinggi */
-@media (prefers-reduced-motion: no-preference) {
-  .snap-container {
-    scroll-behavior: smooth;
-  }
-}
+/* Hapus rule margin auto yang bisa override inline style */
+/* .snap-item > div {
+  margin: 0 auto;
+} */

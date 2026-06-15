@@ -94,8 +94,7 @@ function getKondisiText(kondisi, kategori) {
 // ==================== GENERATE CONTEXTUAL PROMPTS ====================
 function generateContextualPrompts(tempat, latestReport, userName) {
   const category = tempat?.category?.toLowerCase() || "umum";
-  const waktu = new Date().getHours();
-  const salam = waktu < 10 ? "Pagi" : waktu < 15 ? "Siang" : waktu < 18 ? "Sore" : "Malam";
+
 
   // ✅ Gunakan fungsi getKondisiText
   const kondisiText = getKondisiText(latestReport?.tipe, category);

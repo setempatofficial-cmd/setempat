@@ -1,29 +1,30 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { memo } from "react";
 
-export default function FeedCardWrapper({ children, isActive }) {
+function FeedCardWrapper({ children, isActive }) {
   return (
     <motion.div
       initial={false}
       animate={{
-        // Gunakan transform 3D untuk memaksa Hardware Acceleration (GPU)
-        transform: isActive ? "scale(1) translateZ(0)" : "scale(0.98) translateZ(0)",
-        opacity: isActive ? 1 : 0.6,
+        opacity: isActive ? 1 : 0.85,
       }}
       transition={{
-        duration: 0.25,
-        ease: [0.2, 0.9, 0.4, 1.1] // Efek spring elastis tipis khas Plexity
+        duration: 0.2,
+        ease: "easeOut"
       }}
-      className="relative w-full h-full overflow-visible rounded-2xl flex items-center justify-center"
+      className="relative w-full rounded-2xl overflow-hidden"
       style={{
-        // Solusi anti-blur berat: Gunakan backdrop-blur opsional atau lupakan blur mentah-mentah di mobile viewport
         willChange: "transform, opacity",
         backfaceVisibility: "hidden",
-        WebkitBackfaceVisibility: "hidden"
+        WebkitBackfaceVisibility: "hidden",
+        // ← HAPUS transform scale dari sini, pindahkan ke parent
       }}
     >
       {children}
     </motion.div>
   );
 }
+
+export default memo(FeedCardWrapper);
