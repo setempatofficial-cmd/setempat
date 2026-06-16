@@ -141,3 +141,34 @@ export const ToastMessage = memo(({ show, message }) => (
 ));
 
 ToastMessage.displayName = 'ToastMessage';
+
+// ==================== FEED CARD ERROR ====================
+export const FeedCardError = memo(({
+  message = "Gagal memuat data",
+  onRetry,
+  error
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="p-6 bg-red-50/10 rounded-xl border border-red-500/20 text-center my-4 mx-4"
+  >
+    <div className="text-4xl mb-3">⚠️</div>
+    <h3 className="text-white/80 text-base font-semibold mb-1">
+      {message}
+    </h3>
+    {error && (
+      <p className="text-white/40 text-sm mb-4">{error}</p>
+    )}
+    {onRetry && (
+      <button
+        onClick={onRetry}
+        className="px-6 py-2 bg-red-500/20 hover:bg-red-500/30 rounded-xl text-white/80 transition-colors text-sm"
+      >
+        Coba Lagi
+      </button>
+    )}
+  </motion.div>
+));
+
+FeedCardError.displayName = 'FeedCardError';
