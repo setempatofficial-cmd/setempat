@@ -5,22 +5,22 @@ import { useClock } from "@/hooks/useClock";
 export function useTheme() {
   const { timeLabel: sapaan, timeInfo } = useClock();
   const isMalam = sapaan === "Malam";
-  
+
   return useMemo(() => {
     // SEMUA styling pakai Tailwind responsive breakpoints
     // md: = tablet/desktop (≥768px)
     // sisanya default mobile
-    
+
     const base = isMalam ? {
       // Background: mobile slate-900, desktop [code]
       bg: "bg-slate-900 md:bg-[#0f172a]",
-      
+
       // Card: mobile solid, desktop ada efek blur
       card: "bg-slate-800 md:bg-slate-900/40 md:backdrop-blur-md",
-      
+
       // Border
       border: "border-slate-700 md:border-slate-800/50",
-      
+
       // Teks
       text: "text-white",
       textMuted: "text-slate-400 md:text-slate-300",
@@ -50,7 +50,7 @@ export function useTheme() {
       timeText: "text-[#E3655B]",
       bgGlass: "bg-white md:bg-white/80 md:backdrop-blur-sm",
     };
-    
+
     const timeVibes = {
       Pagi: {
         dot: "bg-orange-500",
@@ -89,7 +89,7 @@ export function useTheme() {
         statusBg: "bg-slate-700 md:bg-white/10",
       }
     };
-    
+
     const situasi = {
       viral: {
         text: isMalam ? "text-rose-400" : "text-rose-700",
@@ -113,9 +113,9 @@ export function useTheme() {
         label: "Sepi",
       }
     };
-    
+
     const currentTime = timeVibes[sapaan] || timeVibes.Siang;
-    
+
     return {
       ...base,
       isMalam,

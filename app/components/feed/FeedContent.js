@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import Head from "next/head";
 import AuthModal from "@/app/components/auth/AuthModal";
 import { useAuth } from "@/app/context/AuthContext";
 import { useTheme } from "@/app/hooks/useTheme";
@@ -20,7 +21,6 @@ import SmartBottomNav from "@/app/components/layout/SmartBottomNav";
 import UploadModal from "@/components/UploadModal";
 import SplashScreen from "@/app/components/ui/SplashScreen";
 import PWAInstaller from "@/components/PWAInstaller";
-
 
 // Import extracted modules
 import {
@@ -39,7 +39,8 @@ import {
     InvisibleLoading,
     EndOfFeed,
     PullToRefreshIndicator,
-    ToastMessage
+    ToastMessage,
+    FeedCardError
 } from "@/app/components/feed/FeedStatusComponents";
 
 // Optimized FeedCard with memo
@@ -50,18 +51,49 @@ const AIModal = React.lazy(() => import("../ai/AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
+// ========== SIMPLE ERROR BOUNDARY (Tanpa react-error-boundary) ==========
+class SimpleErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error("FeedCard Error:", error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <FeedCardError
+                    item={this.props.item}
+                    onRetry={() => {
+                        this.setState({ hasError: false, error: null });
+                        if (this.props.onRetry) this.props.onRetry();
+                    }}
+                />
+            );
+        }
+        return this.props.children;
+    }
+}
+
+// ========== CUSTOM HOOKS ==========
+
 const useViewportHeight = () => {
     const [viewportHeight, setViewportHeight] = useState('100dvh');
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
         const updateHeight = () => {
-            // Gunakan 100dvh jika support, fallback ke innerHeight
             if (typeof window !== 'undefined') {
                 if (CSS.supports('height', '100dvh')) {
                     setViewportHeight('100dvh');
                 } else {
-                    // Kurangi 1px untuk menghindari overflow
                     const height = window.innerHeight - 1;
                     setViewportHeight(`${height}px`);
                 }
@@ -82,59 +114,142 @@ const useViewportHeight = () => {
     return { viewportHeight, isReady };
 };
 
-// ========== SNAP SCROLL HOOK ==========
+const useNetworkInfo = () => {
+    const [networkInfo, setNetworkInfo] = useState({
+        effectiveType: '4g',
+        saveData: false,
+        isSlowConnection: false
+    });
+
+    useEffect(() => {
+        if (typeof navigator === 'undefined' || !navigator.connection) return;
+
+        const updateNetworkInfo = () => {
+            const conn = navigator.connection;
+            const effectiveType = conn?.effectiveType || '4g';
+            const saveData = conn?.saveData || false;
+            const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
+
+            setNetworkInfo({ effectiveType, saveData, isSlowConnection });
+        };
+
+        updateNetworkInfo();
+        navigator.connection.addEventListener('change', updateNetworkInfo);
+        return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
+    }, []);
+
+    return networkInfo;
+};
+
+const useOnlineStatus = () => {
+    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    return isOnline;
+};
+
+// ========== SNAP SCROLL HOOK (FIXED) ==========
 const useSnapScroll = (totalItems, onIndexChange, viewportHeight) => {
     const [activeIndex, setActiveIndex] = useState(0);
     const containerRef = useRef(null);
-    const isScrollingRef = useRef(false);
     const scrollTimeoutRef = useRef(null);
+    const isMountedRef = useRef(true);
 
-    // Snap ke index tertentu
-    const snapToIndex = useCallback((index, behavior = 'smooth') => {
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    const handleScroll = useCallback(() => {
+        if (!containerRef.current || !isMountedRef.current) return;
+
         const container = containerRef.current;
-        if (!container || !viewportHeight) return;
+        const children = container.querySelectorAll('.snap-item');
+        const containerCenter = container.getBoundingClientRect().top + (container.clientHeight / 2);
 
-        const targetScrollTop = index * parseFloat(viewportHeight);
-        container.scrollTo({ top: targetScrollTop, behavior });
-        setActiveIndex(index);
-        if (onIndexChange) onIndexChange(index);
-    }, [viewportHeight, onIndexChange]);
+        let closestIndex = 0;
+        let minDistance = Infinity;
+
+        children.forEach((child, index) => {
+            const box = child.getBoundingClientRect();
+            const childCenter = box.top + (box.height / 2);
+            const distance = Math.abs(containerCenter - childCenter);
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = index;
+            }
+        });
+
+        if (activeIndex !== closestIndex && isMountedRef.current) {
+            setActiveIndex(closestIndex);
+            if (onIndexChange) onIndexChange(closestIndex);
+        }
+    }, [activeIndex, onIndexChange]);
+
+    const handleScrollEnd = useCallback(() => {
+        if (!isMountedRef.current) return;
+
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+        }
+
+        scrollTimeoutRef.current = setTimeout(() => {
+            if (!containerRef.current || !isMountedRef.current) return;
+
+            const container = containerRef.current;
+            const children = container.querySelectorAll('.snap-item');
+            if (children.length === 0) return;
+
+            const containerCenter = container.getBoundingClientRect().top + (container.clientHeight / 2);
+            let targetIndex = activeIndex;
+            let minDistance = Infinity;
+
+            children.forEach((child, index) => {
+                const box = child.getBoundingClientRect();
+                const childCenter = box.top + (box.height / 2);
+                const distance = Math.abs(containerCenter - childCenter);
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    targetIndex = index;
+                }
+            });
+
+            const targetChild = children[targetIndex];
+            if (targetChild && isMountedRef.current) {
+                const containerScrollTop = container.scrollTop;
+                const containerTop = container.getBoundingClientRect().top;
+                const childTop = targetChild.getBoundingClientRect().top;
+
+                const targetScrollTop = containerScrollTop + childTop - containerTop - (container.clientHeight - targetChild.clientHeight) / 2;
+
+                if (Math.abs(container.scrollTop - targetScrollTop) > 5) {
+                    container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+                }
+            }
+        }, 150);
+    }, [activeIndex]);
 
     useEffect(() => {
         const container = containerRef.current;
-        if (!container || !viewportHeight) return;
-
-        const handleScroll = () => {
-            if (isScrollingRef.current) return;
-
-            const scrollTop = container.scrollTop;
-            const cardHeight = parseFloat(viewportHeight);
-            const newIndex = Math.round(scrollTop / cardHeight);
-
-            if (newIndex !== activeIndex && newIndex >= 0 && newIndex < totalItems) {
-                setActiveIndex(newIndex);
-                if (onIndexChange) onIndexChange(newIndex);
-            }
-        };
-
-        const handleScrollEnd = () => {
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-            isScrollingRef.current = true;
-
-            scrollTimeoutRef.current = setTimeout(() => {
-                isScrollingRef.current = false;
-                const scrollTop = container.scrollTop;
-                const cardHeight = parseFloat(viewportHeight);
-                const targetIndex = Math.round(scrollTop / cardHeight);
-                const targetScrollTop = targetIndex * cardHeight;
-
-                if (Math.abs(scrollTop - targetScrollTop) > 10) {
-                    container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
-                    setActiveIndex(targetIndex);
-                    if (onIndexChange) onIndexChange(targetIndex);
-                }
-            }, 150);
-        };
+        if (!container) return;
 
         container.addEventListener('scroll', handleScroll, { passive: true });
         container.addEventListener('scrollend', handleScrollEnd);
@@ -142,9 +257,30 @@ const useSnapScroll = (totalItems, onIndexChange, viewportHeight) => {
         return () => {
             container.removeEventListener('scroll', handleScroll);
             container.removeEventListener('scrollend', handleScrollEnd);
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
         };
-    }, [totalItems, activeIndex, onIndexChange, viewportHeight]);
+    }, [handleScroll, handleScrollEnd]);
+
+    const snapToIndex = useCallback((index, behavior = 'smooth') => {
+        const container = containerRef.current;
+        if (!container || !isMountedRef.current) return;
+
+        const children = container.querySelectorAll('.snap-item');
+        const targetChild = children[index];
+
+        if (targetChild) {
+            const containerScrollTop = container.scrollTop;
+            const containerTop = container.getBoundingClientRect().top;
+            const childTop = targetChild.getBoundingClientRect().top;
+            const targetScrollTop = containerScrollTop + childTop - containerTop - (container.clientHeight - targetChild.clientHeight) / 2;
+
+            container.scrollTo({ top: targetScrollTop, behavior });
+            setActiveIndex(index);
+            if (onIndexChange) onIndexChange(index);
+        }
+    }, [onIndexChange]);
 
     return { containerRef, activeIndex, snapToIndex };
 };
@@ -154,7 +290,6 @@ export default function FeedContent() {
     // ========== MOUNTED & SPLASH STATE ==========
     const [mounted, setMounted] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
-
     const [isStandalone, setIsStandalone] = useState(false);
 
     const router = useRouter();
@@ -162,16 +297,17 @@ export default function FeedContent() {
     const { user, isAdmin, profile } = useAuth();
     const theme = useTheme();
 
-    // ========== VIEWPORT HEIGHT ==========
+    // ========== HOOKS ==========
     const { viewportHeight, isReady: viewportReady } = useViewportHeight();
+    const networkInfo = useNetworkInfo();
+    const isOnline = useOnlineStatus();
 
-    // ========== NETWORK STATE ==========
-    const [networkInfo, setNetworkInfo] = useState({
-        effectiveType: '4g',
-        saveData: false,
-        isSlowConnection: false
-    });
+    // ========== DYNAMIC LIMIT ==========
     const [dynamicLimit, setDynamicLimitState] = useState(FEED_CONFIG.DEFAULT_LIMIT);
+
+    useEffect(() => {
+        setDynamicLimitState(getDynamicLimit());
+    }, [networkInfo.isSlowConnection]);
 
     // ========== FEED DATA STATE ==========
     const [itemsMap, setItemsMap] = useState(new Map());
@@ -189,12 +325,9 @@ export default function FeedContent() {
     const searchRadius = activeMode === 'general' ? 40 : FEED_CONFIG.DEFAULT_RADIUS;
 
     // ========== UI STATE ==========
-    const [isScrolled, setIsScrolled] = useState(false);
     const [toast, setToast] = useState({ show: false, message: "" });
     const [refreshing, setRefreshing] = useState(false);
     const [isTransitioningLocation, setIsTransitioningLocation] = useState(false);
-    const [feedOpacity, setFeedOpacity] = useState(1);
-
 
     // ========== MODAL STATES ==========
     const [showUploadModal, setShowUploadModal] = useState(false);
@@ -221,6 +354,7 @@ export default function FeedContent() {
     const [forceShowLaporan, setForceShowLaporan] = useState(false);
     const [showFormLaporan, setShowFormLaporan] = useState(false);
     const [isPWAInstalled, setIsPWAInstalled] = useState(false);
+
     // ========== REFS ==========
     const fetchIdRef = useRef(0);
     const lastLoadedIdRef = useRef(null);
@@ -228,13 +362,10 @@ export default function FeedContent() {
     const initialLoadDoneRef = useRef(false);
     const isFetchingRef = useRef(false);
     const cacheLoadedRef = useRef(false);
+    const isMountedRef = useRef(true);
 
     // ========== CACHE ==========
     const cacheManager = useFeedCache(networkInfo.isSlowConnection);
-
-
-
-    const isMountedRef = useRef(true);
 
     useEffect(() => {
         return () => {
@@ -243,26 +374,35 @@ export default function FeedContent() {
     }, []);
 
     // ========== SNAP SCROLL ==========
-    const { containerRef, activeIndex, snapToIndex } = useSnapScroll(orderedIds.length, (index) => {
-        // Preload next card when index changes
-        const nextIndex = index + 1;
-        if (nextIndex < orderedIds.length) {
-            const nextItem = itemsMap.get(orderedIds[nextIndex]);
-            if (nextItem?.photos?.[0]) {
-                const img = new Image();
-                img.src = nextItem.photos[0];
+    const { containerRef, activeIndex, snapToIndex } = useSnapScroll(
+        orderedIds.length,
+        (index) => {
+            // Preload next card when index changes
+            const nextIndex = index + 1;
+            if (nextIndex < orderedIds.length) {
+                const nextItem = itemsMap.get(orderedIds[nextIndex]);
+                if (nextItem?.photos?.[0]) {
+                    if ('requestIdleCallback' in window) {
+                        requestIdleCallback(() => {
+                            const img = new Image();
+                            img.src = nextItem.photos[0];
+                        });
+                    } else {
+                        const img = new Image();
+                        img.src = nextItem.photos[0];
+                    }
+                }
             }
-        }
+        },
+        viewportHeight
+    );
 
-
-    }, viewportHeight);
-
+    // ========== PWA DETECTION ==========
     useEffect(() => {
-        const isStandaloneMode = window.matchMedia("(display-mode: standalone)").matches
-            || window.navigator.standalone === true;
+        const isStandaloneMode = window.matchMedia("(display-mode: standalone)").matches ||
+            window.navigator.standalone === true;
         setIsStandalone(isStandaloneMode);
 
-        // Jika sudah dalam mode standalone PWA, skip splash buatan
         if (isStandaloneMode) {
             setShowSplash(false);
             sessionStorage.setItem('splash_shown', 'true');
@@ -279,7 +419,10 @@ export default function FeedContent() {
     }, []);
 
     // ========== MEMOIZED VALUES ==========
-    const locationReady = useMemo(() => status === "granted" && !!location?.latitude && !!location?.longitude, [status, location]);
+    const locationReady = useMemo(() =>
+        status === "granted" && !!location?.latitude && !!location?.longitude,
+        [status, location]
+    );
 
     const { villageLocation, districtLocation } = useMemo(() => {
         if (!placeName) {
@@ -289,7 +432,15 @@ export default function FeedContent() {
         return { villageLocation: parts[0] || "Lokasi", districtLocation: parts[1] || "" };
     }, [placeName]);
 
-    const tempat = useMemo(() => orderedIds.map(id => itemsMap.get(id)).filter(Boolean), [orderedIds, itemsMap]);
+    const tempat = useMemo(() =>
+        orderedIds.map(id => itemsMap.get(id)).filter(Boolean),
+        [orderedIds, itemsMap]
+    );
+
+    const shouldShowEmptyState = useMemo(() =>
+        !loading && !error && tempat.length === 0 && !refreshing && !initialLoad,
+        [loading, error, tempat.length, refreshing, initialLoad]
+    );
 
     // ========== GET CACHE KEY ==========
     const getCacheKey = useCallback(() => {
@@ -301,18 +452,29 @@ export default function FeedContent() {
 
     // ========== PRELOAD GAMBAR ==========
     const preloadImages = useCallback((items) => {
+        if (!items || items.length === 0) return;
+
         const firstThreeIds = items.slice(0, 3);
-        firstThreeIds.forEach(id => {
-            const item = itemsMap.get(id);
-            if (item?.photos?.[0]) {
-                const img = new Image();
-                img.src = item.photos[0];
-            }
-        });
+        const preloadFn = () => {
+            firstThreeIds.forEach(id => {
+                const item = itemsMap.get(id);
+                if (item?.photos?.[0]) {
+                    const img = new Image();
+                    img.src = item.photos[0];
+                }
+            });
+        };
+
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(preloadFn);
+        } else {
+            setTimeout(preloadFn, 100);
+        }
     }, [itemsMap]);
 
+    // ========== LOAD CACHE ==========
     useEffect(() => {
-        if (typeof window !== 'undefined' && !cacheLoadedRef.current) {
+        if (typeof window !== 'undefined' && !cacheLoadedRef.current && !initialLoadDoneRef.current) {
             const cacheKey = getCacheKey();
             const cached = cacheManager.get(cacheKey);
             if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
@@ -323,11 +485,12 @@ export default function FeedContent() {
                 if (cached.orderedIds.length > 0) {
                     lastLoadedIdRef.current = cached.orderedIds[cached.orderedIds.length - 1];
                 }
-                // Tidak perlu preloadImages di sini, nanti akan ke-load saat render
+                preloadImages(cached.orderedIds);
             }
         }
-    }, [getCacheKey, cacheManager]);
+    }, [getCacheKey, cacheManager, preloadImages]);
 
+    // ========== LOCATION CHANGE DETECTION ==========
     useEffect(() => {
         const locationChanged = sessionStorage.getItem('location_changed');
         if (locationChanged === 'true') {
@@ -344,7 +507,7 @@ export default function FeedContent() {
         setTimeout(() => setToast({ show: false, message: "" }), FEED_CONFIG.TOAST_DURATION);
     }, []);
 
-    // ========== LOAD PLACES (CORE LOGIC) ==========
+    // ========== LOAD PLACES (CORE LOGIC - FIXED) ==========
     const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
         if (!isMountedRef.current) return;
         if (isFetchingRef.current && !reset) return;
@@ -374,6 +537,7 @@ export default function FeedContent() {
             if (reset && !isLocationChange) {
                 const cached = cacheManager.get(cacheKey);
                 if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
+                    if (!isMountedRef.current) return;
                     setItemsMap(cached.itemsMap);
                     setOrderedIds(cached.orderedIds);
                     setInitialLoad(false);
@@ -411,8 +575,14 @@ export default function FeedContent() {
             }
 
             const { data, error: fetchError } = await query.limit(dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
+
+            // Check if component is still mounted and fetch is still valid
+            if (!isMountedRef.current || currentFetchId !== fetchIdRef.current) {
+                isFetchingRef.current = false;
+                return;
+            }
+
             if (fetchError) throw fetchError;
-            if (currentFetchId !== fetchIdRef.current) return;
 
             let items = data || [];
 
@@ -445,6 +615,11 @@ export default function FeedContent() {
                     _rankingScore: hybridScoreData.rankingScore,
                     _hybridScore: hybridScoreData.hybridScore
                 });
+            }
+
+            if (!isMountedRef.current || currentFetchId !== fetchIdRef.current) {
+                isFetchingRef.current = false;
+                return;
             }
 
             if (processedItems.length === 0 && !reset) {
@@ -509,12 +684,11 @@ export default function FeedContent() {
                 cacheManager.set(cacheKey, finalMap, finalIds);
                 preloadImages(finalIds);
 
-                if (isLocationChange) {
-                    setFeedOpacity(1);
+                if (isLocationChange && isMountedRef.current) {
                     setIsTransitioningLocation(false);
                 }
 
-                if (locationReady) {
+                if (locationReady && isMountedRef.current) {
                     const connectionText = networkInfo.isSlowConnection ? " (mode hemat data)" : "";
                     showToast(`📍 ${processedItems.length} tempat dalam radius ${searchRadius}km${connectionText}`);
                 }
@@ -523,6 +697,8 @@ export default function FeedContent() {
             }
         } catch (err) {
             console.error("Error loading places:", err);
+
+            if (!isMountedRef.current) return;
 
             if (err.message?.includes('JWT') || err.message?.includes('session')) {
                 setError("Sesi berakhir, silakan login kembali");
@@ -537,15 +713,15 @@ export default function FeedContent() {
             }
 
             setIsTransitioningLocation(false);
-            setFeedOpacity(1);
         } finally {
-            if (currentFetchId === fetchIdRef.current) {
+            if (currentFetchId === fetchIdRef.current && isMountedRef.current) {
                 setLoading(false);
                 setInitialLoad(false);
                 isFetchingRef.current = false;
             }
         }
-    }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection, getCacheKey, cacheManager, preloadImages, showToast]);
+    }, [locationReady, location, searchRadius, dynamicLimit, networkInfo.isSlowConnection,
+        getCacheKey, cacheManager, preloadImages, showToast]);
 
     // ========== LOAD DATA AFTER MOUNTED ==========
     useEffect(() => {
@@ -555,42 +731,12 @@ export default function FeedContent() {
         }
     }, [mounted, showSplash, loadPlaces]);
 
-    // ========== NETWORK INFO ==========
-    useEffect(() => {
-        if (typeof navigator === 'undefined' || !navigator.connection) return;
-
-        const updateNetworkInfo = () => {
-            const conn = navigator.connection;
-            const effectiveType = conn?.effectiveType || '4g';
-            const saveData = conn?.saveData || false;
-            const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
-
-            setNetworkInfo({ effectiveType, saveData, isSlowConnection });
-            setDynamicLimitState(getDynamicLimit());
-        };
-
-        updateNetworkInfo();
-        navigator.connection.addEventListener('change', updateNetworkInfo);
-        return () => navigator.connection.removeEventListener('change', updateNetworkInfo);
-    }, []);
-
     // ========== INFINITE SCROLL FOR SNAP SCROLL ==========
     useEffect(() => {
-        // Load more when reaching last 3 cards
-        if (activeIndex >= orderedIds.length - 3 && hasMore && !loading && !initialLoad) {
+        if (activeIndex >= orderedIds.length - 3 && hasMore && !loading && !initialLoad && isOnline) {
             loadPlaces(false);
         }
-    }, [activeIndex, orderedIds.length, hasMore, loading, initialLoad, loadPlaces]);
-
-    // ========== SCROLL DETECTION ==========
-    useEffect(() => {
-        const handleScroll = () => {
-            setIsScrolled(window.scrollY > 50);
-        };
-
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, []);
+    }, [activeIndex, orderedIds.length, hasMore, loading, initialLoad, loadPlaces, isOnline]);
 
     // ========== PULL TO REFRESH ==========
     useEffect(() => {
@@ -634,15 +780,12 @@ export default function FeedContent() {
         };
     }, [loadPlaces, loading]);
 
-    // ========== LISTENER REFRESH FEED DARI BOTTOM NAV ==========
+    // ========== LISTENER REFRESH FEED ==========
     useEffect(() => {
         const handleRefreshFeed = async () => {
-
             cacheManager.invalidate();
             await loadPlaces(true);
             snapToIndex(0, 'smooth');
-
-            // ⬇️ TAMBAHKAN DELAY AGAR SPINNER KELIHATAN
             await new Promise(resolve => setTimeout(resolve, 200));
         };
 
@@ -677,6 +820,7 @@ export default function FeedContent() {
         setShowSplash(false);
     }, []);
 
+    // ========== HANDLERS ==========
     const handleSearchWithQuery = useCallback((q, item = null) => {
         setInitialQuery(q);
         setSelectedTempat(item);
@@ -685,21 +829,14 @@ export default function FeedContent() {
         setShowAIModal(true);
     }, []);
 
-    // ========== UPDATE LOGIC: CLEAN & OPTIMIZED HANDLERS ==========
-
     const handleLocationChanged = useCallback(async () => {
-        // Set flag ke sessionStorage bahwa lokasi berubah
         sessionStorage.setItem('location_changed', 'true');
-
         setIsTransitioningLocation(true);
-        setFeedOpacity(0.7);
 
-        // Hapus semua cache
         cacheManager.invalidate();
         sessionStorage.removeItem('feed_backup');
         sessionStorage.removeItem('last_location_key');
 
-        // Hapus semua cache feed v2
         const keysToRemove = [];
         for (let i = 0; i < sessionStorage.length; i++) {
             const key = sessionStorage.key(i);
@@ -710,15 +847,15 @@ export default function FeedContent() {
         keysToRemove.forEach(key => sessionStorage.removeItem(key));
 
         setComments({});
-        window.scrollTo({ top: 0, behavior: 'auto' });
+        if (containerRef.current) {
+            containerRef.current.scrollTop = 0;
+        }
 
-        // Reload tanpa delay
         window.location.reload();
-    }, [cacheManager]);
+    }, [cacheManager, containerRef]);
 
     const handleManualLocationSelect = useCallback(async (selectedLocation) => {
         setManualLocation(selectedLocation);
-        // Berikan jeda sedikit agar state context dari provider ter-update dengan aman
         setTimeout(async () => {
             await handleLocationChanged();
             const locationName = selectedLocation?.address || selectedLocation?.name || "lokasi baru";
@@ -736,10 +873,9 @@ export default function FeedContent() {
 
     const handleRadiusChange = useCallback((newRadius) => {
         cacheManager.invalidate();
-        // Pastikan scroll kembali ke atas sebelum memuat data radius baru
-        const container = containerRef.current;
-        if (container) container.scrollTop = 0;
-
+        if (containerRef.current) {
+            containerRef.current.scrollTop = 0;
+        }
         snapToIndex(0, 'auto');
         loadPlaces(true);
         showToast(`🔍 Radius ${newRadius}km`);
@@ -749,10 +885,8 @@ export default function FeedContent() {
         if (!item) return;
         setShowSearchModal(false);
 
-        // Reset posisi scroll ke paling atas seketika sebelum memasukkan item baru
-        const container = containerRef.current;
-        if (container) {
-            container.scrollTop = 0;
+        if (containerRef.current) {
+            containerRef.current.scrollTop = 0;
         }
 
         setItemsMap(prev => {
@@ -764,7 +898,6 @@ export default function FeedContent() {
         setOrderedIds(prev => [item.id, ...prev.filter(id => id !== item.id)]);
         setSelectedTempat(item);
 
-        // Jalankan snap secara smooth ke index 0
         setTimeout(() => {
             snapToIndex(0, 'smooth');
             showToast(`📍 Menampilkan ${item.name}`);
@@ -815,7 +948,7 @@ export default function FeedContent() {
         handleRadiusChange(searchRadius + 5);
     }, [handleRadiusChange, searchRadius]);
 
-    // ========== RENDER LOGIC ==========
+    // ========== RENDER ==========
     if (!mounted || !viewportReady) {
         return null;
     }
@@ -828,133 +961,169 @@ export default function FeedContent() {
         return <SkeletonLoader />;
     }
 
+    if (error) {
+        return (
+            <ErrorState
+                error={error}
+                onRetry={retryLoad}
+                onExpandRadius={handleExpandRadius}
+                isOnline={isOnline}
+            />
+        );
+    }
+
     return (
-        <main
-            className="relative h-screen bg-black mx-auto w-full max-w-[420px]"
-            suppressHydrationWarning
-            style={{ height: viewportHeight }}
-        >
-            <div className="fixed top-0 left-0 right-0 z-50">
-                <Header
-                    className="bg-black/80 backdrop-blur-lg border-b border-white/10"
-                    user={user}
-                    isAdmin={isAdmin}
-                    onOpenAuthModal={() => setIsAuthModalOpen(true)}
-                    locationReady={locationReady}
-                    villageLocation={villageLocation}
-                    districtLocation={districtLocation}
-                    isScrolled={isScrolled}
-                    onOpenLocationModal={() => setIsLocationModalOpen(true)}
-                    onOpenSearchModal={() => setShowSearchModal(true)}
-                    onShowStatistik={() => { setForceShowLaporan(true); setTimeout(() => setForceShowLaporan(false), 100); }}
-                    onOpenLaporanForm={() => setShowFormLaporan(true)}
-                    onSearchWithQuery={handleSearchWithQuery}
-                    tempat={tempat}
-                    location={location}
-                    displayLocation={villageLocation}
-                    searchRadius={searchRadius}
-                    onRadiusChange={handleRadiusChange}
-                />
-            </div>
+        <>
+            <Head>
+                <title>Feed - Temukan tempat terbaru di sekitarmu</title>
+                <meta name="description" content="Temukan dan bagikan pengalaman di tempat-tempat terbaru di sekitarmu" />
+                <meta property="og:title" content="Feed - Lokalita" />
+                <meta property="og:description" content="Temukan tempat terbaru di sekitarmu" />
+            </Head>
 
-            {/* Snap Scroll Container */}
-            <div
-                ref={containerRef}
-                className="snap-container w-full overflow-y-scroll"
-                style={{
-                    scrollSnapType: 'y mandatory',
-                    WebkitOverflowScrolling: 'touch',
-                    height: viewportReady ? viewportHeight : '100dvh',
-                    scrollbarWidth: 'none',
-                    msOverflowStyle: 'none'
-                }}
+            <main
+                className="relative bg-black mx-auto w-full max-w-[420px] overflow-hidden"
+                suppressHydrationWarning
+                style={{ height: viewportHeight }}
             >
-                {/* LANGSUNG map items, tanpa div pembungkus px-0 */}
-                <AnimatePresence initial={false}>
-                    {tempat.map((item, index) => {
-                        const isActive = activeIndex === index;
-
-                        return (
-                            <div
-                                key={item.id}
-                                className="snap-item relative"
-                                style={{
-                                    scrollSnapAlign: 'start',
-                                    scrollSnapStop: 'always',
-                                    height: viewportReady ? viewportHeight : '100dvh',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}
-                            >
-                                {/* Card container - tanpa margin/padding */}
-                                <div className="w-full max-w-[420px] mx-auto">
-                                    <FeedCardWrapper isActive={isActive}>
-                                        <MemoizedFeedCard
-                                            item={item}
-                                            locationReady={locationReady}
-                                            location={location}
-                                            comments={comments}
-                                            selectedPhotoIndex={selectedPhotoIndex}
-                                            setSelectedPhotoIndex={setSelectedPhotoIndex}
-                                            openAIModal={openAICardModal}
-                                            openKomentarModal={openKomentarModal}
-                                            onShare={handleShare}
-                                            priority={index < 3}
-                                            userId={user?.id}
-                                            userProfile={profile}
-                                            userAvatar={profile?.avatar_url}
-                                            showLiveInsight={false}
-                                            hideActionButtons={true}
-                                            isActive={isActive}
-                                            shouldPlayVideo={isActive}
-                                        />
-                                    </FeedCardWrapper>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </AnimatePresence>
-            </div>
-
-            {/* Loading indicator - height FIXED, bukan full viewport */}
-            {loading && !initialLoad && !error && (
-                <div className="w-full py-8 flex items-center justify-center">
-                    <InvisibleLoading />
+                {/* Header */}
+                <div className="fixed top-0 left-0 right-0 z-50 w-full max-w-[420px] mx-auto">
+                    <Header
+                        className="bg-black/80 backdrop-blur-lg border-b border-white/10"
+                        user={user}
+                        isAdmin={isAdmin}
+                        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                        locationReady={locationReady}
+                        villageLocation={villageLocation}
+                        districtLocation={districtLocation}
+                        onOpenLocationModal={() => setIsLocationModalOpen(true)}
+                        onOpenSearchModal={() => setShowSearchModal(true)}
+                        onShowStatistik={() => { setForceShowLaporan(true); setTimeout(() => setForceShowLaporan(false), 100); }}
+                        onOpenLaporanForm={() => setShowFormLaporan(true)}
+                        onSearchWithQuery={handleSearchWithQuery}
+                        tempat={tempat}
+                        location={location}
+                        displayLocation={villageLocation}
+                        searchRadius={searchRadius}
+                        onRadiusChange={handleRadiusChange}
+                    />
                 </div>
-            )}
-            {/* Modals - same as before */}
-            <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
-            <LaporanWarga
-                tempat={tempat}
-                locationReady={locationReady}
-                displayLocation={villageLocation}
-                location={location}
-                forceShow={forceShowLaporan}
-                onHide={() => setForceShowLaporan(false)}
-            />
+                {/* Snap Scroll Container */}
+                <div
+                    ref={containerRef}
+                    className="snap-container w-full overflow-y-scroll flex flex-col scrollbar-none pt-[70px] pb-[90px]"
+                    style={{
+                        scrollSnapType: 'y mandatory',
+                        WebkitOverflowScrolling: 'touch',
+                        height: viewportReady ? viewportHeight : '100dvh',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
+                    }}
+                >
+                    <AnimatePresence initial={false} mode="popLayout">
+                        {shouldShowEmptyState ? (
+                            <div className="w-full h-full flex items-center justify-center flex-shrink-0">
+                                <EmptyState
+                                    onRefresh={() => loadPlaces(true)}
+                                    onExpandRadius={handleExpandRadius}
+                                    isOnline={isOnline}
+                                />
+                            </div>
+                        ) : (
+                            tempat.map((item, index) => {
+                                const isActive = activeIndex === index;
 
-            <FormLaporanAktif
-                isOpen={showFormLaporan}
-                onClose={() => setShowFormLaporan(false)}
-                villageLocation={villageLocation}
-                theme={theme}
-                user={user}
-            />
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className="snap-item relative w-full flex-shrink-0 px-4 flex items-center justify-center"
+                                        style={{
+                                            scrollSnapAlign: 'center',
+                                            scrollSnapStop: 'always',
+                                            height: viewportReady ? `calc(${viewportHeight} * 0.75)` : '75dvh'
+                                        }}
+                                    >
+                                        <div className="w-full max-w-[420px] mx-auto">
+                                            <FeedCardWrapper isActive={isActive}>
+                                                <SimpleErrorBoundary
+                                                    item={item}
+                                                    onRetry={() => loadPlaces(true)}
+                                                >
+                                                    <MemoizedFeedCard
+                                                        item={item}
+                                                        locationReady={locationReady}
+                                                        location={location}
+                                                        comments={comments}
+                                                        selectedPhotoIndex={selectedPhotoIndex}
+                                                        setSelectedPhotoIndex={setSelectedPhotoIndex}
+                                                        openAIModal={openAICardModal}
+                                                        openKomentarModal={openKomentarModal}
+                                                        onShare={handleShare}
+                                                        priority={index < 3}
+                                                        userId={user?.id}
+                                                        userProfile={profile}
+                                                        userAvatar={profile?.avatar_url}
+                                                        showLiveInsight={false}
+                                                        hideActionButtons={true}
+                                                        isActive={isActive}
+                                                        shouldPlayVideo={isActive}
+                                                    />
+                                                </SimpleErrorBoundary>
+                                            </FeedCardWrapper>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </AnimatePresence>
 
-            <LocationModal
-                isOpen={isLocationModalOpen}
-                onClose={() => setIsLocationModalOpen(false)}
-                onActivateGPS={handleGPSActivation}
-                onSelectManual={handleManualLocationSelect}
-                onLocationChange={handleLocationChanged}
-                customLocationName={placeName}
-            />
+                    {/* Loading indicator */}
+                    {loading && !initialLoad && !error && (
+                        <div className="w-full py-6 flex items-center justify-center flex-shrink-0">
+                            <InvisibleLoading />
+                        </div>
+                    )}
 
-            {/* Loading overlay for location transition */}
-            {
-                isTransitioningLocation && (
+                    {/* End of feed */}
+                    {!hasMore && tempat.length > 0 && !loading && (
+                        <div className="w-full py-6 flex-shrink-0">
+                            <EndOfFeed />
+                        </div>
+                    )}
+                </div>
+
+                {/* Modals */}
+                <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+
+                <LaporanWarga
+                    tempat={tempat}
+                    locationReady={locationReady}
+                    displayLocation={villageLocation}
+                    location={location}
+                    forceShow={forceShowLaporan}
+                    onHide={() => setForceShowLaporan(false)}
+                />
+
+                <FormLaporanAktif
+                    isOpen={showFormLaporan}
+                    onClose={() => setShowFormLaporan(false)}
+                    villageLocation={villageLocation}
+                    theme={theme}
+                    user={user}
+                />
+
+                <LocationModal
+                    isOpen={isLocationModalOpen}
+                    onClose={() => setIsLocationModalOpen(false)}
+                    onActivateGPS={handleGPSActivation}
+                    onSelectManual={handleManualLocationSelect}
+                    onLocationChange={handleLocationChanged}
+                    customLocationName={placeName}
+                />
+
+                {/* Loading overlay */}
+                {isTransitioningLocation && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -969,62 +1138,69 @@ export default function FeedContent() {
                             <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
                         </div>
                     </motion.div>
-                )
-            }
+                )}
 
-            {/* Lazy Modals */}
-            <Suspense fallback={null}>
-                <SearchModal
-                    isOpen={showSearchModal}
-                    onClose={() => setShowSearchModal(false)}
-                    onSelectTempat={handleSearchSelect}
-                    onOpenAIModal={handleSearchWithQuery}
-                    allData={tempat}
-                    theme={theme}
-                    villageLocation={villageLocation}
+                {/* Lazy Modals */}
+                <Suspense fallback={null}>
+                    {showSearchModal && (
+                        <SearchModal
+                            isOpen={showSearchModal}
+                            onClose={() => setShowSearchModal(false)}
+                            onSelectTempat={handleSearchSelect}
+                            onOpenAIModal={handleSearchWithQuery}
+                            allData={tempat}
+                            theme={theme}
+                            villageLocation={villageLocation}
+                        />
+                    )}
+                </Suspense>
+
+                <Suspense fallback={null}>
+                    {showAIModal && (
+                        <AIModal
+                            isOpen={showAIModal}
+                            onClose={closeModals}
+                            tempat={selectedTempat}
+                            context={aiContext}
+                            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                            onUploadSuccess={selectedUploadSuccess}
+                            initialQuery={initialQuery}
+                            item={selectedTempat}
+                            laporanWarga={selectedLaporanWarga}
+                        />
+                    )}
+                </Suspense>
+
+                <Suspense fallback={null}>
+                    {showKomentarModal && (
+                        <KomentarModal
+                            isOpen={showKomentarModal}
+                            onClose={closeModals}
+                            tempat={selectedTempat}
+                            isAdmin={isAdmin}
+                        />
+                    )}
+                </Suspense>
+
+                {/* Bottom Nav */}
+                <SmartBottomNav
+                    onOpenUpload={() => setShowUploadModal(true)}
+                    onOpenLaporanForm={() => setShowFormLaporan(true)}
+                    onOpenNotification={() => router.push("/woro")}
+                    onOpenProfile={() => router.push("/rewang")}
                 />
-            </Suspense>
 
-            <Suspense fallback={null}>
-                <AIModal
-                    isOpen={showAIModal}
-                    onClose={closeModals}
-                    tempat={selectedTempat}
-                    context={aiContext}
-                    onOpenAuthModal={() => setIsAuthModalOpen(true)}
-                    onUploadSuccess={selectedUploadSuccess}
-                    initialQuery={initialQuery}
-                    item={selectedTempat}
-                    laporanWarga={selectedLaporanWarga}
+                <UploadModal
+                    isOpen={showUploadModal}
+                    onClose={() => setShowUploadModal(false)}
+                    userId={userId}
+                    userRole={userRole}
                 />
-            </Suspense>
 
-            <Suspense fallback={null}>
-                <KomentarModal
-                    isOpen={showKomentarModal}
-                    onClose={closeModals}
-                    tempat={selectedTempat}
-                    isAdmin={isAdmin}
-                />
-            </Suspense>
+                <ToastMessage show={toast.show} message={toast.message} />
 
-            <SmartBottomNav
-                onOpenUpload={() => setShowUploadModal(true)}
-                onOpenLaporanForm={() => setShowFormLaporan(true)}
-                onOpenNotification={() => router.push("/woro")}
-                onOpenProfile={() => router.push("/rewang")}
-            />
-
-            <UploadModal
-                isOpen={showUploadModal}
-                onClose={() => setShowUploadModal(false)}
-                userId={userId}
-                userRole={userRole}
-            />
-
-            <ToastMessage show={toast.show} message={toast.message} />
-            {/* PWA Installer */}
-            {!isPWAInstalled && <PWAInstaller />}
-        </main >
+                {!isPWAInstalled && <PWAInstaller />}
+            </main>
+        </>
     );
 }

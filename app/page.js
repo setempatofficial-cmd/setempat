@@ -8,20 +8,20 @@ import { useWindowSize } from "@/hooks/useWindowSize";
 // Konten utama yang pakai theme
 function HomeContent() {
   const theme = useTheme();
-  
+
   return (
     <div className={`relative min-h-screen w-full ${theme.bg} ${theme.text} transition-colors duration-300 selection:bg-red-500/30`}>
-      
+
       {/* Ambient Effects - Hanya di Malam */}
       {theme.isMalam && (
         <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-          <div 
+          <div
             className="absolute top-[-15%] left-[-10%] w-[120%] h-[50%] rounded-full opacity-[0.07] blur-[120px]"
-            style={{ backgroundColor: '#3b82f6' }} 
+            style={{ backgroundColor: '#3b82f6' }}
           />
-          <div 
+          <div
             className="absolute bottom-[-10%] right-[-10%] w-[100%] h-[40%] rounded-full opacity-[0.05] blur-[100px]"
-            style={{ backgroundColor: '#8b5cf6' }} 
+            style={{ backgroundColor: '#8b5cf6' }}
           />
         </div>
       )}
