@@ -462,7 +462,7 @@ export default function LivePage() {
             </div>
 
             <div className="bg-black/40 backdrop-blur-md border border-white/10 px-2 py-1 rounded-md flex items-center gap-1 text-white text-[10px] font-bold shadow-md">
-              <Eye size={12} />
+              <Eye size={13} />
               <span>{viewers}</span>
             </div>
           </div>
@@ -565,7 +565,7 @@ export default function LivePage() {
               disabled={!newComment.trim() || !userData}
               className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-colors shrink-0 shadow-md"
             >
-              <Send size={13} />
+              <Send size={14} />
             </button>
           </form>
 
