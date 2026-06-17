@@ -70,38 +70,37 @@ export default function Header({
   onOpenLocationModal,
   onShowStatistik,
   onOpenAuthModal,
+  // TAMBAHKAN PROPS BARU UNTUK FORM LAPORAN & UPLOAD
+  onOpenLaporanForm,
+  onOpenUpload,
 }) {
   const theme = useTheme();
   const router = useRouter();
   const { weather } = useWeather(villageLocation);
 
-  // ✅ STATE UNTUK HEADER HIDE/SHOW
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollYRef = useRef(0);
   const scrollTimeoutRef = useRef(null);
 
-  // ✅ EFFECT UNTUK SCROLL LISTENER (YANG SUDAH DIPERBAIKI)
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
 
-      // JIKA DI PALING ATAS, WAJIB MUNCUL
       if (currentScrollY <= 50) {
         setIsHeaderVisible(true);
         lastScrollYRef.current = currentScrollY;
         return;
       }
 
-      // Toleransi scroll minimal 30px agar tidak terlalu sensitif
       if (Math.abs(currentScrollY - lastScrollYRef.current) < 30) return;
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
       scrollTimeoutRef.current = setTimeout(() => {
         if (currentScrollY > lastScrollYRef.current) {
-          setIsHeaderVisible(false); // Scroll ke bawah -> header sembunyi
+          setIsHeaderVisible(false);
         } else {
-          setIsHeaderVisible(true);  // Scroll ke atas -> header muncul
+          setIsHeaderVisible(true);
         }
         lastScrollYRef.current = currentScrollY;
       }, 50);
@@ -118,27 +117,27 @@ export default function Header({
     <motion.header
       initial={{ y: 0 }}
       animate={{
-        y: isHeaderVisible ? 0 : -120,
+        y: isHeaderVisible ? 0 : -140,
         opacity: isHeaderVisible ? 1 : 0,
       }}
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-      className={`fixed top-0 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-[420px] transition-all duration-700 ${isScrolled ? "py-2" : "py-4"
-        }`}
+      className="fixed top-0 left-0 right-0 z-[1000] w-full"
     >
       {/* Glass Background */}
       <div
-        className={`absolute inset-0 transition-all duration-1000 -z-10 ${isScrolled
+        className={`absolute inset-0 transition-all duration-700 -z-10 ${isScrolled
           ? theme.isMalam
-            ? "bg-black/95 backdrop-blur-2xl border-b border-white/20 shadow-2xl"
+            ? "bg-black/95 backdrop-blur-2xl border-b border-white/15 shadow-2xl"
             : "bg-white/95 backdrop-blur-2xl border-b border-black/10 shadow-md"
           : theme.isMalam
-            ? "bg-black/80 backdrop-blur-md border-b border-white/10"
-            : "bg-white/80 backdrop-blur-md border-b border-black/5"
+            ? "bg-gradient-to-b from-black/90 to-black/40 backdrop-blur-md border-b border-white/5"
+            : "bg-gradient-to-b from-white/95 to-white/60 backdrop-blur-md border-b border-black/5"
           }`}
       />
 
-      {/* Container dalam */}
-      <div className="px-4 sm:px-6 flex items-center justify-between relative h-12">
+      {/* Container Konten Dalam */}
+      <div className={`mx-auto w-full max-w-[420px] px-4 transition-all duration-500 flex items-center justify-between relative ${isScrolled ? "h-14" : "h-16"
+        }`}>
 
         {/* LEFT: BRAND & LOCATION */}
         <div className="flex-1 flex items-center min-w-0 pr-2">
@@ -147,7 +146,7 @@ export default function Header({
             onClick={onOpenLocationModal}
             className="flex items-center gap-2.5 cursor-pointer min-w-0"
           >
-            <motion.div animate={{ scale: isScrolled ? 0.85 : 1 }} className="relative flex-shrink-0">
+            <motion.div animate={{ scale: isScrolled ? 0.9 : 1 }} className="relative flex-shrink-0">
               <AnimatePresence>
                 {locationReady && (
                   <motion.div
@@ -159,7 +158,7 @@ export default function Header({
                   />
                 )}
               </AnimatePresence>
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#E3655B] to-[#ff7d72] shadow-lg shadow-[#E3655B]/40">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-[#E3655B] to-[#ff7d72] shadow-lg shadow-[#E3655B]/30">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 </svg>
@@ -170,7 +169,7 @@ export default function Header({
               <h1 className={`text-[8px] sm:text-[9px] font-black tracking-widest ${theme.text} opacity-40 uppercase truncate`}>
                 Setempat<span className="text-[#E3655B]">.id</span>
               </h1>
-              <p className={`text-[12px] sm:text-[13px] font-bold ${theme.text} leading-none truncate`}>
+              <p className={`text-[12px] sm:text-[13px] font-bold ${theme.text} leading-none mt-0.5 truncate`}>
                 {villageLocation || "Pilih Lokasi"}
               </p>
             </div>
@@ -207,6 +206,9 @@ export default function Header({
               isScrolled={isScrolled}
               onOpenAuthModal={onOpenAuthModal}
               theme={theme}
+              // TAMBAHKAN PROPS INI:
+              onOpenLaporanForm={onOpenLaporanForm}
+              onOpenUpload={onOpenUpload}
             />
           </div>
         </div>

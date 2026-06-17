@@ -1034,7 +1034,7 @@ function FeedCardV2Premium({
         <div
           className="relative w-full overflow-hidden transition-all duration-500 ease-in-out"
           style={{
-            aspectRatio: isDetail ? '16/10' : '1/1', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
+            aspectRatio: isDetail ? '16/10' : '4/5', // Lek detail dadi agak melebar kesamping, lek beranda tetep kotak mbois
             maxHeight: isDetail ? '45vh' : 'none'
           }}
         >

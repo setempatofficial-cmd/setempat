@@ -1009,94 +1009,117 @@ export default function FeedContent() {
                     />
                 </div>
 
-                {/* Snap Scroll Container */}
-                <div
-                    ref={containerRef}
-                    className="snap-container w-full overflow-y-scroll flex flex-col scrollbar-none pt-[70px] pb-[90px]"
-                    style={{
-                        scrollSnapType: 'y mandatory',
-                        WebkitOverflowScrolling: 'touch',
-                        height: viewportReady ? viewportHeight : '100dvh',
-                        scrollbarWidth: 'none',
-                        msOverflowStyle: 'none'
-                    }}
-                >
-                    <AnimatePresence initial={false} mode="popLayout">
-                        {shouldShowEmptyState ? (
-                            <div className="w-full h-full flex items-center justify-center flex-shrink-0">
-                                <EmptyState
-                                    onRefresh={() => loadPlaces(true)}
-                                    onExpandRadius={handleExpandRadius}
-                                    isOnline={isOnline}
-                                />
-                            </div>
-                        ) : (
-                            tempat.map((item, index) => {
-                                const isActive = activeIndex === index;
+                {/* ======================================================================= */}
+                {/* 1. PEMBUNGKUS UTAMA: Mengunci viewport dan memotong card yang di luar lubang */}
+                {/* ======================================================================= */}
+                <div className="relative w-full h-full overflow-hidden bg-black">
 
-                                return (
-                                    <div
-                                        key={item.id}
-                                        className="snap-item relative w-full flex-shrink-0 px-4 flex items-center justify-center"
-                                        style={{
-                                            scrollSnapAlign: 'center',
-                                            scrollSnapStop: 'always',
-                                            height: viewportReady ? `calc(${viewportHeight} * 0.75)` : '75dvh'
-                                        }}
-                                    >
-                                        <div className="w-full max-w-[420px] mx-auto">
-                                            <FeedCardWrapper isActive={isActive}>
-                                                <SimpleErrorBoundary
-                                                    item={item}
-                                                    onRetry={() => loadPlaces(true)}
-                                                >
-                                                    <MemoizedFeedCard
+                    {/* ======================================================================= */}
+                    {/* 2. SNAP SCROLL CONTAINER: Hanya fokus mengurusi scroll data saja */}
+                    {/* ======================================================================= */}
+                    <div
+                        ref={containerRef}
+                        className="snap-container w-full overflow-y-scroll flex flex-col gap-6 pt-[60px] pb-[180px] scrollbar-none snap-y snap-mandatory relative"
+                        style={{
+                            WebkitOverflowScrolling: 'touch',
+                            height: viewportReady ? viewportHeight : '100dvh',
+                            scrollbarWidth: 'none',
+                            msOverflowStyle: 'none',
+                            scrollPaddingTop: '60px',
+                        }}
+                    >
+                        <AnimatePresence initial={false} mode="popLayout">
+                            {shouldShowEmptyState ? (
+                                <div className="w-full h-full flex items-center justify-center flex-shrink-0">
+                                    <EmptyState
+                                        onRefresh={() => loadPlaces(true)}
+                                        onExpandRadius={handleExpandRadius}
+                                        isOnline={isOnline}
+                                    />
+                                </div>
+                            ) : (
+                                tempat.map((item, index) => {
+                                    const isActive = activeIndex === index;
+                                    const isFirstItem = index === 0;
+
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className={`snap-item relative w-full flex-shrink-0 px-4 transition-all duration-300 ${isFirstItem ? "pt-10" : "pt-0"
+                                                }`}
+                                            style={{
+                                                scrollSnapAlign: 'start',
+                                                scrollSnapStop: 'always',
+                                                height: 'auto'
+                                            }}
+                                        >
+                                            <div className="w-full max-w-[420px] mx-auto">
+                                                <FeedCardWrapper isActive={isActive}>
+                                                    <SimpleErrorBoundary
                                                         item={item}
-                                                        locationReady={locationReady}
-                                                        location={location}
-                                                        comments={comments}
-                                                        selectedPhotoIndex={selectedPhotoIndex}
-                                                        setSelectedPhotoIndex={setSelectedPhotoIndex}
-                                                        openAIModal={openAICardModal}
-                                                        openKomentarModal={openKomentarModal}
-                                                        onShare={handleShare}
-                                                        priority={index < 3}
-                                                        userId={user?.id}
-                                                        userProfile={profile}
-                                                        userAvatar={profile?.avatar_url}
-                                                        showLiveInsight={false}
-                                                        hideActionButtons={true}
-                                                        isActive={isActive}
-                                                        shouldPlayVideo={isActive}
-                                                    />
-                                                </SimpleErrorBoundary>
-                                            </FeedCardWrapper>
+                                                        onRetry={() => loadPlaces(true)}
+                                                    >
+                                                        <div className="w-full h-full">
+                                                            <MemoizedFeedCard
+                                                                item={item}
+                                                                locationReady={locationReady}
+                                                                location={location}
+                                                                comments={comments}
+                                                                selectedPhotoIndex={selectedPhotoIndex}
+                                                                setSelectedPhotoIndex={setSelectedPhotoIndex}
+                                                                openAIModal={openAICardModal}
+                                                                openKomentarModal={openKomentarModal}
+                                                                onShare={handleShare}
+                                                                priority={index < 3}
+                                                                userId={user?.id}
+                                                                userProfile={profile}
+                                                                userAvatar={profile?.avatar_url}
+                                                                showLiveInsight={false}
+                                                                hideActionButtons={true}
+                                                                isActive={isActive}
+                                                                shouldPlayVideo={isActive}
+                                                            />
+                                                        </div>
+                                                    </SimpleErrorBoundary>
+                                                </FeedCardWrapper>
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            })
+                                    );
+                                })
+                            )}
+                        </AnimatePresence>
+
+                        {/* 🛠️ PERBAIKAN 1: Indikator loading dipindah ke dalam container agar ikut mengalir rapi di bawah card terakhir */}
+                        {loading && !initialLoad && !error && (
+                            <div className="w-full py-6 flex items-center justify-center flex-shrink-0 snap-item" style={{ scrollSnapAlign: 'end' }}>
+                                <InvisibleLoading />
+                            </div>
                         )}
-                    </AnimatePresence>
 
-                    {/* Loading indicator */}
-                    {loading && !initialLoad && !error && (
-                        <div className="w-full py-6 flex items-center justify-center flex-shrink-0">
-                            <InvisibleLoading />
-                        </div>
-                    )}
+                        {/* 🛠️ PERBAIKAN 2: End of feed juga dimasukkan ke dalam scroll container */}
+                        {!hasMore && tempat.length > 0 && !loading && (
+                            <div className="w-full py-6 flex-shrink-0 snap-item" style={{ scrollSnapAlign: 'end' }}>
+                                <EndOfFeed />
+                            </div>
+                        )}
+                    </div>
 
-                    {/* End of feed */}
-                    {!hasMore && tempat.length > 0 && !loading && (
-                        <div className="w-full py-6 flex-shrink-0">
-                            <EndOfFeed />
-                        </div>
-                    )}
-                </div>
+                    {/* ======================================================================= */}
+                    {/* 3. LAYER OVERLAY GELAP: Berdiri absolut tepat di atas container scroll */}
+                    {/* ======================================================================= */}
+                    <div
+                        className="absolute bottom-0 left-0 w-full h-[160px] pointer-events-none z-10"
+                        style={{
+                            background: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,1) 100%)'
+                        }}
+                    />
 
-                {/* Modals */}
+                </div> {/* 🛠️ PERBAIKAN 3: Tag penutup pembungkus utama dipindah ke sini agar membungkus seluruh elemen secara presisi */}
+
+                {/* Modals (Tetap berada di luar) */}
                 <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
-                <LaporanWarga
+                < LaporanWarga
                     tempat={tempat}
                     locationReady={locationReady}
                     displayLocation={villageLocation}
@@ -1105,7 +1128,7 @@ export default function FeedContent() {
                     onHide={() => setForceShowLaporan(false)}
                 />
 
-                <FormLaporanAktif
+                < FormLaporanAktif
                     isOpen={showFormLaporan}
                     onClose={() => setShowFormLaporan(false)}
                     villageLocation={villageLocation}
@@ -1123,22 +1146,24 @@ export default function FeedContent() {
                 />
 
                 {/* Loading overlay */}
-                {isTransitioningLocation && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
-                        style={{ height: viewportHeight }}
-                    >
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="relative h-8 w-8">
-                                <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
+                {
+                    isTransitioningLocation && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
+                            style={{ height: viewportHeight }}
+                        >
+                            <div className="flex flex-col items-center gap-3">
+                                <div className="relative h-8 w-8">
+                                    <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
+                                </div>
+                                <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
                             </div>
-                            <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
-                        </div>
-                    </motion.div>
-                )}
+                        </motion.div>
+                    )
+                }
 
                 {/* Lazy Modals */}
                 <Suspense fallback={null}>
@@ -1188,6 +1213,17 @@ export default function FeedContent() {
                     onOpenLaporanForm={() => setShowFormLaporan(true)}
                     onOpenNotification={() => router.push("/woro")}
                     onOpenProfile={() => router.push("/rewang")}
+                    onOpenLiveStream={() => {
+                        // TAMBAHKAN HANDLER INI
+                        // Opsi 1: Redirect ke halaman live
+                        router.push("/live");
+
+                        // Opsi 2: Buka modal live (uncomment jika ada)
+                        // setShowLiveModal(true);
+
+                        // Opsi 3: Tampilkan toast (uncomment jika mau)
+                        // showToast("📺 Fitur Live Streaming akan segera hadir");
+                    }}
                 />
 
                 <UploadModal
@@ -1200,7 +1236,7 @@ export default function FeedContent() {
                 <ToastMessage show={toast.show} message={toast.message} />
 
                 {!isPWAInstalled && <PWAInstaller />}
-            </main>
+            </main >
         </>
     );
 }

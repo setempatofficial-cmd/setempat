@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Compass, Plus, Bell, Store, MonitorPlay, RefreshCw } from "lucide-react";
+import { Home, Compass, Plus, Bell, Store, MonitorPlay, RefreshCw } from "lucide-react"; // Hapus Activity/Radio
 import { useTheme } from "@/app/hooks/useTheme";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -13,6 +13,7 @@ export default function SmartBottomNav({
   onOpenProfile,
   onOpenUpload,
   onRefreshFeed,
+  onOpenLiveStream,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -22,7 +23,8 @@ export default function SmartBottomNav({
   const [mounted, setMounted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pressingTab, setPressingTab] = useState(null); // ✅ Diubah ke ID Tab agar tidak nge-scale semua tombol
+  const [pressingTab, setPressingTab] = useState(null);
+  const [isLiveActive, setIsLiveActive] = useState(false);
 
   // Ambil jumlah notifikasi yang belum dibaca
   useEffect(() => {
@@ -71,9 +73,44 @@ export default function SmartBottomNav({
     setMounted(true);
   }, []);
 
-  const canUpload = isSuperAdmin || isAdmin;
+  // Cek status Live
+  useEffect(() => {
+    const checkLiveStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("live_streams")
+          .select("is_active")
+          .eq("is_active", true)
+          .single();
 
-  // ✅ Sinkronisasi murni dari URL Pathname (Source of Truth tunggal)
+        if (data) {
+          setIsLiveActive(true);
+        } else {
+          setIsLiveActive(false);
+        }
+      } catch (err) {
+        console.error("Error checking live status:", err);
+        setIsLiveActive(false);
+      }
+    };
+
+    checkLiveStatus();
+
+    const channel = supabase
+      .channel('live_status')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'live_streams'
+      }, () => checkLiveStatus())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Sinkronisasi dari URL Pathname
   useEffect(() => {
     if (pathname === "/") setActiveTab("Home");
     else if (pathname.startsWith("/explore") || pathname.startsWith("/search")) setActiveTab("Ronda");
@@ -84,6 +121,8 @@ export default function SmartBottomNav({
       pathname.startsWith("/panyangan")
     ) {
       setActiveTab("Peken");
+    } else if (pathname.startsWith("/live")) {
+      setActiveTab("Live");
     }
   }, [pathname]);
 
@@ -113,7 +152,6 @@ export default function SmartBottomNav({
     }
   };
 
-  // ✅ Pindah Halaman Bersih tanpa merusak State Internal sebelum URL berubah
   const handleNavigation = async (tabId) => {
     setPressingTab(tabId);
     setTimeout(() => setPressingTab(null), 150);
@@ -123,7 +161,6 @@ export default function SmartBottomNav({
         await handleHomePress();
         break;
       case "Ronda":
-        // Gunakan router bawaan Next agar tumpukan history tersinkronisasi dengan baik
         router.push("/explore");
         break;
       case "Woro":
@@ -133,25 +170,53 @@ export default function SmartBottomNav({
       case "Peken":
         router.push("/peken");
         break;
+      case "Live":
+        if (onOpenLiveStream) {
+          onOpenLiveStream();
+        } else {
+          router.push("/live");
+        }
+        break;
     }
   };
 
-  const handleLapor = () => {
+  const handleLivePress = () => {
     if (typeof window !== "undefined") {
-      if (isSuperAdmin || isAdmin) {
-        window.dispatchEvent(new CustomEvent("open-admin-upload-options"));
+      if (onOpenLiveStream) {
+        onOpenLiveStream();
       } else {
-        onOpenLaporanForm?.() || window.dispatchEvent(new CustomEvent("open-laporan-form"));
+        router.push("/live");
       }
     }
   };
 
   if (!mounted) return null;
 
+  // Versi Inline Style (Warna Merah Hex Code)
+  const LiveIcon = () => (
+    <svg
+      style={{ color: '#FF0000' }} // Warna merah murni langsung di sini
+      strokeWidth={2.5}
+      width={28}
+      height={28}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="2" fill="currentColor" />
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+      <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+    </svg>
+  );
+
   const tabs = [
     { id: "Home", icon: <Home size={22} />, label: "Home" },
     { id: "Ronda", icon: <MonitorPlay size={22} />, label: "Ronda" },
-    ...(canUpload ? [{ id: "Lapor", isAction: true }] : []),
+    { id: "Live", isAction: true },
     { id: "Woro", icon: <Bell size={22} />, label: "Woro", badge: unreadCount },
     { id: "Peken", icon: <Store size={22} />, label: "Peken" },
   ];
@@ -172,20 +237,40 @@ export default function SmartBottomNav({
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const isHomeRefreshing = tab.id === "Home" && isRefreshing && pathname === "/";
-          const isCurrentPressing = pressingTab === tab.id; // ✅ Cek hanya tab ini yang ditekan
+          const isCurrentPressing = pressingTab === tab.id;
 
           if (tab.isAction) {
             return (
-              <div key="action-lapor-container" className="relative w-14 flex justify-center">
+              <div key="action-live-container" className="relative w-14 flex justify-center">
                 <button
-                  onClick={handleLapor}
+                  onClick={handleLivePress}
                   className={`absolute -top-7 flex items-center justify-center w-14 h-14
-                    bg-gradient-to-br from-orange-500 to-amber-400 
-                    rounded-2xl shadow-xl shadow-orange-500/40 active:scale-90 transition-all duration-200
+                    ${isLiveActive
+                      ? "bg-gradient-to-br from-red-600 to-red-400 shadow-red-500/40"
+                      : "bg-gradient-to-br from-blue-600 to-blue-400 shadow-blue-500/40"}
+                    rounded-2xl shadow-xl active:scale-90 transition-all duration-200
                     border-[6px] ${isMalam ? "border-[#0C0C0C]" : "border-white"}`}
                 >
-                  <Plus className="text-black" strokeWidth={3} size={28} />
+                  <div className="relative">
+                    <LiveIcon />
+                    {isLiveActive && (
+                      <>
+                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                        </span>
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <span className="absolute h-10 w-10 rounded-full bg-white/20 animate-ping"></span>
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </button>
+                <span className={`absolute -bottom-1 text-[9px] font-bold transition-all duration-300
+                  ${isActive ? "text-orange-500 opacity-100" : "opacity-0"}`}
+                >
+                  Live
+                </span>
               </div>
             );
           }
@@ -212,7 +297,6 @@ export default function SmartBottomNav({
                   tab.icon
                 )}
 
-                {/* BADGE NOTIFIKASI */}
                 {!isActive && tab.badge > 0 && (
                   <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center 
                     rounded-full bg-red-600 px-1 text-[8px] font-black text-white 

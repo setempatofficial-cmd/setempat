@@ -19,16 +19,31 @@
   }
 }
 
+/* ==========================================================================
+   1. GLOBAL STYLES (BODY & HTML) - DIJAMIN BISA SCROLL
+   ========================================================================== */
+html {
+  scroll-behavior: smooth;
+}
+
 body {
+  margin: 0;
+  padding: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
-  overflow: auto;
-  position: static;
-  height: auto;
+
+  /* Memaksa halaman biasa agar selalu bisa scroll dan posisinya normal */
+  position: relative !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden;
 }
 
-/* Class untuk halaman yang butuh snap scroll (ditambahkan via JS) */
+/* Kunci scroll ini HANYA aktif jika elemen <body> memiliki class .feed-locked.
+   Jika halaman non-snap masih terkunci, periksa JavaScript Anda karena 
+   pasti ada script yang lupa menghapus class ini dari tag <body>.
+*/
 body.feed-locked {
   overflow: hidden !important;
   position: fixed !important;
@@ -36,6 +51,80 @@ body.feed-locked {
   height: 100% !important;
 }
 
+/* ==========================================================================
+   2. SNAP SCROLL STYLES (FOR REELS/TIKTOK STYLE)
+   ========================================================================== */
+
+/* Container utama snap scroll */
+.snap-container {
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+
+  /* Menggunakan tinggi dinamis layar HP */
+  height: 100vh;
+  height: 100dvh;
+
+  will-change: scroll-position;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Setiap item di dalam list snap-scroll */
+.snap-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  position: relative;
+
+  /* Satu item memakan tepat satu layar penuh */
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+
+  will-change: scroll-position;
+}
+
+/* Sembunyikan scrollbar untuk container snap */
+.snap-container::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  background: transparent;
+}
+
+.snap-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe area untuk iPhone yang memiliki Notch / Dynamic Island */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .snap-container {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Touch feedback untuk interaksi drag */
+.snap-container:active,
+.snap-container:active .snap-item {
+  cursor: grabbing;
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  .snap-container {
+    scroll-behavior: auto !important;
+  }
+
+  .snap-item>div {
+    transition: none !important;
+  }
+}
+
+/* ==========================================================================
+   3. UTILITIES & SCROLLBAR SUPPRESSION
+   ========================================================================== */
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -47,16 +136,32 @@ body.feed-locked {
   }
 }
 
-.scrollbar-none {
+.scrollbar-none::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-none,
+.hide-scrollbar,
+.scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
+/* Element feed card transisi halus */
+.feed-card,
+.snap-item>div {
+  transition-property: padding, margin, gap;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
 }
 
-/* Touch targets untuk mobile */
+/* ==========================================================================
+   4. RESPONSIVE & MOBILE TOUCH TARGETS
+   ========================================================================== */
+
+/* Mobile Kecil */
 @media (max-width: 380px) {
 
   button,
@@ -76,7 +181,7 @@ body.feed-locked {
   }
 }
 
-/* Untuk layar sangat kecil (Galaxy Fold) */
+/* Layar super kecil (Galaxy Fold terlipat) */
 @media (max-width: 320px) {
   .feed-card .absolute {
     transform: scale(0.9);
@@ -87,83 +192,12 @@ body.feed-locked {
   }
 }
 
-/* Hanya untuk element feed card, bukan semua * */
-.feed-card,
-.snap-item>div {
-  transition-property: padding, margin, gap;
-  transition-duration: 0.2s;
-  transition-timing-function: ease-out;
-}
-
-/* Sembunyikan scrollbar untuk Chrome, Safari dan Opera */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-/* Sembunyikan scrollbar untuk IE, Edge dan Firefox */
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* ========== SNAP SCROLL STYLES ========== */
-
-/* Container utama snap scroll */
-.snap-container {
-  scroll-snap-type: y mandatory;
-  -webkit-overflow-scrolling: touch;
-  overflow-y: auto;
-  position: relative;
-}
-
-/* Setiap item card - JANGAN set height di sini */
-.snap-item {
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  position: relative;
-}
-
-/* Sembunyikan scrollbar */
-.snap-container::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  background: transparent;
-}
-
-.snap-container {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* Performance optimization */
-.snap-container,
-.snap-item {
-  will-change: scroll-position;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Safe area untuk iPhone notch/dynamic island */
-@supports (padding-top: env(safe-area-inset-top)) {
-  .snap-container {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-}
-
-/* LANDSCAPE MODE - GABUNGAN (TIDAK DUPLIKAT) */
+/* Orientasi Landscape di HP */
 @media (orientation: landscape) and (max-height: 500px) {
   .snap-item {
     padding: 4px 0 !important;
     height: 100vh;
+    height: 100dvh;
   }
 
   .snap-item .feed-card-wrapper {
@@ -171,42 +205,18 @@ body.feed-locked {
   }
 }
 
-/* Reduce motion */
-@media (prefers-reduced-motion: reduce) {
-  .snap-container {
-    scroll-behavior: auto !important;
-  }
-
-  .snap-item>div {
-    transition: none !important;
-  }
+/* ==========================================================================
+   5. VIDEO PLAYER CUSTOMIZATION
+   ========================================================================== */
+.cld-video-player {
+  background-color: black;
 }
 
-/* Touch feedback */
-.snap-container:active {
-  cursor: grabbing;
+.vjs-control {
+  font-size: 1.2em !important;
 }
 
-.snap-container:active .snap-item {
-  cursor: grabbing;
+.vjs-button {
+  min-width: 44px !important;
+  min-height: 44px !important;
 }
-
-/* Fallback untuk browser yang belum support dvh */
-@supports not (height: 100dvh) {
-
-  .snap-container,
-  .snap-item {
-    height: 100vh;
-  }
-}
-
-/* iOS smooth scroll */
-.snap-container {
-  -webkit-overflow-scrolling: touch;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Hapus rule margin auto yang bisa override inline style */
-/* .snap-item > div {
-  margin: 0 auto;
-} */
