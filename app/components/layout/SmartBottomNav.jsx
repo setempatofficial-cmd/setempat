@@ -178,19 +178,18 @@ export default function SmartBottomNav({
 
   if (!mounted) return null;
 
-  // Ikon Kamera Live standar IG/TikTok (Sangat familier untuk user Indonesia)
+  // Ikon Kamera Live standar IG/TikTok (Diperbesar sedikit stroke-nya & warna lebih hidup)
   const LiveIcon = ({ active }) => (
     <svg
       width={24}
       height={24}
       viewBox="0 0 24 24"
       fill="none"
-      stroke={active ? "#FFFFFF" : isMalam ? "#A0AEC0" : "#64748B"}
+      stroke={active ? "#FFFFFF" : isMalam ? "#E2E8F0" : "#475569"}
       strokeWidth={2.5}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Kotak Kamera */}
       <path d="M23 7l-7 5 7 5V7z" fill={active ? "#FFFFFF" : "none"} />
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill={active ? "#FFFFFF" : "none"} />
     </svg>
@@ -209,12 +208,12 @@ export default function SmartBottomNav({
       <nav
         className={`
           relative flex items-center justify-around w-full max-w-[400px] 
-          h-[70px] px-2 pointer-events-auto
+          h-[75px] px-2 pointer-events-auto
           backdrop-blur-2xl border-t transition-all duration-300
-          rounded-none 
+          rounded-t-xl
           ${isMalam
-            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]"
-            : "bg-white/95 border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]"}
+            ? "bg-[#0C0C0C]/95 border-white/10 shadow-[0_-8px_30px_rgba(0,0,0,0.5)]"
+            : "bg-white/95 border-slate-200 shadow-[0_-8px_30px_rgba(0,0,0,0.06)]"}
         `}
       >
         {tabs.map((tab) => {
@@ -222,47 +221,64 @@ export default function SmartBottomNav({
           const isHomeRefreshing = tab.id === "Home" && isRefreshing && pathname === "/";
           const isCurrentPressing = pressingTab === tab.id;
 
+          // RENDER KHUSUS UTK TOMBOL LIVE (TOMBOL TENGAH)
           if (tab.isAction) {
             return (
-              <div key="action-live-container" className="relative w-14 flex justify-center">
-                <button
-                  onClick={handleLivePress}
-                  className={`absolute -top-5 flex items-center justify-center w-12 h-12
-                    ${isLiveActive
-                      ? "bg-red-600 text-white animate-pulse shadow-md shadow-red-600/50"
-                      : isMalam
-                        ? "bg-neutral-800 text-neutral-400"
-                        : "bg-slate-100 text-slate-500"}
-                    rounded-full active:scale-95 transition-all duration-200
-                    border-[4px] ${isMalam ? "border-[#0C0C0C]" : "border-white"}`}
-                >
-                  <div className="relative flex items-center justify-center">
-                    <LiveIcon active={isLiveActive} />
-                    {isLiveActive && (
-                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <span className={`absolute bottom-1 text-[9px] font-extrabold transition-all duration-300
-                  ${isActive
-                    ? "text-orange-500 opacity-100"
-                    : isMalam ? "text-neutral-500" : "text-slate-400"}`}
+              <div key="action-live-container" className="relative flex-1 flex flex-col items-center justify-center h-full pt-1">
+                {/* Container pembungkus agar tombol lingkaran bisa sedikit keluar ke atas tanpa merusak teks di bawah */}
+                <div className="relative w-[52px] h-[38px] flex items-center justify-center">
+                  <button
+                    onClick={handleLivePress}
+                    className={`
+            absolute -top-5 flex items-center justify-center 
+            w-[52px] h-[52px] rounded-full 
+            active:scale-90 transition-all duration-300 ease-out
+            border-[4px] shadow-lg
+            ${isLiveActive
+                        ? "bg-gradient-to-tr from-orange-600 to-red-600 text-white animate-pulse shadow-red-500/40"
+                        : isMalam
+                          ? "bg-neutral-800 border-[#0C0C0C] text-slate-200 shadow-black/40"
+                          : "bg-slate-100 border-white text-slate-700 shadow-slate-300/50"}
+          `}
+                  >
+                    <div className="relative flex items-center justify-center">
+                      <LiveIcon active={isLiveActive} />
+                      {isLiveActive && (
+                        <span className="absolute -top-1.5 -right-1.5 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                </div>
+
+                {/* Teks LIVE dengan kontrol jarak penuh */}
+                <span className={`text-[10px] font-black tracking-wider transition-all duration-300
+  -mt-1.5 
+  ${isActive
+                    ? "text-orange-500 opacity-100 font-extrabold"
+                    : isLiveActive
+                      ? "text-red-500 animate-pulse"
+                      : isMalam ? "text-neutral-400" : "text-slate-500"}`}
                 >
                   LIVE
                 </span>
+
+                {isActive && (
+                  <div className="absolute bottom-0 w-8 h-[3px] bg-orange-500 rounded-t-full" />
+                )}
               </div>
             );
           }
 
+          // RENDER TAB NORMAL
           return (
             <button
               key={tab.id}
               onClick={() => handleNavigation(tab.id)}
               className={`
-                relative flex flex-col items-center justify-center flex-1 h-full pt-1
+                relative flex flex-col items-center justify-center flex-1 h-full pt-2 pb-1.5
                 transition-transform duration-150
                 ${isCurrentPressing ? 'scale-95' : 'scale-100'}
               `}
@@ -271,7 +287,7 @@ export default function SmartBottomNav({
                 className={`relative transition-all duration-300
                   ${isActive
                     ? "text-orange-500 -translate-y-0.5"
-                    : isMalam ? "text-white/40" : "text-slate-400"}`}
+                    : isMalam ? "text-white/60" : "text-slate-400"}`}
               >
                 {isHomeRefreshing ? (
                   <RefreshCw size={22} className="animate-spin" />
@@ -290,7 +306,7 @@ export default function SmartBottomNav({
               </div>
 
               <span className={`text-[9px] font-bold mt-1 transition-all duration-300
-                  ${isActive ? "text-orange-500 opacity-100" : "opacity-0"}`}
+                ${isActive ? "text-orange-500 opacity-100" : "opacity-0 h-0 overflow-hidden mt-0"}`}
               >
                 {tab.label}
               </span>

@@ -481,7 +481,7 @@ export default function LivePage() {
   if (isLiveActive === null) {
     return (
       <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center text-white gap-3">
+        <div className="w-full max-w-md h-full bg-black flex flex-col items-center justify-center text-white gap-3">
           <div className="w-10 h-10 border-4 border-white/20 border-t-red-500 rounded-full animate-spin"></div>
           <p className="text-xs text-neutral-400 tracking-wider">Mencari siaran...</p>
         </div>
@@ -492,7 +492,7 @@ export default function LivePage() {
   if (isLiveActive === false) {
     return (
       <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="relative w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center p-6 text-center text-white">
+        <div className="relative w-full max-w-md h-full bg-black flex flex-col items-center justify-center p-6 text-center text-white">
           <div className="absolute top-0 left-0 right-0 p-4">
             <button onClick={() => router.back()} className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-white">
               <ArrowLeft size={24} />
@@ -514,18 +514,22 @@ export default function LivePage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100]">
-      <div className="relative w-full max-w-[420px] h-full bg-black overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100] overflow-hidden">
+      {/* KUNCI JALAN TENGAH: Container utama dilepas fleksibel (w-full h-full).
+        Saat portrait, dia akan mengunci lebar maksimal setara HP (max-w-md).
+        Saat landscape, dia akan melebar penuh tanpa batas agar video landscape terlihat megah.
+      */}
+      <div className="relative w-full max-w-md landscape:max-w-none h-full bg-black overflow-hidden flex flex-col justify-between transition-all duration-300">
 
-        {/* VIDEO LAYER */}
-        <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center overflow-hidden">
+        {/* LAYER VIDEO DINAMIS */}
+        <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center">
           <video
             ref={videoRef}
-            className="w-full h-full object-cover min-h-full min-w-full scale-[1.02]"
-            style={{
-              objectFit: 'cover',
-              objectPosition: 'center'
-            }}
+            /* - Di HP Tegak (Portrait): Menggunakan object-cover + scale agar penuh kosmetik mirip TikTok.
+              - Di HP Miring (Landscape): Otomatis beralih ke object-contain agar seluruh frame video 
+                dari kamera landscape tampil utuh tanpa ada yang terpotong atas-bawahnya.
+            */
+            className="w-full h-full object-cover scale-[1.01] landscape:scale-100 landscape:object-contain transition-all duration-500 ease-in-out"
             playsInline
             autoPlay
             muted={false}
@@ -535,16 +539,16 @@ export default function LivePage() {
 
         {/* Loading Buffering Indicator */}
         {isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none z-10">
-            <div className="w-10 h-10 border-4 border-white/30 border-t-red-500 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/10 pointer-events-none z-10">
+            <div className="w-10 h-10 border-4 border-white/20 border-t-red-500 rounded-full animate-spin"></div>
           </div>
         )}
 
-        {/* TOP LAYER */}
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-30 flex items-center justify-between">
+        {/* TOP LAYER (Aman di kedua mode) */}
+        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 via-black/20 to-transparent z-30 flex items-center justify-between safe-top">
           <button
             onClick={() => router.back()}
-            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 pointer-events-auto"
+            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 pointer-events-auto active:scale-95 transition-transform"
           >
             <ArrowLeft size={24} />
           </button>
@@ -561,65 +565,48 @@ export default function LivePage() {
           </div>
         </div>
 
-        {/* BOTTOM LAYER */}
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-28 pb-4 px-4 flex flex-col justify-end pointer-events-none">
+        {/* BOTTOM LAYER: Komentar & Form Input */}
+        {/* Tambahkan `landscape:hidden` agar seluruh container bawah ini langsung lenyap saat HP miring */}
+        <div className="w-full mt-auto z-30 bg-gradient-to-t from-black/90 via-black/30 to-transparent pt-28 pb-safe px-4 flex flex-col justify-end pointer-events-none transition-all landscape:hidden">
 
-          {/* COMMENT CONTAINER */}
+          {/* AREA KOMENTAR MENGAMBANG */}
           <div
             ref={commentContainerRef}
-            className="h-[200px] overflow-y-auto mb-3 pointer-events-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
-            style={{
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(255,255,255,0.1) transparent'
-            }}
+            className="h-[150px] overflow-y-auto mb-3 pointer-events-auto scrollbar-none"
+            style={{ scrollbarWidth: 'none' }}
           >
             <div className="flex flex-col justify-end min-h-full">
-              <div className="space-y-2 pb-2">
+              <div className="space-y-2 pb-1">
                 {isCommentLoading ? (
-                  <div className="text-center text-white/30 text-xs py-4">
+                  <div className="text-left text-white/30 text-xs px-2">
                     Memuat komentar...
                   </div>
                 ) : comments.length === 0 ? (
-                  <div className="text-center text-white/30 text-xs py-4">
-                    Belum ada komentar. Jadilah yang pertama!
+                  <div className="text-left text-white/30 text-xs px-2">
+                    Belum ada komentar.
                   </div>
                 ) : (
                   comments.map((msg, index) => (
                     <div
                       key={msg.id || index}
-                      className="flex items-start gap-2 animate-fadeIn px-1"
+                      className="flex items-start gap-2 animate-fadeIn px-1.5 py-0.5 rounded-md"
                     >
                       <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
                         <img
                           src={getAvatarUrl(msg.avatar_url, msg.user_name)}
                           alt={msg.user_name || "User"}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover aspect-square"
                           loading="lazy"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              const initial = document.createElement('span');
-                              initial.className = 'w-full h-full flex items-center justify-center text-white text-[10px] font-bold';
-                              initial.textContent = msg.user_name?.charAt(0).toUpperCase() || 'U';
-                              parent.appendChild(initial);
-                            }
-                          }}
                         />
                       </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="bg-black/40 backdrop-blur-sm rounded-2xl px-3 py-1.5 inline-block max-w-[85%]">
-                          <p className="text-xs break-words text-white leading-relaxed">
-                            <span className="font-bold text-white mr-1.5 text-[10px]">
-                              {msg.user_name || "Warga"}
-                            </span>
-                            <span className="text-white/90 text-[13px] font-medium">
-                              {msg.comment}
-                            </span>
-                          </p>
-                        </div>
+                      <div className="flex-1 min-w-0 flex flex-col text-left">
+                        <span className="font-extrabold text-slate-300 text-[11px] tracking-wide text-left drop-shadow-md">
+                          {msg.user_name || "Warga"}
+                        </span>
+                        <p className="text-[13px] font-medium text-white leading-snug break-words text-left drop-shadow-md">
+                          {msg.comment}
+                        </p>
                       </div>
                     </div>
                   ))
@@ -628,29 +615,18 @@ export default function LivePage() {
             </div>
           </div>
 
-          {/* Comment Input */}
+          {/* FORM INPUT KOMENTAR */}
           <form
             onSubmit={handleSendComment}
-            className="flex gap-2 items-center pointer-events-auto"
+            className="flex gap-2 items-center pointer-events-auto mb-2"
           >
             {userData && (
               <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
                 <img
                   src={getAvatarUrl(userData.avatar_url, userData.full_name || userData.username)}
                   alt={userData.full_name || userData.username || "User"}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover aspect-square"
                   loading="lazy"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const parent = target.parentElement;
-                    if (parent) {
-                      const initial = document.createElement('span');
-                      initial.className = 'w-full h-full flex items-center justify-center text-white text-[10px] font-bold';
-                      initial.textContent = (userData.full_name || userData.username || 'U').charAt(0).toUpperCase();
-                      parent.appendChild(initial);
-                    }
-                  }}
                 />
               </div>
             )}
@@ -660,12 +636,12 @@ export default function LivePage() {
               onChange={(e) => setNewComment(e.target.value)}
               placeholder={userData ? "Kirim komentar..." : "Masuk untuk berkomentar..."}
               disabled={!userData}
-              className="flex-1 bg-black/40 backdrop-blur-md text-white border border-white/20 rounded-full px-4 py-2 text-xs focus:outline-none focus:border-red-500 placeholder-neutral-300 shadow-inner disabled:opacity-40"
+              className="flex-1 bg-black/40 backdrop-blur-md text-white border border-white/20 rounded-full px-4 py-2 text-xs focus:outline-none focus:border-red-500 placeholder-neutral-300 shadow-md disabled:opacity-40"
             />
             <button
               type="submit"
               disabled={!newComment.trim() || !userData}
-              className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-colors shrink-0 shadow-md"
+              className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-all shrink-0 shadow-md active:scale-90"
             >
               <Send size={14} />
             </button>
