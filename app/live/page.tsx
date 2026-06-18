@@ -141,7 +141,7 @@ export default function LivePage() {
     return () => clearInterval(interval);
   }, [isMounted, hlsUrl]);
 
-  // ========== PERBAIKAN: FETCH COMMENTS DENGAN 2 STEP ==========
+  // FETCH COMMENTS & SUBSCRIBE REAL-TIME
   useEffect(() => {
     if (!isMounted || !isLiveActive) return;
 
@@ -153,23 +153,15 @@ export default function LivePage() {
       try {
         setIsCommentLoading(true);
 
-        // STEP 1: Fetch comments dulu
         const { data: commentsData, error: commentsError } = await supabase
           .from("live_comments")
-          .select(`
-            id,
-            user_id,
-            user_name,
-            comment,
-            created_at
-          `)
+          .select(`id, user_id, user_name, comment, created_at`)
           .eq("stream_id", STREAM_ID)
           .order("created_at", { ascending: false })
           .limit(50);
 
         if (commentsError) {
           console.error('Error fetching comments:', commentsError);
-          // Jangan return, coba pakai data kosong
           setComments([]);
           setIsCommentLoading(false);
           return;
@@ -177,14 +169,11 @@ export default function LivePage() {
 
         if (!isSubscribed) return;
 
-        // STEP 2: Map comments dan fetch profiles secara terpisah
         const mappedComments: Comment[] = [];
 
         if (commentsData && commentsData.length > 0) {
-          // Ambil semua user_id unik
           const userIds = [...new Set(commentsData.map((item: any) => item.user_id).filter(Boolean))];
 
-          // Fetch profiles untuk user_ids
           let profilesMap: Record<string, any> = {};
           if (userIds.length > 0) {
             try {
@@ -201,20 +190,15 @@ export default function LivePage() {
               }
             } catch (profileErr) {
               console.warn('Error fetching profiles:', profileErr);
-              // Lanjutkan tanpa profile
             }
           }
 
-          // Map comments dengan profile
           for (const item of commentsData) {
             const profile = item.user_id ? profilesMap[item.user_id] : null;
             mappedComments.push({
               id: item.id,
               user_id: item.user_id,
-              user_name: item.user_name ||
-                profile?.full_name ||
-                profile?.username ||
-                "Warga",
+              user_name: item.user_name || profile?.full_name || profile?.username || "Warga",
               avatar_url: profile?.avatar_url || null,
               comment: item.comment || "",
               created_at: item.created_at || new Date().toISOString()
@@ -222,7 +206,6 @@ export default function LivePage() {
           }
         }
 
-        // Balik urutan untuk ascending
         setComments(mappedComments.reverse());
       } catch (err) {
         console.error('Error in fetchInitialComments:', err);
@@ -234,7 +217,6 @@ export default function LivePage() {
 
     fetchInitialComments();
 
-    // ===== SUBSCRIBE REAL-TIME =====
     const channel = supabase
       .channel(`live_comments_${STREAM_ID}`)
       .on(
@@ -247,10 +229,8 @@ export default function LivePage() {
         },
         async (payload) => {
           const newComment = payload.new as any;
-
           if (!newComment || !newComment.comment) return;
 
-          // Fetch profile untuk user ini
           let profileData = null;
           if (newComment.user_id) {
             try {
@@ -260,18 +240,13 @@ export default function LivePage() {
                 .eq('id', newComment.user_id)
                 .single();
               profileData = profile;
-            } catch (err) {
-              // Profile tidak ditemukan, lanjutkan
-            }
+            } catch (err) { }
           }
 
           const commentWithAvatar: Comment = {
             id: newComment.id,
             user_id: newComment.user_id,
-            user_name: newComment.user_name ||
-              profileData?.full_name ||
-              profileData?.username ||
-              "Warga",
+            user_name: newComment.user_name || profileData?.full_name || profileData?.username || "Warga",
             avatar_url: profileData?.avatar_url || null,
             comment: newComment.comment || "",
             created_at: newComment.created_at || new Date().toISOString()
@@ -291,9 +266,7 @@ export default function LivePage() {
           }, 300);
         }
       )
-      .subscribe((status) => {
-        console.log('🔴 Subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
       isSubscribed = false;
@@ -329,9 +302,7 @@ export default function LivePage() {
     const playWithAudio = async () => {
       try {
         await video.play();
-        console.log("✅ Audio aktif dan video diputar");
       } catch (err) {
-        console.log("⚠️ Auto-play mungkin diblokir browser:", err);
         const handleUserInteraction = () => {
           video.play().catch(e => console.log('Still blocked:', e));
           document.removeEventListener('click', handleUserInteraction);
@@ -352,8 +323,7 @@ export default function LivePage() {
     };
 
     if (Hls.isSupported()) {
-      const maxBufferLength = networkQuality === 'high' ? 20 :
-        networkQuality === 'medium' ? 10 : 5;
+      const maxBufferLength = networkQuality === 'high' ? 20 : networkQuality === 'medium' ? 10 : 5;
 
       hls = new Hls({
         enableWorker: true,
@@ -392,7 +362,6 @@ export default function LivePage() {
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
-          console.log("⚠️ HLS Error, mencoba direct play...");
           video.src = hlsUrl;
           playWithAudio();
         }
@@ -440,7 +409,6 @@ export default function LivePage() {
         alert("Gagal mengirim komentar. Silakan coba lagi.");
         setNewComment(commentText);
       } else {
-        // Optimistic update
         const optimisticComment: Comment = {
           id: Date.now(),
           user_id: userData.id,
@@ -468,20 +436,19 @@ export default function LivePage() {
     return () => clearInterval(interval);
   }, [isMounted, isLiveActive]);
 
-  // Helper
+  // Helper Avatar
   const getAvatarUrl = useCallback((avatarUrl: string | null, name: string | null) => {
     if (avatarUrl) return avatarUrl;
     const displayName = name || 'User';
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=24&bold=true&rounded=true`;
   }, []);
 
-  // Render
   if (!isMounted) return null;
 
   if (isLiveActive === null) {
     return (
       <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="w-full max-w-md h-full bg-black flex flex-col items-center justify-center text-white gap-3">
+        <div className="w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center text-white gap-3">
           <div className="w-10 h-10 border-4 border-white/20 border-t-red-500 rounded-full animate-spin"></div>
           <p className="text-xs text-neutral-400 tracking-wider">Mencari siaran...</p>
         </div>
@@ -492,7 +459,7 @@ export default function LivePage() {
   if (isLiveActive === false) {
     return (
       <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="relative w-full max-w-md h-full bg-black flex flex-col items-center justify-center p-6 text-center text-white">
+        <div className="relative w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center p-6 text-center text-white">
           <div className="absolute top-0 left-0 right-0 p-4">
             <button onClick={() => router.back()} className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-white">
               <ArrowLeft size={24} />
@@ -514,22 +481,15 @@ export default function LivePage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100] overflow-hidden">
-      {/* KUNCI JALAN TENGAH: Container utama dilepas fleksibel (w-full h-full).
-        Saat portrait, dia akan mengunci lebar maksimal setara HP (max-w-md).
-        Saat landscape, dia akan melebar penuh tanpa batas agar video landscape terlihat megah.
-      */}
-      <div className="relative w-full max-w-md landscape:max-w-none h-full bg-black overflow-hidden flex flex-col justify-between transition-all duration-300">
+    <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100]">
+      <div className="relative w-full max-w-[420px] h-full bg-black overflow-hidden shadow-2xl">
 
-        {/* LAYER VIDEO DINAMIS */}
-        <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center">
+        {/* VIDEO LAYER */}
+        <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center overflow-hidden">
           <video
             ref={videoRef}
-            /* - Di HP Tegak (Portrait): Menggunakan object-cover + scale agar penuh kosmetik mirip TikTok.
-              - Di HP Miring (Landscape): Otomatis beralih ke object-contain agar seluruh frame video 
-                dari kamera landscape tampil utuh tanpa ada yang terpotong atas-bawahnya.
-            */
-            className="w-full h-full object-cover scale-[1.01] landscape:scale-100 landscape:object-contain transition-all duration-500 ease-in-out"
+            className="w-full h-full object-cover min-h-full min-w-full scale-[1.02]"
+            style={{ objectFit: 'cover', objectPosition: 'center' }}
             playsInline
             autoPlay
             muted={false}
@@ -537,18 +497,18 @@ export default function LivePage() {
           />
         </div>
 
-        {/* Loading Buffering Indicator */}
+        {/* Buffering Indicator */}
         {isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/10 pointer-events-none z-10">
-            <div className="w-10 h-10 border-4 border-white/20 border-t-red-500 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none z-10">
+            <div className="w-10 h-10 border-4 border-white/30 border-t-red-500 rounded-full animate-spin"></div>
           </div>
         )}
 
-        {/* TOP LAYER (Aman di kedua mode) */}
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 via-black/20 to-transparent z-30 flex items-center justify-between safe-top">
+        {/* TOP LAYER */}
+        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-30 flex items-center justify-between">
           <button
             onClick={() => router.back()}
-            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 pointer-events-auto active:scale-95 transition-transform"
+            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 pointer-events-auto"
           >
             <ArrowLeft size={24} />
           </button>
@@ -565,49 +525,53 @@ export default function LivePage() {
           </div>
         </div>
 
-        {/* BOTTOM LAYER: Komentar & Form Input */}
-        {/* Tambahkan `landscape:hidden` agar seluruh container bawah ini langsung lenyap saat HP miring */}
-        <div className="w-full mt-auto z-30 bg-gradient-to-t from-black/90 via-black/30 to-transparent pt-28 pb-safe px-4 flex flex-col justify-end pointer-events-none transition-all landscape:hidden">
+        {/* BOTTOM LAYER */}
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-28 pb-4 px-4 flex flex-col justify-end pointer-events-none">
 
-          {/* AREA KOMENTAR MENGAMBANG */}
+          {/* COMMENT CONTAINER */}
           <div
             ref={commentContainerRef}
-            className="h-[150px] overflow-y-auto mb-3 pointer-events-auto scrollbar-none"
+            className="h-[200px] overflow-y-auto mb-3 pointer-events-auto scrollbar-none"
             style={{ scrollbarWidth: 'none' }}
           >
             <div className="flex flex-col justify-end min-h-full">
-              <div className="space-y-2 pb-1">
+              <div className="space-y-2 pb-2">
                 {isCommentLoading ? (
-                  <div className="text-left text-white/30 text-xs px-2">
+                  <div className="text-center text-white/30 text-xs py-4">
                     Memuat komentar...
                   </div>
                 ) : comments.length === 0 ? (
-                  <div className="text-left text-white/30 text-xs px-2">
-                    Belum ada komentar.
+                  <div className="text-center text-white/30 text-xs py-4">
+                    Belum ada komentar. Jadilah yang pertama!
                   </div>
                 ) : (
                   comments.map((msg, index) => (
                     <div
                       key={msg.id || index}
-                      className="flex items-start gap-2 animate-fadeIn px-1.5 py-0.5 rounded-md"
+                      className="flex items-start gap-2 animate-fadeIn px-1 text-left"
                     >
+                      {/* AVATAR USER */}
                       <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
                         <img
                           src={getAvatarUrl(msg.avatar_url, msg.user_name)}
-                          alt={msg.user_name || "User"}
-                          className="w-full h-full object-cover aspect-square"
+                          alt=""
+                          className="w-full h-full object-cover"
                           loading="lazy"
                         />
                       </div>
 
+                      {/* TEKS KOMENTAR MENGAMBANG GAYA TIKTOK (2 BARIS - REVISI MINIMALIS) */}
                       <div className="flex-1 min-w-0 flex flex-col text-left">
-                        <span className="font-extrabold text-slate-300 text-[11px] tracking-wide text-left drop-shadow-md">
+                        {/* Baris 1: Username (Abu-abu Kalem) */}
+                        <span className="font-extrabold text-slate-300 text-[11px] tracking-wide mb-0.5 text-left drop-shadow-md">
                           {msg.user_name || "Warga"}
                         </span>
+                        {/* Baris 2: Isi Komentar (Putih Bersih) */}
                         <p className="text-[13px] font-medium text-white leading-snug break-words text-left drop-shadow-md">
                           {msg.comment}
                         </p>
                       </div>
+
                     </div>
                   ))
                 )}
@@ -615,17 +579,17 @@ export default function LivePage() {
             </div>
           </div>
 
-          {/* FORM INPUT KOMENTAR */}
+          {/* Comment Input */}
           <form
             onSubmit={handleSendComment}
-            className="flex gap-2 items-center pointer-events-auto mb-2"
+            className="flex gap-2 items-center pointer-events-auto"
           >
             {userData && (
               <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
                 <img
                   src={getAvatarUrl(userData.avatar_url, userData.full_name || userData.username)}
-                  alt={userData.full_name || userData.username || "User"}
-                  className="w-full h-full object-cover aspect-square"
+                  alt=""
+                  className="w-full h-full object-cover"
                   loading="lazy"
                 />
               </div>
@@ -636,12 +600,12 @@ export default function LivePage() {
               onChange={(e) => setNewComment(e.target.value)}
               placeholder={userData ? "Kirim komentar..." : "Masuk untuk berkomentar..."}
               disabled={!userData}
-              className="flex-1 bg-black/40 backdrop-blur-md text-white border border-white/20 rounded-full px-4 py-2 text-xs focus:outline-none focus:border-red-500 placeholder-neutral-300 shadow-md disabled:opacity-40"
+              className="flex-1 bg-black/40 backdrop-blur-md text-white border border-white/20 rounded-full px-4 py-2 text-xs focus:outline-none focus:border-red-500 placeholder-neutral-300 shadow-inner disabled:opacity-40"
             />
             <button
               type="submit"
               disabled={!newComment.trim() || !userData}
-              className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-all shrink-0 shadow-md active:scale-90"
+              className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-colors shrink-0 shadow-md"
             >
               <Send size={14} />
             </button>
