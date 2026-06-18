@@ -1,73 +1,99 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 import { memo, useRef, useEffect, useState } from "react";
 
 function FeedCardWrapper({ children, isActive, containerRef }) {
   const cardRef = useRef(null);
   const [elementTop, setElementTop] = useState(0);
-  const [elementHeight, setElementHeight] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
 
-  // 🔥 SOLUSI UTAMA: Ikat useScroll ke kontainer penampung snap-scroll Anda, bukan ke window!
+  // 1. Mengikat useScroll ke kontainer penampung khusus
   const { scrollY } = useScroll({
-    container: containerRef
+    container: containerRef || undefined,
   });
 
-  // Hitung posisi relatif kartu di dalam kontainer
+  // 2. Konfigurasi Spring untuk melunakkan tarikan scroll jari
+  const springConfig = {
+    damping: 30,    // Mencegah efek goyang/memantul berlebih
+    stiffness: 160, // Kecepatan respons mengejar ujung jari
+    mass: 0.5       // Memberikan inersia bobot yang alami
+  };
+
+  // 3. Menghitung posisi koordinat kartu di dalam DOM secara presisi
   useEffect(() => {
     const calculatePositions = () => {
       if (cardRef.current) {
-        // Menggunakan offsetTop karena posisi dihitung dari batas atas parent terdekat
         setElementTop(cardRef.current.offsetTop);
-        setElementHeight(cardRef.current.offsetHeight);
       }
       if (containerRef?.current) {
         setContainerHeight(containerRef.current.clientHeight);
       }
     };
 
-    // Jalankan saat awal render
     calculatePositions();
 
-    // Antisipasi jika ada perubahan ukuran layar/orientasi hp
-    window.addEventListener("resize", calculatePositions);
-    return () => window.removeEventListener("resize", calculatePositions);
+    const timeoutId = setTimeout(calculatePositions, 100);
+    const resizeObserver = new ResizeObserver(calculatePositions);
+
+    if (containerRef && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (containerRef && containerRef.current) {
+        resizeObserver.unobserve(containerRef.current);
+      }
+      resizeObserver.disconnect();
+    };
   }, [containerRef]);
 
   /**
-   * KONTROL JARAK ANIMASI (Berdasarkan tinggi kontainer scroll):
-   * index 0: Kartu berada di antrean bawah (Dipaksa Hitam/Gelap total)
-   * index 1: Kartu pas masuk viewport aktif (Warna asli 100%)
-   * index 2: Kartu bertahan sebelum didorong ke atas (Warna asli 100%)
-   * index 3: Kartu tenggelam tersedot ke atas layar (Kembali Hitam/Gelap total)
+   * 4. SNAP RANGE KONTROL (Perplexity Discover Style)
+   * Menggunakan pengali 0.35 agar efek transisi transparan -> buram -> terang
+   * benar-benar terkunci ketat hanya saat kartu dekat dengan pusat viewport.
    */
+  const currentContainerHeight = containerHeight || 800;
   const inputRange = [
-    elementTop - containerHeight,
-    elementTop - containerHeight * 0.15,
-    elementTop + elementHeight - containerHeight * 0.45,
-    elementTop + elementHeight
+    elementTop - currentContainerHeight * 0.35, // 1. Berada di antrean bawah (Kondisi mati)
+    elementTop,                                 // 2. Tepat di tengah fokus (Kondisi puncak/aktif)
+    elementTop + 40,                            // 3. Menahan kondisi aktif sebentar saat digeser naik
+    elementTop + currentContainerHeight * 0.35  // 4. Didorong keluar ke atas (Kembali mati)
   ];
 
-  // Ekstremisasi nilai output agar transisinya tegas dan mengunci fokus
-  const dynamicOpacity = useTransform(scrollY, inputRange, [0.05, 1, 1, 0.05]);
+  // 5. Transformasi Nilai Linear Mentah (Raw Values)
+  const rawOpacity = useTransform(scrollY, inputRange, [0.05, 1, 1, 0.05]);
+  const rawScale = useTransform(scrollY, inputRange, [0.94, 1, 1, 0.94]);
+  const rawY = useTransform(scrollY, inputRange, [25, 0, 0, -25]); // Paralaks halus
 
-  const dynamicGrayscale = useTransform(scrollY, inputRange, [
+  const rawGrayscale = useTransform(scrollY, inputRange, [
     "grayscale(100%)",
     "grayscale(0%)",
     "grayscale(0%)",
     "grayscale(100%)",
   ]);
 
-  const dynamicBrightness = useTransform(scrollY, inputRange, [
-    "brightness(15%)", // Sangat gelap, menyatu dengan latar belakang hitam
-    "brightness(100%)",
-    "brightness(100%)",
-    "brightness(15%)",
+  // 🔥 PERBAIKAN DI SINI: Nilai disinkronkan agar terang 100% tepat di tengah (Indeks 1 & 2)
+  const rawBrightness = useTransform(scrollY, inputRange, [
+    "brightness(15%)",  // Di bawah: Sangat redup, menyatu dengan bg black
+    "brightness(100%)", // Tepat di tengah: Menyala terang sempurna
+    "brightness(100%)", // Digeser ke atas dikit: Tetap terang sempurna
+    "brightness(15%)",  // Keluar ke atas: Redup kembali
   ]);
 
-  const dynamicScale = useTransform(scrollY, inputRange, [0.92, 1, 1, 0.92]);
-  const dynamicY = useTransform(scrollY, inputRange, [30, 0, 0, -30]);
+  // ✨ BONUS: Efek gradual blur yang ditarik halus (Ciri khas antarmuka premium modern)
+  const rawBlur = useTransform(scrollY, inputRange, [
+    "blur(10px)",
+    "blur(0px)",
+    "blur(0px)",
+    "blur(10px)",
+  ]);
+
+  // 6. Hubungkan nilai transform ke useSpring agar jalannya animasi selembut sutra
+  const dynamicOpacity = useSpring(rawOpacity, springConfig);
+  const dynamicScale = useSpring(rawScale, springConfig);
+  const dynamicY = useSpring(rawY, springConfig);
 
   return (
     <motion.div
@@ -76,8 +102,8 @@ function FeedCardWrapper({ children, isActive, containerRef }) {
         opacity: dynamicOpacity,
         scale: dynamicScale,
         y: dynamicY,
-        filter: `${dynamicGrayscale} ${dynamicBrightness}`,
-        WebkitFilter: `${dynamicGrayscale} ${dynamicBrightness}`,
+        filter: `${rawGrayscale} ${rawBrightness} ${rawBlur}`,
+        WebkitFilter: `${rawGrayscale} ${rawBrightness} ${rawBlur}`,
         willChange: "transform, opacity, filter",
         transform: "translateZ(0)",
         WebkitTransform: "translateZ(0)",

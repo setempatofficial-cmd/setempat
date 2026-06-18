@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, VideoOff, Send } from "lucide-react";
 import Hls from "hls.js";
@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface Comment {
   id: number;
+  user_id?: string;
   user_name: string | null;
   avatar_url: string | null;
   comment: string;
@@ -25,17 +26,16 @@ interface Profile {
 export default function LivePage() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const commentEndRef = useRef<HTMLDivElement>(null);
-
+  const commentContainerRef = useRef<HTMLDivElement>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [isLiveActive, setIsLiveActive] = useState<boolean | null>(null);
   const [isBuffering, setIsBuffering] = useState(true);
   const [viewers, setViewers] = useState(0);
   const [networkQuality, setNetworkQuality] = useState<'high' | 'medium' | 'low'>('high');
-
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [userData, setUserData] = useState<Profile | null>(null);
+  const [isCommentLoading, setIsCommentLoading] = useState(true);
 
   const STREAM_ID = '00c40fc1aaff4ea1882011355887bd8e';
   const hlsUrl = `https://res.cloudinary.com/dmhpgqe3o/video/live/live_stream_${STREAM_ID}_hls.m3u8`;
@@ -44,36 +44,46 @@ export default function LivePage() {
     setIsMounted(true);
   }, []);
 
-  // Detect network quality
+  // Network Detection
   useEffect(() => {
     if (!isMounted) return;
+
+    let timeoutId: NodeJS.Timeout;
 
     const detectNetworkQuality = () => {
       if ('connection' in navigator) {
         const connection = (navigator as any).connection;
         if (connection) {
+          const type = connection.effectiveType;
           const speed = connection.downlink || 0;
-          if (speed > 5) setNetworkQuality('high');
-          else if (speed > 2) setNetworkQuality('medium');
+
+          if (type === '4g' && speed > 5) setNetworkQuality('high');
+          else if (type === '4g' || (type === '3g' && speed > 2)) setNetworkQuality('medium');
           else setNetworkQuality('low');
 
           const handleChange = () => {
-            const newSpeed = connection.downlink || 0;
-            if (newSpeed > 5) setNetworkQuality('high');
-            else if (newSpeed > 2) setNetworkQuality('medium');
-            else setNetworkQuality('low');
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+              const newSpeed = connection.downlink || 0;
+              if (newSpeed > 5) setNetworkQuality('high');
+              else if (newSpeed > 2) setNetworkQuality('medium');
+              else setNetworkQuality('low');
+            }, 500);
           };
+
           connection.addEventListener('change', handleChange);
-          return () => connection.removeEventListener('change', handleChange);
+          return () => {
+            connection.removeEventListener('change', handleChange);
+            clearTimeout(timeoutId);
+          };
         }
       }
-      setNetworkQuality('medium');
     };
 
     detectNetworkQuality();
   }, [isMounted]);
 
-  // 1. Get User Data from profiles table
+  // Get User Profile
   useEffect(() => {
     if (!isMounted) return;
 
@@ -109,7 +119,7 @@ export default function LivePage() {
     getUserProfile();
   }, [isMounted]);
 
-  // 2. Check Live Status
+  // Check Live Status
   useEffect(() => {
     if (!isMounted) return;
 
@@ -131,63 +141,102 @@ export default function LivePage() {
     return () => clearInterval(interval);
   }, [isMounted, hlsUrl]);
 
-  // 3. Real-time Comments with avatar from profiles - FIXED with LEFT JOIN
+  // ========== PERBAIKAN: FETCH COMMENTS DENGAN 2 STEP ==========
   useEffect(() => {
     if (!isMounted || !isLiveActive) return;
 
-    const fetchComments = async () => {
+    let isSubscribed = true;
+    let commentQueue: Comment[] = [];
+    let batchTimeout: NodeJS.Timeout;
+
+    const fetchInitialComments = async () => {
       try {
-        // Gunakan LEFT JOIN agar tetap bisa ambil komentar walau profile tidak ada
-        const { data, error } = await supabase
+        setIsCommentLoading(true);
+
+        // STEP 1: Fetch comments dulu
+        const { data: commentsData, error: commentsError } = await supabase
           .from("live_comments")
           .select(`
             id,
             user_id,
             user_name,
             comment,
-            created_at,
-            profiles (
-              avatar_url,
-              full_name,
-              username
-            )
+            created_at
           `)
           .eq("stream_id", STREAM_ID)
-          .order("created_at", { ascending: true })
+          .order("created_at", { ascending: false })
           .limit(50);
 
-        if (error) {
-          // Ini hanya warning, bukan error fatal
-          console.warn('Warning saat mengambil komentar:', error.message);
+        if (commentsError) {
+          console.error('Error fetching comments:', commentsError);
+          // Jangan return, coba pakai data kosong
+          setComments([]);
+          setIsCommentLoading(false);
           return;
         }
 
-        // Map data dengan aman - jika tidak ada profile, pakai default
-        const commentsWithAvatar = (data || []).map((item: any) => ({
-          id: item.id,
-          user_name: item.user_name ||
-            item.profiles?.full_name ||
-            item.profiles?.username ||
-            "Warga",
-          avatar_url: item.profiles?.avatar_url || null,
-          comment: item.comment || "",
-          created_at: item.created_at || new Date().toISOString()
-        }));
+        if (!isSubscribed) return;
 
-        setComments(commentsWithAvatar);
+        // STEP 2: Map comments dan fetch profiles secara terpisah
+        const mappedComments: Comment[] = [];
+
+        if (commentsData && commentsData.length > 0) {
+          // Ambil semua user_id unik
+          const userIds = [...new Set(commentsData.map((item: any) => item.user_id).filter(Boolean))];
+
+          // Fetch profiles untuk user_ids
+          let profilesMap: Record<string, any> = {};
+          if (userIds.length > 0) {
+            try {
+              const { data: profilesData } = await supabase
+                .from('profiles')
+                .select('id, avatar_url, full_name, username')
+                .in('id', userIds);
+
+              if (profilesData) {
+                profilesMap = profilesData.reduce((acc: any, profile: any) => {
+                  acc[profile.id] = profile;
+                  return acc;
+                }, {});
+              }
+            } catch (profileErr) {
+              console.warn('Error fetching profiles:', profileErr);
+              // Lanjutkan tanpa profile
+            }
+          }
+
+          // Map comments dengan profile
+          for (const item of commentsData) {
+            const profile = item.user_id ? profilesMap[item.user_id] : null;
+            mappedComments.push({
+              id: item.id,
+              user_id: item.user_id,
+              user_name: item.user_name ||
+                profile?.full_name ||
+                profile?.username ||
+                "Warga",
+              avatar_url: profile?.avatar_url || null,
+              comment: item.comment || "",
+              created_at: item.created_at || new Date().toISOString()
+            });
+          }
+        }
+
+        // Balik urutan untuk ascending
+        setComments(mappedComments.reverse());
       } catch (err) {
-        // Tangkap error dengan aman
-        console.warn('Error saat fetch komentar:', err);
-        // Set comments kosong agar tidak crash
+        console.error('Error in fetchInitialComments:', err);
         setComments([]);
+      } finally {
+        setIsCommentLoading(false);
       }
     };
 
-    fetchComments();
+    fetchInitialComments();
 
-    // Subscribe ke perubahan komentar
+    // ===== SUBSCRIBE REAL-TIME =====
     const channel = supabase
-      .channel(`live_comments:${STREAM_ID}`)
+      .channel(`live_comments_${STREAM_ID}`)
       .on(
         "postgres_changes",
         {
@@ -197,53 +246,83 @@ export default function LivePage() {
           filter: `stream_id=eq.${STREAM_ID}`,
         },
         async (payload) => {
-          try {
-            const newComment = payload.new as any;
+          const newComment = payload.new as any;
 
-            // Ambil profile jika ada
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('avatar_url, full_name, username')
-              .eq('id', newComment.user_id)
-              .single();
+          if (!newComment || !newComment.comment) return;
 
-            const commentWithAvatar = {
-              id: newComment.id,
-              user_name: newComment.user_name ||
-                profile?.full_name ||
-                profile?.username ||
-                "Warga",
-              avatar_url: profile?.avatar_url || null,
-              comment: newComment.comment || "",
-              created_at: newComment.created_at || new Date().toISOString()
-            };
-
-            setComments((prev) => [...prev, commentWithAvatar]);
-          } catch (err) {
-            console.warn('Error saat proses komentar baru:', err);
+          // Fetch profile untuk user ini
+          let profileData = null;
+          if (newComment.user_id) {
+            try {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('avatar_url, full_name, username')
+                .eq('id', newComment.user_id)
+                .single();
+              profileData = profile;
+            } catch (err) {
+              // Profile tidak ditemukan, lanjutkan
+            }
           }
+
+          const commentWithAvatar: Comment = {
+            id: newComment.id,
+            user_id: newComment.user_id,
+            user_name: newComment.user_name ||
+              profileData?.full_name ||
+              profileData?.username ||
+              "Warga",
+            avatar_url: profileData?.avatar_url || null,
+            comment: newComment.comment || "",
+            created_at: newComment.created_at || new Date().toISOString()
+          };
+
+          commentQueue.push(commentWithAvatar);
+
+          clearTimeout(batchTimeout);
+          batchTimeout = setTimeout(() => {
+            if (commentQueue.length > 0 && isSubscribed) {
+              setComments(prev => {
+                const updated = [...prev, ...commentQueue];
+                return updated.slice(-100);
+              });
+              commentQueue = [];
+            }
+          }, 300);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔴 Subscription status:', status);
+      });
 
     return () => {
+      isSubscribed = false;
+      clearTimeout(batchTimeout);
+      if (commentQueue.length > 0) {
+        setComments(prev => [...prev, ...commentQueue].slice(-100));
+      }
       supabase.removeChannel(channel);
     };
-  }, [isMounted, isLiveActive]);
+  }, [isMounted, isLiveActive, STREAM_ID]);
 
-  // 4. Auto-scroll comments
+  // Auto-scroll
   useEffect(() => {
-    commentEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (commentContainerRef.current) {
+      const container = commentContainerRef.current;
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   }, [comments]);
 
-  // 5. Initialize HLS Player with adaptive bitrate based on network
+  // HLS Player
   useEffect(() => {
     if (!isMounted || !isLiveActive || !videoRef.current) return;
 
     let hls: Hls;
     const video = videoRef.current;
 
-    // Always start with audio enabled
     video.muted = false;
     video.volume = 1.0;
 
@@ -263,7 +342,6 @@ export default function LivePage() {
       }
     };
 
-    // Configure quality based on network
     const getMaxBitrate = () => {
       switch (networkQuality) {
         case 'high': return 8000000;
@@ -274,15 +352,22 @@ export default function LivePage() {
     };
 
     if (Hls.isSupported()) {
+      const maxBufferLength = networkQuality === 'high' ? 20 :
+        networkQuality === 'medium' ? 10 : 5;
+
       hls = new Hls({
         enableWorker: true,
         lowLatencyMode: networkQuality === 'high',
-        maxBufferLength: networkQuality === 'high' ? 30 : 10,
-        maxMaxBufferLength: networkQuality === 'high' ? 60 : 20,
+        maxBufferLength: maxBufferLength,
+        maxMaxBufferLength: maxBufferLength * 1.5,
         abrEwmaDefaultEstimate: getMaxBitrate(),
-        abrBandWidthUpFactor: networkQuality === 'high' ? 1.2 : 0.8,
-        abrBandWidthDownFactor: 0.8,
-        startLevel: -1
+        abrBandWidthUpFactor: 0.7,
+        abrBandWidthDownFactor: 0.9,
+        startLevel: -1,
+        fragLoadingMaxRetry: 3,
+        fragLoadingRetryDelay: 500,
+        manifestLoadingMaxRetry: 2,
+        manifestLoadingRetryDelay: 300,
       });
 
       hls.loadSource(hlsUrl);
@@ -303,10 +388,6 @@ export default function LivePage() {
           }
         }
         playWithAudio();
-      });
-
-      hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-        console.log(`📊 Switched to level ${data.level}`);
       });
 
       hls.on(Hls.Events.ERROR, (event, data) => {
@@ -337,12 +418,12 @@ export default function LivePage() {
     };
   }, [isMounted, isLiveActive, hlsUrl, networkQuality]);
 
-  // 6. Send Comment
+  // Send Comment
   const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || !userData) return;
 
-    const commentText = newComment;
+    const commentText = newComment.trim();
     setNewComment("");
 
     try {
@@ -350,36 +431,51 @@ export default function LivePage() {
         user_id: userData.id,
         user_name: userData.full_name || userData.username || "Warga",
         comment: commentText,
-        stream_id: STREAM_ID
+        stream_id: STREAM_ID,
+        created_at: new Date().toISOString()
       });
 
       if (error) {
         console.error("Gagal mengirim komentar:", error.message);
-        // Tampilkan pesan ke user
         alert("Gagal mengirim komentar. Silakan coba lagi.");
+        setNewComment(commentText);
+      } else {
+        // Optimistic update
+        const optimisticComment: Comment = {
+          id: Date.now(),
+          user_id: userData.id,
+          user_name: userData.full_name || userData.username || "Warga",
+          avatar_url: userData.avatar_url || null,
+          comment: commentText,
+          created_at: new Date().toISOString()
+        };
+        setComments(prev => [...prev, optimisticComment]);
       }
     } catch (err) {
       console.error("Error saat kirim komentar:", err);
+      alert("Gagal mengirim komentar. Silakan coba lagi.");
+      setNewComment(commentText);
     }
   };
 
-  // 7. Simulate Viewers
+  // Simulate Viewers
   useEffect(() => {
     if (!isMounted || !isLiveActive) return;
     setViewers(Math.floor(Math.random() * 30) + 15);
     const interval = setInterval(() => {
-      setViewers(prev => prev + Math.floor(Math.random() * 3) - 1);
+      setViewers(prev => Math.max(1, prev + Math.floor(Math.random() * 3) - 1));
     }, 5000);
     return () => clearInterval(interval);
   }, [isMounted, isLiveActive]);
 
-  // Helper untuk mendapatkan avatar URL
-  const getAvatarUrl = (avatarUrl: string | null, name: string | null) => {
+  // Helper
+  const getAvatarUrl = useCallback((avatarUrl: string | null, name: string | null) => {
     if (avatarUrl) return avatarUrl;
     const displayName = name || 'User';
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=24&bold=true&rounded=true`;
-  };
+  }, []);
 
+  // Render
   if (!isMounted) return null;
 
   if (isLiveActive === null) {
@@ -444,7 +540,7 @@ export default function LivePage() {
           </div>
         )}
 
-        {/* TOP LAYER: Navigation & Live Info */}
+        {/* TOP LAYER */}
         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-30 flex items-center justify-between">
           <button
             onClick={() => router.back()}
@@ -454,13 +550,10 @@ export default function LivePage() {
           </button>
 
           <div className="flex items-center gap-1.5 pointer-events-auto">
-
-
             <div className="bg-red-600 text-white px-2.5 py-1 rounded-md text-[10px] font-black tracking-wider flex items-center gap-1 shadow-md">
               <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
               LIVE
             </div>
-
             <div className="bg-black/40 backdrop-blur-md border border-white/10 px-2 py-1 rounded-md flex items-center gap-1 text-white text-[10px] font-bold shadow-md">
               <Eye size={13} />
               <span>{viewers}</span>
@@ -468,69 +561,78 @@ export default function LivePage() {
           </div>
         </div>
 
-        {/* BOTTOM LAYER: Chat with Avatar from Profiles */}
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/30 to-transparent pt-24 pb-4 px-4 flex flex-col justify-end pointer-events-none">
+        {/* BOTTOM LAYER */}
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-28 pb-4 px-4 flex flex-col justify-end pointer-events-none">
 
-          {/* Comments Flow with Avatars */}
-          <div className="h-[200px] overflow-y-auto space-y-2 mb-4 scrollbar-none pointer-events-auto flex flex-col justify-end">
-            <div className="space-y-2">
-              {comments.length === 0 ? (
-                <div className="text-center text-white/30 text-xs py-4">
-                  Belum ada komentar. Jadilah yang pertama!
-                </div>
-              ) : (
-                comments.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className="flex items-start gap-2 animate-fadeIn"
-                  >
-                    {/* Avatar - smaller size 24px */}
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
-                      <img
-                        src={getAvatarUrl(msg.avatar_url, msg.user_name)}
-                        alt={msg.user_name || "User"}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent) {
-                            const initial = document.createElement('span');
-                            initial.className = 'w-full h-full flex items-center justify-center text-white text-[10px] font-bold';
-                            initial.textContent = msg.user_name?.charAt(0).toUpperCase() || 'U';
-                            parent.appendChild(initial);
-                          }
-                        }}
-                      />
-                    </div>
+          {/* COMMENT CONTAINER */}
+          <div
+            ref={commentContainerRef}
+            className="h-[200px] overflow-y-auto mb-3 pointer-events-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(255,255,255,0.1) transparent'
+            }}
+          >
+            <div className="flex flex-col justify-end min-h-full">
+              <div className="space-y-2 pb-2">
+                {isCommentLoading ? (
+                  <div className="text-center text-white/30 text-xs py-4">
+                    Memuat komentar...
+                  </div>
+                ) : comments.length === 0 ? (
+                  <div className="text-center text-white/30 text-xs py-4">
+                    Belum ada komentar. Jadilah yang pertama!
+                  </div>
+                ) : (
+                  comments.map((msg, index) => (
+                    <div
+                      key={msg.id || index}
+                      className="flex items-start gap-2 animate-fadeIn px-1"
+                    >
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
+                        <img
+                          src={getAvatarUrl(msg.avatar_url, msg.user_name)}
+                          alt={msg.user_name || "User"}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              const initial = document.createElement('span');
+                              initial.className = 'w-full h-full flex items-center justify-center text-white text-[10px] font-bold';
+                              initial.textContent = msg.user_name?.charAt(0).toUpperCase() || 'U';
+                              parent.appendChild(initial);
+                            }
+                          }}
+                        />
+                      </div>
 
-                    {/* Comment Content - WHITE username */}
-                    <div className="flex-1 min-w-0">
-                      <div className="bg-black/40 backdrop-blur-sm rounded-2xl px-3 py-1.5 inline-block max-w-[85%]">
-                        <p className="text-xs break-words text-white leading-relaxed">
-                          <span className="font-bold text-white mr-1.5 text-[10px]">
-                            {msg.user_name || "Warga"}
-                          </span>
-                          <span className="text-white/90 text-[13px] font-medium">
-                            {msg.comment}
-                          </span>
-                        </p>
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-black/40 backdrop-blur-sm rounded-2xl px-3 py-1.5 inline-block max-w-[85%]">
+                          <p className="text-xs break-words text-white leading-relaxed">
+                            <span className="font-bold text-white mr-1.5 text-[10px]">
+                              {msg.user_name || "Warga"}
+                            </span>
+                            <span className="text-white/90 text-[13px] font-medium">
+                              {msg.comment}
+                            </span>
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
-              <div ref={commentEndRef} />
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Comment Input Form */}
+          {/* Comment Input */}
           <form
             onSubmit={handleSendComment}
             className="flex gap-2 items-center pointer-events-auto"
           >
-            {/* User Avatar - smaller size */}
             {userData && (
               <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
                 <img

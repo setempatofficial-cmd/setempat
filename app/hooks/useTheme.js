@@ -1,27 +1,18 @@
-// hooks/useTheme.js - RESPONSIVE VERSION (No hydration issues)
+// hooks/useTheme.js - FIXED VERSION
+'use client'
+
 import { useMemo } from "react";
-import { useClock } from "@/hooks/useClock";
+import { useClock } from "@/utils/timeUtils"; // ← FIX: Import dari utils
 
 export function useTheme() {
   const { timeLabel: sapaan, timeInfo } = useClock();
   const isMalam = sapaan === "Malam";
 
   return useMemo(() => {
-    // SEMUA styling pakai Tailwind responsive breakpoints
-    // md: = tablet/desktop (≥768px)
-    // sisanya default mobile
-
     const base = isMalam ? {
-      // Background: mobile slate-900, desktop [code]
       bg: "bg-slate-900 md:bg-[#0f172a]",
-
-      // Card: mobile solid, desktop ada efek blur
       card: "bg-slate-800 md:bg-slate-900/40 md:backdrop-blur-md",
-
-      // Border
       border: "border-slate-700 md:border-slate-800/50",
-
-      // Teks
       text: "text-white",
       textMuted: "text-slate-400 md:text-slate-300",
       accent: "text-cyan-400",
@@ -34,7 +25,6 @@ export function useTheme() {
       timeText: "text-cyan-400",
       bgGlass: "bg-slate-900 md:bg-[#0f172a]/80 md:backdrop-blur-sm",
     } : {
-      // MODE SIANG
       bg: "bg-gray-100 md:bg-[#F9F7F7]",
       card: "bg-white md:bg-white",
       border: "border-gray-300 md:border-slate-200",
@@ -54,7 +44,7 @@ export function useTheme() {
     const timeVibes = {
       Pagi: {
         dot: "bg-orange-500",
-        dotGlow: "md:shadow-[0_0_8px_rgba(249,115,22,0.5)]", // glow cuma di desktop
+        dotGlow: "md:shadow-[0_0_8px_rgba(249,115,22,0.5)]",
         softBg: isMalam ? "bg-orange-900/50 md:bg-orange-500/10" : "bg-orange-100 md:bg-orange-50",
         softBorder: isMalam ? "border-orange-700 md:border-orange-500/20" : "border-orange-300 md:border-orange-200",
         timeIcon: "🌅",
@@ -136,5 +126,5 @@ export function useTheme() {
       },
       bgGlass: base.bgGlass,
     };
-  }, [sapaan, timeInfo]);
+  }, [sapaan, timeInfo, isMalam]);
 }
