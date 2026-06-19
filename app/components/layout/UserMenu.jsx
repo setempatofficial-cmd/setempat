@@ -5,9 +5,23 @@ import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import {
-  User, LogOut, Loader2, LayoutDashboard, Zap, ShieldCheck,
-  Home, Store, Truck, Briefcase, Crown, UserCheck, FileCheck,
-  Gift, Target, Wallet, Upload
+  User,
+  LogOut,
+  Loader2,
+  LayoutDashboard,
+  Zap,
+  ShieldCheck,
+  Home,
+  Store,
+  Truck,
+  Briefcase,
+  Crown,
+  UserCheck,
+  FileCheck,
+  Gift,
+  Target,
+  Wallet,
+  Upload // Ganti Image dengan Upload
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
@@ -91,7 +105,6 @@ export default function UserMenu({
     }
   };
 
-  // ✅ UBAH: Langsung navigasi ke halaman upload
   const handleUploadClick = () => {
     setIsOpen(false);
     router.push("/admin/upload-media");
@@ -182,16 +195,16 @@ export default function UserMenu({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               className={`absolute right-0 mt-3 w-72 z-[100] rounded-3xl shadow-2xl border overflow-hidden ${isMalam
-                ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl"
-                : "bg-white/95 border-slate-200 backdrop-blur-xl"
+                  ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl"
+                  : "bg-white/95 border-slate-200 backdrop-blur-xl"
                 }`}
             >
               {/* --- USER PROFILE HEADER --- */}
               <div className={`p-5 ${isMalam ? "bg-white/5" : "bg-slate-50"}`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl font-black shadow-lg overflow-hidden ${!avatar
-                    ? `bg-gradient-to-tr ${currentRole.color}`
-                    : "bg-white border border-slate-100"
+                      ? `bg-gradient-to-tr ${currentRole.color}`
+                      : "bg-white border border-slate-100"
                     }`}>
                     {avatar ? (
                       <img
@@ -250,7 +263,7 @@ export default function UserMenu({
                       color="purple"
                     />
                     <MenuAction
-                      icon={ImageIcon}
+                      icon={Upload}
                       label="Upload Media"
                       desc="Foto/video ke tempat"
                       onClick={handleUploadClick}
@@ -330,7 +343,7 @@ export default function UserMenu({
                       color="orange"
                     />
                     <MenuAction
-                      icon={ImageIcon}
+                      icon={Upload}
                       label="Upload Media"
                       desc="Foto/video ke tempat"
                       onClick={handleUploadClick}
@@ -438,12 +451,12 @@ function MenuAction({
         } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"}`}
     >
       <div className={`p-2 rounded-xl transition-all ${danger
-        ? "text-rose-500 bg-rose-500/10"
-        : isActive
-          ? "bg-purple-500 text-white"
-          : isMalam
-            ? `text-slate-400 bg-slate-800 ${colorMap[color]}`
-            : `text-slate-500 bg-slate-100 ${colorMap[color]}`
+          ? "text-rose-500 bg-rose-500/10"
+          : isActive
+            ? "bg-purple-500 text-white"
+            : isMalam
+              ? `text-slate-400 bg-slate-800 ${colorMap[color]}`
+              : `text-slate-500 bg-slate-100 ${colorMap[color]}`
         }`}>
         <Icon size={18} />
       </div>
