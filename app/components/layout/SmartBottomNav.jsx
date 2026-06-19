@@ -221,56 +221,42 @@ export default function SmartBottomNav({
           const isHomeRefreshing = tab.id === "Home" && isRefreshing && pathname === "/";
           const isCurrentPressing = pressingTab === tab.id;
 
-          // RENDER KHUSUS UTK TOMBOL LIVE (TOMBOL TENGAH)
+          // 1. GUNAKAN IF SEPERTI INI (JANGAN PAKAI KURUNG KURAWAL {} DAN &&)
           if (tab.isAction) {
             return (
-              <div key="action-live-container" className="relative flex-1 flex flex-col items-center justify-center h-full pt-1">
-                {/* Container pembungkus agar tombol lingkaran bisa sedikit keluar ke atas tanpa merusak teks di bawah */}
-                <div className="relative w-[52px] h-[38px] flex items-center justify-center">
-                  <button
-                    onClick={handleLivePress}
-                    className={`
-            absolute -top-5 flex items-center justify-center 
-            w-[52px] h-[52px] rounded-full 
-            active:scale-90 transition-all duration-300 ease-out
-            border-[4px] shadow-lg
-            ${isLiveActive
-                        ? "bg-gradient-to-tr from-orange-600 to-red-600 text-white animate-pulse shadow-red-500/40"
-                        : isMalam
-                          ? "bg-neutral-800 border-[#0C0C0C] text-slate-200 shadow-black/40"
-                          : "bg-slate-100 border-white text-slate-700 shadow-slate-300/50"}
-          `}
-                  >
-                    <div className="relative flex items-center justify-center">
-                      <LiveIcon active={isLiveActive} />
-                      {isLiveActive && (
-                        <span className="absolute -top-1.5 -right-1.5 flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                </div>
-
-                {/* Teks LIVE dengan kontrol jarak penuh */}
-                <span className={`text-[10px] font-black tracking-wider transition-all duration-300
-  -mt-1.5 
-  ${isActive
-                    ? "text-orange-500 opacity-100 font-extrabold"
-                    : isLiveActive
-                      ? "text-red-500 animate-pulse"
-                      : isMalam ? "text-neutral-400" : "text-slate-500"}`}
+              <div key="action-live-container" className="relative w-14 flex justify-center">
+                <button
+                  onClick={handleLivePress}
+                  className="absolute -top-7 flex items-center justify-center w-14 h-14
+            rounded-2xl active:scale-90 transition-all duration-200 border-[6px]"
+                  style={{
+                    background: isLiveActive
+                      ? 'linear-gradient(to bottom right, #dc2626, #f43f5e)'
+                      : isMalam
+                        ? 'linear-gradient(to bottom right, #404040, #404040)'
+                        : 'linear-gradient(to bottom right, #e2e8f0, #f1f5f9)',
+                    color: isLiveActive ? '#ffffff' : isMalam ? '#a3a3a3' : '#64748b',
+                    borderColor: isLiveActive ? '#0C0C0C' : isMalam ? '#0C0C0C' : '#ffffff',
+                    boxShadow: isLiveActive ? '0 0 20px rgba(220, 38, 38, 0.4)' : 'none',
+                    animation: isLiveActive ? 'pulse 2s infinite' : 'none',
+                    pointerEvents: 'auto',
+                  }}
+                  aria-label="Lihat LIVE"
                 >
-                  LIVE
-                </span>
-
-                {isActive && (
-                  <div className="absolute bottom-0 w-8 h-[3px] bg-orange-500 rounded-t-full" />
-                )}
+                  <div className="relative flex items-center justify-center">
+                    <LiveIcon active={isLiveActive} />
+                    {isLiveActive && (
+                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                      </span>
+                    )}
+                  </div>
+                </button>
               </div>
             );
           }
+
 
           // RENDER TAB NORMAL
           return (

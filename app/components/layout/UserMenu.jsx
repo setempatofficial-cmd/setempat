@@ -5,32 +5,56 @@ import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import {
-  User, LogOut, Loader2, LayoutDashboard, Map, ChevronRight,
-  Zap, ShieldCheck, Home, Store, Truck, Briefcase,
-  Settings, Bell, HelpCircle, Crown, UserCheck, FileCheck,
-  Smartphone, Gift, Ticket, Target, Wallet
+  User, LogOut, Loader2, LayoutDashboard, Zap, ShieldCheck,
+  Home, Store, Truck, Briefcase, Crown, UserCheck, FileCheck,
+  Gift, Target, Wallet, Upload
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
 import VerifiedBadge from "@/app/components/ui/VerifiedBadge";
 import Modal from "@/app/components/layout/KTPModal";
 import KTPDigital from "@/app/components/layout/KTPCard";
 
+const ROLE_CONFIG = {
+  superadmin: {
+    label: "Petinggi Setempat",
+    icon: Crown,
+    color: "from-purple-600 to-indigo-600",
+    text: "text-purple-500"
+  },
+  admin: {
+    label: "RT Setempat",
+    icon: ShieldCheck,
+    color: "from-orange-500 to-amber-500",
+    text: "text-orange-500"
+  },
+  warga: {
+    label: "Warga Setempat",
+    icon: User,
+    color: "from-[#E3655B] to-[#ff8e84]",
+    text: "text-slate-400"
+  }
+};
+
 export default function UserMenu({
   isScrolled,
   onOpenAuthModal,
   theme,
   toggleEditMode,
-  isEditActive,
+  isEditActive
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, role, isAdmin, isSuperAdmin, profile, logout } = useAuth();
 
+  // --- STATE ---
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isKTPModalOpen, setIsKTPModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  const isMalam = theme?.isMalam;
+
+  // --- EFFECTS ---
   useEffect(() => {
     setIsOpen(false);
   }, [pathname]);
@@ -41,22 +65,19 @@ export default function UserMenu({
   }, []);
 
   useEffect(() => {
-    if (isKTPModalOpen) {
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = "";
-      };
-    }
+    document.body.style.overflow = isKTPModalOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
   }, [isKTPModalOpen]);
 
+  // --- HANDLERS ---
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
       setIsOpen(false);
       await logout();
-      window.location.href = "/";
     } catch (error) {
       console.error("Logout error:", error);
+    } finally {
       window.location.href = "/";
     }
   };
@@ -70,15 +91,23 @@ export default function UserMenu({
     }
   };
 
+  // ✅ UBAH: Langsung navigasi ke halaman upload
+  const handleUploadClick = () => {
+    setIsOpen(false);
+    router.push("/admin/upload-media");
+  };
+
+  // --- LOADING STATE ---
   if (loading) {
     return (
-      <div className={`w-10 h-10 rounded-full animate-pulse flex items-center justify-center
-        ${theme?.isMalam ? "bg-slate-800" : "bg-slate-100"}`}>
+      <div className={`w-10 h-10 rounded-full animate-pulse flex items-center justify-center ${isMalam ? "bg-slate-800" : "bg-slate-100"
+        }`}>
         <Loader2 size={16} className="animate-spin text-slate-400" />
       </div>
     );
   }
 
+  // --- UNAUTHENTICATED ---
   if (!user) {
     return (
       <button
@@ -90,31 +119,39 @@ export default function UserMenu({
     );
   }
 
-  const name = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "Warga";
-  const avatar = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
+  // --- USER DATA ---
+  const name = profile?.full_name ||
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    "Warga";
+
+  const avatar = profile?.avatar_url ||
+    user?.user_metadata?.avatar_url ||
+    user?.user_metadata?.picture ||
+    null;
+
   const initial = name.charAt(0).toUpperCase();
-
-  const roleConfig = {
-    superadmin: { label: "Petinggi Setempat", icon: Crown, color: "from-purple-600 to-indigo-600", text: "text-purple-500" },
-    admin: { label: "RT Setempat", icon: ShieldCheck, color: "from-orange-500 to-amber-500", text: "text-orange-500" },
-    warga: { label: "Warga Setempat", icon: User, color: "from-[#E3655B] to-[#ff8e84]", text: "text-slate-400" }
-  };
-
-  const currentRole = isSuperAdmin ? roleConfig.superadmin : (isAdmin ? roleConfig.admin : roleConfig.warga);
+  const currentRole = isSuperAdmin
+    ? ROLE_CONFIG.superadmin
+    : (isAdmin ? ROLE_CONFIG.admin : ROLE_CONFIG.warga);
 
   return (
     <div className="relative">
+      {/* --- TRIGGER BUTTON --- */}
       <button
         onClick={() => !isLoggingOut && setIsOpen(!isOpen)}
-        className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300
-          ${isOpen ? "ring-4 ring-orange-500/20 scale-110" : "hover:scale-105 active:scale-95"}
-          ${isLoggingOut ? "opacity-50" : ""}`}
+        className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${isOpen ? "ring-4 ring-orange-500/20 scale-110" : "hover:scale-105 active:scale-95"
+          } ${isLoggingOut ? "opacity-50" : ""}`}
       >
-        <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-2
-          ${theme?.isMalam ? "border-slate-800" : "border-white shadow-sm"}
-          ${!avatar ? `bg-gradient-to-tr ${currentRole.color} text-white font-black text-sm` : "bg-white"}`}>
+        <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-2 ${isMalam ? "border-slate-800" : "border-white shadow-sm"
+          } ${!avatar ? `bg-gradient-to-tr ${currentRole.color} text-white font-black text-sm` : "bg-white"}`}>
           {avatar ? (
-            <img src={avatar} className="w-full h-full object-cover" alt="profile" referrerPolicy="no-referrer" />
+            <img
+              src={avatar}
+              className="w-full h-full object-cover"
+              alt="profile"
+              referrerPolicy="no-referrer"
+            />
           ) : (
             <span>{initial}</span>
           )}
@@ -126,88 +163,225 @@ export default function UserMenu({
         )}
       </button>
 
+      {/* --- DROPDOWN MENU --- */}
       <AnimatePresence>
         {isOpen && (
           <>
+            {/* Backdrop */}
             <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               className="fixed inset-0 z-[90]"
               onClick={() => setIsOpen(false)}
             />
+
+            {/* Menu */}
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className={`absolute right-0 mt-3 w-72 z-[100] rounded-3xl shadow-2xl border overflow-hidden
-                ${theme?.isMalam ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl" : "bg-white/95 border-slate-200 backdrop-blur-xl"}`}
+              className={`absolute right-0 mt-3 w-72 z-[100] rounded-3xl shadow-2xl border overflow-hidden ${isMalam
+                ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl"
+                : "bg-white/95 border-slate-200 backdrop-blur-xl"
+                }`}
             >
-              <div className={`p-5 ${theme?.isMalam ? "bg-white/5" : "bg-slate-50"}`}>
+              {/* --- USER PROFILE HEADER --- */}
+              <div className={`p-5 ${isMalam ? "bg-white/5" : "bg-slate-50"}`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl font-black shadow-lg overflow-hidden
-                    ${!avatar ? `bg-gradient-to-tr ${currentRole.color}` : "bg-white border border-slate-100"}`}>
-                    {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="p" referrerPolicy="no-referrer" /> : initial}
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl font-black shadow-lg overflow-hidden ${!avatar
+                    ? `bg-gradient-to-tr ${currentRole.color}`
+                    : "bg-white border border-slate-100"
+                    }`}>
+                    {avatar ? (
+                      <img
+                        src={avatar}
+                        className="w-full h-full object-cover"
+                        alt="p"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      initial
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
-                      <p className={`font-bold truncate ${theme?.isMalam ? "text-white" : "text-slate-800"}`}>{name}</p>
+                      <p className={`font-bold truncate ${isMalam ? "text-white" : "text-slate-800"
+                        }`}>{name}</p>
                       {profile?.is_verified && <VerifiedBadge size="xs" />}
                     </div>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${currentRole.text}`}>
-                      {currentRole.label}
-                    </p>
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${currentRole.text
+                      }`}>{currentRole.label}</p>
                   </div>
                 </div>
               </div>
 
+              {/* --- MENU ITEMS --- */}
               <div className="p-2 max-h-[60vh] overflow-y-auto">
-                {/* WARGA BIASA */}
+                {/* WARGA MENU */}
                 {!isAdmin && !isSuperAdmin && (
                   <div className="mb-2">
-                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Menu Utama</p>
-                    <MenuAction icon={LayoutDashboard} label="Rumah Warga" desc="Badge, kontribusi & reputasi" onClick={() => router.push("/rumah-warga")} theme={theme} color="rose" />
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                      Menu Utama
+                    </p>
+                    <MenuAction
+                      icon={LayoutDashboard}
+                      label="Rumah Warga"
+                      desc="Badge, kontribusi & reputasi"
+                      onClick={() => router.push("/rumah-warga")}
+                      isMalam={isMalam}
+                      color="rose"
+                    />
                   </div>
                 )}
 
-                {/* SUPERADMIN - LENGKAP */}
+                {/* SUPERADMIN MENU */}
                 {isSuperAdmin && (
                   <div className="mb-2">
-                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Balai Setempat</p>
-                    {/* BALAI SETEMPAT (Dulu Dashboard Pusat) */}
-                    <MenuAction icon={Crown} label="Balai Setempat" desc="Dashboard & statistik global" onClick={() => router.push("/admin/dashboard")} theme={theme} color="purple" />
-
-                    {/* AKSES CEPAT VOUCHER - PAKAI GIFT */}
-                    <MenuAction icon={Gift} label="Voucher" desc="Buat, edit, kelola voucher" onClick={() => router.push("/admin/vouchers")} theme={theme} color="emerald" />
-
-                    {/* AKSES CEPAT KESEMPATAN */}
-                    <MenuAction icon={Target} label="Kesempatan" desc="Bounty & program" onClick={() => router.push("/admin/opportunities")} theme={theme} color="amber" />
-
-                    {/* PENARIKAN SALDO */}
-                    <MenuAction icon={Wallet} label="Penarikan Saldo" desc="Kelola request dana" onClick={() => router.push("/admin/withdraw")} theme={theme} color="green" />
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                      Balai Setempat
+                    </p>
+                    <MenuAction
+                      icon={Crown}
+                      label="Balai Setempat"
+                      desc="Dashboard & statistik global"
+                      onClick={() => router.push("/admin/dashboard")}
+                      isMalam={isMalam}
+                      color="purple"
+                    />
+                    <MenuAction
+                      icon={ImageIcon}
+                      label="Upload Media"
+                      desc="Foto/video ke tempat"
+                      onClick={handleUploadClick}
+                      isMalam={isMalam}
+                      color="emerald"
+                    />
+                    <MenuAction
+                      icon={Gift}
+                      label="Voucher"
+                      desc="Buat, edit, kelola voucher"
+                      onClick={() => router.push("/admin/vouchers")}
+                      isMalam={isMalam}
+                      color="emerald"
+                    />
+                    <MenuAction
+                      icon={Target}
+                      label="Kesempatan"
+                      desc="Bounty & program"
+                      onClick={() => router.push("/admin/opportunities")}
+                      isMalam={isMalam}
+                      color="amber"
+                    />
+                    <MenuAction
+                      icon={Wallet}
+                      label="Penarikan Saldo"
+                      desc="Kelola request dana"
+                      onClick={() => router.push("/admin/withdraw")}
+                      isMalam={isMalam}
+                      color="green"
+                    />
 
                     <div className="border-t border-slate-100 dark:border-slate-800 my-2" />
 
-                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Manajemen Wilayah</p>
-                    <MenuAction icon={FileCheck} label="Verifikasi KTP" desc="Review warga baru" onClick={handleKTPClick} theme={theme} color="purple" />
-                    <MenuAction icon={UserCheck} label="Angkat RT" desc="Manajemen wilayah" onClick={() => router.push("/admin/angkat-rt")} theme={theme} color="purple" />
-                    <MenuAction icon={Zap} label="Mode Kendali" desc="Edit Konten" onClick={() => toggleEditMode?.()} theme={theme} isActive={isEditActive} color="purple" />
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                      Manajemen Wilayah
+                    </p>
+                    <MenuAction
+                      icon={FileCheck}
+                      label="Verifikasi KTP"
+                      desc="Review warga baru"
+                      onClick={handleKTPClick}
+                      isMalam={isMalam}
+                      color="purple"
+                    />
+                    <MenuAction
+                      icon={UserCheck}
+                      label="Angkat RT"
+                      desc="Manajemen wilayah"
+                      onClick={() => router.push("/admin/angkat-rt")}
+                      isMalam={isMalam}
+                      color="purple"
+                    />
+                    <MenuAction
+                      icon={Zap}
+                      label="Mode Kendali"
+                      desc="Edit Konten"
+                      onClick={toggleEditMode}
+                      isMalam={isMalam}
+                      isActive={isEditActive}
+                      color="purple"
+                    />
                   </div>
                 )}
 
-                {/* ADMIN RT - TANPA VOUCHER & KESEMPATAN */}
+                {/* ADMIN MENU (bukan superadmin) */}
                 {isAdmin && !isSuperAdmin && (
                   <div className="mb-2">
-                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">Balai Wilayah</p>
-                    <MenuAction icon={Home} label="Ruang RT" desc="Dashboard wilayah" onClick={() => router.push("/admin/dashboard")} theme={theme} color="orange" />
-                    <MenuAction icon={Store} label="Verifikasi Penjual" desc="Review Bakul" onClick={() => router.push("/admin/verifikasi/penjual")} theme={theme} color="orange" />
-                    <MenuAction icon={Truck} label="Verifikasi Driver" desc="Review Ojek" onClick={() => router.push("/admin/verifikasi/driver")} theme={theme} color="orange" />
-                    <MenuAction icon={Briefcase} label="Verifikasi Rewang" desc="Review Jasa" onClick={() => router.push("/admin/verifikasi/rewang")} theme={theme} color="orange" />
+                    <p className="px-4 py-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                      Balai Wilayah
+                    </p>
+                    <MenuAction
+                      icon={Home}
+                      label="Ruang RT"
+                      desc="Dashboard wilayah"
+                      onClick={() => router.push("/admin/dashboard")}
+                      isMalam={isMalam}
+                      color="orange"
+                    />
+                    <MenuAction
+                      icon={ImageIcon}
+                      label="Upload Media"
+                      desc="Foto/video ke tempat"
+                      onClick={handleUploadClick}
+                      isMalam={isMalam}
+                      color="emerald"
+                    />
+                    <MenuAction
+                      icon={Store}
+                      label="Verifikasi Penjual"
+                      desc="Review Bakul"
+                      onClick={() => router.push("/admin/verifikasi/penjual")}
+                      isMalam={isMalam}
+                      color="orange"
+                    />
+                    <MenuAction
+                      icon={Truck}
+                      label="Verifikasi Driver"
+                      desc="Review Ojek"
+                      onClick={() => router.push("/admin/verifikasi/driver")}
+                      isMalam={isMalam}
+                      color="orange"
+                    />
+                    <MenuAction
+                      icon={Briefcase}
+                      label="Verifikasi Rewang"
+                      desc="Review Jasa"
+                      onClick={() => router.push("/admin/verifikasi/rewang")}
+                      isMalam={isMalam}
+                      color="orange"
+                    />
                   </div>
                 )}
 
-                {/* PENGATURAN */}
+                {/* BOTTOM MENU */}
                 <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
-                  <MenuAction icon={Settings} label="Pengaturan" desc="Akun & privasi" onClick={() => router.push("/pengaturan")} theme={theme} />
-                  <MenuAction icon={LogOut} label="Keluar" desc="Akhiri sesi" onClick={handleLogout} theme={theme} danger disabled={isLoggingOut} />
+                  <MenuAction
+                    icon={User}
+                    label="Pengaturan"
+                    desc="Bagian Akun"
+                    onClick={() => router.push("/pengaturan")}
+                    isMalam={isMalam}
+                  />
+                  <MenuAction
+                    icon={LogOut}
+                    label="Keluar"
+                    desc="Akhiri sesi"
+                    onClick={handleLogout}
+                    isMalam={isMalam}
+                    danger
+                    disabled={isLoggingOut}
+                  />
                 </div>
               </div>
             </motion.div>
@@ -215,9 +389,19 @@ export default function UserMenu({
         )}
       </AnimatePresence>
 
+      {/* --- MODAL KTP --- */}
       {mounted && createPortal(
-        <Modal isOpen={isKTPModalOpen} onClose={() => setIsKTPModalOpen(false)} theme={theme}>
-          <KTPDigital user={user} role={role} theme={theme} onProfileUpdated={() => window.location.reload()} />
+        <Modal
+          isOpen={isKTPModalOpen}
+          onClose={() => setIsKTPModalOpen(false)}
+          theme={theme}
+        >
+          <KTPDigital
+            user={user}
+            role={role}
+            theme={theme}
+            onProfileUpdated={() => window.location.reload()}
+          />
         </Modal>,
         document.body
       )}
@@ -225,8 +409,18 @@ export default function UserMenu({
   );
 }
 
-// Komponen Tombol Menu - DITAMBAHKAN COLOR EMERALD & AMBER
-function MenuAction({ icon: Icon, label, desc, onClick, theme, danger, isActive, color = "orange", disabled }) {
+// --- MENU ACTION COMPONENT ---
+function MenuAction({
+  icon: Icon,
+  label,
+  desc,
+  onClick,
+  isMalam,
+  danger,
+  isActive,
+  color = "orange",
+  disabled
+}) {
   const colorMap = {
     purple: "group-hover:text-purple-500 group-hover:bg-purple-500/10",
     orange: "group-hover:text-orange-500 group-hover:bg-orange-500/10",
@@ -240,22 +434,22 @@ function MenuAction({ icon: Icon, label, desc, onClick, theme, danger, isActive,
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all group
-        ${isActive ? "bg-purple-500/10" : "hover:bg-slate-100 dark:hover:bg-white/5"}
-        ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"}
-      `}
+      className={`w-full flex items-center gap-3 p-2.5 rounded-2xl transition-all group ${isActive ? "bg-purple-500/10" : "hover:bg-slate-100 dark:hover:bg-white/5"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"}`}
     >
-      <div className={`p-2 rounded-xl transition-all
-        ${danger ? "text-rose-500 bg-rose-500/10" :
-          isActive ? "bg-purple-500 text-white" :
-            theme?.isMalam ? "text-slate-400 bg-slate-800 " + colorMap[color] : "text-slate-500 bg-slate-100 " + colorMap[color]}
-      `}>
+      <div className={`p-2 rounded-xl transition-all ${danger
+        ? "text-rose-500 bg-rose-500/10"
+        : isActive
+          ? "bg-purple-500 text-white"
+          : isMalam
+            ? `text-slate-400 bg-slate-800 ${colorMap[color]}`
+            : `text-slate-500 bg-slate-100 ${colorMap[color]}`
+        }`}>
         <Icon size={18} />
       </div>
       <div className="flex-1 text-left min-w-0">
-        <p className={`text-[12px] font-bold ${danger ? "text-rose-500" : theme?.isMalam ? "text-white" : "text-slate-800"}`}>
-          {label}
-        </p>
+        <p className={`text-[12px] font-bold ${danger ? "text-rose-500" : isMalam ? "text-white" : "text-slate-800"
+          }`}>{label}</p>
         <p className="text-[9px] text-slate-400 truncate leading-none mt-0.5">{desc}</p>
       </div>
     </button>

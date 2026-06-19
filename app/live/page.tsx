@@ -141,6 +141,31 @@ export default function LivePage() {
     return () => clearInterval(interval);
   }, [isMounted, hlsUrl]);
 
+  useEffect(() => {
+    if (!isMounted || isLiveActive === null) return;
+
+    const updateLiveStatus = async () => {
+      try {
+        // Hanya update is_active
+        const { error } = await supabase
+          .from('live_streams')
+          .upsert({
+            stream_id: STREAM_ID,
+            is_active: isLiveActive,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'stream_id'
+          });
+
+        if (error) console.error('Error:', error);
+      } catch (err) {
+        console.error('Error updating live status:', err);
+      }
+    };
+
+    updateLiveStatus();
+  }, [isMounted, isLiveActive, STREAM_ID]);
+
   // FETCH COMMENTS & SUBSCRIBE REAL-TIME
   useEffect(() => {
     if (!isMounted || !isLiveActive) return;
@@ -328,16 +353,17 @@ export default function LivePage() {
       hls = new Hls({
         enableWorker: true,
         lowLatencyMode: networkQuality === 'high',
-        maxBufferLength: maxBufferLength,
-        maxMaxBufferLength: maxBufferLength * 1.5,
+        maxBufferLength: networkQuality === 'high' ? 30 : networkQuality === 'medium' ? 15 : 8,
+        maxMaxBufferLength: networkQuality === 'high' ? 45 : networkQuality === 'medium' ? 22 : 12,
         abrEwmaDefaultEstimate: getMaxBitrate(),
-        abrBandWidthUpFactor: 0.7,
-        abrBandWidthDownFactor: 0.9,
+        abrBandWidthUpFactor: networkQuality === 'high' ? 0.7 : 0.5,
+        abrBandWidthDownFactor: networkQuality === 'high' ? 0.9 : 0.7,
         startLevel: -1,
-        fragLoadingMaxRetry: 3,
-        fragLoadingRetryDelay: 500,
-        manifestLoadingMaxRetry: 2,
-        manifestLoadingRetryDelay: 300,
+        fragLoadingMaxRetry: networkQuality === 'high' ? 3 : 6,
+        fragLoadingRetryDelay: networkQuality === 'high' ? 500 : 1000,
+        manifestLoadingMaxRetry: networkQuality === 'high' ? 2 : 5,
+        manifestLoadingRetryDelay: networkQuality === 'high' ? 300 : 800,
+        liveSyncDurationCount: networkQuality === 'high' ? 2 : networkQuality === 'medium' ? 5 : 10,
       });
 
       hls.loadSource(hlsUrl);
@@ -386,6 +412,31 @@ export default function LivePage() {
       video.removeEventListener("playing", handlePlaying);
     };
   }, [isMounted, isLiveActive, hlsUrl, networkQuality]);
+
+  // ============ AUTO-RECOVER  ============
+  useEffect(() => {
+    if (!isMounted || !isLiveActive || !videoRef.current) return;
+
+    let retryCount = 0;
+    const video = videoRef.current;
+
+    const handleStalled = () => {
+      if (video.buffered.length > 0 && video.paused) {
+        setTimeout(() => {
+          if (retryCount < 3) {
+            retryCount++;
+            video.play().catch(() => {
+              video.load();
+              setTimeout(() => video.play().catch(console.error), 1000);
+            });
+          }
+        }, 3000);
+      }
+    };
+
+    video.addEventListener('stalled', handleStalled);
+    return () => video.removeEventListener('stalled', handleStalled);
+  }, [isMounted, isLiveActive]);
 
   // Send Comment
   const handleSendComment = async (e: React.FormEvent) => {
@@ -488,7 +539,7 @@ export default function LivePage() {
         <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center overflow-hidden">
           <video
             ref={videoRef}
-            className="w-full h-full object-cover min-h-full min-w-full scale-[1.02]"
+            className="w-full h-full object-contain"
             style={{ objectFit: 'cover', objectPosition: 'center' }}
             playsInline
             autoPlay
