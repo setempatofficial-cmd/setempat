@@ -36,6 +36,7 @@ export default function LivePage() {
   const [newComment, setNewComment] = useState("");
   const [userData, setUserData] = useState<Profile | null>(null);
   const [isCommentLoading, setIsCommentLoading] = useState(true);
+  const [videoFit, setVideoFit] = useState<'cover' | 'contain'>('cover');
 
   const STREAM_ID = '00c40fc1aaff4ea1882011355887bd8e';
   const hlsUrl = `https://res.cloudinary.com/dmhpgqe3o/video/live/live_stream_${STREAM_ID}_hls.m3u8`;
@@ -44,44 +45,6 @@ export default function LivePage() {
     setIsMounted(true);
   }, []);
 
-  // Network Detection
-  useEffect(() => {
-    if (!isMounted) return;
-
-    let timeoutId: NodeJS.Timeout;
-
-    const detectNetworkQuality = () => {
-      if ('connection' in navigator) {
-        const connection = (navigator as any).connection;
-        if (connection) {
-          const type = connection.effectiveType;
-          const speed = connection.downlink || 0;
-
-          if (type === '4g' && speed > 5) setNetworkQuality('high');
-          else if (type === '4g' || (type === '3g' && speed > 2)) setNetworkQuality('medium');
-          else setNetworkQuality('low');
-
-          const handleChange = () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-              const newSpeed = connection.downlink || 0;
-              if (newSpeed > 5) setNetworkQuality('high');
-              else if (newSpeed > 2) setNetworkQuality('medium');
-              else setNetworkQuality('low');
-            }, 500);
-          };
-
-          connection.addEventListener('change', handleChange);
-          return () => {
-            connection.removeEventListener('change', handleChange);
-            clearTimeout(timeoutId);
-          };
-        }
-      }
-    };
-
-    detectNetworkQuality();
-  }, [isMounted]);
 
   // Get User Profile
   useEffect(() => {
@@ -137,7 +100,7 @@ export default function LivePage() {
     };
 
     checkLiveStatus();
-    const interval = setInterval(checkLiveStatus, 10000);
+    const interval = setInterval(checkLiveStatus, 30000);
     return () => clearInterval(interval);
   }, [isMounted, hlsUrl]);
 
@@ -146,7 +109,6 @@ export default function LivePage() {
 
     const updateLiveStatus = async () => {
       try {
-        // Hanya update is_active
         const { error } = await supabase
           .from('live_streams')
           .upsert({
@@ -314,12 +276,88 @@ export default function LivePage() {
     }
   }, [comments]);
 
-  // HLS Player
+  // HLS Player + FIX ORIENTATION
   useEffect(() => {
     if (!isMounted || !isLiveActive || !videoRef.current) return;
 
     let hls: Hls;
     const video = videoRef.current;
+    let orientationCheckInterval: NodeJS.Timeout;
+    let checkCount = 0;
+
+    // Fungsi deteksi orientasi yang lebih stabil
+    const detectAndSetOrientation = () => {
+      if (!video) return;
+
+      // Coba dapatkan dimensi dari berbagai sumber
+      let width = video.videoWidth;
+      let height = video.videoHeight;
+
+      // Jika belum dapat, coba dari style atau client
+      if (!width || !height) {
+        width = video.clientWidth || video.offsetWidth || 0;
+        height = video.clientHeight || video.offsetHeight || 0;
+      }
+
+      // Jika masih 0, coba dari element parent
+      if (!width || !height) {
+        const parent = video.parentElement;
+        if (parent) {
+          width = parent.clientWidth || parent.offsetWidth || 0;
+          height = parent.clientHeight || parent.offsetHeight || 0;
+        }
+      }
+
+      // Jika sudah dapat dimensi yang valid
+      if (width > 0 && height > 0) {
+        const aspectRatio = width / height;
+
+        // Log untuk debugging
+        console.log(`Video dimensions: ${width}x${height}, Aspect: ${aspectRatio.toFixed(2)}`);
+
+        // Jika aspect ratio lebih dari 1.2 => landscape (lebar > tinggi)
+        // Jika kurang dari 0.8 => portrait (tinggi > lebar)
+        // Jika di antara => square, treat as portrait untuk mobile
+        if (aspectRatio > 1.2) {
+          setVideoFit('cover'); // Landscape: cover
+        } else {
+          setVideoFit('contain'); // Portrait atau square: contain
+        }
+
+        // Clear interval setelah berhasil mendeteksi
+        if (orientationCheckInterval) {
+          clearInterval(orientationCheckInterval);
+          orientationCheckInterval = undefined;
+        }
+        return true;
+      }
+      return false;
+    };
+
+    // Function to start orientation detection with retry
+    const startOrientationDetection = () => {
+      // Coba deteksi langsung
+      if (detectAndSetOrientation()) {
+        return;
+      }
+
+      // Jika gagal, coba dengan interval
+      checkCount = 0;
+      if (orientationCheckInterval) {
+        clearInterval(orientationCheckInterval);
+      }
+
+      orientationCheckInterval = setInterval(() => {
+        checkCount++;
+        const success = detectAndSetOrientation();
+
+        // Stop setelah 10 kali percobaan atau berhasil
+        if (success || checkCount >= 10) {
+          clearInterval(orientationCheckInterval);
+          orientationCheckInterval = undefined;
+        }
+      }, 300);
+    };
 
     video.muted = false;
     video.volume = 1.0;
@@ -327,6 +365,8 @@ export default function LivePage() {
     const playWithAudio = async () => {
       try {
         await video.play();
+        // Start orientation detection after play starts
+        setTimeout(startOrientationDetection, 100);
       } catch (err) {
         const handleUserInteraction = () => {
           video.play().catch(e => console.log('Still blocked:', e));
@@ -348,22 +388,17 @@ export default function LivePage() {
     };
 
     if (Hls.isSupported()) {
-      const maxBufferLength = networkQuality === 'high' ? 20 : networkQuality === 'medium' ? 10 : 5;
-
       hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: networkQuality === 'high',
-        maxBufferLength: networkQuality === 'high' ? 30 : networkQuality === 'medium' ? 15 : 8,
-        maxMaxBufferLength: networkQuality === 'high' ? 45 : networkQuality === 'medium' ? 22 : 12,
-        abrEwmaDefaultEstimate: getMaxBitrate(),
-        abrBandWidthUpFactor: networkQuality === 'high' ? 0.7 : 0.5,
-        abrBandWidthDownFactor: networkQuality === 'high' ? 0.9 : 0.7,
+        lowLatencyMode: true,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 45,
         startLevel: -1,
-        fragLoadingMaxRetry: networkQuality === 'high' ? 3 : 6,
-        fragLoadingRetryDelay: networkQuality === 'high' ? 500 : 1000,
-        manifestLoadingMaxRetry: networkQuality === 'high' ? 2 : 5,
-        manifestLoadingRetryDelay: networkQuality === 'high' ? 300 : 800,
-        liveSyncDurationCount: networkQuality === 'high' ? 2 : networkQuality === 'medium' ? 5 : 10,
+        fragLoadingMaxRetry: 5,
+        fragLoadingRetryDelay: 500,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 300,
+        liveSyncDurationCount: 3,
       });
 
       hls.loadSource(hlsUrl);
@@ -393,27 +428,70 @@ export default function LivePage() {
         }
       });
 
+      // Deteksi orientasi saat level loaded
+      hls.on(Hls.Events.LEVEL_LOADED, () => {
+        setTimeout(startOrientationDetection, 100);
+      });
+
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = hlsUrl;
       video.addEventListener("loadedmetadata", () => {
         playWithAudio();
+        setTimeout(startOrientationDetection, 100);
       });
     }
 
-    const handleWaiting = () => setIsBuffering(true);
-    const handlePlaying = () => setIsBuffering(false);
+    // Event listeners untuk deteksi orientasi
+    const handleLoadedMetadata = () => {
+      setTimeout(startOrientationDetection, 50);
+    };
+
+    const handleLoadedData = () => {
+      setTimeout(startOrientationDetection, 50);
+    };
+
+    const handleResize = () => {
+      // Re-check orientation on resize
+      setTimeout(startOrientationDetection, 100);
+    };
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("loadeddata", handleLoadedData);
+    window.addEventListener("resize", handleResize);
+
+    let waitingTimeout: NodeJS.Timeout;
+
+    const handleWaiting = () => {
+      // Kasih delay 500ms sebelum muncul spinner
+      waitingTimeout = setTimeout(() => {
+        // Cek apakah video benar-benar buffering
+        if (video && video.buffered.length > 0 && video.paused) {
+          setIsBuffering(true);
+        }
+      }, 500);
+    };
+
+    const handlePlaying = () => {
+      clearTimeout(waitingTimeout); // Hapus timeout jika video play lagi
+      setIsBuffering(false);
+      setTimeout(startOrientationDetection, 200);
+    };
 
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("playing", handlePlaying);
 
     return () => {
       if (hls) hls.destroy();
+      if (orientationCheckInterval) clearInterval(orientationCheckInterval);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("loadeddata", handleLoadedData);
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("playing", handlePlaying);
+      window.removeEventListener("resize", handleResize);
     };
   }, [isMounted, isLiveActive, hlsUrl, networkQuality]);
 
-  // ============ AUTO-RECOVER  ============
+  // AUTO-RECOVER
   useEffect(() => {
     if (!isMounted || !isLiveActive || !videoRef.current) return;
 
@@ -535,12 +613,17 @@ export default function LivePage() {
     <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100]">
       <div className="relative w-full max-w-[420px] h-full bg-black overflow-hidden shadow-2xl">
 
-        {/* VIDEO LAYER */}
+        {/* VIDEO LAYER - FIXED ORIENTATION */}
         <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center overflow-hidden">
           <video
             ref={videoRef}
-            className="w-full h-full object-contain"
-            style={{ objectFit: 'cover', objectPosition: 'center' }}
+            className={`w-full h-full ${videoFit === 'cover' ? 'object-cover' : 'object-contain'}`}
+            style={{
+              objectFit: videoFit === 'cover' ? 'cover' : 'contain',
+              objectPosition: 'center',
+              width: '100%',
+              height: '100%'
+            }}
             playsInline
             autoPlay
             muted={false}
@@ -611,13 +694,11 @@ export default function LivePage() {
                         />
                       </div>
 
-                      {/* TEKS KOMENTAR MENGAMBANG GAYA TIKTOK (2 BARIS - REVISI MINIMALIS) */}
+                      {/* TEKS KOMENTAR */}
                       <div className="flex-1 min-w-0 flex flex-col text-left">
-                        {/* Baris 1: Username (Abu-abu Kalem) */}
                         <span className="font-extrabold text-slate-300 text-[11px] tracking-wide mb-0.5 text-left drop-shadow-md">
                           {msg.user_name || "Warga"}
                         </span>
-                        {/* Baris 2: Isi Komentar (Putih Bersih) */}
                         <p className="text-[13px] font-medium text-white leading-snug break-words text-left drop-shadow-md">
                           {msg.comment}
                         </p>
