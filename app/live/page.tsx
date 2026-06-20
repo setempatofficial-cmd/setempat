@@ -218,6 +218,8 @@ export default function LivePage() {
           const newComment = payload.new as any;
           if (!newComment || !newComment.comment) return;
 
+          if (newComment.user_id === userData?.id) return;
+
           let profileData = null;
           if (newComment.user_id) {
             try {
