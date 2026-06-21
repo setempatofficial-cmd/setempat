@@ -113,147 +113,35 @@ const useVideoManager = () => {
   return { registerVideo, unregisterVideo, playActiveVideo, pauseAllVideos, resumeCurrentVideo };
 };
 
-// ========== VIEW TRACKER HOOK ==========
-// ========== VIEW TRACKER HOOK (VERSION WITH DEBUG) ==========
+// ========== VIEW TRACKER HOOK (SEDERHANA) ==========
 const useStoryViewTracker = (userId, onViewRecorded) => {
-  const recordedViewsRef = useRef(new Set());
-  const viewRateLimiter = useRef(new Map());
+  const recordedViews = useRef(new Set());
   const timeoutRef = useRef(null);
 
   const recordView = useCallback(async (laporanId) => {
-    console.group('📊 [VIEW TRACKER] Recording View');
-    console.log('Step 1 - Check inputs:', {
-      laporanId,
-      userId,
-      typeOfLaporanId: typeof laporanId,
-      typeOfUserId: typeof userId,
-      stringifiedLaporanId: String(laporanId)
-    });
+    if (!userId || !laporanId) return;
+    if (recordedViews.current.has(laporanId)) return;
 
-    if (!userId) {
-      console.error('❌ FAILED: userId is', userId);
-      console.groupEnd();
-      return;
-    }
-
-    if (!laporanId) {
-      console.error('❌ FAILED: laporanId is', laporanId);
-      console.groupEnd();
-      return;
-    }
-
-    // Konversi laporanId ke number (karena table pakai bigint)
-    const numericLaporanId = Number(laporanId);
-    console.log('Step 2 - Convert ID:', {
-      original: laporanId,
-      converted: numericLaporanId,
-      isValidNumber: !isNaN(numericLaporanId)
-    });
-
-    if (isNaN(numericLaporanId)) {
-      console.error('❌ FAILED: Cannot convert laporanId to number');
-      console.groupEnd();
-      return;
-    }
-
-    // Rate limiting check
-    const lastTime = viewRateLimiter.current.get(laporanId);
-    const now = Date.now();
-    if (lastTime && now - lastTime < 5000) {
-      console.log('⏭️ SKIPPED: Rate limited', {
-        lastView: new Date(lastTime).toISOString(),
-        now: new Date(now).toISOString(),
-        diff: now - lastTime,
-        limit: 5000
-      });
-      console.groupEnd();
-      return;
-    }
-
-    if (recordedViewsRef.current.has(laporanId)) {
-      console.log('⏭️ SKIPPED: Already recorded this session');
-      console.groupEnd();
-      return;
-    }
-
-    console.log('Step 3 - Proceeding to database...');
-    recordedViewsRef.current.add(laporanId);
-    viewRateLimiter.current.set(laporanId, now);
+    recordedViews.current.add(laporanId);
 
     try {
-      // Cek apakah sudah ada view sebelumnya
-      console.log('Step 4 - Checking existing view...');
-      const { data: existing, error: checkError } = await supabase
+      const { error } = await supabase
         .from("story_views")
-        .select("id, viewed_at")
-        .eq("laporan_id", numericLaporanId)
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error('❌ DB ERROR (check):', checkError);
-        console.error('Error details:', {
-          code: checkError.code,
-          message: checkError.message,
-          details: checkError.details
+        .insert({
+          laporan_id: Number(laporanId),
+          user_id: userId,
+          viewed_at: new Date().toISOString()
         });
-        recordedViewsRef.current.delete(laporanId);
-        console.groupEnd();
-        return;
-      }
 
-      if (existing) {
-        console.log('ℹ️ View already exists in database:', {
-          viewId: existing.id,
-          viewedAt: existing.viewed_at
-        });
-        console.groupEnd();
-        return;
-      }
-
-      // Insert view baru
-      console.log('Step 5 - Inserting new view...');
-      const viewData = {
-        laporan_id: numericLaporanId,
-        user_id: userId,
-        viewed_at: new Date().toISOString()
-      };
-      console.log('Insert data:', viewData);
-
-      const { data: insertData, error: insertError } = await supabase
-        .from("story_views")
-        .insert(viewData)
-        .select();
-
-      if (insertError) {
-        console.error('❌ DB ERROR (insert):', insertError);
-        console.error('Error details:', {
-          code: insertError.code,
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint
-        });
-        recordedViewsRef.current.delete(laporanId);
-      } else {
-        console.log('✅ SUCCESS: View recorded successfully!', {
-          insertedData: insertData,
-          laporanId: numericLaporanId,
-          userId: userId,
-          timestamp: viewData.viewed_at
-        });
+      if (!error) {
         onViewRecorded?.(laporanId);
       }
     } catch (err) {
-      console.error('❌ UNEXPECTED ERROR:', err);
-      console.error('Error stack:', err.stack);
-      recordedViewsRef.current.delete(laporanId);
+      // Abaikan error (duplicate dari UNIQUE constraint)
     }
-
-    console.groupEnd();
   }, [userId, onViewRecorded]);
 
   const scheduleRecordView = useCallback((laporanId) => {
-    console.log('📝 [VIEW TRACKER] Scheduling view recording for:', laporanId);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => recordView(laporanId), 300);
   }, [recordView]);
@@ -263,11 +151,6 @@ const useStoryViewTracker = (userId, onViewRecorded) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
-
-  // Log ketika hook diinisialisasi
-  useEffect(() => {
-    console.log('🔧 [VIEW TRACKER] Hook initialized with userId:', userId);
-  }, [userId]);
 
   return { scheduleRecordView };
 };
@@ -690,6 +573,47 @@ export default function FullscreenStoryModal({
 
   const [storyRefreshTrigger, setStoryRefreshTrigger] = useState(0);
 
+  // ===== VIEW COUNTS (FETCH OTOMATIS) =====
+  const [localViewCounts, setLocalViewCounts] = useState({});
+
+  // Fetch view counts saat modal terbuka
+  useEffect(() => {
+    if (!isOpen || !reports.length) return;
+
+    const fetchViewCounts = async () => {
+      try {
+        const ids = reports.map(r => r.id);
+
+        const { data, error } = await supabase
+          .from('story_views')
+          .select('laporan_id')
+          .in('laporan_id', ids);
+
+        if (error) throw error;
+
+        const counts = {};
+        data?.forEach(v => {
+          counts[v.laporan_id] = (counts[v.laporan_id] || 0) + 1;
+        });
+
+        setLocalViewCounts(counts);
+      } catch (error) {
+        // Abaikan error
+      }
+    };
+
+    fetchViewCounts();
+  }, [isOpen, reports]);
+
+  // Gabungkan viewCounts
+  const finalViewCounts = useMemo(() => {
+    return { ...viewCounts, ...localViewCounts };
+  }, [viewCounts, localViewCounts]);
+
+  // ===== TAMBAHAN: STATE UNTUK LIVE =====
+  const [isLiveActive, setIsLiveActive] = useState(false);
+  const [liveStreamData, setLiveStreamData] = useState(null);
+
   const { containerRef, currentIndex, setCurrentIndex, handleScroll, scrollToIndex } = useStoryScroll(
     reports?.length || 0,
     (newIndex) => setCurrentVideoIndex(newIndex)
@@ -710,6 +634,48 @@ export default function FullscreenStoryModal({
     window.addEventListener('laporan-comment-changed', handleCommentChange);
     return () => {
       window.removeEventListener('laporan-comment-changed', handleCommentChange);
+    };
+  }, [isOpen]);
+
+  // ===== TAMBAHAN: CEK STATUS LIVE =====
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const checkLiveStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("live_streams")
+          .select("*")
+          .eq("is_active", true)
+          .single();
+
+        if (data) {
+          setIsLiveActive(true);
+          setLiveStreamData(data);
+        } else {
+          setIsLiveActive(false);
+          setLiveStreamData(null);
+        }
+      } catch (err) {
+        console.error("Error checking live status:", err);
+        setIsLiveActive(false);
+        setLiveStreamData(null);
+      }
+    };
+
+    checkLiveStatus();
+
+    const channel = supabase
+      .channel('live_status_modal')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'live_streams'
+      }, () => checkLiveStatus())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, [isOpen]);
 
@@ -841,6 +807,26 @@ export default function FullscreenStoryModal({
     <div className={`fixed inset-0 z-[99999] flex items-center justify-center bg-black transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>
       <div className={`w-full max-w-[420px] h-[100dvh] relative overflow-hidden md:rounded-xl shadow-2xl ${theme?.isMalam ? 'bg-black' : 'bg-zinc-950'}`}>
 
+        {/* ===== TAMBAHAN: LIVE INDICATOR DI POJOK KIRI ATAS ===== */}
+        {isLiveActive && liveStreamData && (
+          <button
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.location.href = "/live";
+              }
+            }}
+            className="absolute top-4 left-4 z-[110] flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-red-600/90 backdrop-blur-md border border-red-500/50 shadow-lg shadow-red-500/20 active:scale-95 transition-all duration-200 cursor-pointer hover:bg-red-700/90"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+            </span>
+            <span className="text-white text-[10px] font-black uppercase tracking-wider">
+              LIVE
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => setShowSearchView(true)}
           className="absolute top-4 right-4 z-[110] w-9 h-9 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white/95 border border-white/10 active:scale-95 transition-transform"
@@ -876,7 +862,7 @@ export default function FullscreenStoryModal({
               key={report.id}
               report={report}
               isActive={idx === currentIndex}
-              viewCount={viewCounts?.[report.id]}
+              viewCount={finalViewCounts?.[report.id] || 0}
               likedLaporan={likedLaporan}
               laporanLikeCounts={laporanLikeCounts}
               onLike={onLike}

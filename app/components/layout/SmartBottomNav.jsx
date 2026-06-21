@@ -228,7 +228,7 @@ export default function SmartBottomNav({
                 <button
                   onClick={handleLivePress}
                   className="absolute -top-7 flex items-center justify-center w-14 h-14
-            rounded-2xl active:scale-90 transition-all duration-200 border-[6px]"
+        rounded-2xl active:scale-90 transition-all duration-200 border-[6px]"
                   style={{
                     background: isLiveActive
                       ? 'linear-gradient(to bottom right, #dc2626, #f43f5e)'
@@ -238,17 +238,19 @@ export default function SmartBottomNav({
                     color: isLiveActive ? '#ffffff' : isMalam ? '#a3a3a3' : '#64748b',
                     borderColor: isLiveActive ? '#0C0C0C' : isMalam ? '#0C0C0C' : '#ffffff',
                     boxShadow: isLiveActive ? '0 0 20px rgba(220, 38, 38, 0.4)' : 'none',
-                    animation: isLiveActive ? 'pulse 2s infinite' : 'none',
+                    /* Efek pulse background di sini sudah dihapus */
                     pointerEvents: 'auto',
                   }}
                   aria-label="Lihat LIVE"
                 >
                   <div className="relative flex items-center justify-center">
                     <LiveIcon active={isLiveActive} />
+
+                    {/* Efek dot pulse mandiri menggunakan Tailwind animate-ping */}
                     {isLiveActive && (
-                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
                       </span>
                     )}
                   </div>
@@ -256,7 +258,6 @@ export default function SmartBottomNav({
               </div>
             );
           }
-
 
           // RENDER TAB NORMAL
           return (
