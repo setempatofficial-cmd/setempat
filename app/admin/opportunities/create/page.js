@@ -4,16 +4,21 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
-import { ArrowLeft, Calendar, Users, Award, MapPin, HelpCircle } from "lucide-react";
+import { ArrowLeft, Calendar, Users, Award, MapPin, HelpCircle, Lock, Unlock } from "lucide-react";
+import PilihLokasi from "@/components/PilihLokasi";
 
 export default function CreateOpportunityPage() {
   const router = useRouter();
   const { user, isAdmin, isSuperAdmin, loading } = useAuth();
   const [submitting, setSubmitting] = useState(false);
-  const [targetAudience, setTargetAudience] = useState("all"); // all, specific_user, by_role
+  const [targetAudience, setTargetAudience] = useState("all");
   const [selectedUser, setSelectedUser] = useState(null);
   const [searchUser, setSearchUser] = useState("");
   const [userSearchResults, setUserSearchResults] = useState([]);
+
+  // ✅ STATE UNTUK LOKASI TERKUNCI
+  const [isLocationLocked, setIsLocationLocked] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -60,7 +65,6 @@ export default function CreateOpportunityPage() {
     e.preventDefault();
     setSubmitting(true);
 
-    // Validasi reward_text otomatis
     let rewardText = formData.reward_text;
     if (!rewardText) {
       if (formData.reward_type === "money") {
@@ -82,17 +86,19 @@ export default function CreateOpportunityPage() {
       is_active: formData.is_active,
       category: formData.category,
       created_by: user.id,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      // ✅ TAMBAHKAN LOKASI TERKUNCI
+      is_location_locked: isLocationLocked,
+      locked_location: isLocationLocked && selectedLocation ? selectedLocation : null
     };
 
-    // Simpan target audience ke metadata jika ada
     if (targetAudience !== "all") {
       opportunityData.target_audience = targetAudience;
       if (targetAudience === "specific_user" && selectedUser) {
         opportunityData.target_user_id = selectedUser.id;
       }
       if (targetAudience === "by_role") {
-        opportunityData.target_role = "seller"; // atau driver, rewang
+        opportunityData.target_role = "seller";
       }
     }
 
@@ -373,14 +379,114 @@ export default function CreateOpportunityPage() {
             </label>
           </div>
 
+          {/* ============================================ */}
+          {/* ✅ LOKASI TERKUNCI (KHUSUS BOUNTY LAPORAN) */}
+          {/* ============================================ */}
+          {formData.category === "bounty_laporan" && (
+            <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <MapPin size={14} />
+                  Lokasi Terkunci
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsLocationLocked(!isLocationLocked)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5
+                    ${isLocationLocked
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-slate-700/50 text-slate-400 border border-slate-600'
+                    }`}
+                >
+                  {isLocationLocked ? (
+                    <>
+                      <Lock size={12} />
+                      Terkunci
+                    </>
+                  ) : (
+                    <>
+                      <Unlock size={12} />
+                      Bebas
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {isLocationLocked ? (
+                <div className="space-y-3">
+                  <p className="text-[10px] text-slate-400">
+                    🔒 User akan melihat lokasi ini dan <span className="text-amber-400">tidak bisa mengubahnya</span>
+                  </p>
+
+                  {selectedLocation ? (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <MapPin size={16} className="text-emerald-400 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white font-medium">{selectedLocation.name}</p>
+                          {selectedLocation.alamat && (
+                            <p className="text-[10px] text-slate-400 truncate">{selectedLocation.alamat}</p>
+                          )}
+                          {selectedLocation.latitude && selectedLocation.longitude && (
+                            <p className="text-[8px] text-slate-500">
+                              📍 {selectedLocation.latitude.toFixed(4)}, {selectedLocation.longitude.toFixed(4)}
+                            </p>
+                          )}
+                          <p className="text-[8px] text-slate-500 mt-0.5">
+                            {selectedLocation.source === 'nominatim' ? '🗺️ Dari Peta' : '📌 Dari Database'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLocation(null)}
+                          className="text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <PilihLokasi
+                      onSelect={(loc) => setSelectedLocation(loc)}
+                      placeholder="Cari lokasi untuk dikunci..."
+                      className="w-full"
+                    />
+                  )}
+
+                  {!selectedLocation && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-2">
+                      <p className="text-[8px] text-amber-400 text-center">
+                        ⚠️ Pilih lokasi agar user tidak bisa mengubahnya
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-slate-700/30 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 flex items-center gap-2">
+                    <Unlock size={12} />
+                    User akan bebas memilih lokasi sendiri saat mengirim laporan
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={submitting}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-all disabled:opacity-50"
+            disabled={submitting || (formData.category === "bounty_laporan" && isLocationLocked && !selectedLocation)}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Menyimpan..." : "Buat Kesempatan →"}
           </button>
+
+          {/* Validasi tambahan */}
+          {formData.category === "bounty_laporan" && isLocationLocked && !selectedLocation && (
+            <p className="text-[9px] text-amber-400 text-center">
+              ⚠️ Pilih lokasi terlebih dahulu sebelum menyimpan
+            </p>
+          )}
         </form>
       </div>
     </div>

@@ -93,6 +93,12 @@ function CitizenHubContent({ userId, userRole }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [mounted, setMounted] = useState(false);
 
+  // FIX: state untuk story yang di-deep-link tapi TIDAK ada di 10 laporan
+  // terbaru yang sudah dimuat (karena useLaporanWarga dibatasi limit:10).
+  // Tanpa ini, story lama / story dari sumber lain akan selalu "gagal ketemu"
+  // begitu user buka link /explore?story=ID secara langsung.
+  const [directStoryReport, setDirectStoryReport] = useState(null);
+  const [storyLookupFailed, setStoryLookupFailed] = useState(false);
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -110,6 +116,15 @@ function CitizenHubContent({ userId, userRole }) {
   const activeUserId = userId || sessionUserId;
   const validReports = useMemo(() => reports || [], [reports]);
 
+  // FIX: gabungkan story hasil deep-link (kalau ada & belum ada di validReports)
+  // supaya FullscreenStoryModal tetap menerima 1 array yang konsisten.
+  const reportsForModal = useMemo(() => {
+    if (directStoryReport && !validReports.some((r) => r.id === directStoryReport.id)) {
+      return [directStoryReport, ...validReports];
+    }
+    return validReports;
+  }, [directStoryReport, validReports]);
+
   const theme = useMemo(() => ({
     isMalam,
     text: isMalam ? 'text-white' : 'text-gray-900',
@@ -123,18 +138,95 @@ function CitizenHubContent({ userId, userRole }) {
   }, []);
 
   // ========== CLIENT-ONLY EFFECTS ==========
+  // FIX: dulu effect ini HANYA cari storyId di dalam validReports (10 laporan
+  // terbaru). Kalau tidak ketemu, tidak ada fallback apa pun -> story dianggap
+  // "tidak ada" walau sebenarnya ada di database, cuma di luar halaman pertama.
+  // Sekarang: kalau tidak ketemu di list yang sudah dimuat, fetch langsung by ID.
   useEffect(() => {
     if (!mounted) return;
 
     const storyId = searchParams?.get('story');
-    if (storyId && validReports.length > 0) {
-      const targetIndex = validReports.findIndex(r => r.id === parseInt(storyId, 10));
-      if (targetIndex !== -1 && targetIndex !== currentIndex) {
-        setCurrentIndex(targetIndex);
-        setViewMode('story');
-      }
+    if (!storyId) {
+      setDirectStoryReport(null);
+      setStoryLookupFailed(false);
+      return;
     }
-  }, [searchParams, validReports, currentIndex, mounted]);
+
+    const numericId = parseInt(storyId, 10);
+    if (Number.isNaN(numericId)) {
+      setStoryLookupFailed(true);
+      return;
+    }
+
+    const targetIndex = validReports.findIndex((r) => r.id === numericId);
+    if (targetIndex !== -1) {
+      if (targetIndex !== currentIndex) setCurrentIndex(targetIndex);
+      setViewMode('story');
+      setStoryLookupFailed(false);
+      setDirectStoryReport(null);
+      return;
+    }
+
+    // Masih loading halaman pertama -> tunggu dulu, jangan langsung fetch fallback
+    if (loading && validReports.length === 0) return;
+
+    // Sudah ada laporan terbaru ter-load tapi storyId tetap tidak ketemu di
+    // dalamnya -> kemungkinan story lama, langsung fetch by ID ke Supabase.
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('laporan_warga')
+          .select('*, tempat:tempat_id(*)')
+          .eq('id', numericId)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (error || !data) {
+          console.warn('Story tidak ditemukan di database:', { numericId, error });
+          setStoryLookupFailed(true);
+          setDirectStoryReport(null);
+          return;
+        }
+
+        setDirectStoryReport(data);
+        setStoryLookupFailed(false);
+        setViewMode('story');
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Gagal fetch story by ID:', err);
+          setStoryLookupFailed(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, validReports, currentIndex, mounted, loading]);
+
+  // FIX: index aktif di modal harus mengikuti reportsForModal (yang mungkin
+  // sudah disisipi directStoryReport di posisi 0), bukan currentIndex mentah.
+  const indexForModal = useMemo(() => {
+    if (directStoryReport) {
+      const idx = reportsForModal.findIndex((r) => r.id === directStoryReport.id);
+      if (idx !== -1) return idx;
+    }
+    return currentIndex;
+  }, [directStoryReport, reportsForModal, currentIndex]);
+
+  // FIX: kalau story benar-benar tidak ada (sudah dihapus / ID salah), jangan
+  // diamkan saja -> kembalikan user ke /explore biasa supaya tidak nyangkut.
+  useEffect(() => {
+    if (!storyLookupFailed) return;
+    const t = setTimeout(() => {
+      router.replace('/explore', { scroll: false });
+      setStoryLookupFailed(false);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [storyLookupFailed, router]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -257,7 +349,7 @@ function CitizenHubContent({ userId, userRole }) {
         router.push(`/explore?story=${reportId}`, { scroll: false });
       }
     }
-  }, [validReports]);
+  }, [validReports, router]);
 
   const refreshData = useCallback(async () => {
     await refresh();
@@ -384,12 +476,18 @@ function CitizenHubContent({ userId, userRole }) {
           </Suspense>
         )}
 
+        {storyLookupFailed && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[150] bg-black/80 text-white text-xs px-4 py-2 rounded-full backdrop-blur-sm">
+            Cerita tidak ditemukan, mengalihkan...
+          </div>
+        )}
+
         <div className="flex-1 w-full h-full relative z-10">
           <Suspense fallback={<LoadingSpinner />}>
             <FullscreenStoryModal
               isOpen={true}
-              reports={validReports}
-              initialIndex={currentIndex}
+              reports={reportsForModal}
+              initialIndex={indexForModal}
               viewCounts={viewCounts}
               likedLaporan={likedLaporan}
               laporanLikeCounts={laporanLikeCounts}

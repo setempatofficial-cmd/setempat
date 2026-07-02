@@ -38,7 +38,6 @@ import {
     EmptyState,
     InvisibleLoading,
     EndOfFeed,
-    PullToRefreshIndicator,
     ToastMessage,
     FeedCardError
 } from "@/app/components/feed/FeedStatusComponents";
@@ -51,7 +50,7 @@ const AIModal = React.lazy(() => import("../ai/AIModal"));
 const KomentarModal = React.lazy(() => import("./KomentarModal"));
 const SearchModal = React.lazy(() => import("./SearchModal"));
 
-// ========== SIMPLE ERROR BOUNDARY (Tanpa react-error-boundary) ==========
+// ========== SIMPLE ERROR BOUNDARY ==========
 class SimpleErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
@@ -90,25 +89,14 @@ const useViewportHeight = () => {
 
     useEffect(() => {
         const updateHeight = () => {
-            if (typeof window !== 'undefined') {
-                if (CSS.supports('height', '100dvh')) {
-                    setViewportHeight('100dvh');
-                } else {
-                    const height = window.innerHeight - 1;
-                    setViewportHeight(`${height}px`);
-                }
-            }
+            setViewportHeight(window.innerHeight + 'px');
             setIsReady(true);
         };
 
         updateHeight();
         window.addEventListener('resize', updateHeight);
-        window.addEventListener('orientationchange', updateHeight);
 
-        return () => {
-            window.removeEventListener('resize', updateHeight);
-            window.removeEventListener('orientationchange', updateHeight);
-        };
+        return () => window.removeEventListener('resize', updateHeight);
     }, []);
 
     return { viewportHeight, isReady };
@@ -160,7 +148,7 @@ const useOnlineStatus = () => {
     return isOnline;
 };
 
-// ========== SNAP SCROLL HOOK (FIXED) ==========
+// ========== SNAP SCROLL HOOK ==========
 const useSnapScroll = (totalItems, onIndexChange, viewportHeight) => {
     const [activeIndex, setActiveIndex] = useState(0);
     const containerRef = useRef(null);
@@ -316,11 +304,7 @@ export default function FeedContent() {
     const [hasMore, setHasMore] = useState(true);
     const [comments, setComments] = useState({});
     const [selectedPhotoIndex, setSelectedPhotoIndex] = useState({});
-    const [initialLoad, setInitialLoad] = useState(() => {
-        if (typeof window === 'undefined') return true;
-        const hasCache = !!sessionStorage.getItem('feed_backup');
-        return !hasCache;
-    });
+    const [initialLoad, setInitialLoad] = useState(true);
     const [error, setError] = useState(null);
     const searchRadius = activeMode === 'general' ? 40 : FEED_CONFIG.DEFAULT_RADIUS;
 
@@ -363,6 +347,8 @@ export default function FeedContent() {
     const isFetchingRef = useRef(false);
     const cacheLoadedRef = useRef(false);
     const isMountedRef = useRef(true);
+    const locationReadyAtInitialLoadRef = useRef(false);
+    const hasLoadedOnceRef = useRef(false);
 
     // ========== CACHE ==========
     const cacheManager = useFeedCache(networkInfo.isSlowConnection);
@@ -377,7 +363,6 @@ export default function FeedContent() {
     const { containerRef, activeIndex, snapToIndex } = useSnapScroll(
         orderedIds.length,
         (index) => {
-            // Preload next card when index changes
             const nextIndex = index + 1;
             if (nextIndex < orderedIds.length) {
                 const nextItem = itemsMap.get(orderedIds[nextIndex]);
@@ -442,12 +427,41 @@ export default function FeedContent() {
         [loading, error, tempat.length, refreshing, initialLoad]
     );
 
+    // ========== PERSIST LAST KNOWN LOCATION ==========
+    useEffect(() => {
+        if (locationReady && location) {
+            try {
+                localStorage.setItem('last_known_location', JSON.stringify({
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                }));
+            } catch (_) { }
+        }
+    }, [locationReady, location]);
+
     // ========== GET CACHE KEY ==========
     const getCacheKey = useCallback(() => {
-        if (!locationReady || !location) return 'feed_default';
-        const lat = Math.round(location.latitude * 10) / 10;
-        const lng = Math.round(location.longitude * 10) / 10;
-        return `feed_v2_${lat}_${lng}_${searchRadius}`;
+        let lat, lng;
+
+        if (locationReady && location) {
+            lat = location.latitude;
+            lng = location.longitude;
+        } else {
+            try {
+                const stored = localStorage.getItem('last_known_location');
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    lat = parsed.latitude;
+                    lng = parsed.longitude;
+                }
+            } catch (_) { }
+        }
+
+        if (lat == null || lng == null) return 'feed_default';
+
+        const roundedLat = Math.round(lat * 10) / 10;
+        const roundedLng = Math.round(lng * 10) / 10;
+        return `feed_v2_${roundedLat}_${roundedLng}_${searchRadius}`;
     }, [locationReady, location, searchRadius]);
 
     // ========== PRELOAD GAMBAR ==========
@@ -499,7 +513,7 @@ export default function FeedContent() {
             initialLoadDoneRef.current = false;
             setInitialLoad(true);
         }
-    }, []);
+    }, [locationReady]);
 
     // ========== SHOW TOAST HELPER ==========
     const showToast = useCallback((message) => {
@@ -507,7 +521,7 @@ export default function FeedContent() {
         setTimeout(() => setToast({ show: false, message: "" }), FEED_CONFIG.TOAST_DURATION);
     }, []);
 
-    // ========== LOAD PLACES (CORE LOGIC - FIXED) ==========
+    // ========== LOAD PLACES ==========
     const loadPlaces = useCallback(async (reset = false, isLocationChange = false) => {
         if (!isMountedRef.current) return;
         if (isFetchingRef.current && !reset) return;
@@ -516,7 +530,9 @@ export default function FeedContent() {
         isFetchingRef.current = true;
 
         if (reset) {
-            setInitialLoad(true);
+            if (!hasLoadedOnceRef.current) {
+                setInitialLoad(true);
+            }
             setHasMore(true);
             setError(null);
             setOrderedIds([]);
@@ -538,6 +554,7 @@ export default function FeedContent() {
                 const cached = cacheManager.get(cacheKey);
                 if (cached && cached.orderedIds && cached.orderedIds.length > 0) {
                     if (!isMountedRef.current) return;
+                    hasLoadedOnceRef.current = true;
                     setItemsMap(cached.itemsMap);
                     setOrderedIds(cached.orderedIds);
                     setInitialLoad(false);
@@ -576,13 +593,14 @@ export default function FeedContent() {
 
             const { data, error: fetchError } = await query.limit(dynamicLimit * (networkInfo.isSlowConnection ? 1 : 2));
 
-            // Check if component is still mounted and fetch is still valid
             if (!isMountedRef.current || currentFetchId !== fetchIdRef.current) {
                 isFetchingRef.current = false;
                 return;
             }
 
             if (fetchError) throw fetchError;
+
+            hasLoadedOnceRef.current = true;
 
             let items = data || [];
 
@@ -727,11 +745,25 @@ export default function FeedContent() {
     useEffect(() => {
         if (mounted && !showSplash && !initialLoadDoneRef.current && !cacheLoadedRef.current) {
             initialLoadDoneRef.current = true;
+            locationReadyAtInitialLoadRef.current = locationReady;
             loadPlaces(true, false);
         }
-    }, [mounted, showSplash, loadPlaces]);
+    }, [mounted, showSplash, loadPlaces, locationReady]);
 
-    // ========== INFINITE SCROLL FOR SNAP SCROLL ==========
+    // ========== RE-LOAD KETIKA LOKASI BARU READY ==========
+    useEffect(() => {
+        if (
+            locationReady &&
+            !locationReadyAtInitialLoadRef.current &&
+            initialLoadDoneRef.current &&
+            !cacheLoadedRef.current
+        ) {
+            locationReadyAtInitialLoadRef.current = true;
+            loadPlaces(true, false);
+        }
+    }, [locationReady, loadPlaces]);
+
+    // ========== INFINITE SCROLL ==========
     useEffect(() => {
         if (activeIndex >= orderedIds.length - 3 && hasMore && !loading && !initialLoad && isOnline) {
             loadPlaces(false);
@@ -907,7 +939,7 @@ export default function FeedContent() {
     const openAICardModal = useCallback((item, onUploadSuccess, initialQueryText = "") => {
         setSelectedTempat(item);
         setSelectedLaporanWarga(item?.laporan_terbaru || []);
-        setSelectedUploadSuccess(() => onUploadSuccess);
+        setSelectedUploadSuccess(onUploadSuccess);
         setInitialQuery(initialQueryText);
         setAiContext("card");
         setShowAIModal(true);
@@ -958,7 +990,7 @@ export default function FeedContent() {
     }
 
     if (initialLoad) {
-        return <SkeletonLoader />;
+        return <SkeletonLoader theme={theme} />;
     }
 
     if (error) {
@@ -968,6 +1000,7 @@ export default function FeedContent() {
                 onRetry={retryLoad}
                 onExpandRadius={handleExpandRadius}
                 isOnline={isOnline}
+                theme={theme}
             />
         );
     }
@@ -982,14 +1015,14 @@ export default function FeedContent() {
             </Head>
 
             <main
-                className="relative bg-black mx-auto w-full max-w-[420px] overflow-hidden"
+                className={`relative mx-auto w-full max-w-[420px] overflow-hidden ${theme.bg}`}
                 suppressHydrationWarning
                 style={{ height: viewportHeight }}
             >
                 {/* Header */}
-                <div className="fixed top-0 left-0 right-0 z-50 w-full max-w-[420px] mx-auto">
+                <div className={`fixed top-0 left-0 right-0 z-50 w-full max-w-[420px] mx-auto ${theme.bgGlass} ${theme.border}`}>
                     <Header
-                        className="bg-black/80 backdrop-blur-lg border-b border-white/10"
+                        className={`${theme.bgGlass} ${theme.border} backdrop-blur-lg`}
                         user={user}
                         isAdmin={isAdmin}
                         onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -1009,17 +1042,12 @@ export default function FeedContent() {
                     />
                 </div>
 
-                {/* ======================================================================= */}
-                {/* 1. PEMBUNGKUS UTAMA: Mengunci viewport dan memotong card yang di luar lubang */}
-                {/* ======================================================================= */}
-                <div className="relative w-full h-full overflow-hidden bg-black">
-
-                    {/* ======================================================================= */}
-                    {/* 2. SNAP SCROLL CONTAINER: Hanya fokus mengurusi scroll data saja */}
-                    {/* ======================================================================= */}
+                {/* Main Container */}
+                <div className={`relative w-full h-full overflow-hidden ${theme.bg}`}>
+                    {/* Snap Scroll Container */}
                     <div
                         ref={containerRef}
-                        className="snap-container w-full overflow-y-scroll flex flex-col gap-6 pt-[60px] pb-[180px] scrollbar-none snap-y snap-mandatory relative"
+                        className={`snap-container w-full overflow-y-scroll flex flex-col gap-6 pt-[60px] pb-[180px] scrollbar-none snap-y snap-mandatory relative ${theme.bg}`}
                         style={{
                             WebkitOverflowScrolling: 'touch',
                             height: viewportReady ? viewportHeight : '100dvh',
@@ -1035,6 +1063,9 @@ export default function FeedContent() {
                                         onRefresh={() => loadPlaces(true)}
                                         onExpandRadius={handleExpandRadius}
                                         isOnline={isOnline}
+                                        radius={searchRadius}
+                                        locationName={villageLocation}
+                                        theme={theme}
                                     />
                                 </div>
                             ) : (
@@ -1045,8 +1076,7 @@ export default function FeedContent() {
                                     return (
                                         <div
                                             key={item.id}
-                                            className={`snap-item relative w-full flex-shrink-0 px-4 transition-all duration-300 ${isFirstItem ? "pt-10" : "pt-0"
-                                                }`}
+                                            className={`snap-item relative w-full flex-shrink-0 px-4 transition-all duration-300 ${isFirstItem ? "pt-10" : "pt-0"}`}
                                             style={{
                                                 scrollSnapAlign: 'start',
                                                 scrollSnapStop: 'always',
@@ -1078,6 +1108,7 @@ export default function FeedContent() {
                                                                 hideActionButtons={true}
                                                                 isActive={isActive}
                                                                 shouldPlayVideo={isActive}
+                                                                theme={theme}
                                                             />
                                                         </div>
                                                     </SimpleErrorBoundary>
@@ -1089,46 +1120,49 @@ export default function FeedContent() {
                             )}
                         </AnimatePresence>
 
-                        {/* 🛠️ PERBAIKAN 1: Indikator loading dipindah ke dalam container agar ikut mengalir rapi di bawah card terakhir */}
+                        {/* Loading Indicator */}
                         {loading && !initialLoad && !error && (
                             <div className="w-full py-6 flex items-center justify-center flex-shrink-0 snap-item" style={{ scrollSnapAlign: 'end' }}>
                                 <InvisibleLoading />
                             </div>
                         )}
 
-                        {/* 🛠️ PERBAIKAN 2: End of feed juga dimasukkan ke dalam scroll container */}
+                        {/* End of Feed */}
                         {!hasMore && tempat.length > 0 && !loading && (
                             <div className="w-full py-6 flex-shrink-0 snap-item" style={{ scrollSnapAlign: 'end' }}>
-                                <EndOfFeed />
+                                <EndOfFeed
+                                    onScrollToTop={() => snapToIndex(0, 'smooth')}
+                                    theme={theme}
+                                />
                             </div>
                         )}
                     </div>
 
-                    {/* ======================================================================= */}
-                    {/* 3. LAYER OVERLAY GELAP: Berdiri absolut tepat di atas container scroll */}
-                    {/* ======================================================================= */}
+                    {/* Overlay */}
                     <div
                         className="absolute bottom-0 left-0 w-full h-[160px] pointer-events-none z-10"
                         style={{
-                            background: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,1) 100%)'
+                            background: theme.isMalam
+                                ? 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,1) 100%)'
+                                : 'linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.7) 50%, rgba(255,255,255,1) 100%)'
                         }}
                     />
+                </div>
 
-                </div> {/* 🛠️ PERBAIKAN 3: Tag penutup pembungkus utama dipindah ke sini agar membungkus seluruh elemen secara presisi */}
-
-                {/* Modals (Tetap berada di luar) */}
+                {/* Modals */}
                 <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
-                < LaporanWarga
+                <LaporanWarga
                     tempat={tempat}
                     locationReady={locationReady}
                     displayLocation={villageLocation}
                     location={location}
                     forceShow={forceShowLaporan}
                     onHide={() => setForceShowLaporan(false)}
+                    theme={theme}
                 />
 
-                < FormLaporanAktif
+                <FormLaporanAktif
                     isOpen={showFormLaporan}
                     onClose={() => setShowFormLaporan(false)}
                     villageLocation={villageLocation}
@@ -1143,27 +1177,26 @@ export default function FeedContent() {
                     onSelectManual={handleManualLocationSelect}
                     onLocationChange={handleLocationChanged}
                     customLocationName={placeName}
+                    theme={theme}
                 />
 
                 {/* Loading overlay */}
-                {
-                    isTransitioningLocation && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
-                            style={{ height: viewportHeight }}
-                        >
-                            <div className="flex flex-col items-center gap-3">
-                                <div className="relative h-8 w-8">
-                                    <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
-                                </div>
-                                <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
+                {isTransitioningLocation && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
+                        style={{ height: viewportHeight }}
+                    >
+                        <div className="flex flex-col items-center gap-3">
+                            <div className="relative h-8 w-8">
+                                <div className="absolute inset-0 border-2 border-white/20 border-t-[#E3655B] border-b-[#25F4EE] rounded-full animate-spin" style={{ animationDuration: '0.35s' }}></div>
                             </div>
-                        </motion.div>
-                    )
-                }
+                            <p className="text-white/70 text-xs font-medium">Mengupdate lokasi...</p>
+                        </div>
+                    </motion.div>
+                )}
 
                 {/* Lazy Modals */}
                 <Suspense fallback={null}>
@@ -1192,6 +1225,7 @@ export default function FeedContent() {
                             initialQuery={initialQuery}
                             item={selectedTempat}
                             laporanWarga={selectedLaporanWarga}
+                            theme={theme}
                         />
                     )}
                 </Suspense>
@@ -1203,6 +1237,7 @@ export default function FeedContent() {
                             onClose={closeModals}
                             tempat={selectedTempat}
                             isAdmin={isAdmin}
+                            theme={theme}
                         />
                     )}
                 </Suspense>
@@ -1213,17 +1248,8 @@ export default function FeedContent() {
                     onOpenLaporanForm={() => setShowFormLaporan(true)}
                     onOpenNotification={() => router.push("/woro")}
                     onOpenProfile={() => router.push("/rewang")}
-                    onOpenLiveStream={() => {
-                        // TAMBAHKAN HANDLER INI
-                        // Opsi 1: Redirect ke halaman live
-                        router.push("/live");
-
-                        // Opsi 2: Buka modal live (uncomment jika ada)
-                        // setShowLiveModal(true);
-
-                        // Opsi 3: Tampilkan toast (uncomment jika mau)
-                        // showToast("📺 Fitur Live Streaming akan segera hadir");
-                    }}
+                    onOpenLiveStream={() => router.push("/live/audio")}
+                    theme={theme}
                 />
 
                 <UploadModal
@@ -1231,12 +1257,17 @@ export default function FeedContent() {
                     onClose={() => setShowUploadModal(false)}
                     userId={userId}
                     userRole={userRole}
+                    theme={theme}
                 />
 
-                <ToastMessage show={toast.show} message={toast.message} />
+                <ToastMessage
+                    show={toast.show}
+                    message={toast.message}
+                    theme={theme}
+                />
 
                 {!isPWAInstalled && <PWAInstaller />}
-            </main >
+            </main>
         </>
     );
 }

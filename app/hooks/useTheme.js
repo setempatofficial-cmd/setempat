@@ -1,16 +1,68 @@
-// hooks/useTheme.js - FIXED VERSION
+// hooks/useTheme.js
 'use client'
 
 import { useMemo } from "react";
-import { useClock } from "@/utils/timeUtils"; // ← FIX: Import dari utils
+import { useClock } from "@/utils/timeUtils";
+
+// Default theme (siang) untuk fallback
+const DEFAULT_THEME = {
+  isMalam: false,
+  sapaan: "Siang",
+  isClient: false,
+  bg: "bg-gray-100 md:bg-[#F9F7F7]",
+  card: "bg-white md:bg-white",
+  border: "border-gray-300 md:border-slate-200",
+  text: "text-slate-900",
+  textMuted: "text-slate-500 md:text-slate-600",
+  accent: "text-[#E3655B]",
+  accentBg: "bg-[#E3655B]",
+  accentSoft: "bg-rose-100 md:bg-rose-50",
+  accentBorder: "border-rose-300 md:border-rose-200",
+  cardHover: "hover:bg-gray-50 md:hover:bg-gray-50",
+  statusBg: "bg-gray-200 md:bg-black/5",
+  statusText: "text-slate-800",
+  timeText: "text-[#E3655B]",
+  bgGlass: "bg-white md:bg-white/80 md:backdrop-blur-sm",
+  dot: "bg-[#E3655B]",
+  dotGlow: "md:shadow-[0_0_8px_rgba(227,101,91,0.4)]",
+  softBg: "bg-rose-100 md:bg-rose-50",
+  softBorder: "border-rose-300 md:border-rose-200",
+  timeIcon: "☀️",
+  vibeInfo: { icon: "☀️", label: "Siang" },
+  situasi: {
+    viral: { text: "text-rose-700", bg: "bg-rose-100", border: "border-rose-300", icon: "🔥", label: "Viral" },
+    ramai: { text: "text-amber-700", bg: "bg-amber-100", border: "border-amber-300", icon: "👥", label: "Ramai" },
+    sepi: { text: "text-emerald-700", bg: "bg-emerald-100", border: "border-emerald-300", icon: "🍃", label: "Sepi" }
+  },
+  getSituasi: (type) => {
+    const situasi = {
+      viral: { text: "text-rose-700", bg: "bg-rose-100", border: "border-rose-300", icon: "🔥", label: "Viral" },
+      ramai: { text: "text-amber-700", bg: "bg-amber-100", border: "border-amber-300", icon: "👥", label: "Ramai" },
+      sepi: { text: "text-emerald-700", bg: "bg-emerald-100", border: "border-emerald-300", icon: "🍃", label: "Sepi" }
+    };
+    return situasi[type] || situasi.ramai;
+  }
+};
 
 export function useTheme() {
-  const { timeLabel: sapaan, timeInfo } = useClock();
-  const isMalam = sapaan === "Malam";
+  const { timeLabel: sapaan, timeInfo, isClient } = useClock();
+
+  // Determine if night mode
+  const isMalam = useMemo(() => {
+    if (!isClient || !timeInfo) return false;
+    return timeInfo.isMalam || false;
+  }, [timeInfo, isClient]);
 
   return useMemo(() => {
+    // Return default theme if not client yet (prevent hydration mismatch)
+    if (!isClient) {
+      return DEFAULT_THEME;
+    }
+
+    // Base styles based on isMalam
     const base = isMalam ? {
       bg: "bg-slate-900 md:bg-[#0f172a]",
+      bgHex: "#0f172a",
       card: "bg-slate-800 md:bg-slate-900/40 md:backdrop-blur-md",
       border: "border-slate-700 md:border-slate-800/50",
       text: "text-white",
@@ -26,6 +78,7 @@ export function useTheme() {
       bgGlass: "bg-slate-900 md:bg-[#0f172a]/80 md:backdrop-blur-sm",
     } : {
       bg: "bg-gray-100 md:bg-[#F9F7F7]",
+      bgHex: "#f3f4f6",
       card: "bg-white md:bg-white",
       border: "border-gray-300 md:border-slate-200",
       text: "text-slate-900",
@@ -41,6 +94,7 @@ export function useTheme() {
       bgGlass: "bg-white md:bg-white/80 md:backdrop-blur-sm",
     };
 
+    // Time vibes based on sapaan
     const timeVibes = {
       Pagi: {
         dot: "bg-orange-500",
@@ -80,6 +134,9 @@ export function useTheme() {
       }
     };
 
+    const currentTime = timeVibes[sapaan] || timeVibes.Siang;
+
+    // Situasi styles
     const situasi = {
       viral: {
         text: isMalam ? "text-rose-400" : "text-rose-700",
@@ -104,13 +161,12 @@ export function useTheme() {
       }
     };
 
-    const currentTime = timeVibes[sapaan] || timeVibes.Siang;
-
     return {
       ...base,
       isMalam,
       sapaan,
       timeInfo,
+      isClient,
       dot: currentTime.dot,
       dotGlow: currentTime.dotGlow,
       softBg: currentTime.softBg,
@@ -126,5 +182,5 @@ export function useTheme() {
       },
       bgGlass: base.bgGlass,
     };
-  }, [sapaan, timeInfo, isMalam]);
+  }, [sapaan, timeInfo, isMalam, isClient]);
 }

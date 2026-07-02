@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CldUploadWidget } from "next-cloudinary";
 import { supabase } from "@/lib/supabaseClient";
 import DOMPurify from 'dompurify';
-import { MapPin, Camera, Send } from "lucide-react";
+import { MapPin, Camera, Send, Sparkles, Search } from "lucide-react";
+import { useLocationCache } from '@/lib/hooks/useLocationCache';
 
 // KONSTANTA
 const QUEUE_CATEGORIES = ['kuliner', 'transportasi', 'pasar'];
@@ -47,15 +48,23 @@ export default function LaporPanel({
   const [content, setContent] = useState("");
   const [uploadProgress, setUploadProgress] = useState(false);
 
+  // STATE UNTUK PENCARIAN (DI BAWAH)
   const [tempatList, setTempatList] = useState([]);
   const [tempatQuery, setTempatQuery] = useState("");
   const [nominatimResults, setNominatimResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const [isTextOnly, setIsTextOnly] = useState(false);
+
+  // AI STATE
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [isAiDetecting, setIsAiDetecting] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   const timeoutRef = useRef(null);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
+  const aiDebounceRef = useRef(null);
 
   // Computed values
   const kategoriLower = (pickedTempat?.category || tempat?.category || "").toLowerCase();
@@ -71,51 +80,78 @@ export default function LaporPanel({
     (selectedCondition === "Antri" && !selectedWaitTime) ||
     status === "uploading";
 
+  // Get user session untuk caching
+  const [userId, setUserId] = useState(null);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUser();
+  }, []);
+
+  // Hook caching
+  const {
+    cachedLocations,
+    saveToCache,
+    getFromCache,
+    removeFromCache,
+    clearCache
+  } = useLocationCache(userId);
+
   // Cleanup
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (abortRef.current) abortRef.current?.abort();
+      if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
     };
   }, []);
 
-  // Fetch tempat with debounce
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    debounceRef.current = setTimeout(async () => {
-      if (tempatQuery.length < 2) {
-        setTempatList([]);
-        setNominatimResults([]);
-        return;
-      }
-
-      await fetchTempatList(tempatQuery);
-
-      if (tempatQuery.length >= 3 && tempatList.length < 2) {
-        await searchNominatim(tempatQuery);
-      } else {
-        setNominatimResults([]);
-      }
-    }, 500);
-  }, [tempatQuery]);
-
+  // ============================================
+  // FUNGSI FETCH TEMPAT (DENGAN CACHE)
+  // ============================================
   const fetchTempatList = async (searchQuery = "") => {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
 
     try {
+      // 1. Cek CACHE dulu
+      if (searchQuery.trim().length >= 2) {
+        const cachedResults = getFromCache(searchQuery.trim());
+        if (cachedResults.length > 0) {
+          setTempatList(cachedResults.map(item => ({
+            ...item,
+            fromCache: true,
+            isCached: true
+          })));
+          return;
+        }
+      }
+
+      // 2. Jika tidak ada di cache, cari di database
       let query = supabase.from("tempat").select("id, name, category, alamat, latitude, longitude").limit(20);
       if (searchQuery.trim()) query = query.ilike('name', `%${searchQuery}%`);
 
       const { data, error } = await query;
-      if (!error && data) setTempatList(data);
+      if (!error && data) {
+        setTempatList(data);
+        if (data.length > 0) {
+          data.forEach(location => saveToCache(location));
+        }
+      }
     } catch (err) {
       if (err.name !== 'AbortError') console.error(err);
     }
   };
 
+  // ============================================
+  // FUNGSI SEARCH NOMINATIM
+  // ============================================
   const searchNominatim = async (query) => {
     try {
       const controller = new AbortController();
@@ -145,6 +181,301 @@ export default function LaporPanel({
     }
   };
 
+  // ============================================
+  // FUNGSI SELECT LOCATION (DENGAN CACHE)
+  // ============================================
+  const selectLocation = (location) => {
+    const isFromNominatim = location.source === 'nominatim' || location.id?.toString().startsWith('nominatim_');
+
+    setPickedTempat({
+      id: location.id,
+      name: location.name,
+      category: location.category || 'tempat',
+      alamat: location.fullName || location.alamat || location.name,
+      latitude: location.lat || location.latitude,
+      longitude: location.lng || location.longitude,
+      source: isFromNominatim ? 'nominatim' : (location.source || 'database')
+    });
+
+    // SAVE KE CACHE
+    if (location.id && location.name) {
+      saveToCache(location);
+    }
+
+    setShowPickTempat(false);
+    setTempatQuery("");
+    setAiSuggestions([]);
+    setAiError(null);
+    setTempatList([]);
+    setNominatimResults([]);
+  };
+
+  // PENCARIAN MANUAL - DI BAWAH
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      if (tempatQuery.length < 2) {
+        setTempatList([]);
+        setNominatimResults([]);
+        setIsSearching(false);
+        return;
+      }
+
+      setIsSearching(true);
+      await fetchTempatList(tempatQuery);
+
+      if (tempatQuery.length >= 3 && tempatList.length < 2) {
+        await searchNominatim(tempatQuery);
+      } else {
+        setNominatimResults([]);
+      }
+      setIsSearching(false);
+    }, 500);
+  }, [tempatQuery]);
+
+  // ============================================
+  // AI DETECTION - TETAP SAMA SEPERTI SEBELUMNYA
+  // ============================================
+  useEffect(() => {
+    if (!showPickTempat || content.length < 10) {
+      setAiSuggestions([]);
+      setAiError(null);
+      return;
+    }
+
+    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
+
+    aiDebounceRef.current = setTimeout(async () => {
+      await detectLocationWithAI(content);
+    }, 1000);
+
+    return () => {
+      if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
+    };
+  }, [content, showPickTempat]);
+
+  // FUNGSI AI DETECTION dengan Groq
+  const detectLocationWithAI = async (text) => {
+    setIsAiDetecting(true);
+    setAiError(null);
+
+    try {
+      // 1. Extract lokasi dari teks menggunakan Groq API
+      const extractedLocation = await extractLocationWithGroq(text);
+
+      if (!extractedLocation) {
+        setAiSuggestions([]);
+        return;
+      }
+
+      // 2. Cari di DATABASE dulu
+      const { data, error } = await supabase
+        .from('tempat')
+        .select('id, name, category, alamat, latitude, longitude')
+        .ilike('name', `%${extractedLocation}%`)
+        .limit(3);
+
+      if (error) throw error;
+
+      // 3. Jika ditemukan di database, tampilkan sebagai rekomendasi
+      if (data && data.length > 0) {
+        setAiSuggestions(data.map(item => ({
+          ...item,
+          source: 'database',
+          isSuggestion: true,
+          confidence: 'high'
+        })));
+        return;
+      }
+
+      // 4. Jika TIDAK ditemukan di database, cari di NOMINATIM
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(extractedLocation)}&limit=3&addressdetails=1&countrycodes=id`,
+          { signal: controller.signal }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error('Nominatim API error');
+        }
+
+        const results = await response.json();
+
+        if (results && results.length > 0) {
+          const nomResults = results.map(item => ({
+            id: `nominatim_${item.place_id}`,
+            name: item.display_name.split(',')[0],
+            fullName: item.display_name,
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon),
+            category: item.category || 'lokasi',
+            source: 'nominatim',
+            isSuggestion: true,
+            confidence: 'medium'
+          }));
+
+          setAiSuggestions(nomResults);
+          return;
+        } else {
+          setAiSuggestions([]);
+          setAiError('Lokasi tidak ditemukan. Coba dengan kata kunci lain.');
+        }
+
+      } catch (nomError) {
+        if (nomError.name !== 'AbortError') {
+          console.error('Nominatim error:', nomError);
+          setAiError('Gagal mencari lokasi di peta');
+        }
+        setAiSuggestions([]);
+      }
+
+    } catch (error) {
+      console.error('AI Detection error:', error);
+      setAiError('Gagal mendeteksi lokasi');
+      setAiSuggestions([]);
+    } finally {
+      setIsAiDetecting(false);
+    }
+  };
+
+  // FUNGSI GROQ API - Extract lokasi dari teks
+  const extractLocationWithGroq = async (text) => {
+    try {
+      const response = await fetch('/api/groq-location', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: text,
+          prompt: `Ekstrak nama lokasi (tempat, jalan, atau area) dari teks berikut. 
+        Jika ada beberapa lokasi, ambil yang paling spesifik/relevan.
+        Hanya balas dengan nama lokasi, tanpa kalimat tambahan.
+        
+        Teks: "${text}"
+        
+        Lokasi:`
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API Error:', errorData);
+        return extractLocationManually(text);
+      }
+
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('API Error:', data.error);
+        return extractLocationManually(text);
+      }
+
+      const location = data.location?.trim() || '';
+
+      if (!location || location.length < 3 || location.length > 100) {
+        return extractLocationManually(text);
+      }
+
+      const stopwords = ['yang', 'dan', 'di', 'ke', 'dari', 'pada', 'ini', 'itu', 'untuk', 'dengan', 'oleh'];
+      const words = location.toLowerCase().split(' ');
+      const isValid = words.some(w => w.length > 3 && !stopwords.includes(w));
+
+      return isValid ? location : extractLocationManually(text);
+
+    } catch (error) {
+      console.error('Groq extraction error:', error);
+      return extractLocationManually(text);
+    }
+  };
+
+  // Fungsi fallback manual
+  function extractLocationManually(text) {
+    const stopwords = ['yang', 'dan', 'di', 'ke', 'dari', 'pada', 'ini', 'itu', 'untuk', 'dengan', 'oleh', 'sebagai', 'atau', 'jika', 'maka', 'saya', 'kami', 'kita', 'ada', 'banyak', 'sangat', 'cukup', 'terlalu', 'begitu', 'sekali', 'seperti', 'karena', 'namun', 'tetapi', 'sedangkan'];
+    const words = text.toLowerCase().split(/\s+/);
+    const potentialLocations = [];
+    let currentPhrase = [];
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i].replace(/[.,!?;:()"]/g, '');
+
+      if (stopwords.includes(word) || word.length < 3) {
+        if (currentPhrase.length > 0) {
+          const phrase = currentPhrase.join(' ');
+          if (phrase.length > 3 && !potentialLocations.includes(phrase)) {
+            potentialLocations.push(phrase);
+          }
+          currentPhrase = [];
+        }
+        continue;
+      }
+
+      const originalText = text.split(/\s+/)[i] || '';
+      if (originalText && originalText[0] === originalText[0].toUpperCase() && word.length > 2) {
+        if (currentPhrase.length > 0) {
+          const phrase = currentPhrase.join(' ');
+          if (phrase.length > 3 && !potentialLocations.includes(phrase)) {
+            potentialLocations.push(phrase);
+          }
+          currentPhrase = [];
+        }
+        currentPhrase.push(word);
+      } else {
+        currentPhrase.push(word);
+      }
+    }
+
+    if (currentPhrase.length > 0) {
+      const phrase = currentPhrase.join(' ');
+      if (phrase.length > 3 && !potentialLocations.includes(phrase)) {
+        potentialLocations.push(phrase);
+      }
+    }
+
+    const locationKeywords = ['jalan', 'desa', 'kecamatan', 'kabupaten', 'kota', 'pasar', 'stasiun', 'terminal', 'bandara', 'alun-alun', 'taman', 'masjid', 'gereja', 'sekolah', 'kampus', 'rumah sakit', 'puskesmas', 'mall', 'supermarket', 'toko', 'warung', 'restoran', 'kafe'];
+
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for (const loc of potentialLocations) {
+      let score = loc.length / 10;
+      for (const keyword of locationKeywords) {
+        if (loc.includes(keyword)) score += 2;
+      }
+      const wordsInLoc = loc.split(' ');
+      for (const word of wordsInLoc) {
+        for (const keyword of locationKeywords) {
+          if (keyword.includes(word) || word.includes(keyword)) {
+            score += 1.5;
+            break;
+          }
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = loc;
+      }
+    }
+
+    if (bestMatch && bestScore > 1) {
+      return bestMatch.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    const filteredWords = words.filter(w => w.length > 3 && !stopwords.includes(w) && !w.match(/^[0-9]+$/));
+    if (filteredWords.length > 0) {
+      const result = filteredWords.slice(0, 3).join(' ');
+      return result.charAt(0).toUpperCase() + result.slice(1);
+    }
+
+    return null;
+  }
+
   const handleUploadDone = (res) => {
     if (res?.event === "success" && res.info?.secure_url) {
       setMediaType(res.info.resource_type);
@@ -152,33 +483,23 @@ export default function LaporPanel({
     }
   };
 
-  const selectLocation = (location) => {
-    setPickedTempat({
-      id: location.id,
-      name: location.name,
-      category: location.category || 'tempat',
-      alamat: location.fullName || location.alamat,
-      latitude: location.lat || location.latitude,
-      longitude: location.lng || location.longitude,
-      source: location.source || 'database'
-    });
-    setShowPickTempat(false);
-    setTempatQuery("");
-  };
-
   const finalizeUpload = async () => {
-    if (!activeTempat?.id && !isNominatim) {
-      alert("Pilih lokasi dulu");
-      return;
+    if (isNominatim) {
+      if (!selectedTraffic) {
+        alert("Pilih kondisi lalu lintas");
+        return;
+      }
+    } else {
+      if (!selectedCondition && !selectedTraffic) {
+        alert("Pilih kondisi");
+        return;
+      }
+      if (selectedCondition === "Antri" && !selectedWaitTime) {
+        alert("Pilih waktu antrian");
+        return;
+      }
     }
-    if (!isNominatim && !selectedCondition && !selectedTraffic) {
-      alert("Pilih kondisi");
-      return;
-    }
-    if (selectedCondition === "Antri" && !selectedWaitTime) {
-      alert("Pilih waktu antrian");
-      return;
-    }
+
     if (status === "uploading") return;
 
     const cleanContent = DOMPurify.sanitize(content, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
@@ -217,7 +538,9 @@ export default function LaporPanel({
       setUploadProgress(true);
 
       const reportData = {
-        tempat_id: !isNominatim && activeTempat?.id ? parseInt(activeTempat.id) : null,
+        tempat_id: !isNominatim && activeTempat?.id && !activeTempat.id?.toString().startsWith('nominatim_')
+          ? parseInt(activeTempat.id)
+          : null,
         user_id: session.user.id,
         user_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Warga",
         username: session.user.user_metadata?.username || session.user.email?.split("@")[0],
@@ -248,7 +571,6 @@ export default function LaporPanel({
 
       const newReport = data?.[0] || reportData;
 
-      // Dispatch events untuk update real-time
       window.dispatchEvent(new CustomEvent('story-upload-success', {
         detail: { tempatId: activeTempat?.id, isNominatim, newReport }
       }));
@@ -273,11 +595,9 @@ export default function LaporPanel({
     }
   };
 
-  const allResults = useMemo(() => [
-    ...tempatList.map(t => ({ ...t, uniqueId: `db_${t.id}` })),
-    ...nominatimResults.map(t => ({ ...t, uniqueId: `nom_${t.id}` }))
-  ], [tempatList, nominatimResults]);
-
+  // ============================================
+  // RENDER - TETAP SAMA SEPERTI SEBELUMNYA
+  // ============================================
   return createPortal(
     <AnimatePresence mode="wait">
       <motion.div
@@ -298,13 +618,19 @@ export default function LaporPanel({
         >
           <div className="h-1.5 bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 w-full" />
 
-          <div className="p-5">
+          <div className="p-5 max-h-[90vh] overflow-y-auto">
             {/* Header */}
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Kirim Laporan</h3>
-                <p className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest mt-0.5">
-                  {activeTempat?.name || (showPickTempat ? "Pilih lokasi" : "Lokasi belum dipilih")} · {currentTimeTag}
+                <p className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
+                  {activeTempat?.name || "Pilih lokasi"}
+                  {activeTempat?.source === 'nominatim' && (
+                    <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
+                      🗺️ Peta
+                    </span>
+                  )}
+                  · {currentTimeTag}
                 </p>
               </div>
               <button
@@ -315,122 +641,56 @@ export default function LaporPanel({
               </button>
             </div>
 
-            {/* Pilih Lokasi Section */}
-            {showPickTempat && (
-              <div className="mb-4 space-y-3">
-                <div className="relative">
-                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="search"
-                    value={tempatQuery}
-                    onChange={(e) => setTempatQuery(e.target.value)}
-                    placeholder="Cari tempat atau jalan..."
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 transition-all duration-200 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10"
-                    autoFocus
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck="false"
-                    enterKeyHint="search"
-                    name="loc-search"
-                    id="loc-search-input"
-                    inputMode="search"
-                  />
+            {/* ============================================ */}
+            {/* TAMPILKAN LOKASI FAVORIT (CACHE) */}
+            {/* ============================================ */}
+            {showPickTempat && tempatQuery.length === 0 && cachedLocations.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                    <span>⭐</span>
+                    Lokasi Favorit
+                    <span className="text-[8px] text-slate-300 font-normal">
+                      ({cachedLocations.length})
+                    </span>
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (confirm('Hapus semua cache lokasi?')) {
+                        clearCache();
+                      }
+                    }}
+                    className="text-[8px] text-slate-400 hover:text-red-500 transition-colors"
+                  >
+                    Hapus semua
+                  </button>
                 </div>
-                {tempatQuery.length >= 2 && (
-                  <div className="flex items-start gap-2 bg-slate-50 border border-slate-100 p-2.5 rounded-xl mt-1 mb-3">
-                    <span className="text-xs">💡</span>
-                    <p className="text-[10px] leading-relaxed text-slate-500">
-                      Hasil <span className="font-semibold text-slate-700">"🗺️ LOKASI DARI PETA"</span> akan muncul jika tempat tidak terdaftar di database kami.
-                    </p>
-                  </div>
-                )}
-
-                <div className="max-h-[250px] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
-                  {/* Grup Database */}
-                  {tempatList.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">
-                        📌 Tempat Terdaftar
-                      </div>
-                      <div className="space-y-1">
-                        {tempatList.map(t => (
-                          <button
-                            key={`db_${t.id}`}
-                            onClick={() => selectLocation(t)}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent hover:border-cyan-100 hover:bg-cyan-50/50 transition-all duration-200 group text-left"
-                          >
-                            <div className="w-7 h-7 flex items-center justify-center bg-cyan-50 rounded-lg group-hover:bg-cyan-100 transition-colors">
-                              <span className="text-sm">📍</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-semibold text-slate-700 group-hover:text-cyan-700 transition-colors truncate">
-                                {t.name}
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-medium truncate mt-0.5">
-                                {t.category}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Grup Nominatim */}
-                  {nominatimResults.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">
-                        🗺️ Lokasi dari Peta
-                      </div>
-                      <div className="space-y-1">
-                        {nominatimResults.map(t => (
-                          <button
-                            key={`nom_${t.id}`}
-                            onClick={() => selectLocation(t)}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-all duration-200 group text-left"
-                          >
-                            <div className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg group-hover:bg-slate-200 transition-colors">
-                              <span className="text-sm">🛣️</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors truncate">
-                                {t.name}
-                              </div>
-                              <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                                {t.fullName}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pesan kosong */}
-                  {tempatList.length === 0 && nominatimResults.length === 0 && tempatQuery.length > 2 && (
-                    <div className="text-center py-8 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 my-2">
-                      <div className="text-2xl mb-2">🔍</div>
-                      <p className="text-xs font-medium text-slate-500">Tidak ditemukan hasil</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Coba gunakan kata kunci atau nama jalan lain</p>
-                    </div>
+                <div className="flex flex-wrap gap-2">
+                  {cachedLocations.slice(0, 5).map((loc) => (
+                    <button
+                      key={loc.id}
+                      onClick={() => selectLocation(loc)}
+                      className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 transition-all flex items-center gap-1.5"
+                    >
+                      <span>⭐</span>
+                      {loc.name}
+                      <span className="text-[8px] text-emerald-400">
+                        · {loc.useCount || 1}x
+                      </span>
+                    </button>
+                  ))}
+                  {cachedLocations.length > 5 && (
+                    <span className="text-[10px] text-slate-400 self-center">
+                      +{cachedLocations.length - 5} lainnya
+                    </span>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Ganti Lokasi Button */}
-            {!showPickTempat && activeTempat && (
-              <button
-                onClick={() => setShowPickTempat(true)}
-                className="mb-3 text-[9px] font-bold text-cyan-600 flex items-center gap-1"
-              >
-                <MapPin size={10} />
-                Ganti lokasi
-              </button>
-            )}
-
-            {/* Upload Area */}
+            {/* ============================================ */}
+            {/* UPLOAD AREA */}
+            {/* ============================================ */}
             {!tempMediaUrl && mode !== "text" && !isTextOnly && (
               <div className="mb-4">
                 <CldUploadWidget
@@ -460,7 +720,7 @@ export default function LaporPanel({
               </div>
             )}
 
-            {/* Preview */}
+            {/* Preview dengan textarea */}
             {tempMediaUrl && !isTextOnly && (
               <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 mb-4 flex gap-3">
                 <div className="w-14 h-16 rounded-xl overflow-hidden bg-slate-200 flex-shrink-0">
@@ -484,7 +744,7 @@ export default function LaporPanel({
             {!tempMediaUrl && !isTextOnly && (
               <button
                 onClick={() => setIsTextOnly(true)}
-                className="w-full py-3 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-500 hover:bg-slate-50 mb-4"
+                className="w-full py-3 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-500 hover:bg-slate-50 mb-4 transition-colors"
               >
                 Lapor Tulisan Saja →
               </button>
@@ -502,9 +762,237 @@ export default function LaporPanel({
               />
             )}
 
-            {/* Survey Options */}
-            {!isNominatim && !showPickTempat && (
+            {/* ============================================ */}
+            {/* BAGIAN PEMILIHAN LOKASI (DI BAWAH) */}
+            {/* ============================================ */}
+
+            {showPickTempat && (
+              <div className="space-y-3 mb-4">
+                {/* PENCARIAN MANUAL */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={tempatQuery}
+                    onChange={(e) => setTempatQuery(e.target.value)}
+                    placeholder="Cari tempat atau jalan..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 transition-all duration-200 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck="false"
+                    enterKeyHint="search"
+                  />
+                  {isSearching && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <div className="w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* HASIL PENCARIAN MANUAL */}
+                {tempatQuery.length >= 2 && (tempatList.length > 0 || nominatimResults.length > 0) && (
+                  <div className="max-h-[200px] overflow-y-auto pr-1 space-y-3 custom-scrollbar border border-slate-100 rounded-xl p-2 bg-slate-50/50">
+                    {/* Tampilkan CACHE dulu dengan label khusus */}
+                    {tempatList.some(t => t.isCached) && (
+                      <div className="space-y-1">
+                        <div className="text-[9px] font-bold tracking-wider text-emerald-500 uppercase px-2 flex items-center gap-1.5">
+                          <span>⚡</span>
+                          Lokasi Favorit (Cache)
+                          <span className="text-[8px] text-slate-400 font-normal">
+                            ({tempatList.filter(t => t.isCached).length})
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {tempatList.filter(t => t.isCached).map(t => (
+                            <button
+                              key={`cache_${t.id}`}
+                              onClick={() => selectLocation(t)}
+                              className="w-full flex items-center gap-3 p-2 rounded-xl border border-emerald-100 bg-emerald-50/50 hover:border-emerald-300 hover:bg-emerald-50 transition-all duration-200 group text-left"
+                            >
+                              <div className="w-6 h-6 flex items-center justify-center bg-emerald-100 rounded-lg group-hover:bg-emerald-200 transition-colors">
+                                <span className="text-sm">⭐</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700 transition-colors truncate">
+                                  {t.name}
+                                </div>
+                                <div className="text-[9px] text-emerald-600 font-medium truncate flex items-center gap-1">
+                                  {t.category || 'Lokasi'}
+                                  <span className="text-[8px] text-emerald-400">
+                                    · Digunakan {t.useCount || 1}x
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFromCache(t.id);
+                                }}
+                                className="text-slate-300 hover:text-red-500 transition-colors"
+                              >
+                                ✕
+                              </button>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Database Results */}
+                    {tempatList.some(t => !t.isCached && t.source !== 'nominatim') && (
+                      <div className="space-y-1">
+                        <div className="text-[9px] font-bold tracking-wider text-slate-400 uppercase px-2">
+                          📌 Tempat Terdaftar
+                        </div>
+                        <div className="space-y-1">
+                          {tempatList.filter(t => !t.isCached && t.source !== 'nominatim').map(t => (
+                            <button
+                              key={`db_${t.id}`}
+                              onClick={() => selectLocation(t)}
+                              className="w-full flex items-center gap-3 p-2 rounded-xl border border-transparent hover:border-cyan-100 hover:bg-cyan-50/50 transition-all duration-200 group text-left"
+                            >
+                              <div className="w-6 h-6 flex items-center justify-center bg-cyan-50 rounded-lg group-hover:bg-cyan-100 transition-colors">
+                                <span className="text-sm">📍</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-slate-700 group-hover:text-cyan-700 transition-colors truncate">
+                                  {t.name}
+                                </div>
+                                <div className="text-[9px] text-slate-400 font-medium truncate">
+                                  {t.category}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {nominatimResults.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[9px] font-bold tracking-wider text-slate-400 uppercase px-2">
+                          🗺️ Lokasi dari Peta
+                        </div>
+                        <div className="space-y-1">
+                          {nominatimResults.map(t => (
+                            <button
+                              key={`nom_${t.id}`}
+                              onClick={() => selectLocation(t)}
+                              className="w-full flex items-center gap-3 p-2 rounded-xl border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-all duration-200 group text-left"
+                            >
+                              <div className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-lg group-hover:bg-slate-200 transition-colors">
+                                <span className="text-sm">🛣️</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition-colors truncate">
+                                  {t.name}
+                                </div>
+                                <div className="text-[9px] text-slate-400 truncate">
+                                  {t.fullName}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* REKOMENDASI AI */}
+                {content.length >= 10 && (
+                  <div>
+                    {isAiDetecting ? (
+                      <div className="p-3 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-xl border border-cyan-200">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-[10px] font-medium text-cyan-700">AI mendeteksi lokasi...</span>
+                        </div>
+                      </div>
+                    ) : aiSuggestions.length > 0 ? (
+                      <div className="p-3 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-xl border border-cyan-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-bold text-cyan-700 flex items-center gap-1.5">
+                            <Sparkles size={14} className="text-cyan-500" />
+                            Rekomendasi Lokasi:
+                          </p>
+                          <span className="text-[8px] text-cyan-500 font-medium bg-white px-2 py-0.5 rounded-full">
+                            {aiSuggestions.some(s => s.source === 'nominatim') ? '🗺️ Dari Peta' : '📌 Terdaftar'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {aiSuggestions.map((loc) => {
+                            const isNominatim = loc.source === 'nominatim' || loc.id?.toString().startsWith('nominatim_');
+                            return (
+                              <button
+                                key={loc.id || loc.uniqueId}
+                                onClick={() => selectLocation(loc)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm flex items-center gap-1.5
+                                  ${isNominatim
+                                    ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
+                                    : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-50 hover:border-cyan-300'
+                                  }`}
+                              >
+                                <span>{isNominatim ? '🗺️' : '📍'}</span>
+                                <span>{loc.name}</span>
+                                {isNominatim && (
+                                  <span className="text-[8px] text-slate-400 ml-1">(dari peta)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[8px] text-cyan-600/70 mt-1.5">
+                          💡 Klik rekomendasi di atas. {aiSuggestions.some(s => s.source === 'nominatim')
+                            ? 'Lokasi dari peta akan disimpan sebagai lokasi umum.'
+                            : 'Lokasi terdaftar akan tersimpan dengan ID tempat.'}
+                        </p>
+                      </div>
+                    ) : aiError ? (
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                        <p className="text-[10px] text-amber-600 flex items-center gap-1.5">
+                          <span>⚠️</span>
+                          {aiError}
+                        </p>
+                      </div>
+                    ) : content.length >= 20 && !isAiDetecting && (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <p className="text-[10px] text-slate-400 text-center">
+                          🔍 Belum ada lokasi terdeteksi. Coba sebutkan nama tempat yang lebih spesifik.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Info jika belum pilih lokasi */}
+                {content.length === 0 && (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <p className="text-[10px] text-slate-400 text-center">
+                      📝 Tulis deskripsi untuk rekomendasi AI, atau cari manual di atas
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ============================================ */}
+            {/* SURVEY OPTIONS */}
+            {/* ============================================ */}
+            {!showPickTempat && (
               <>
+                <button
+                  onClick={() => {
+                    setShowPickTempat(true);
+                    setTempatQuery("");
+                  }}
+                  className="mb-3 text-[9px] font-bold text-cyan-600 flex items-center gap-1 hover:text-cyan-700 transition-colors"
+                >
+                  <MapPin size={10} />
+                  Ganti lokasi
+                </button>
+
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">📍 Kondisi Tempat</p>
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   {[
@@ -609,6 +1097,9 @@ export default function LaporPanel({
               </p>
             )}
 
+            {/* ============================================ */}
+            {/* TOMBOL KIRIM */}
+            {/* ============================================ */}
             <button
               onClick={finalizeUpload}
               disabled={isFormDisabled}

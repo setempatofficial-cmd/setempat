@@ -1,23 +1,20 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Eye, VideoOff, Headphones, Send } from "lucide-react";
+import { ArrowLeft, Eye, VideoOff, Lock, Crown, RefreshCw, AlertCircle, Clock, Bell, Volume2, Send } from "lucide-react";
 import Hls from "hls.js";
 import { supabase } from "@/lib/supabaseClient";
+import { checkStreamIsLive } from "@/lib/checkLiveStatus";
 
-const STREAM_ID = process.env.NEXT_PUBLIC_CLOUDINARY_STREAM_ID!;
+const LIVE_INPUT_ID = process.env.NEXT_PUBLIC_CLOUDFLARE_LIVE_INPUT_ID || "";
+const STREAM_URL = `https://videodelivery.net/${LIVE_INPUT_ID}/manifest/video.m3u8`;
 
-if (!STREAM_ID) {
-  throw new Error("Missing required environment variable: NNEXT_PUBLIC_CLOUDINARY_STREAM_ID");
-}
-
-const CLOUD_NAME = "dmhpgqe3o";
-
+// ==================== TYPES ====================
 interface Comment {
-  id: number;
+  id: number | string;
   user_id?: string;
-  user_name: string | null;
+  user_name: string;
   avatar_url: string | null;
   comment: string;
   created_at: string;
@@ -29,746 +26,1516 @@ interface Profile {
   username: string | null;
   avatar_url: string | null;
   role: string;
+  points: number;
+  saldo: number;
 }
 
 export default function LivePage() {
   const router = useRouter();
+
+  // ===== REFS =====
   const videoRef = useRef<HTMLVideoElement>(null);
   const commentContainerRef = useRef<HTMLDivElement>(null);
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useRef(true);
+  const hlsRef = useRef<Hls | null>(null);
+  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const previewIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const viewersIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const previewStartedRef = useRef(false);
+  const accessCheckedRef = useRef(false);
+  const pendingCommentIds = useRef<Set<string>>(new Set());
+  const liveCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const videoErrorRef = useRef<string | null>(null);
+
+  const isPurchasingPointsRef = useRef(false);
+  const isPurchasingSaldoRef = useRef(false);
+
+  // ===== CORE STATES =====
   const [isLiveActive, setIsLiveActive] = useState<boolean | null>(null);
-  const [isBuffering, setIsBuffering] = useState(true);
+  const [isPremium, setIsPremium] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
-  const [networkQuality, setNetworkQuality] = useState<'high' | 'medium' | 'low'>('high');
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [userData, setUserData] = useState<Profile | null>(null);
-  const [isCommentLoading, setIsCommentLoading] = useState(true);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [isVideoLoading, setIsVideoLoading] = useState(true);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // 🔥 DEFAULT COVER AGAR FULL SCREEN
   const [videoFit, setVideoFit] = useState<'cover' | 'contain'>('cover');
 
+  // ===== USER STATES =====
+  const [userData, setUserData] = useState<Profile | null>(null);
+  const [userPoints, setUserPoints] = useState(0);
+  const [userSaldo, setUserSaldo] = useState(0);
 
-  const hlsUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/live/live_stream_${STREAM_ID}_hls.m3u8`;
+  // ===== COMMENTS =====
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [isCommentLoading, setIsCommentLoading] = useState(true);
 
-  useEffect(() => {
-    setIsMounted(true);
+  // ===== PREVIEW =====
+  const [isPreview, setIsPreview] = useState(false);
+  const [previewTimer, setPreviewTimer] = useState(60);
+  const [previewEnded, setPreviewEnded] = useState(false);
+
+  // ===== PURCHASE =====
+  const [isPurchasingPoints, setIsPurchasingPoints] = useState(false);
+  const [isPurchasingSaldo, setIsPurchasingSaldo] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+
+  // ===== 🔥 STATE UNTUK OFF AIR =====
+  const [hasPendingAccess, setHasPendingAccess] = useState(false);
+
+  // ==================== HELPERS ====================
+  const getAvatarUrl = useCallback((avatarUrl: string | null, name: string | null) => {
+    if (avatarUrl) return avatarUrl;
+    const displayName = name || 'Warga';
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=32&bold=true&rounded=true`;
   }, []);
 
+  const clearAllIntervals = useCallback(() => {
+    if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
+    if (pendingCheckIntervalRef.current) clearInterval(pendingCheckIntervalRef.current);
+    if (viewersIntervalRef.current) clearInterval(viewersIntervalRef.current);
+    if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+    if (liveCheckIntervalRef.current) clearInterval(liveCheckIntervalRef.current);
 
-  // Get User Profile
+    previewIntervalRef.current = null;
+    pendingCheckIntervalRef.current = null;
+    viewersIntervalRef.current = null;
+    loadTimeoutRef.current = null;
+    liveCheckIntervalRef.current = null;
+  }, []);
+
+  // ==================== 🔥 CEK AKSES USER ====================
+  const checkUserHasPendingAccess = useCallback(async (userId: string): Promise<boolean> => {
+    if (!userId) return false;
+
+    try {
+      const { data: vouchers } = await supabase
+        .from("vouchers")
+        .select("id")
+        .eq("type", "live")
+        .eq("is_active", true);
+
+      if (!vouchers || vouchers.length === 0) {
+        console.warn("Tidak ada voucher live aktif");
+        return false;
+      }
+
+      const voucherIds = vouchers.map(v => v.id);
+
+      const { data } = await supabase
+        .from("voucher_transactions")
+        .select("status, expired_at")
+        .eq("user_id", userId)
+        .in("voucher_id", voucherIds)
+        .in("status", ["pending", "active"])
+        .gt("expired_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      console.log("📊 Access check result:", data);
+      return !!data;
+    } catch (err) {
+      console.error("Error checking user access:", err);
+      return false;
+    }
+  }, []);
+
+  // ==================== 🔥 EFFECT UNTUK CEK PENDING ACCESS ====================
   useEffect(() => {
-    if (!isMounted) return;
+    const checkPending = async () => {
+      console.log("🔍 userData.id:", userData?.id);
+      if (userData?.id) {
+        const result = await checkUserHasPendingAccess(userData.id);
+        console.log("📊 HasPendingAccess result:", result);
+        setHasPendingAccess(result);
+      }
+    };
+    checkPending();
+  }, [userData?.id, checkUserHasPendingAccess]);
 
-    const getUserProfile = async () => {
+  // ==================== GRANT ACCESS FUNCTION ====================
+  const grantAccess = useCallback(() => {
+    setHasAccess(true);
+    setPreviewEnded(false);
+    setIsPreview(false);
+    setIsMuted(false);
+    previewStartedRef.current = false;
+    sessionStorage.removeItem('live_access_pending');
+    sessionStorage.removeItem('live_purchased_pending');
+    sessionStorage.removeItem('live_purchase_time');
+
+  }, []);
+
+  // ==================== AUTH & PROFILE ====================
+  const checkAuth = useCallback(async (): Promise<Profile | null> => {
+    // 🔥 Cek cache dulu
+    const cached = sessionStorage.getItem('user_profile');
+    if (cached) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const profile = JSON.parse(cached);
+        setUserData(profile);
+        setUserPoints(profile.points || 0);
+        setUserSaldo(profile.saldo || 0);
+        return profile;
+      } catch { /* ignore */ }
+    }
 
-        if (user) {
-          const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('id, full_name, username, avatar_url, role')
-            .eq('id', user.id)
-            .single();
+    try {
+      // 🔥 Gunakan getSession() sekali saja
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-          if (error) {
-            console.error('Error fetching profile:', error);
-            setUserData({
-              id: user.id,
-              full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || "Warga Setempat",
-              username: user.email?.split('@')[0] || null,
-              avatar_url: null,
-              role: 'warga'
-            });
-          } else if (profile) {
-            setUserData(profile);
+      if (sessionError || !session) {
+        console.warn('No session found');
+        return null;
+      }
+
+      // 🔥 Ambil profile dengan select spesifik
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, username, avatar_url, role, points, saldo')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (profileError || !profile) {
+        const fallback: Profile = {
+          id: session.user.id,
+          full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "Warga",
+          username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || null,
+          avatar_url: session.user.user_metadata?.avatar_url || null,
+          role: 'warga',
+          points: 0,
+          saldo: 0
+        };
+        setUserData(fallback);
+        return fallback;
+      }
+
+      // 🔥 Cache profile
+      sessionStorage.setItem('user_profile', JSON.stringify(profile));
+      setUserData(profile);
+      setUserPoints(profile.points || 0);
+      setUserSaldo(profile.saldo || 0);
+      return profile;
+    } catch (err) {
+      console.error('Error checking auth:', err);
+      return null;
+    }
+  }, []);
+
+  // ==================== LIVE STATUS ====================
+  const checkLiveStatus = useCallback(async (): Promise<boolean> => {
+    if (!STREAM_URL || !LIVE_INPUT_ID) {
+      console.error('No STREAM_URL or LIVE_INPUT_ID configured');
+      return false;
+    }
+
+    // 🔥 Cek cache dulu (2 detik)
+    const cached = sessionStorage.getItem('live_status');
+    const cachedTime = sessionStorage.getItem('live_status_time');
+    if (cached && cachedTime) {
+      const elapsed = Date.now() - parseInt(cachedTime);
+      if (elapsed < 2000) {
+        return cached === 'true';
+      }
+    }
+
+    try {
+      // 🔥 PAKAI HELPER YANG SUDAH TERBUKTI
+      const isLive = await checkStreamIsLive(STREAM_URL);
+
+      sessionStorage.setItem('live_status', String(isLive));
+      sessionStorage.setItem('live_status_time', String(Date.now()));
+
+      console.log(`📡 Live status: ${isLive ? 'ON AIR' : 'OFF AIR'}`);
+      return isLive;
+    } catch (err) {
+      console.warn('Live status check error:', err);
+      sessionStorage.setItem('live_status', 'false');
+      sessionStorage.setItem('live_status_time', String(Date.now()));
+      return false;
+    }
+  }, []);
+
+  // ==================== PREMIUM MODE ====================
+  const checkStreamMode = useCallback(async (): Promise<boolean> => {
+    const cached = sessionStorage.getItem('premium_mode');
+    if (cached) return cached === 'true';
+
+    try {
+      const res = await fetch('/api/live-mode', {
+        signal: AbortSignal.timeout(3000)
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      const isPremiumMode = data?.mode === 'premium';
+      sessionStorage.setItem('premium_mode', String(isPremiumMode));
+      return isPremiumMode;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // ==================== VOUCHER HELPERS ====================
+  const getVoucherIds = useCallback(async (): Promise<{ points: string | null; saldo: string | null }> => {
+    const { data: vouchers } = await supabase
+      .from("vouchers")
+      .select("id, code")
+      .in("code", ["live_access_points", "live_access_saldo"]);
+
+    const pointsVoucher = vouchers?.find(v => v.code === "live_access_points");
+    const saldoVoucher = vouchers?.find(v => v.code === "live_access_saldo");
+
+    return {
+      points: pointsVoucher?.id || null,
+      saldo: saldoVoucher?.id || null
+    };
+  }, []);
+
+  // ==================== ACTIVATE TRANSACTION ====================
+  const activateTransaction = useCallback(async (transactionId: string, accessData: any) => {
+    try {
+      await supabase
+        .from("voucher_transactions")
+        .update({
+          status: "active",
+          access_data: {
+            ...accessData,
+            activated_at: new Date().toISOString()
+          }
+        })
+        .eq("id", transactionId);
+
+      const { data: existing } = await supabase
+        .from("warung_info")
+        .select("id")
+        .eq("metadata->>transaction_id", transactionId)
+        .eq("type", "live_active")
+        .maybeSingle();
+
+      if (!existing && userData?.id) {
+        await supabase
+          .from("warung_info")
+          .insert({
+            user_id: userData?.id,
+            title: "🔴 Siaran Live Dimulai!",
+            message: "Akses live Anda sekarang aktif! Klik untuk menonton.",
+            type: "live_active",
+            is_read: false,
+            created_at: new Date().toISOString(),
+            metadata: {
+              redirect_url: "/live",
+              transaction_id: transactionId
+            }
+          });
+      }
+
+      grantAccess();
+    } catch (err) {
+      console.error('Error activating transaction:', err);
+    }
+  }, [userData?.id, grantAccess]);
+
+  // ==================== CHECK USER ACCESS ====================
+  const checkUserAccess = useCallback(async (userId: string): Promise<boolean> => {
+    if (!userId) return false;
+
+    try {
+      const { data: vouchers } = await supabase
+        .from("vouchers")
+        .select("id")
+        .eq("type", "live")
+        .eq("is_active", true);
+
+      if (!vouchers || vouchers.length === 0) {
+        console.warn("Tidak ada voucher live aktif");
+        return false;
+      }
+
+      const voucherIds = vouchers.map(v => v.id);
+      console.log("🔍 Checking access with voucher IDs:", voucherIds);
+
+      const now = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from("voucher_transactions")
+        .select("id, status, expired_at, access_data")
+        .eq("user_id", userId)
+        .in("voucher_id", voucherIds)
+        .in("status", ["pending", "active"])
+        .gte("expired_at", now)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Error checking access:", error);
+        return false;
+      }
+
+      console.log("📊 User access data:", data);
+
+      if (!data) {
+        console.log("❌ No active transaction found");
+        return false;
+      }
+
+      if (data.status === "pending") {
+        console.log("⏳ Transaction is pending, activating...");
+        const isLive = await checkLiveStatus();
+        if (isLive) {
+          await activateTransaction(data.id, data.access_data);
+          return true;
+        }
+        return false;
+      }
+
+      if (data.status === "active") {
+        console.log("✅ Transaction is active, granting access");
+        grantAccess();
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error("Error checking live access:", err);
+      return false;
+    }
+  }, [checkLiveStatus, activateTransaction, grantAccess]);
+
+  // ==================== CHECK PENDING TRANSACTIONS ====================
+  const checkPendingTransactions = useCallback(async () => {
+    if (!userData?.id || !isLiveActive) return;
+
+    try {
+      const { points: pointsVoucherId, saldo: saldoVoucherId } = await getVoucherIds();
+      const voucherIds = [pointsVoucherId, saldoVoucherId].filter(Boolean) as string[];
+      if (voucherIds.length === 0) return;
+
+      const { data: pendingTransactions } = await supabase
+        .from("voucher_transactions")
+        .select("id, access_data")
+        .in("voucher_id", voucherIds)
+        .eq("status", "pending")
+        .eq("user_id", userData.id);
+
+      if (!pendingTransactions || pendingTransactions.length === 0) return;
+
+      for (const transaction of pendingTransactions) {
+        await activateTransaction(transaction.id, transaction.access_data);
+      }
+    } catch (err) {
+      console.error("Error checking pending transactions:", err);
+    }
+  }, [userData?.id, isLiveActive, getVoucherIds, activateTransaction]);
+
+  // ==================== PREVIEW TIMER ====================
+  const startPreview = useCallback((duration: number) => {
+    if (previewStartedRef.current) return;
+    previewStartedRef.current = true;
+
+    if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
+
+    setIsPreview(true);
+    setPreviewEnded(false);
+    setPreviewTimer(duration);
+    setIsMuted(false);
+
+    previewIntervalRef.current = setInterval(() => {
+      setPreviewTimer(prev => {
+        if (prev <= 1) {
+          if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
+          previewIntervalRef.current = null;
+          setIsPreview(false);
+          setPreviewEnded(true);
+          setIsMuted(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  // ==================== REFRESH POINTS ====================
+  const refreshUserPoints = useCallback(async () => {
+    if (!userData?.id) return;
+    try {
+      const { data, error: profileError } = await supabase
+        .from("profiles")
+        .select("points, saldo")
+        .eq("id", userData.id)
+        .maybeSingle();
+
+      if (profileError || !data) return;
+
+      setUserPoints(data.points || 0);
+      setUserSaldo(data.saldo || 0);
+
+      const cached = sessionStorage.getItem('user_profile');
+      if (cached) {
+        const profile = JSON.parse(cached);
+        sessionStorage.setItem('user_profile', JSON.stringify({
+          ...profile,
+          points: data.points || 0,
+          saldo: data.saldo || 0
+        }));
+      }
+    } catch (err) {
+      console.error("Error refreshing points:", err);
+    }
+  }, [userData]);
+
+  // ==================== TOAST HELPER ====================
+  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  // ==================== PURCHASE ACCESS ====================
+  const handlePurchase = useCallback(async (method: 'points' | 'saldo') => {
+    if (!userData) return;
+
+    // 🔥 SET STATE SESUAI METODE
+    if (method === 'points') {
+      isPurchasingPointsRef.current = true;
+      setIsPurchasingPoints(true);
+    } else {
+      isPurchasingSaldoRef.current = true;
+      setIsPurchasingSaldo(true);
+    }
+
+    const cost = method === 'points' ? 10 : 5000;
+    const hasBalance = method === 'points' ? userPoints >= cost : userSaldo >= cost;
+
+    if (!hasBalance) {
+      setPurchaseError(`${method === 'points' ? 'Poin' : 'Saldo'} tidak cukup!`);
+      showToast('error', `${method === 'points' ? 'Poin' : 'Saldo'} tidak cukup!`);
+      setTimeout(() => {
+        router.push('/rumah-warga?modal=saldo');
+      }, 1800);
+      // 🔥 RESET STATE
+      if (method === 'points') isPurchasingPointsRef.current = false;
+      else isPurchasingSaldoRef.current = false;
+      return;
+    }
+
+    setPurchaseError(null);
+
+    try {
+      const voucherCode = method === 'points' ? "live_access_points" : "live_access_saldo";
+      const { data: voucher, error: voucherError } = await supabase
+        .from("vouchers")
+        .select("id")
+        .eq("code", voucherCode)
+        .single();
+
+      if (voucherError || !voucher) throw new Error("Voucher tidak ditemukan");
+
+      const update = method === 'points'
+        ? { points: userPoints - cost }
+        : { saldo: userSaldo - cost };
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update(update)
+        .eq("id", userData.id);
+
+      if (updateError) throw updateError;
+
+      if (method === 'points') {
+        setUserPoints(prev => prev - cost);
+      } else {
+        setUserSaldo(prev => prev - cost);
+      }
+
+      const updatedProfile = {
+        ...userData,
+        points: method === 'points' ? userPoints - cost : userPoints,
+        saldo: method === 'saldo' ? userSaldo - cost : userSaldo
+      };
+      sessionStorage.setItem('user_profile', JSON.stringify(updatedProfile));
+
+      const isLive = await checkLiveStatus();
+      const status = isLive ? "active" : "pending";
+      const expiredAt = new Date();
+      expiredAt.setHours(expiredAt.getHours() + 24);
+
+      const { data: transaction, error: insertError } = await supabase
+        .from("voucher_transactions")
+        .insert({
+          user_id: userData.id,
+          voucher_id: voucher.id,
+          status: status,
+          access_method: method,
+          amount: method === 'saldo' ? cost : null,
+          points_spent: method === 'points' ? cost : null,
+          claimed_at: new Date().toISOString(),
+          expired_at: expiredAt.toISOString(),
+          access_data: {
+            type: 'live',
+            stream_id: LIVE_INPUT_ID,
+            purchased_at: new Date().toISOString(),
+            activated_at: isLive ? new Date().toISOString() : null,
+            expires_at: expiredAt.toISOString()
+          }
+        })
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      // 🔥 TAMBAHKAN TOAST SUKSES
+      if (isLive) {
+        showToast('success', '✅ Akses Live berhasil! Selamat menonton! 🎉');
+
+        grantAccess();
+        await supabase.from("warung_info").insert({
+          user_id: userData.id,
+          title: "🔴 Akses Live Aktif",
+          message: "Akses Live berhasil! Nikmati tontonan premium Anda.",
+          type: "live_active",
+          is_read: false,
+          created_at: new Date().toISOString(),
+          metadata: { redirect_url: "/live", transaction_id: transaction.id }
+        });
+      } else {
+        showToast('success', '✅ Akses Live dibeli! Tunggu notifikasi saat live dimulai. 📢');
+
+        sessionStorage.setItem('live_access_pending', 'true');
+        sessionStorage.setItem('live_purchased_pending', 'true');
+        sessionStorage.setItem('live_purchase_time', String(Date.now()));
+
+        await supabase.from("warung_info").insert({
+          user_id: userData.id,
+          title: "✅ Akses Live Dibeli!",
+          message: "Akses Berhasil dibeli. Notifikasi akan dikirim saat siaran dimulai.",
+          type: "live_pending",
+          is_read: false,
+          created_at: new Date().toISOString(),
+          metadata: { redirect_url: "/live", transaction_id: transaction.id }
+        });
+      }
+    } catch (error) {
+      console.error('Purchase error:', error);
+
+      // 🔥 ROLLBACK
+      try {
+        const rollback = method === 'points'
+          ? { points: userPoints }
+          : { saldo: userSaldo };
+        await supabase
+          .from('profiles')
+          .update(rollback)
+          .eq('id', userData!.id);
+        if (method === 'points') {
+          setUserPoints(userPoints);
+        } else {
+          setUserSaldo(userSaldo);
+        }
+      } catch (rollbackErr) {
+        console.error('Rollback failed:', rollbackErr);
+      }
+
+      showToast('error', '❌ Gagal membeli akses. Silakan coba lagi.');
+      setPurchaseError('Gagal memproses transaksi. Silakan hubungi admin.');
+    } finally {
+      // 🔥 RESET STATE
+      if (method === 'points') setIsPurchasingPoints(false);
+      else setIsPurchasingSaldo(false);
+    }
+  }, [userData, isPurchasingPoints, isPurchasingSaldo, userPoints, userSaldo, checkLiveStatus, router, grantAccess, showToast]);
+
+  // ==================== COMMENTS ====================
+  const loadComments = useCallback(async () => {
+    try {
+      setIsCommentLoading(true);
+      const { data: commentsData } = await supabase
+        .from("live_comments")
+        .select("id, user_id, user_name, comment, created_at")
+        .eq("stream_id", LIVE_INPUT_ID)
+        .order("created_at", { ascending: false })
+        .limit(40);
+
+      if (!commentsData) return;
+
+      const formatted = commentsData.map(item => ({
+        id: item.id,
+        user_id: item.user_id || '',
+        user_name: item.user_name || "Warga",
+        avatar_url: null,
+        comment: item.comment || "",
+        created_at: item.created_at
+      })).reverse();
+
+      setComments(formatted);
+    } catch (error) {
+      console.error('Comments load error:', error);
+    } finally {
+      setIsCommentLoading(false);
+    }
+  }, []);
+
+  const handleSendComment = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = newComment.trim();
+    if (!text || !userData || !isLiveActive || (isPremium && !hasAccess)) return;
+
+    setNewComment("");
+    const tempId = `temp-${Date.now()}`;
+
+    const tempComment: Comment = {
+      id: tempId,
+      user_id: userData.id,
+      user_name: userData.full_name || userData.username || "Warga",
+      avatar_url: userData.avatar_url,
+      comment: text,
+      created_at: new Date().toISOString()
+    };
+
+    pendingCommentIds.current.add(tempId);
+    setComments(prev => [...prev, tempComment].slice(-40));
+
+    try {
+      const { data, error: insertErr } = await supabase
+        .from("live_comments")
+        .insert({
+          user_id: userData.id,
+          user_name: userData.full_name || userData.username || "Warga",
+          comment: text,
+          stream_id: LIVE_INPUT_ID
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      if (data?.id) {
+        pendingCommentIds.current.delete(tempId);
+        setComments(prev => prev.map(c => c.id === tempId ? { ...c, id: data.id } : c));
+      }
+    } catch (error) {
+      console.error('Send comment error:', error);
+      pendingCommentIds.current.delete(tempId);
+      setComments(prev => prev.filter(c => c.id !== tempId));
+      setNewComment(text);
+    }
+  }, [newComment, userData, isLiveActive, isPremium, hasAccess]);
+
+  // app/live/page.tsx
+
+  // ==================== VIDEO PLAYER ====================
+  const initVideoPlayer = useCallback(async (retryCount = 0) => {
+    const video = videoRef.current;
+    if (!video || !STREAM_URL || !isLiveActive || isLoading) return;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+
+    try {
+      setIsVideoReady(false);
+      setIsVideoLoading(true); // 🔥 MULAI LOADING
+      setVideoError(null);
+      videoErrorRef.current = null;
+
+      const HlsClass = (await import('hls.js')).default;
+
+      const setFullScreen = () => {
+        setVideoFit('cover');
+      };
+
+      const handleResize = () => {
+        setTimeout(setFullScreen, 100);
+      };
+
+      if (!HlsClass.isSupported()) {
+        video.src = STREAM_URL;
+        video.load();
+        video.oncanplay = () => {
+          if (isMounted.current) {
+            setIsVideoReady(true);
+            setIsVideoLoading(false); // 🔥 SELESAI LOADING
+            setFullScreen();
+            video.play().catch(() => { });
+          }
+        };
+        video.onerror = () => {
+          if (isMounted.current) {
+            const errorMsg = 'Perangkat tidak mendukung enkapsulasi video stream.';
+            setVideoError(errorMsg);
+            videoErrorRef.current = errorMsg;
+          }
+        };
+        return;
+      }
+
+      const hls = new HlsClass({
+        enableWorker: true,
+        lowLatencyMode: true,
+        maxBufferLength: 30,
+        backBufferLength: 10,
+        manifestLoadingMaxRetry: 5,
+        manifestLoadingRetryDelay: 1500,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingTimeOut: 10000,
+        fragLoadingTimeOut: 10000,
+        maxMaxBufferLength: 60,
+        startLevel: -1,
+        abrEwmaDefaultEstimate: 2000000,
+        abrBandWidthFactor: 0.8,
+        abrBandWidthUpFactor: 0.5,
+      });
+
+      hlsRef.current = hls;
+      hls.loadSource(STREAM_URL);
+      hls.attachMedia(video);
+
+      // 🔥 LISTENER UNTUK VIDEO PLAYING
+      const handlePlaying = () => {
+        if (isMounted.current) {
+          setIsVideoLoading(false); // 🔥 VIDEO BENAR-BENAR PLAY
+          setIsVideoReady(true);
+          console.log('🎬 Video playing - loading selesai');
+        }
+      };
+
+      const handleWaiting = () => {
+        if (isMounted.current) {
+          setIsVideoLoading(true); // 🔥 VIDEO BUFFERING
+          console.log('⏳ Video buffering...');
+        }
+      };
+
+      video.addEventListener('playing', handlePlaying);
+      video.addEventListener('waiting', handleWaiting);
+
+      hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
+        if (isMounted.current) {
+          setVideoError(null);
+          videoErrorRef.current = null;
+          setFullScreen();
+          video.play().catch(() => console.log('Autoplay blocked'));
+        }
+      });
+
+      hls.on(HlsClass.Events.LEVEL_LOADED, () => {
+        setTimeout(setFullScreen, 100);
+      });
+
+      // 🔥 FRAG_LOADED - SEBAGAI FALLBACK
+      let fragLoadedCount = 0;
+      hls.on(HlsClass.Events.FRAG_LOADED, () => {
+        fragLoadedCount++;
+        if (fragLoadedCount >= 2 && isMounted.current && isVideoLoading) {
+          // 🔥 FALLBACK: Jika 2 fragment sudah dimuat tapi masih loading
+          setIsVideoLoading(false);
+          setIsVideoReady(true);
+          console.log('📦 Fallback: fragment loaded, loading selesai');
+        }
+      });
+
+      // 🔥 Handle error dengan retry
+      hls.on(HlsClass.Events.ERROR, (_, data) => {
+        if (!isMounted.current) return;
+
+        if (data.fatal) {
+          switch (data.type) {
+            case HlsClass.ErrorTypes.NETWORK_ERROR:
+              if (retryCount < 3) {
+                console.log(`🔄 Retry video (${retryCount + 1}/3)...`);
+                setTimeout(() => {
+                  initVideoPlayer(retryCount + 1);
+                }, 2000 * (retryCount + 1));
+              } else {
+                const errorMsg = 'Koneksi bermasalah. Silakan refresh halaman.';
+                setVideoError(errorMsg);
+                videoErrorRef.current = errorMsg;
+                setIsVideoLoading(false);
+              }
+              break;
+            case HlsClass.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              const errorMsg = 'Koneksi penyiaran terputus.';
+              setVideoError(errorMsg);
+              videoErrorRef.current = errorMsg;
+              setIsVideoReady(false);
+              setIsVideoLoading(false);
+              break;
           }
         }
-      } catch (err) {
-        console.error('Error:', err);
-      }
-    };
+      });
 
-    getUserProfile();
-  }, [isMounted]);
-
-  // Check Live Status
-  useEffect(() => {
-    if (!isMounted) return;
-
-    const checkLiveStatus = async () => {
-      try {
-        const response = await fetch(hlsUrl, { method: 'HEAD' });
-        if (response.ok) {
-          setIsLiveActive(true);
-        } else {
-          setIsLiveActive(false);
+      // 🔥 Timeout handler
+      loadTimeoutRef.current = setTimeout(() => {
+        if (isMounted.current && !video.currentTime && !videoErrorRef.current) {
+          console.warn('⏳ Video loading timeout, retrying...');
+          if (retryCount < 3) {
+            initVideoPlayer(retryCount + 1);
+          } else {
+            const errorMsg = 'Memuat siaran lambat, silakan refresh halaman.';
+            setVideoError(errorMsg);
+            videoErrorRef.current = errorMsg;
+            setIsVideoLoading(false);
+          }
         }
-      } catch {
-        setIsLiveActive(false);
+      }, 15000);
+
+      // Event listeners untuk resize
+      const handleLoadedMetadata = () => setTimeout(setFullScreen, 50);
+      const handleLoadedData = () => setTimeout(setFullScreen, 50);
+
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+      video.addEventListener("loadeddata", handleLoadedData);
+      window.addEventListener("resize", handleResize);
+
+      return () => {
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        video.removeEventListener("loadeddata", handleLoadedData);
+        video.removeEventListener('playing', handlePlaying);
+        video.removeEventListener('waiting', handleWaiting);
+        window.removeEventListener("resize", handleResize);
+      };
+
+    } catch (error) {
+      console.error('HLS Init Error:', error);
+      if (isMounted.current) {
+        const errorMsg = 'Modul pemutar gagal dikonfigurasi.';
+        setVideoError(errorMsg);
+        videoErrorRef.current = errorMsg;
+        setIsVideoLoading(false);
       }
-    };
+    }
+  }, [isLiveActive, isLoading]);
 
-    checkLiveStatus();
-    const interval = setInterval(checkLiveStatus, 30000);
-    return () => clearInterval(interval);
-  }, [isMounted, hlsUrl]);
+  const updateViewers = useCallback(() => {
+    setViewers(prev => {
+      const change = Math.random() > 0.5 ? 1 : -1;
+      return Math.max(12, Math.min(85, prev + change));
+    });
+  }, []);
 
+  // ==================== EFFECTS INITIALIZATION ====================
   useEffect(() => {
-    if (!isMounted || isLiveActive === null) return;
+    isMounted.current = true;
+    previewStartedRef.current = false;
 
-    const updateLiveStatus = async () => {
+    const initPage = async () => {
       try {
-        const { error } = await supabase
-          .from('live_streams')
-          .upsert({
-            stream_id: STREAM_ID,
-            is_active: isLiveActive,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'stream_id'
-          });
+        setIsLoading(true);
+        setError(null);
+        accessCheckedRef.current = false;
 
-        if (error) console.error('Error:', error);
-      } catch (err) {
-        console.error('Error updating live status:', err);
-      }
-    };
+        // 🔥 CEK CACHE DULU
+        const cachedStatus = sessionStorage.getItem('live_status');
+        const cachedTime = sessionStorage.getItem('live_status_time');
+        let isLive = false;
+        let useCache = false;
 
-    updateLiveStatus();
-  }, [isMounted, isLiveActive, STREAM_ID]);
+        if (cachedStatus && cachedTime) {
+          const elapsed = Date.now() - parseInt(cachedTime);
+          if (elapsed < 5000) { // 5 detik cache
+            isLive = cachedStatus === 'true';
+            useCache = true;
+            console.log(`📦 Using cached live status: ${isLive ? 'ON AIR' : 'OFF AIR'}`);
+          }
+        }
 
-  // FETCH COMMENTS & SUBSCRIBE REAL-TIME
-  useEffect(() => {
-    if (!isMounted || !isLiveActive) return;
+        if (useCache) {
+          if (!isLive) {
+            setIsLiveActive(false);
+            setIsLoading(false);
+            accessCheckedRef.current = true;
 
-    let isSubscribed = true;
-    let commentQueue: Comment[] = [];
-    let batchTimeout: NodeJS.Timeout;
+            // 🔥 Tetap cek di background
+            checkLiveStatus().then((result) => {
+              if (result && isMounted.current) {
+                // 🔥 CEK STATE PEMBELIAN
+                if (!isPurchasingPoints && !isPurchasingSaldo) {
+                  window.location.reload();
+                }
+              }
+            });
+            return;
+          }
+        } else {
+          isLive = await checkLiveStatus();
+        }
 
-    const fetchInitialComments = async () => {
-      try {
-        setIsCommentLoading(true);
+        if (!isMounted.current) return;
 
-        const { data: commentsData, error: commentsError } = await supabase
-          .from("live_comments")
-          .select(`id, user_id, user_name, comment, created_at`)
-          .eq("stream_id", STREAM_ID)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        if (!isLive) {
+          setIsLiveActive(false);
+          setIsLoading(false);
+          accessCheckedRef.current = true;
 
-        if (commentsError) {
-          console.error('Error fetching comments:', commentsError);
-          setComments([]);
-          setIsCommentLoading(false);
+          // 🔥 Interval cek tiap 30 detik - TANPA RELOAD
+          liveCheckIntervalRef.current = setInterval(async () => {
+            const stillLive = await checkLiveStatus();
+            if (stillLive && isMounted.current) {
+              clearInterval(liveCheckIntervalRef.current);
+
+              // 🔥 CEK STATE PEMBELIAN - JANGAN RELOAD JIKA SEDANG MEMBELI
+              if (!isPurchasingPointsRef.current && !isPurchasingSaldoRef.current) {
+                window.location.reload();
+              } else {
+                // 🔥 KALAU SEDANG MEMBELI, TUNGGU SAMPAI SELESAI
+                console.log('⏳ Menunggu pembelian selesai sebelum reload...');
+                // Cek lagi dalam 5 detik
+                setTimeout(async () => {
+                  if (isMounted.current && !isPurchasingPoints && !isPurchasingSaldo) {
+                    window.location.reload();
+                  }
+                }, 5000);
+              }
+            }
+          }, 30000);
+
           return;
         }
 
-        if (!isSubscribed) return;
+        setIsLiveActive(true);
 
-        const mappedComments: Comment[] = [];
+        const [isPremiumMode, profile] = await Promise.all([
+          checkStreamMode(),
+          checkAuth()
+        ]);
 
-        if (commentsData && commentsData.length > 0) {
-          const userIds = [...new Set(commentsData.map((item: any) => item.user_id).filter(Boolean))];
+        if (!isMounted.current) return;
+        setIsPremium(isPremiumMode);
 
-          let profilesMap: Record<string, any> = {};
-          if (userIds.length > 0) {
-            try {
-              const { data: profilesData } = await supabase
-                .from('profiles')
-                .select('id, avatar_url, full_name, username')
-                .in('id', userIds);
-
-              if (profilesData) {
-                profilesMap = profilesData.reduce((acc: any, profile: any) => {
-                  acc[profile.id] = profile;
-                  return acc;
-                }, {});
-              }
-            } catch (profileErr) {
-              console.warn('Error fetching profiles:', profileErr);
-            }
-          }
-
-          for (const item of commentsData) {
-            const profile = item.user_id ? profilesMap[item.user_id] : null;
-            mappedComments.push({
-              id: item.id,
-              user_id: item.user_id,
-              user_name: item.user_name || profile?.full_name || profile?.username || "Warga",
-              avatar_url: profile?.avatar_url || null,
-              comment: item.comment || "",
-              created_at: item.created_at || new Date().toISOString()
-            });
-          }
+        if (!isPremiumMode) {
+          setHasAccess(true);
+          previewStartedRef.current = true;
+        } else if (profile) {
+          const hasValidAccess = await checkUserAccess(profile.id);
+          if (hasValidAccess) grantAccess();
+        } else {
+          setHasAccess(false);
         }
 
-        setComments(mappedComments.reverse());
+        accessCheckedRef.current = true;
+        setViewers(Math.floor(Math.random() * 15) + 20);
+
+        viewersIntervalRef.current = setInterval(updateViewers, 12000);
+        pendingCheckIntervalRef.current = setInterval(checkPendingTransactions, 10000);
+
       } catch (err) {
-        console.error('Error in fetchInitialComments:', err);
-        setComments([]);
+        console.error('Init global error:', err);
+        setError('Inisialisasi sistem gagal.');
       } finally {
-        setIsCommentLoading(false);
+        if (isMounted.current) setIsLoading(false);
       }
     };
 
-    fetchInitialComments();
+    initPage();
+
+    return () => {
+      isMounted.current = false;
+      clearAllIntervals();
+    };
+  }, [
+    checkLiveStatus,
+    checkStreamMode,
+    checkAuth,
+    checkUserAccess,
+    checkPendingTransactions,
+    updateViewers,
+    clearAllIntervals,
+    grantAccess,
+  ]);
+
+  // EFFECT: PREVIEW HANDLER
+  useEffect(() => {
+    if (isLoading || !isLiveActive || !accessCheckedRef.current || hasAccess || previewEnded || isPreview || previewStartedRef.current) return;
+    const duration = isPremium ? 60 : 5;
+    startPreview(duration);
+  }, [isLoading, isLiveActive, hasAccess, isPremium, previewEnded, isPreview, startPreview]);
+
+  // EFFECT: VIDEO ATTACHMENT
+
+  useEffect(() => {
+    if (!isLiveActive ||
+      isLoading) return;
+    let listenerCleanup:
+      (() => void) | undefined;
+    initVideoPlayer().then(fn => {
+      listenerCleanup = fn;
+    });
+
+    return () => {
+      listenerCleanup?.();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.src = '';
+        videoRef.current.load();
+      }
+    };
+  }, [isLiveActive, isLoading,
+    initVideoPlayer]);
+
+  // EFFECT: REALTIME COMMENTS SYSTEM
+  useEffect(() => {
+    if (!isLiveActive || isLoading) return;
+
+    loadComments();
 
     const channel = supabase
-      .channel(`live_comments_${STREAM_ID}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "live_comments",
-          filter: `stream_id=eq.${STREAM_ID}`,
-        },
-        async (payload) => {
-          const newComment = payload.new as any;
-          if (!newComment || !newComment.comment) return;
+      .channel(`live_comments:${LIVE_INPUT_ID}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "live_comments",
+        filter: `stream_id=eq.${LIVE_INPUT_ID}`,
+      }, (payload) => {
+        const newComm = payload.new as any;
+        if (!newComm?.comment || !isMounted.current) return;
 
-          if (newComment.user_id === userData?.id) return;
+        const commentId = String(newComm.id);
+        if (pendingCommentIds.current.has(commentId)) return;
 
-          let profileData = null;
-          if (newComment.user_id) {
-            try {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('avatar_url, full_name, username')
-                .eq('id', newComment.user_id)
-                .single();
-              profileData = profile;
-            } catch (err) { }
-          }
+        const incomingComment: Comment = {
+          id: newComm.id,
+          user_id: newComm.user_id,
+          user_name: newComm.user_name || "Warga",
+          avatar_url: null,
+          comment: newComm.comment,
+          created_at: newComm.created_at
+        };
 
-          const commentWithAvatar: Comment = {
-            id: newComment.id,
-            user_id: newComment.user_id,
-            user_name: newComment.user_name || profileData?.full_name || profileData?.username || "Warga",
-            avatar_url: profileData?.avatar_url || null,
-            comment: newComment.comment || "",
-            created_at: newComment.created_at || new Date().toISOString()
-          };
-
-          commentQueue.push(commentWithAvatar);
-
-          clearTimeout(batchTimeout);
-          batchTimeout = setTimeout(() => {
-            if (commentQueue.length > 0 && isSubscribed) {
-              setComments(prev => {
-                const updated = [...prev, ...commentQueue];
-                return updated.slice(-100);
-              });
-              commentQueue = [];
-            }
-          }, 300);
-        }
-      )
+        setComments(prev => {
+          if (prev.some(c => String(c.id) === commentId)) return prev;
+          return [...prev, incomingComment].slice(-40);
+        });
+      })
       .subscribe();
 
     return () => {
-      isSubscribed = false;
-      clearTimeout(batchTimeout);
-      if (commentQueue.length > 0) {
-        setComments(prev => [...prev, ...commentQueue].slice(-100));
-      }
       supabase.removeChannel(channel);
     };
-  }, [isMounted, isLiveActive, STREAM_ID]);
+  }, [isLiveActive, isLoading, loadComments]);
 
-  // Auto-scroll
+  // EFFECT: AUTO SCROLL SMOOTH
   useEffect(() => {
     if (commentContainerRef.current) {
-      const container = commentContainerRef.current;
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: 'smooth'
+      commentContainerRef.current.scrollTo({
+        top: commentContainerRef.current.scrollHeight,
+        behavior: "smooth"
       });
     }
   }, [comments]);
 
-  // HLS Player + FIX ORIENTATION
+  // EFFECT: WINDOW FOCUS RE-VALIDATION
   useEffect(() => {
-    if (!isMounted || !isLiveActive || !videoRef.current) return;
+    if (!userData?.id || !isLiveActive) return;
 
-    let hls: Hls;
-    const video = videoRef.current;
-    let orientationCheckInterval: NodeJS.Timeout;
-    let checkCount = 0;
-
-    // Fungsi deteksi orientasi yang lebih stabil
-    const detectAndSetOrientation = () => {
-      if (!video) return;
-
-      // Coba dapatkan dimensi dari berbagai sumber
-      let width = video.videoWidth;
-      let height = video.videoHeight;
-
-      // Jika belum dapat, coba dari style atau client
-      if (!width || !height) {
-        width = video.clientWidth || video.offsetWidth || 0;
-        height = video.clientHeight || video.offsetHeight || 0;
-      }
-
-      // Jika masih 0, coba dari element parent
-      if (!width || !height) {
-        const parent = video.parentElement;
-        if (parent) {
-          width = parent.clientWidth || parent.offsetWidth || 0;
-          height = parent.clientHeight || parent.offsetHeight || 0;
-        }
-      }
-
-      // Jika sudah dapat dimensi yang valid
-      if (width > 0 && height > 0) {
-        const aspectRatio = width / height;
-
-        // Log untuk debugging
-        console.log(`Video dimensions: ${width}x${height}, Aspect: ${aspectRatio.toFixed(2)}`);
-
-        // Jika aspect ratio lebih dari 1.2 => landscape (lebar > tinggi)
-        // Jika kurang dari 0.8 => portrait (tinggi > lebar)
-        // Jika di antara => square, treat as portrait untuk mobile
-        if (aspectRatio > 1.2) {
-          setVideoFit('cover'); // Landscape: cover
-        } else {
-          setVideoFit('contain'); // Portrait atau square: contain
-        }
-
-        // Clear interval setelah berhasil mendeteksi
-        if (orientationCheckInterval) {
-          clearInterval(orientationCheckInterval);
-          orientationCheckInterval = undefined;
-        }
-        return true;
-      }
-      return false;
+    const handleFocus = async () => {
+      await refreshUserPoints();
+      const hasValidAccess = await checkUserAccess(userData.id);
+      if (hasValidAccess) grantAccess();
     };
 
-    // Function to start orientation detection with retry
-    const startOrientationDetection = () => {
-      // Coba deteksi langsung
-      if (detectAndSetOrientation()) {
-        return;
-      }
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [userData?.id, isLiveActive, refreshUserPoints, checkUserAccess, grantAccess]);
 
-      // Jika gagal, coba dengan interval
-      checkCount = 0;
-      if (orientationCheckInterval) {
-        clearInterval(orientationCheckInterval);
-      }
+  // ==================== RENDER VIEWS ====================
 
-      orientationCheckInterval = setInterval(() => {
-        checkCount++;
-        const success = detectAndSetOrientation();
-
-        // Stop setelah 10 kali percobaan atau berhasil
-        if (success || checkCount >= 10) {
-          clearInterval(orientationCheckInterval);
-          orientationCheckInterval = undefined;
-        }
-      }, 300);
-    };
-
-    video.muted = false;
-    video.volume = 1.0;
-
-    const playWithAudio = async () => {
-      try {
-        await video.play();
-        // Start orientation detection after play starts
-        setTimeout(startOrientationDetection, 100);
-      } catch (err) {
-        const handleUserInteraction = () => {
-          video.play().catch(e => console.log('Still blocked:', e));
-          document.removeEventListener('click', handleUserInteraction);
-          document.removeEventListener('touchstart', handleUserInteraction);
-        };
-        document.addEventListener('click', handleUserInteraction);
-        document.addEventListener('touchstart', handleUserInteraction);
-      }
-    };
-
-    const getMaxBitrate = () => {
-      switch (networkQuality) {
-        case 'high': return 8000000;
-        case 'medium': return 2000000;
-        case 'low': return 500000;
-        default: return 2000000;
-      }
-    };
-
-    if (Hls.isSupported()) {
-      hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 45,
-        startLevel: -1,
-        fragLoadingMaxRetry: 5,
-        fragLoadingRetryDelay: 500,
-        manifestLoadingMaxRetry: 3,
-        manifestLoadingRetryDelay: 300,
-        liveSyncDurationCount: 3,
-      });
-
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        const levels = hls.levels || [];
-        if (levels.length > 0) {
-          const targetBitrate = getMaxBitrate();
-          let bestLevel = 0;
-          for (let i = 0; i < levels.length; i++) {
-            if (levels[i].bitrate && levels[i].bitrate <= targetBitrate) {
-              bestLevel = i;
-            }
-          }
-          if (bestLevel < levels.length) {
-            hls.currentLevel = bestLevel;
-          }
-        }
-        playWithAudio();
-      });
-
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-          video.src = hlsUrl;
-          playWithAudio();
-        }
-      });
-
-      // Deteksi orientasi saat level loaded
-      hls.on(Hls.Events.LEVEL_LOADED, () => {
-        setTimeout(startOrientationDetection, 100);
-      });
-
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = hlsUrl;
-      video.addEventListener("loadedmetadata", () => {
-        playWithAudio();
-        setTimeout(startOrientationDetection, 100);
-      });
-    }
-
-    // Event listeners untuk deteksi orientasi
-    const handleLoadedMetadata = () => {
-      setTimeout(startOrientationDetection, 50);
-    };
-
-    const handleLoadedData = () => {
-      setTimeout(startOrientationDetection, 50);
-    };
-
-    const handleResize = () => {
-      // Re-check orientation on resize
-      setTimeout(startOrientationDetection, 100);
-    };
-
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    video.addEventListener("loadeddata", handleLoadedData);
-    window.addEventListener("resize", handleResize);
-
-    let waitingTimeout: NodeJS.Timeout;
-
-    const handleWaiting = () => {
-      // Kasih delay 500ms sebelum muncul spinner
-      waitingTimeout = setTimeout(() => {
-        // Cek apakah video benar-benar buffering
-        if (video && video.buffered.length > 0 && video.paused) {
-          setIsBuffering(true);
-        }
-      }, 500);
-    };
-
-    const handlePlaying = () => {
-      clearTimeout(waitingTimeout); // Hapus timeout jika video play lagi
-      setIsBuffering(false);
-      setTimeout(startOrientationDetection, 200);
-    };
-
-    video.addEventListener("waiting", handleWaiting);
-    video.addEventListener("playing", handlePlaying);
-
-    return () => {
-      if (hls) hls.destroy();
-      if (orientationCheckInterval) clearInterval(orientationCheckInterval);
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      video.removeEventListener("loadeddata", handleLoadedData);
-      video.removeEventListener("waiting", handleWaiting);
-      video.removeEventListener("playing", handlePlaying);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [isMounted, isLiveActive, hlsUrl, networkQuality]);
-
-  // AUTO-RECOVER
-  useEffect(() => {
-    if (!isMounted || !isLiveActive || !videoRef.current) return;
-
-    let retryCount = 0;
-    const video = videoRef.current;
-
-    const handleStalled = () => {
-      if (video.buffered.length > 0 && video.paused) {
-        setTimeout(() => {
-          if (retryCount < 3) {
-            retryCount++;
-            video.play().catch(() => {
-              video.load();
-              setTimeout(() => video.play().catch(console.error), 1000);
-            });
-          }
-        }, 3000);
-      }
-    };
-
-    video.addEventListener('stalled', handleStalled);
-    return () => video.removeEventListener('stalled', handleStalled);
-  }, [isMounted, isLiveActive]);
-
-  // Send Comment
-  const handleSendComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newComment.trim() || !userData) return;
-
-    const commentText = newComment.trim();
-    setNewComment("");
-
-    try {
-      const { error } = await supabase.from("live_comments").insert({
-        user_id: userData.id,
-        user_name: userData.full_name || userData.username || "Warga",
-        comment: commentText,
-        stream_id: STREAM_ID,
-        created_at: new Date().toISOString()
-      });
-
-      if (error) {
-        console.error("Gagal mengirim komentar:", error.message);
-        alert("Gagal mengirim komentar. Silakan coba lagi.");
-        setNewComment(commentText);
-      } else {
-        const optimisticComment: Comment = {
-          id: Date.now(),
-          user_id: userData.id,
-          user_name: userData.full_name || userData.username || "Warga",
-          avatar_url: userData.avatar_url || null,
-          comment: commentText,
-          created_at: new Date().toISOString()
-        };
-        setComments(prev => [...prev, optimisticComment]);
-      }
-    } catch (err) {
-      console.error("Error saat kirim komentar:", err);
-      alert("Gagal mengirim komentar. Silakan coba lagi.");
-      setNewComment(commentText);
-    }
-  };
-
-  // Simulate Viewers
-  useEffect(() => {
-    if (!isMounted || !isLiveActive) return;
-    setViewers(Math.floor(Math.random() * 30) + 15);
-    const interval = setInterval(() => {
-      setViewers(prev => Math.max(1, prev + Math.floor(Math.random() * 3) - 1));
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isMounted, isLiveActive]);
-
-  // Helper Avatar
-  const getAvatarUrl = useCallback((avatarUrl: string | null, name: string | null) => {
-    if (avatarUrl) return avatarUrl;
-    const displayName = name || 'User';
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=24&bold=true&rounded=true`;
-  }, []);
-
-  if (!isMounted) return null;
-
-  if (isLiveActive === null) {
+  if (isLoading) {
     return (
-      <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center text-white gap-3">
-          <div className="w-10 h-10 border-4 border-white/20 border-t-red-500 rounded-full animate-spin"></div>
-          <p className="text-xs text-neutral-400 tracking-wider">Mencari siaran...</p>
+      <div className="fixed inset-0 bg-neutral-950 flex items-center justify-center z-[100]">
+        <div className="w-full max-w-[420px] h-full flex flex-col items-center justify-center p-6">
+          <div className="relative w-12 h-12 flex items-center justify-center">
+            <div className="absolute inset-0 border-4 border-neutral-800 rounded-full" />
+            <div className="absolute inset-0 border-4 border-t-red-500 rounded-full animate-spin" />
+          </div>
+          <p className="text-[11px] text-neutral-400 mt-4 tracking-widest font-semibold uppercase">Menghubungkan ke Siaran...</p>
+          {/* 🔥 TAMBAHKAN INI */}
+          <p className="text-[9px] text-neutral-600 mt-2">
+            Sabar ya! ini mungkin memakan waktu beberapa detik
+          </p>
         </div>
       </div>
     );
   }
 
-  if (isLiveActive === false) {
+  if (error) {
     return (
-      <div className="fixed inset-0 bg-neutral-900 flex justify-center items-center z-[100]">
-        <div className="relative w-full max-w-[420px] h-full bg-black flex flex-col items-center justify-center p-6 text-center text-white">
-          <div className="absolute top-0 left-0 right-0 p-4">
-            <button onClick={() => router.back()} className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-white">
-              <ArrowLeft size={24} />
-            </button>
-          </div>
-          <div className="bg-neutral-900 p-6 rounded-full mb-4 text-neutral-500 animate-pulse">
-            <VideoOff size={48} />
-          </div>
-          <h2 className="text-lg font-bold tracking-wide">Siaran Belum Dimulai</h2>
-          <p className="text-sm text-neutral-400 mt-2 max-w-[280px]">
-            Saat ini tidak ada siaran langsung. Silakan kembali lagi nanti.
-          </p>
-          <button onClick={() => router.back()} className="mt-8 px-6 py-2 bg-neutral-800 text-sm font-semibold rounded-full border border-neutral-700">
-            Kembali ke Beranda
+      <div className="fixed inset-0 bg-neutral-950 flex items-center justify-center z-[100]">
+        <div className="w-full h-full max-w-[420px] bg-neutral-900 border-x border-neutral-800 flex flex-col items-center justify-center p-6 mx-auto text-center">
+          <AlertCircle size={44} className="text-red-500 mb-3" />
+          <h2 className="text-white font-bold text-base tracking-tight">Gangguan Sistem</h2>
+          <p className="text-neutral-400 text-xs mt-2 max-w-[260px] leading-relaxed">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-6 px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-medium rounded-full border border-neutral-700 transition flex items-center gap-2"
+          >
+            <RefreshCw size={14} /> Muat Ulang Halaman
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="fixed inset-0 bg-neutral-950 flex justify-center items-center z-[100]">
-      <div className="relative w-full max-w-[420px] h-full bg-black overflow-hidden shadow-2xl">
+  // ============================================================
+  // ============ TAMPILAN OFF AIR / WAITING ============
+  // ============================================================
+  if (isLiveActive === false) {
+    return (
+      <div className="fixed inset-0 bg-neutral-950 flex items-center justify-center z-[100]">
+        <div className="w-full h-full max-w-[420px] bg-neutral-950 border-x border-neutral-900 flex flex-col justify-between p-6 mx-auto relative">
 
-        {/* VIDEO LAYER - FIXED ORIENTATION */}
-        <div className="absolute inset-0 w-full h-full z-0 bg-black flex items-center justify-center overflow-hidden">
+          <button
+            onClick={() => router.back()}
+            className="w-10 h-10 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white transition mt-2"
+          >
+            <ArrowLeft size={18} />
+          </button>
+
+          <div className="flex flex-col items-center text-center my-auto">
+            {hasPendingAccess ? (
+              <>
+                <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center text-amber-400 mb-4 shadow-xl">
+                  <Clock size={28} />
+                </div>
+                <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2">
+                  Menunggu Siaran
+                </span>
+                <h2 className="text-white font-bold text-lg tracking-tight">⏳ Siaran Belum Dimulai</h2>
+                <p className="text-neutral-400 text-xs mt-1.5 max-w-[250px] leading-relaxed">
+                  Anda sudah memiliki akses. Kami akan memberi tahu saat siaran dimulai.
+                </p>
+                <div className="mt-4 bg-neutral-900/50 border border-neutral-800 rounded-xl p-3 w-full max-w-xs">
+                  <div className="flex justify-between text-xs text-neutral-400">
+                    <span>Status</span>
+                    <span className="text-amber-400 font-bold">Menunggu Siaran</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-neutral-400 mt-1 pt-1 border-t border-neutral-800">
+                    <span>Notifikasi</span>
+                    <span className="text-emerald-400 text-[10px] flex items-center gap-1">
+                      <Bell size={12} /> Akan dikirim saat live
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-center text-neutral-500 mb-4 shadow-xl">
+                  <VideoOff size={28} />
+                </div>
+                <span className="text-[10px] bg-neutral-900 text-neutral-400 border border-neutral-800 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2">
+                  Offline
+                </span>
+                <h2 className="text-white font-bold text-lg tracking-tight">Siaran Belum Dimulai</h2>
+                <p className="text-neutral-500 text-xs mt-1.5 max-w-[250px] leading-relaxed">
+                  Belum ada siaran langsung saat ini.
+                  {isPremium && " Kamu bisa membeli akses untuk menonton nanti!"}
+                </p>
+
+                {isPremium && (
+                  <div className="mt-4 w-full max-w-xs">
+                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3.5">
+                      <p className="text-[11px] text-neutral-400 mb-2 text-center">
+                        Beli akses sekarang, tonton saat live dimulai!
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handlePurchase('points')}
+                          className="py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-[11px] rounded-lg transition"
+                        >
+                          🪙 10 Poin
+                        </button>
+                        <button
+                          onClick={() => handlePurchase('saldo')}
+                          className="py-2 bg-amber-600 hover:bg-amber-500 text-neutral-950 font-bold text-[11px] rounded-lg transition"
+                        >
+                          💰 Rp 5.000
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={() => router.push('/')}
+            className="w-full py-3 bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 text-white font-medium text-xs rounded-xl transition"
+          >
+            {hasPendingAccess ? "🏠 Kembali ke Rumah Warga" : "🏠 Kembali ke Beranda"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // ============ TAMPILAN LIVE (ON AIR) - FULL SCREEN ============
+  // ============================================================
+  // ============================================================
+  // ============ TAMPILAN LIVE (ON AIR) - FULL SCREEN ============
+  // ============================================================
+  return (
+    <div className="fixed inset-0 bg-black flex items-center justify-center z-[100]">
+      <div className="relative w-full max-w-[420px] h-full bg-black overflow-hidden">
+
+        {/* 🔥 TOAST NOTIFICATION */}
+        {toast && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-xl max-w-[90%] min-w-[280px] text-center animate-in slide-in-from-top-4 duration-300 ${toast.type === 'success'
+            ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-400'
+            : 'bg-red-950/95 border-red-500/50 text-red-400'
+            }`}>
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-2xl">{toast.type === 'success' ? '✅' : '❌'}</span>
+              <p className="text-sm font-bold">{toast.message}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 1. VIDEO LAYER ================= */}
+        <div className="absolute inset-0 w-full h-full z-0">
           <video
             ref={videoRef}
-            className={`w-full h-full ${videoFit === 'cover' ? 'object-cover' : 'object-contain'}`}
+            className="w-full h-full object-cover"
             style={{
-              objectFit: videoFit === 'cover' ? 'cover' : 'contain',
+              objectFit: 'cover',
               objectPosition: 'center',
               width: '100%',
               height: '100%'
             }}
             playsInline
-            autoPlay
-            muted={false}
-            volume={1.0}
+            muted={isMuted}
+            onDoubleClick={() => {
+              const video = videoRef.current;
+              if (video?.requestFullscreen) {
+                video.requestFullscreen().catch(() => { });
+              }
+            }}
           />
+
+          {/* 🔥 LOADING OVERLAY - MUNCUL SAAT VIDEO LOADING */}
+          {isVideoLoading && !videoError && (
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center z-10">
+              {/* Spinner */}
+              <div className="relative w-14 h-14 flex items-center justify-center">
+                <div className="absolute inset-0 border-2 border-neutral-700/50 border-t-red-500 rounded-full animate-spin shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
+                <div className="absolute w-10 h-10 border-2 border-transparent border-b-neutral-400 rounded-full animate-[spin_1s_linear_infinite_reverse]" />
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+              </div>
+
+              {/* Teks Loading */}
+              <p className="text-[11px] text-neutral-200 mt-5 tracking-widest font-medium uppercase animate-pulse">
+                Memuat Siaran...
+              </p>
+
+              {/* Progress Bar */}
+              <div className="w-32 h-[2px] bg-neutral-800 rounded-full mt-3 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-red-500 to-orange-500 rounded-full animate-[loading_4s_ease-in-out_infinite]" />
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Buffering Indicator */}
-        {isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none z-10">
-            <div className="w-10 h-10 border-4 border-white/30 border-t-red-500 rounded-full animate-spin"></div>
-          </div>
-        )}
-
-        {/* TOP LAYER */}
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-30 flex items-center justify-between">
-          {/* Kiri: Back + Radio */}
-          <div className="flex items-center gap-2 pointer-events-auto">
-            {/* Tombol Back */}
-            <button
-              onClick={() => router.push('/')}
-              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 hover:bg-white/10 transition-colors"
-            >
-              <ArrowLeft size={24} />
-            </button>
-
-            {/* Tombol Switch ke Audio */}
-            <button
-              onClick={() => router.push('/live/audio')}
-              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center text-white border border-white/10 hover:bg-green-600/30 hover:border-green-500/50 transition-all duration-200 group"
-              title="Beralih ke mode audio (radio)"
-            >
-              <Headphones size={20} className="group-hover:text-green-400 transition-colors" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5 pointer-events-auto">
-            <div className="bg-red-600 text-white px-2.5 py-1 rounded-md text-[10px] font-black tracking-wider flex items-center gap-1 shadow-md">
-              <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-              LIVE
-            </div>
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 px-2 py-1 rounded-md flex items-center gap-1 text-white text-[10px] font-bold shadow-md">
-              <Eye size={13} />
-              <span>{viewers}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* BOTTOM LAYER */}
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-28 pb-4 px-4 flex flex-col justify-end pointer-events-none">
-
-          {/* COMMENT CONTAINER */}
-          <div
-            ref={commentContainerRef}
-            className="h-[200px] overflow-y-auto mb-3 pointer-events-auto scrollbar-none"
-            style={{ scrollbarWidth: 'none' }}
-          >
-            <div className="flex flex-col justify-end min-h-full">
-              <div className="space-y-2 pb-2">
-                {isCommentLoading ? (
-                  <div className="text-center text-white/30 text-xs py-4">
-                    Memuat komentar...
+        {/* ================= 2. HEADER OVERLAY (ATAS) ================= */}
+        <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
+          <div className="pointer-events-auto px-4 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => router.push('/')}
+                  className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-white/20 active:scale-95 transition"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <div className="h-7 px-2.5 bg-red-600 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  <span className="text-white font-bold text-[10px] tracking-wider uppercase">LIVE</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-7 px-2.5 bg-black/40 backdrop-blur-md border border-white/10 rounded-full flex items-center gap-1.5 text-neutral-200 text-[11px] font-medium">
+                  <Eye size={13} className="text-neutral-300" />
+                  <span>{viewers}</span>
+                </div>
+                {isPremium && (
+                  <div className="h-7 px-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 backdrop-blur-md border border-amber-500/30 text-amber-400 rounded-full flex items-center gap-1.5 text-[10px] font-bold uppercase">
+                    <Crown size={12} className="fill-amber-400" />
+                    <span>Premium</span>
                   </div>
-                ) : comments.length === 0 ? (
-                  <div className="text-center text-white/30 text-xs py-4">
-                    Belum ada komentar. Jadilah yang pertama!
-                  </div>
-                ) : (
-                  comments.map((msg, index) => (
-                    <div
-                      key={msg.id || index}
-                      className="flex items-start gap-2 animate-fadeIn px-1 text-left"
-                    >
-                      {/* AVATAR USER */}
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
-                        <img
-                          src={getAvatarUrl(msg.avatar_url, msg.user_name)}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      </div>
-
-                      {/* TEKS KOMENTAR */}
-                      <div className="flex-1 min-w-0 flex flex-col text-left">
-                        <span className="font-extrabold text-slate-300 text-[11px] tracking-wide mb-0.5 text-left drop-shadow-md">
-                          {msg.user_name || "Warga"}
-                        </span>
-                        <p className="text-[13px] font-medium text-white leading-snug break-words text-left drop-shadow-md">
-                          {msg.comment}
-                        </p>
-                      </div>
-
-                    </div>
-                  ))
                 )}
               </div>
             </div>
           </div>
-
-          {/* Comment Input */}
-          <form
-            onSubmit={handleSendComment}
-            className="flex gap-2 items-center pointer-events-auto"
-          >
-            {userData && (
-              <div className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500">
-                <img
-                  src={getAvatarUrl(userData.avatar_url, userData.full_name || userData.username)}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-            )}
-            <input
-              type="text"
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder={userData ? "Kirim komentar..." : "Masuk untuk berkomentar..."}
-              disabled={!userData}
-              className="flex-1 bg-black/40 backdrop-blur-md text-white border border-white/20 rounded-full px-4 py-2 text-xs focus:outline-none focus:border-red-500 placeholder-neutral-300 shadow-inner disabled:opacity-40"
-            />
-            <button
-              type="submit"
-              disabled={!newComment.trim() || !userData}
-              className="w-8 h-8 bg-red-600 hover:bg-red-500 disabled:bg-black/40 disabled:text-neutral-500 text-white border border-white/10 rounded-full flex items-center justify-center transition-colors shrink-0 shadow-md"
-            >
-              <Send size={14} />
-            </button>
-          </form>
-
         </div>
 
-      </div >
-    </div >
+        {/* ================= 3. PREVIEW TIMER (POJOK KANAN ATAS) ================= */}
+        {isPreview && !hasAccess && (
+          <div className="absolute top-20 right-4 z-20 pointer-events-none">
+            <div className="bg-black/60 backdrop-blur-md border border-white/15 px-3 py-1.5 rounded-full text-white text-[10px] font-mono flex items-center gap-1.5 shadow-lg">
+              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+              <span>Preview: <span className="font-bold text-amber-400">{previewTimer}s</span></span>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 4. LOCK OVERLAY (TENGAH - FULLSCREEN) ================= */}
+        {/* 🔥 HANYA MUNCUL KALAU PREVIEW ENDED DAN BELUM PUNYA AKSES */}
+        {previewEnded && !hasAccess && (
+          <div className="absolute inset-0 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto p-6 z-30">
+            <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-500 mb-2">
+              <Lock size={22} />
+            </div>
+            <h3 className="text-white font-bold text-sm tracking-tight">Waktu Pratinjau Selesai</h3>
+            <p className="text-neutral-400 text-[11px] mt-1 mb-5 max-w-[240px] text-center">
+              Siaran ini dikunci. Gunakan poin atau isi poin instan dari saldo untuk menonton.
+            </p>
+
+            <div className="bg-neutral-900 border border-white/10 rounded-xl p-4 w-full max-w-[320px] shadow-2xl">
+              <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/5">
+                <span className="text-[10px] text-neutral-400 uppercase font-bold">Dompet Kamu</span>
+                <div className="text-right">
+                  <span className="text-xs font-bold text-amber-400 block">🪙 {userPoints} Poin</span>
+                  <span className="text-[10px] text-neutral-400 block">Rp {userSaldo.toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+
+              {purchaseError && (
+                <div className="mb-3 p-2 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-[10px] flex items-center gap-1.5">
+                  <AlertCircle size={12} /> {purchaseError}
+                </div>
+              )}
+
+              {/* 🔥 TOMBOL DENGAN STATE TERPISAH */}
+              <div className="flex flex-col gap-2">
+                {userPoints >= 10 ? (
+                  <>
+                    <button
+                      disabled={isPurchasingPoints}
+                      onClick={() => handlePurchase('points')}
+                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-neutral-950 font-black text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-1.5"
+                    >
+                      {isPurchasingPoints ? "Memproses..." : "🪙 Tukar 10 Poin & Buka Akses"}
+                    </button>
+                    <button
+                      disabled={isPurchasingSaldo}
+                      onClick={() => handlePurchase('saldo')}
+                      className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-white font-medium text-xs rounded-xl transition border border-white/10 flex items-center justify-center gap-1.5"
+                    >
+                      {isPurchasingSaldo ? "Memproses..." : "💰 Gunakan Saldo (Rp 5.000)"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      disabled={isPurchasingSaldo}
+                      onClick={() => handlePurchase('saldo')}
+                      className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-neutral-950 font-black text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-1.5"
+                    >
+                      {isPurchasingSaldo ? "Memproses..." : "💰 Beli 10 Poin & Akses (Rp 5.000)"}
+                    </button>
+                    <button
+                      disabled={true}
+                      className="w-full py-2.5 bg-neutral-800/40 text-neutral-500 text-xs rounded-xl border border-white/5 flex items-center justify-center gap-1.5 cursor-not-allowed"
+                    >
+                      🪙 Tukar 10 Poin (Poin Kurang)
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 5. BOTTOM OVERLAY (CHAT & INPUT) ================= */}
+        {/* 🔥 CHAT HARUS TETAP TERLIHAT, TAPI INPUT DI-LOCK KALAU BELUM PUNYA AKSES */}
+        <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
+          <div className="pointer-events-auto w-full">
+            {/* Comments Container */}
+            <div
+              ref={commentContainerRef}
+              className="h-[180px] overflow-y-auto px-4 py-2 scrollbar-none"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              <div className="flex flex-col justify-end min-h-full">
+                <div className="space-y-2 pb-2">
+                  {isCommentLoading ? (
+                    <div className="text-center text-white/40 text-[10px] py-2">Memuat komentar...</div>
+                  ) : comments.length === 0 ? (
+                    <div className="text-center text-white/30 text-[10px] py-2">Belum ada komentar.</div>
+                  ) : (
+                    comments.map((item) => (
+                      <div key={item.id} className="flex items-start gap-2">
+                        <img
+                          src={getAvatarUrl(item.avatar_url, item.user_name)}
+                          alt="Avatar"
+                          className="w-6 h-6 rounded-full object-cover border border-white/10 mt-0.5 shrink-0"
+                        />
+                        <div className="flex flex-col bg-black/50 backdrop-blur-sm border border-white/10 px-3 py-1.5 rounded-xl rounded-tl-none max-w-[80%]">
+                          <span className="text-[9px] font-bold text-neutral-300">{item.user_name}</span>
+                          <p className="text-white text-[11px] mt-0.5 break-words">{item.comment}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Input Footer - PALING BAWAH SEKALI */}
+            <div className="p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+              <form onSubmit={handleSendComment} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  disabled={isPremium && !hasAccess}
+                  placeholder={isPremium && !hasAccess ? "🔒 Beli tiket untuk komentar" : "Ketik komentar..."}
+                  className="flex-1 bg-black/50 backdrop-blur-md text-white placeholder-neutral-400 text-xs px-4 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-white/30 disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!newComment.trim() || (isPremium && !hasAccess)}
+                  className="w-9 h-9 bg-red-600 rounded-xl flex items-center justify-center text-white disabled:bg-neutral-800/50 transition"
+                >
+                  <Send size={14} />
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        {/* ================= 6. VIDEO ERROR OVERLAY ================= */}
+        {videoError && !previewEnded && (
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-auto z-40">
+            <p className="text-neutral-400 text-xs text-center px-4">{videoError}</p>
+            <button
+              onClick={initVideoPlayer}
+              className="mt-3 px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-white text-[10px] hover:bg-white/20 transition"
+            >
+              Coba Muat Ulang
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
   );
 }

@@ -24,7 +24,6 @@ import { debounce } from "lodash";
 
 type TabType = 'upload' | 'add';
 
-// --- TIPE DATA ---
 interface Tempat {
   id: string;
   name: string;
@@ -46,10 +45,9 @@ export default function UploadMediaPage() {
   const router = useRouter();
   const { user, isAdmin, isSuperAdmin, loading } = useAuth();
 
-  // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('upload');
 
-  // Upload tab state
+  // Upload tab
   const [tempatList, setTempatList] = useState<Tempat[]>([]);
   const [filteredTempat, setFilteredTempat] = useState<Tempat[]>([]);
   const [selectedTempat, setSelectedTempat] = useState<Tempat | null>(null);
@@ -58,7 +56,7 @@ export default function UploadMediaPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
-  // Add tempat state
+  // Add tempat
   const [addFormData, setAddFormData] = useState<AddFormData>({
     name: '',
     category: '',
@@ -71,6 +69,7 @@ export default function UploadMediaPage() {
   const [isAddingPlace, setIsAddingPlace] = useState(false);
   const [addSuccess, setAddSuccess] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Cek akses
   useEffect(() => {
@@ -133,29 +132,25 @@ export default function UploadMediaPage() {
     [tempatList]
   );
 
-  // Handle search input
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
     searchPlaces(query);
   };
 
-  // Handle place selection
   const handleSelectPlace = (place: Tempat) => {
     setSelectedTempat(place);
     setSearchQuery(place.name);
     setFilteredTempat([]);
   };
 
-  // Handle upload success
   const handleUploadSuccess = () => {
     setUploadSuccess(true);
-    setTimeout(() => {
-      setUploadSuccess(false);
-    }, 3000);
+    setTimeout(() => setUploadSuccess(false), 3000);
   };
 
-  // --- FUNGSI TAMBAH TEMPAT ---
+  // ==================== FUNGSI TAMBAH TEMPAT ====================
+
   const getMyLocation = () => {
     if (!navigator.geolocation) {
       alert("Geolocation tidak didukung oleh browser Anda");
@@ -171,6 +166,7 @@ export default function UploadMediaPage() {
           longitude: position.coords.longitude.toString()
         });
         setGpsLoading(false);
+        setErrorMessage(null);
       },
       (error) => {
         alert("Gagal mengambil lokasi: " + error.message);
@@ -179,41 +175,63 @@ export default function UploadMediaPage() {
     );
   };
 
+  // ==================== PERBAIKAN UTAMA DI SINI ====================
   const handleAddPlace = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
 
+    // Validasi
     if (!addFormData.name.trim()) {
-      alert("Nama tempat wajib diisi!");
+      setErrorMessage("Nama tempat wajib diisi!");
       return;
     }
 
     if (!addFormData.latitude || !addFormData.longitude) {
-      alert("Koordinat lokasi wajib diisi! Gunakan tombol 'Ambil GPS' atau isi manual.");
+      setErrorMessage("Koordinat lokasi wajib diisi!");
+      return;
+    }
+
+    const lat = parseFloat(addFormData.latitude);
+    const lng = parseFloat(addFormData.longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      setErrorMessage("Format koordinat tidak valid!");
+      return;
+    }
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setErrorMessage("Koordinat tidak valid!");
       return;
     }
 
     setIsAddingPlace(true);
 
     try {
+      // ✅ HANYA KIRIM FIELD YANG ADA DI TABLE
+      // ❌ JANGAN kirim created_at, updated_at (sudah auto)
+      // ❌ JANGAN kirim jam_buka sebagai text (harus jsonb)
       const dataToInsert = {
         name: addFormData.name.trim(),
         category: addFormData.category.trim() || null,
         alamat: addFormData.alamat.trim() || null,
         description: addFormData.description.trim() || null,
-        latitude: parseFloat(addFormData.latitude),
-        longitude: parseFloat(addFormData.longitude),
-        jam_buka: addFormData.jam_buka.trim() || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        latitude: lat,
+        longitude: lng,
+        // jam_buka: addFormData.jam_buka.trim() || null, // COMMENT - karena jsonb
       };
 
-      const { error } = await supabase
+      console.log("📤 Insert data:", dataToInsert);
+
+      const { data, error } = await supabase
         .from('tempat')
-        .insert([dataToInsert]);
+        .insert([dataToInsert])
+        .select('id, name, category');
 
       if (error) throw error;
 
-      // Success
+      console.log("✅ Success:", data);
+
+      // Reset form
       setAddSuccess(true);
       setAddFormData({
         name: '',
@@ -225,7 +243,7 @@ export default function UploadMediaPage() {
         jam_buka: ''
       });
 
-      // Refresh list tempat
+      // Refresh list
       const { data: newData } = await supabase
         .from('tempat')
         .select('id, name, category, alamat')
@@ -239,21 +257,25 @@ export default function UploadMediaPage() {
 
       setTimeout(() => {
         setAddSuccess(false);
+        setIsAddingPlace(false);
         setActiveTab('upload');
-      }, 2000);
+      }, 1000);
 
     } catch (error: any) {
-      console.error("Error detail:", error);
+      console.error("❌ Error:", error);
 
-      // Error handling yang lebih baik
-      let errorMessage = "Gagal menyimpan data";
+      let errorMsg = "Gagal menyimpan data. ";
       if (error.code === '23505') {
-        errorMessage = "Tempat dengan nama ini sudah ada!";
+        errorMsg = `Tempat "${addFormData.name}" dengan kategori "${addFormData.category || 'tanpa kategori'}" sudah ada!`;
+      } else if (error.code === '23502') {
+        errorMsg = "Ada field wajib yang tidak diisi.";
+      } else if (error.code === '42501') {
+        errorMsg = "Anda tidak memiliki izin. Pastikan login sebagai admin.";
       } else if (error.message) {
-        errorMessage = error.message;
+        errorMsg += error.message;
       }
-      alert(errorMessage);
-    } finally {
+
+      setErrorMessage(errorMsg);
       setIsAddingPlace(false);
     }
   };
@@ -266,7 +288,6 @@ export default function UploadMediaPage() {
     );
   }
 
-  // Redirect if not admin
   if (!isAdmin && !isSuperAdmin) {
     return null;
   }
@@ -297,23 +318,44 @@ export default function UploadMediaPage() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-6">
+        {errorMessage && (
+          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-red-700 dark:text-red-300">{errorMessage}</p>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-xs text-red-500 hover:text-red-700 mt-1"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-2 mb-6 bg-white dark:bg-slate-800/50 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
           <button
-            onClick={() => setActiveTab('upload')}
+            onClick={() => {
+              setActiveTab('upload');
+              setErrorMessage(null);
+            }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all ${activeTab === 'upload'
-                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
               }`}
           >
             <Upload className="w-4 h-4" />
             Upload Media
           </button>
           <button
-            onClick={() => setActiveTab('add')}
+            onClick={() => {
+              setActiveTab('add');
+              setErrorMessage(null);
+            }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all ${activeTab === 'add'
-                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+              ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
               }`}
           >
             <PlusCircle className="w-4 h-4" />
@@ -345,6 +387,7 @@ export default function UploadMediaPage() {
             isLoading={isAddingPlace}
             gpsLoading={gpsLoading}
             addSuccess={addSuccess}
+            errorMessage={errorMessage}
           />
         )}
       </div>
@@ -352,7 +395,7 @@ export default function UploadMediaPage() {
   );
 }
 
-// --- COMPONENT: UPLOAD TAB ---
+// ==================== UPLOAD TAB ====================
 function UploadTab({
   selectedTempat,
   setSelectedTempat,
@@ -378,9 +421,17 @@ function UploadTab({
   uploadSuccess: boolean;
   handleUploadSuccess: () => void;
 }) {
+  const getTimeLabel = useCallback(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "pagi";
+    if (hour >= 12 && hour < 15) return "siang";
+    if (hour >= 15 && hour < 18) return "sore";
+    return "malam";
+  }, []);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Left Panel - Place Selection */}
+      {/* Left Panel */}
       <div className="lg:col-span-1">
         <div className="bg-white dark:bg-slate-800/50 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-5 sticky top-24">
           <h2 className="font-semibold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
@@ -388,7 +439,6 @@ function UploadTab({
             Pilih Tempat
           </h2>
 
-          {/* Search Input */}
           <div className="relative mb-4">
             <input
               type="text"
@@ -403,7 +453,6 @@ function UploadTab({
             )}
           </div>
 
-          {/* Results */}
           <div className="max-h-[400px] overflow-y-auto space-y-1.5">
             {isLoading ? (
               <div className="text-center py-8 text-slate-400">
@@ -428,8 +477,8 @@ function UploadTab({
                   animate={{ opacity: 1, y: 0 }}
                   onClick={() => handleSelectPlace(place)}
                   className={`w-full text-left px-4 py-3 rounded-xl transition-all ${selectedTempat?.id === place.id
-                      ? "bg-emerald-500/10 dark:bg-emerald-500/20 border-2 border-emerald-500"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-700/50 border-2 border-transparent"
+                    ? "bg-emerald-500/10 dark:bg-emerald-500/20 border-2 border-emerald-500"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-700/50 border-2 border-transparent"
                     }`}
                 >
                   <p className="font-medium text-slate-800 dark:text-white text-sm">
@@ -450,7 +499,6 @@ function UploadTab({
             )}
           </div>
 
-          {/* Selected Place Info */}
           {selectedTempat && (
             <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -464,7 +512,7 @@ function UploadTab({
         </div>
       </div>
 
-      {/* Right Panel - Upload Area */}
+      {/* Right Panel */}
       <div className="lg:col-span-2">
         <motion.div
           key={selectedTempat?.id || "empty"}
@@ -508,12 +556,11 @@ function UploadTab({
 
               <UploaderAdmin
                 tempatId={selectedTempat.id}
-                timeLabel="siang"
+                timeLabel={getTimeLabel()}
                 onRefreshNeeded={() => { }}
                 onSuccess={handleUploadSuccess}
               />
 
-              {/* Tips */}
               <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
                 <h4 className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">
                   💡 Tips Upload:
@@ -522,7 +569,6 @@ function UploadTab({
                   <li>• Gunakan foto dengan resolusi baik (minimal 800x600)</li>
                   <li>• Maksimal ukuran file: 10MB untuk foto, 50MB untuk video</li>
                   <li>• Format yang didukung: JPG, PNG, GIF, MP4, MOV</li>
-                  <li>• Foto yang menarik akan meningkatkan vibe count!</li>
                 </ul>
               </div>
             </div>
@@ -545,7 +591,7 @@ function UploadTab({
   );
 }
 
-// --- COMPONENT: ADD PLACE TAB ---
+// ==================== ADD PLACE TAB ====================
 function AddPlaceTab({
   formData,
   setFormData,
@@ -553,7 +599,8 @@ function AddPlaceTab({
   getMyLocation,
   isLoading,
   gpsLoading,
-  addSuccess
+  addSuccess,
+  errorMessage
 }: {
   formData: AddFormData;
   setFormData: (data: AddFormData) => void;
@@ -562,6 +609,7 @@ function AddPlaceTab({
   isLoading: boolean;
   gpsLoading: boolean;
   addSuccess: boolean;
+  errorMessage?: string | null;
 }) {
   return (
     <motion.div
@@ -587,7 +635,13 @@ function AddPlaceTab({
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Nama & Kategori */}
+          {errorMessage && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700 dark:text-red-300">{errorMessage}</p>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold uppercase text-slate-400 flex items-center gap-1">
@@ -617,7 +671,6 @@ function AddPlaceTab({
             </div>
           </div>
 
-          {/* Alamat & Deskripsi */}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold uppercase text-slate-400">Alamat</label>
@@ -631,7 +684,7 @@ function AddPlaceTab({
             </div>
 
             <div>
-              <label className="text-xs font-bold uppercase text-slate-400">Deskripsi Singkat</label>
+              <label className="text-xs font-bold uppercase text-slate-400">Deskripsi</label>
               <textarea
                 disabled={isLoading}
                 className="w-full border border-slate-200 rounded-xl p-3 bg-slate-50 dark:bg-slate-700/50 dark:text-white mt-1 disabled:opacity-50"
@@ -642,11 +695,11 @@ function AddPlaceTab({
             </div>
           </div>
 
-          {/* Lokasi dengan Tombol Auto-GPS */}
+          {/* Lokasi */}
           <div className="bg-orange-50 dark:bg-orange-950/20 p-4 rounded-2xl border border-orange-100 dark:border-orange-800/30 space-y-4">
             <div className="flex justify-between items-center">
               <label className="text-xs font-bold uppercase text-orange-600 dark:text-orange-400 flex items-center gap-2">
-                <MapPin size={14} /> Koordinat Lokasi <span className="text-red-500">*</span>
+                <MapPin size={14} /> Koordinat <span className="text-red-500">*</span>
               </label>
               <button
                 type="button"
@@ -679,7 +732,8 @@ function AddPlaceTab({
             </div>
           </div>
 
-          {/* Jam Buka */}
+          {/* Jam Buka - HIDE karena di table jsonb */}
+          {/* 
           <div>
             <label className="text-xs font-bold uppercase text-slate-400 flex items-center gap-2">
               <Clock size={14} /> Jam Buka
@@ -693,6 +747,7 @@ function AddPlaceTab({
               onChange={(e) => setFormData({ ...formData, jam_buka: e.target.value })}
             />
           </div>
+          */}
 
           <button
             type="submit"

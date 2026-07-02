@@ -679,6 +679,12 @@ function FeedCardV2Premium({
     setLocalData,
   } = useOptimizedState();
 
+  const [citizenStatus, setCitizenStatus] = useState(null);
+  // 🔥 TAMBAHKAN callback
+  const handleStatusChange = useCallback((statusData) => {
+    setCitizenStatus(statusData);
+  }, []);
+
   const {
     isHovered,
     isLightboxOpen,
@@ -714,6 +720,8 @@ function FeedCardV2Premium({
     if (onRefreshNeeded) onRefreshNeeded();
     router.refresh();
   }, [onRefreshNeeded, router]);
+
+
 
   useEffect(() => {
     isMounted.current = true;
@@ -853,6 +861,33 @@ function FeedCardV2Premium({
     }
   }, [safeItem.id, safeItem.vibe_count, safeItem.status, safeItem.isViral, safeItem.isRamai, comments, locationReady, location?.latitude, location?.longitude]);
 
+  const heroDescription = useMemo(() => {
+    // PRIORITAS 1: Citizen Report (dari external_signals)
+    if (citizenStatus?.isCitizen) {
+      return citizenStatus.text;
+    }
+
+    // PRIORITAS 2: Validasi
+    if (citizenStatus?.isValidasi) {
+      return citizenStatus.text;
+    }
+
+    // PRIORITAS 3: Weather
+    if (citizenStatus?.isWeather) {
+      return citizenStatus.text;
+    }
+
+    // PRIORITAS 4: Fallback
+    return feed?.headline?.text || safeItem.description || `Lalu lintas normal di ${safeItem.name}`;
+  }, [citizenStatus, feed, safeItem]);
+
+  const heroStatus = useMemo(() => {
+    if (citizenStatus?.badge) return citizenStatus.badge;
+    if (safeItem.isViral) return "VIRAL";
+    if (safeItem.isRamai) return "RAMAI";
+    return "LANCAR";
+  }, [citizenStatus, safeItem]);
+
   const allSignals = useMemo(() => {
     const combined = [...(localLaporanWarga || []), ...(externalSignals || [])];
     return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -949,7 +984,18 @@ function FeedCardV2Premium({
 
   if (!item?.id && safeItem.id === 0) return null;
 
-  const distanceText = feed?.distance ? `${feed.distance.toFixed(1)} KM` : "LIVE";
+  const distanceInMeters = feed?.distance !== undefined && feed?.distance !== null
+    ? Math.round(feed.distance * 1000)
+    : null;
+
+  const distanceText = distanceInMeters !== null
+    ? (distanceInMeters <= 5 // Jika di bawah 5 meter, dianggap di lokasi yang sama
+      ? "Lokasi Anda"
+      : distanceInMeters < 1000
+        ? `${distanceInMeters} Meter`
+        : `${Number((distanceInMeters / 1000).toFixed(1))} Km`) // Menghilangkan .0 jika angka bulat
+    : "LIVE";
+
   const itemStatusClass = safeItem.isViral ? "viral" : safeItem.isRamai ? "ramai" : "biasa";
 
   const statusDisplay = useMemo(() => {
@@ -1056,6 +1102,12 @@ function FeedCardV2Premium({
               }}
               onUploadSuccess={handleUploadSuccess}
               onPhotoClick={handlePhotoClick}
+              status={heroStatus}
+              description={heroDescription}
+              lastUpdate={safeItem.updated_at || safeItem.created_at}
+              onRefresh={handleLocalRefresh}
+              refreshing={false}
+
             />
           ) : (
             <PhotoSliderSkeleton />
@@ -1113,6 +1165,7 @@ function FeedCardV2Premium({
               jumlahWarga={totalSaksi}
               compact={true}
               maxLines={2}
+              onStatusChange={handleStatusChange}
             />
           </div>
         )}

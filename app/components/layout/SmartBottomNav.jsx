@@ -81,13 +81,10 @@ export default function SmartBottomNav({
           .from("live_streams")
           .select("is_active")
           .eq("is_active", true)
-          .single();
+          .maybeSingle();   // 
 
-        if (data) {
-          setIsLiveActive(true);
-        } else {
-          setIsLiveActive(false);
-        }
+        if (error) throw error;
+        setIsLiveActive(!!data);
       } catch (err) {
         console.error("Error checking live status:", err);
         setIsLiveActive(false);
@@ -99,7 +96,7 @@ export default function SmartBottomNav({
     const channel = supabase
       .channel('live_status')
       .on('postgres_changes', {
-        event: 'UPDATE',
+        event: '*',   // ✅ tangkap INSERT, UPDATE, DELETE
         schema: 'public',
         table: 'live_streams'
       }, () => checkLiveStatus())

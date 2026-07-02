@@ -21,6 +21,7 @@ import {
   Gift,
   Target,
   Wallet,
+  Megaphone,
   Upload // Ganti Image dengan Upload
 } from "lucide-react";
 import { useAuth } from "@/app/context/AuthContext";
@@ -195,16 +196,16 @@ export default function UserMenu({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               className={`absolute right-0 mt-3 w-72 z-[100] rounded-3xl shadow-2xl border overflow-hidden ${isMalam
-                  ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl"
-                  : "bg-white/95 border-slate-200 backdrop-blur-xl"
+                ? "bg-slate-900/95 border-slate-800 backdrop-blur-xl"
+                : "bg-white/95 border-slate-200 backdrop-blur-xl"
                 }`}
             >
               {/* --- USER PROFILE HEADER --- */}
               <div className={`p-5 ${isMalam ? "bg-white/5" : "bg-slate-50"}`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl font-black shadow-lg overflow-hidden ${!avatar
-                      ? `bg-gradient-to-tr ${currentRole.color}`
-                      : "bg-white border border-slate-100"
+                    ? `bg-gradient-to-tr ${currentRole.color}`
+                    : "bg-white border border-slate-100"
                     }`}>
                     {avatar ? (
                       <img
@@ -259,6 +260,22 @@ export default function UserMenu({
                       label="Balai Setempat"
                       desc="Dashboard & statistik global"
                       onClick={() => router.push("/admin/dashboard")}
+                      isMalam={isMalam}
+                      color="purple"
+                    />
+                    <MenuAction
+                      icon={Zap}
+                      label="Mode Siaran"
+                      desc="Atur gratis / premium"
+                      onClick={() => router.push("/admin/live-mode")}
+                      isMalam={isMalam}
+                      color="yellow"
+                    />
+                    <MenuAction
+                      icon={Megaphone}
+                      label="Promo & Notifikasi"
+                      desc="Kirim promo ke warga"
+                      onClick={() => router.push("/admin/promo")}
                       isMalam={isMalam}
                       color="purple"
                     />
@@ -451,12 +468,12 @@ function MenuAction({
         } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"}`}
     >
       <div className={`p-2 rounded-xl transition-all ${danger
-          ? "text-rose-500 bg-rose-500/10"
-          : isActive
-            ? "bg-purple-500 text-white"
-            : isMalam
-              ? `text-slate-400 bg-slate-800 ${colorMap[color]}`
-              : `text-slate-500 bg-slate-100 ${colorMap[color]}`
+        ? "text-rose-500 bg-rose-500/10"
+        : isActive
+          ? "bg-purple-500 text-white"
+          : isMalam
+            ? `text-slate-400 bg-slate-800 ${colorMap[color]}`
+            : `text-slate-500 bg-slate-100 ${colorMap[color]}`
         }`}>
         <Icon size={18} />
       </div>

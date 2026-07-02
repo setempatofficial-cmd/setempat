@@ -610,9 +610,6 @@ export default function FullscreenStoryModal({
     return { ...viewCounts, ...localViewCounts };
   }, [viewCounts, localViewCounts]);
 
-  // ===== TAMBAHAN: STATE UNTUK LIVE =====
-  const [isLiveActive, setIsLiveActive] = useState(false);
-  const [liveStreamData, setLiveStreamData] = useState(null);
 
   const { containerRef, currentIndex, setCurrentIndex, handleScroll, scrollToIndex } = useStoryScroll(
     reports?.length || 0,
@@ -634,48 +631,6 @@ export default function FullscreenStoryModal({
     window.addEventListener('laporan-comment-changed', handleCommentChange);
     return () => {
       window.removeEventListener('laporan-comment-changed', handleCommentChange);
-    };
-  }, [isOpen]);
-
-  // ===== TAMBAHAN: CEK STATUS LIVE =====
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const checkLiveStatus = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("live_streams")
-          .select("*")
-          .eq("is_active", true)
-          .single();
-
-        if (data) {
-          setIsLiveActive(true);
-          setLiveStreamData(data);
-        } else {
-          setIsLiveActive(false);
-          setLiveStreamData(null);
-        }
-      } catch (err) {
-        console.error("Error checking live status:", err);
-        setIsLiveActive(false);
-        setLiveStreamData(null);
-      }
-    };
-
-    checkLiveStatus();
-
-    const channel = supabase
-      .channel('live_status_modal')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'live_streams'
-      }, () => checkLiveStatus())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
     };
   }, [isOpen]);
 
@@ -806,26 +761,6 @@ export default function FullscreenStoryModal({
   return (
     <div className={`fixed inset-0 z-[99999] flex items-center justify-center bg-black transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>
       <div className={`w-full max-w-[420px] h-[100dvh] relative overflow-hidden md:rounded-xl shadow-2xl ${theme?.isMalam ? 'bg-black' : 'bg-zinc-950'}`}>
-
-        {/* ===== TAMBAHAN: LIVE INDICATOR DI POJOK KIRI ATAS ===== */}
-        {isLiveActive && liveStreamData && (
-          <button
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.location.href = "/live";
-              }
-            }}
-            className="absolute top-4 left-4 z-[110] flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-red-600/90 backdrop-blur-md border border-red-500/50 shadow-lg shadow-red-500/20 active:scale-95 transition-all duration-200 cursor-pointer hover:bg-red-700/90"
-          >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-            </span>
-            <span className="text-white text-[10px] font-black uppercase tracking-wider">
-              LIVE
-            </span>
-          </button>
-        )}
 
         <button
           onClick={() => setShowSearchView(true)}

@@ -7,6 +7,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { Camera, X, Send, ArrowLeft, CheckCircle, Clock, AlertCircle, MapPin, UserPlus, Store, Truck, Handshake } from "lucide-react";
 import { CldUploadWidget } from "next-cloudinary";
 
+import PilihLokasi from "@/components/PilihLokasi";
+import PilihLokasiModal from "@/components/PilihLokasiModal";
+
 export default function IkutiKesempatanPage() {
   const router = useRouter();
   const { id } = useParams();
@@ -26,6 +29,18 @@ export default function IkutiKesempatanPage() {
   const [selectedCondition, setSelectedCondition] = useState(null);
   const [selectedTraffic, setSelectedTraffic] = useState(null);
   const [selectedWaitTime, setSelectedWaitTime] = useState(null);
+
+  // State untuk lokasi
+  const [lokasiName, setLokasiName] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+
+  // ✅ STATE UNTUK COOLDOWN 24 JAM
+  const [wasRejected, setWasRejected] = useState(false);
+  const [rejectMessage, setRejectMessage] = useState("");
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [canResubmit, setCanResubmit] = useState(false);
+  const [lastRejectedAt, setLastRejectedAt] = useState(null);
 
   // State untuk program pendaftaran
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
@@ -53,15 +68,25 @@ export default function IkutiKesempatanPage() {
   const isProgramOjek = (title) => title?.toLowerCase().includes("ojek") || title?.toLowerCase().includes("driver");
   const isProgramRewang = (title) => title?.toLowerCase().includes("rewang") || title?.toLowerCase().includes("jasa");
 
-  // Ekstrak lokasi
+  // Ekstrak lokasi dari judul (untuk default)
   const extractLocation = (title) => {
     const match = title?.match(/(?:di|untuk|di daerah)\s+([A-Za-z\s]+)$/i);
     if (match) return match[1].trim();
     return title?.replace(/^(Dibutuhkan|Video|Foto)\s*/i, '').split(' - ')[0] || "Lokasi Setempat";
   };
 
-  const lokasiName = opportunity ? extractLocation(opportunity.title) : "";
+  // ========== FORMAT WAKTU COOLDOWN ==========
+  const formatCooldown = (seconds) => {
+    if (seconds <= 0) return "Siap!";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}j ${m}m ${s}d`;
+    if (m > 0) return `${m}m ${s}d`;
+    return `${s}d`;
+  };
 
+  // ========== FETCH OPPORTUNITY ==========
   useEffect(() => {
     const fetchOpportunity = async () => {
       try {
@@ -72,6 +97,11 @@ export default function IkutiKesempatanPage() {
           .single();
         if (error) throw error;
         setOpportunity(data);
+
+        if (data) {
+          const defaultLokasi = extractLocation(data.title);
+          setLokasiName(defaultLokasi);
+        }
       } catch (err) {
         console.error(err);
       } finally {
@@ -81,7 +111,7 @@ export default function IkutiKesempatanPage() {
     if (id) fetchOpportunity();
   }, [id]);
 
-  // Cek apakah user sudah terdaftar untuk program tertentu
+  // ========== CEK STATUS USER (DENGAN COOLDOWN) ==========
   useEffect(() => {
     if (!user || !opportunity) return;
 
@@ -116,17 +146,54 @@ export default function IkutiKesempatanPage() {
       setCheckingRegistration(false);
     };
 
-    // Cek submission biasa
+    // ✅ CEK SUBMISSION DENGAN COOLDOWN
     const checkSubmission = async () => {
       const { data } = await supabase
         .from("bounty_submissions")
-        .select("*")
+        .select("*, admin_note, rejected_at, updated_at")
         .eq("user_id", user.id)
         .eq("opportunity_id", opportunity.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
+
       if (data) {
-        setSubmitted(true);
-        setSubmissionStatus(data.status);
+        // ✅ Jika rejected, cek cooldown 24 jam
+        if (data.status === 'rejected') {
+          const rejectedAt = new Date(data.rejected_at || data.updated_at || data.created_at);
+          const now = new Date();
+          const hoursDiff = (now - rejectedAt) / (1000 * 60 * 60);
+          const cooldownHours = 24;
+
+          setWasRejected(true);
+          setRejectMessage(data.admin_note || "Konten Anda belum memenuhi kriteria.");
+          setLastRejectedAt(rejectedAt);
+
+          if (hoursDiff >= cooldownHours) {
+            setCanResubmit(true);
+            setCooldownRemaining(0);
+          } else {
+            setCanResubmit(false);
+            setCooldownRemaining(Math.ceil((cooldownHours - hoursDiff) * 3600));
+          }
+
+          setSubmitted(false);
+          setSubmissionStatus(null);
+        } else {
+          setSubmitted(true);
+          setSubmissionStatus(data.status);
+          setWasRejected(false);
+          setCanResubmit(true);
+          setCooldownRemaining(0);
+        }
+      } else {
+        setWasRejected(false);
+        setRejectMessage("");
+        setSubmitted(false);
+        setSubmissionStatus(null);
+        setCanResubmit(true);
+        setCooldownRemaining(0);
+        setLastRejectedAt(null);
       }
     };
 
@@ -134,6 +201,24 @@ export default function IkutiKesempatanPage() {
     checkSubmission();
   }, [user, opportunity]);
 
+  // ========== COOLDOWN COUNTDOWN TIMER ==========
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+
+    const timer = setInterval(() => {
+      setCooldownRemaining((prev) => {
+        if (prev <= 1) {
+          setCanResubmit(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldownRemaining]);
+
+  // ========== UPLOAD HANDLER ==========
   const handleUploadDone = (res) => {
     if (res?.event === "success" && res.info?.secure_url) {
       setMediaType(res.info.resource_type);
@@ -144,41 +229,49 @@ export default function IkutiKesempatanPage() {
 
   const handleUploadStart = () => setUploadProgress(true);
 
-  // 🔥 FUNGSI UNTUK MENAMBAHKAN REWARD KE POIN ATAU SALDO
+  // ========== FUNGSI TAMBAH REWARD ==========
   const addRewardToUser = async (rewardValue, rewardType) => {
-    // Ambil data profile terbaru
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("points, saldo_kontribusi")
-      .eq("id", user.id)
-      .single();
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("points, saldo")
+        .eq("id", user.id)
+        .single();
 
-    let updatedPoints = profile?.points || 0;
-    let updatedSaldo = profile?.saldo_kontribusi || 0;
+      if (profileError) {
+        console.error("Error fetching profile:", profileError);
+        return false;
+      }
 
-    if (rewardType === "point") {
-      updatedPoints += rewardValue;
-    } else if (rewardType === "money") {
-      updatedSaldo += rewardValue;
-    }
+      let updatedPoints = profile?.points || 0;
+      let updatedSaldo = profile?.saldo || 0;
 
-    // Update profile
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        points: updatedPoints,
-        saldo_kontribusi: updatedSaldo
-      })
-      .eq("id", user.id);
+      if (rewardType === "point") {
+        updatedPoints += rewardValue;
+      } else if (rewardType === "money") {
+        updatedSaldo += rewardValue;
+      }
 
-    if (updateError) {
-      console.error("Error updating profile:", updateError);
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          points: updatedPoints,
+          saldo: updatedSaldo
+        })
+        .eq("id", user.id);
+
+      if (updateError) {
+        console.error("Error updating profile:", updateError);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error("Error in addRewardToUser:", error);
       return false;
     }
-    return true;
   };
 
-  // Handler untuk program pendaftaran (REVISI)
+  // ========== HANDLER PROGRAM PENDAFTARAN ==========
   const handleRegisterProgram = async () => {
     if (!user) {
       alert("Silakan login terlebih dahulu");
@@ -214,20 +307,16 @@ export default function IkutiKesempatanPage() {
       };
     }
 
-    // Insert ke tabel program
     const { error: insertError } = await supabase
       .from(tableName)
       .insert([profileData]);
 
     if (!insertError) {
-      // 🔥 TAMBAHKAN REWARD (POIN ATAU SALDO)
       const rewardValue = opportunity.reward_value || 0;
       const rewardType = opportunity.reward_type || "point";
-
       const success = await addRewardToUser(rewardValue, rewardType);
 
       if (success) {
-        // Catat partisipasi
         await supabase.from("user_opportunities").insert({
           user_id: user.id,
           opportunity_id: opportunity.id,
@@ -240,7 +329,6 @@ export default function IkutiKesempatanPage() {
         setSubmitted(true);
         setSubmissionStatus("approved");
 
-        // Pesan sesuai jenis reward
         if (rewardType === "money") {
           alert(`✅ Selamat! Anda berhasil mendaftar ${opportunity.title}\n\nReward: Rp${rewardValue.toLocaleString()} telah ditambahkan ke Dompet Warga Anda.`);
         } else {
@@ -256,7 +344,21 @@ export default function IkutiKesempatanPage() {
     setSubmitting(false);
   };
 
-  // Handler untuk submit bounty (REVISI)
+  // ========== DEFINISI JENIS ==========
+  const isBountyLaporan = opportunity?.category === "bounty_laporan" ||
+    opportunity?.title?.toLowerCase().includes("dibutuhkan") ||
+    opportunity?.title?.toLowerCase().includes("kecelakaan");
+
+  const isBountyKonten = opportunity?.category === "bounty_konten" ||
+    opportunity?.title?.toLowerCase().includes("wartabromo") ||
+    opportunity?.title?.toLowerCase().includes("umkm") ||
+    opportunity?.title?.toLowerCase().includes("video anda digunakan");
+
+  const isProgram = isProgramBakul(opportunity?.title) ||
+    isProgramOjek(opportunity?.title) ||
+    isProgramRewang(opportunity?.title);
+
+  // ========== HANDLER SUBMIT BOUNTY ==========
   const handleSubmit = async () => {
     if (!user) {
       alert("Silakan login terlebih dahulu");
@@ -264,8 +366,7 @@ export default function IkutiKesempatanPage() {
       return;
     }
 
-    // Jika ini program pendaftaran (Bakul/Ojek/Rewang)
-    if (isProgramBakul(opportunity.title) || isProgramOjek(opportunity.title) || isProgramRewang(opportunity.title)) {
+    if (isProgram) {
       if (alreadyRegistered) {
         alert("Anda sudah terdaftar dalam program ini!");
         router.push("/rumah-warga");
@@ -275,7 +376,6 @@ export default function IkutiKesempatanPage() {
       return;
     }
 
-    // Bounty laporan atau bounty konten
     if (!mediaUrl) {
       alert("Silakan upload foto/video terlebih dahulu");
       return;
@@ -288,6 +388,11 @@ export default function IkutiKesempatanPage() {
 
     if (isBountyLaporan && selectedCondition === "Antri" && !selectedWaitTime) {
       alert("Pilih estimasi waktu antrian");
+      return;
+    }
+
+    if (isBountyLaporan && !lokasiName.trim()) {
+      alert("Silakan masukkan lokasi");
       return;
     }
 
@@ -373,40 +478,20 @@ export default function IkutiKesempatanPage() {
       .insert([submissionData]);
 
     if (!error) {
-      // 🔥 TAMBAHKAN REWARD (POIN ATAU SALDO) LANGSUNG SETELAH SUBMIT
-      const rewardValue = opportunity.reward_value || 0;
-      const rewardType = opportunity.reward_type || "point";
-
-      await addRewardToUser(rewardValue, rewardType);
-
       setSubmitted(true);
       setSubmissionStatus("pending");
 
-      const rewardText = rewardType === "money"
-        ? `Rp${rewardValue.toLocaleString()} akan masuk ke Dompet Warga`
-        : `${rewardValue} Poin akan ditambahkan`;
+      const rewardText = opportunity.reward_type === "money"
+        ? `Rp${opportunity.reward_value?.toLocaleString()} akan masuk ke Dompet Warga`
+        : `${opportunity.reward_value} Poin akan ditambahkan`;
 
-      alert(`✅ Berhasil mengirim!\n\n${isBountyLaporan ? "Konten akan tayang setelah diverifikasi." : "Konten akan masuk ke marketplace."}\nReward: ${rewardText}`);
+      alert(`✅ Berhasil mengirim!\n\n${isBountyLaporan ? "Laporan akan diverifikasi tim Setempat." : "Konten akan diverifikasi sebelum masuk marketplace."}\n${rewardText} setelah konten disetujui.`);
     } else {
       alert("Gagal mengirim: " + error.message);
     }
 
     setSubmitting(false);
   };
-
-  // Definisi jenis bounty setelah opportunity tersedia
-  const isBountyLaporan = opportunity?.category === "bounty_laporan" ||
-    opportunity?.title?.toLowerCase().includes("dibutuhkan") ||
-    opportunity?.title?.toLowerCase().includes("kecelakaan");
-
-  const isBountyKonten = opportunity?.category === "bounty_konten" ||
-    opportunity?.title?.toLowerCase().includes("wartabromo") ||
-    opportunity?.title?.toLowerCase().includes("umkm") ||
-    opportunity?.title?.toLowerCase().includes("video anda digunakan");
-
-  const isProgram = isProgramBakul(opportunity?.title) ||
-    isProgramOjek(opportunity?.title) ||
-    isProgramRewang(opportunity?.title);
 
   // Loading states
   if (loading) {
@@ -504,7 +589,6 @@ export default function IkutiKesempatanPage() {
           <h1 className="text-xl font-bold text-white text-center mb-2">{opportunity.title}</h1>
           <p className="text-slate-300 text-sm text-center">{opportunity.description}</p>
 
-          {/* Badge jenis */}
           <div className="mt-3 flex justify-center">
             <span className={`text-[8px] px-2 py-0.5 rounded-full ${isProgram ? "bg-blue-500/20 text-blue-400" :
               isBountyLaporan ? "bg-emerald-500/20 text-emerald-400"
@@ -514,15 +598,6 @@ export default function IkutiKesempatanPage() {
             </span>
           </div>
 
-          {/* Lokasi (khusus bounty laporan) */}
-          {isBountyLaporan && (
-            <div className="mt-3 flex items-center justify-center gap-2 text-emerald-400">
-              <MapPin size={14} />
-              <span className="text-xs font-medium">📍 Lokasi: {lokasiName}</span>
-            </div>
-          )}
-
-          {/* Reward Display */}
           <div className={`mt-4 p-3 rounded-xl text-center ${isProgram ? "bg-blue-500/20" :
             isBountyLaporan ? "bg-emerald-500/20" : "bg-purple-500/20"
             }`}>
@@ -552,7 +627,6 @@ export default function IkutiKesempatanPage() {
             {isProgram ? "Daftar Sekarang" : "Kirim Konten Anda"}
           </h2>
 
-          {/* Untuk Program Pendaftaran (Bakul/Ojek/Rewang) */}
           {isProgram && (
             <div className="space-y-4">
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-center">
@@ -589,7 +663,6 @@ export default function IkutiKesempatanPage() {
             </div>
           )}
 
-          {/* Untuk Bounty Laporan atau Bounty Konten (upload media) */}
           {!isProgram && (
             <>
               {/* Upload Area */}
@@ -636,6 +709,98 @@ export default function IkutiKesempatanPage() {
                 )}
               </div>
 
+              {/* Lokasi */}
+              {isBountyLaporan && (
+                <div>
+                  <label className="text-xs text-slate-400 mb-2 block">
+                    📍 Lokasi <span className="text-rose-400">*</span>
+                  </label>
+
+                  {selectedLocation ? (
+                    <div className="p-2.5 bg-slate-800/50 rounded-xl border border-slate-700 flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MapPin size={14} className="text-emerald-400 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm text-white truncate">{selectedLocation.name}</p>
+                          {selectedLocation.latitude && selectedLocation.longitude && (
+                            <p className="text-[8px] text-slate-400">
+                              {selectedLocation.latitude.toFixed(4)}, {selectedLocation.longitude.toFixed(4)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSelectedLocation(null);
+                          setLokasiName("");
+                        }}
+                        className="text-slate-400 hover:text-rose-400 flex-shrink-0"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowLocationPicker(true)}
+                      className="w-full p-3 rounded-xl border-2 border-dashed border-slate-700 text-slate-400 text-sm hover:border-emerald-500 hover:text-emerald-400 transition-all"
+                    >
+                      <MapPin size={20} className="mx-auto mb-1" />
+                      Cari & Pilih Lokasi
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Modal Pilih Lokasi */}
+              <PilihLokasiModal
+                isOpen={showLocationPicker}
+                onClose={() => setShowLocationPicker(false)}
+                onSelect={(loc) => {
+                  setSelectedLocation(loc);
+                  setLokasiName(loc.name);
+                  setShowLocationPicker(false);
+                }}
+              />
+
+              {/* ✅ UI PESAN COOLDOWN (jika sebelumnya ditolak) */}
+              {wasRejected && (
+                <div className={`rounded-xl p-4 ${canResubmit ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-rose-500/10 border border-rose-500/30'}`}>
+                  <div className="flex items-start gap-3">
+                    {canResubmit ? (
+                      <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <Clock size={18} className="text-rose-400 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <p className={`text-sm font-bold ${canResubmit ? 'text-amber-400' : 'text-rose-400'}`}>
+                        {canResubmit ? '🔄 Siap Kirim Ulang!' : '⏳ Belum Bisa Kirim Ulang'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {canResubmit
+                          ? (rejectMessage || 'Konten Anda sebelumnya ditolak. Silakan kirim ulang dengan konten yang lebih baik!')
+                          : `Konten Anda ditolak. Tunggu ${formatCooldown(cooldownRemaining)} lagi sebelum kirim ulang.`
+                        }
+                      </p>
+                      {!canResubmit && (
+                        <div className="mt-2 w-full bg-slate-700 rounded-full h-1.5 max-w-[200px]">
+                          <div
+                            className="bg-rose-500 h-1.5 rounded-full transition-all duration-1000"
+                            style={{
+                              width: `${((24 * 3600 - cooldownRemaining) / (24 * 3600)) * 100}%`
+                            }}
+                          />
+                        </div>
+                      )}
+                      {canResubmit && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-[10px] text-amber-400/70">💡 Pastikan konten Anda lebih baik dari sebelumnya!</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Kondisi Tempat (HANYA UNTUK BOUNTY LAPORAN) */}
               {isBountyLaporan && (
                 <>
@@ -677,14 +842,12 @@ export default function IkutiKesempatanPage() {
                     </div>
                   )}
 
-                  {/* ATAU */}
                   <div className="flex items-center gap-2">
                     <div className="h-px flex-1 bg-slate-700" />
                     <span className="text-[8px] text-slate-500 uppercase">atau</span>
                     <div className="h-px flex-1 bg-slate-700" />
                   </div>
 
-                  {/* LALU LINTAS */}
                   <div>
                     <p className="text-xs text-slate-400 mb-2">🚦 Kondisi Lalu Lintas</p>
                     <div className="grid grid-cols-3 gap-2">
@@ -717,17 +880,39 @@ export default function IkutiKesempatanPage() {
                 />
               </div>
 
-              {/* Submit Button */}
-              <button onClick={handleSubmit} disabled={submitting || !mediaUrl || (isBountyLaporan && !selectedCondition && !selectedTraffic)}
+              {/* ✅ Submit Button dengan Cooldown */}
+              <button
+                onClick={handleSubmit}
+                disabled={
+                  submitting ||
+                  !mediaUrl ||
+                  (isBountyLaporan && !selectedCondition && !selectedTraffic) ||
+                  (isBountyLaporan && !lokasiName.trim()) ||
+                  (wasRejected && !canResubmit)
+                }
                 className={`w-full py-3.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2
-                  ${(!mediaUrl || (isBountyLaporan && !selectedCondition && !selectedTraffic)) || submitting ? "bg-slate-800 text-slate-500 cursor-not-allowed" : isBountyLaporan ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white" : "bg-gradient-to-r from-purple-600 to-pink-600 text-white"}`}>
-                {submitting ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Mengirim...</> : <><Send size={14} /> Kirim untuk Kesempatan Ini</>}
+                  ${(submitting || !mediaUrl || (isBountyLaporan && !selectedCondition && !selectedTraffic) || (isBountyLaporan && !lokasiName.trim()) || (wasRejected && !canResubmit))
+                    ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                    : isBountyLaporan
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white"
+                      : "bg-gradient-to-r from-purple-600 to-pink-600 text-white"
+                  }`}
+              >
+                {submitting ? (
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Mengirim...</>
+                ) : (wasRejected && !canResubmit) ? (
+                  <>⏳ Tunggu {formatCooldown(cooldownRemaining)}</>
+                ) : wasRejected && canResubmit ? (
+                  <>🔄 Kirim Ulang</>
+                ) : (
+                  <><Send size={14} /> Kirim untuk Kesempatan Ini</>
+                )}
               </button>
 
               <p className="text-[9px] text-slate-500 text-center">
                 {isBountyLaporan
-                  ? "Konten akan tayang di feed setelah diverifikasi."
-                  : "Konten akan masuk ke marketplace untuk dijual."}
+                  ? "Laporan akan diverifikasi Petinggi Setempat."
+                  : "Konten akan diverifikasi sebelum masuk Peken."}
               </p>
             </>
           )}

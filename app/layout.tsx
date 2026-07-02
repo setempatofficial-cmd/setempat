@@ -1,3 +1,4 @@
+// app/layout.jsx
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -6,6 +7,8 @@ import { AuthProvider } from "@/app/context/AuthContext";
 import LocationProvider from "@/components/LocationProvider";
 import AdminActionSheetWrapper from "./components/AdminActionSheetWrapper";
 import Script from "next/script";
+import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary"; // ← TAMBAHKAN
+import { ChunkErrorHandler } from "@/components/ChunkErrorHandler"; // ← TAMBAHKAN
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -70,24 +73,37 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <AuthProvider>
-          <LocationProvider>
-            <DataProvider>
-              {children}
-              <AdminActionSheetWrapper />
-            </DataProvider>
-          </LocationProvider>
-        </AuthProvider>
+        {/* ✅ Chunk Error Handler - Auto recovery */}
+        <ChunkErrorHandler />
+
+        {/* ✅ Error Boundary untuk seluruh aplikasi */}
+        <ChunkErrorBoundary>
+          <AuthProvider>
+            <LocationProvider>
+              <DataProvider>
+                {children}
+                <AdminActionSheetWrapper />
+              </DataProvider>
+            </LocationProvider>
+          </AuthProvider>
+        </ChunkErrorBoundary>
+
+        {/* ✅ Midtrans Snap Script */}
+        <Script
+          src="https://app.midtrans.com/snap/snap.js"
+          data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
+          strategy="afterInteractive"
+        />
 
         {/* Service Worker Registration */}
         <Script id="register-sw" strategy="afterInteractive">
           {`
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.register('/sw.js')
-                .then(reg => console.log('SW registered:', reg))
-                .catch(err => console.log('SW registration failed:', err));
-            }
-          `}
+    if ('serviceWorker' in navigator && '${process.env.NODE_ENV}' === 'production') {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('SW registered:', reg))
+        .catch(err => console.log('SW registration failed:', err));
+    }
+  `}
         </Script>
       </body>
     </html>

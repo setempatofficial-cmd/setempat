@@ -22,12 +22,12 @@ export default function UsernameProfilePage() {
   const { username } = useParams();
   const searchParams = useSearchParams();
   const token = searchParams.get('token'); // 🔥 TOKEN dari QR Code
-  
+
   // State untuk verifikasi
   const [isVerified, setIsVerified] = useState(false);
   const [verificationError, setVerificationError] = useState(null);
   const [verifying, setVerifying] = useState(true);
-  
+
   // State original (tetap sama)
   const [profile, setProfile] = useState(null);
   const [user, setUser] = useState(null);
@@ -65,10 +65,10 @@ export default function UsernameProfilePage() {
       // Tandai token sudah digunakan
       await supabase
         .from("access_tokens")
-        .update({ 
-          is_used: true, 
+        .update({
+          is_used: true,
           used_at: new Date().toISOString(),
-          used_for_username: username 
+          used_for_username: username
         })
         .eq("id", tokenData.id);
 
@@ -83,7 +83,7 @@ export default function UsernameProfilePage() {
   useEffect(() => {
     const fetchData = async () => {
       if (!isVerified) return;
-      
+
       setLoading(true);
 
       // 1. Ambil semua voucher yang aktif
@@ -163,10 +163,11 @@ export default function UsernameProfilePage() {
   const handleClaimVoucher = async (voucher) => {
     setClaimingId(voucher.id);
     setSuccessMessage(null);
+    setError(null);
 
     // Cek expired
     if (new Date(voucher.expired_at) < new Date()) {
-      setError(`❌ Voucher sudah kadaluarsa (${new Date(voucher.expired_at).toLocaleDateString('id-ID')})`);
+      setError(`❌ Voucher sudah kadaluarsa`);
       await supabase.from("voucher_transactions").delete().eq("id", voucher.id);
       setVouchers(vouchers.filter(v => v.id !== voucher.id));
       setClaimingId(null);
@@ -174,63 +175,36 @@ export default function UsernameProfilePage() {
       return;
     }
 
-    // Cek kuota voucher
-    const voucherDetail = allVouchers.find(v => v.id === voucher.voucher_id);
-    if (voucherDetail?.quota && voucherDetail.used_count >= voucherDetail.quota) {
-      setError(`❌ Voucher ${voucherDetail.name} sudah habis kuotanya`);
-      setClaimingId(null);
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    // Kurangi poin user
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ points: profile.points - voucher.points })
-      .eq("id", profile.id);
-
-    if (updateError) {
-      setError("Gagal memproses klaim");
-      setClaimingId(null);
-      return;
-    }
-
-    // Update status transaksi
-    await supabase
-      .from("voucher_transactions")
-      .update({
-        status: "redeemed",
-        claimed_at: new Date().toISOString()
-      })
-      .eq("id", voucher.id);
-
-    // Update used_count di tabel vouchers
-    if (voucherDetail?.quota) {
-      await supabase
-        .from("vouchers")
-        .update({ used_count: (voucherDetail.used_count || 0) + 1 })
-        .eq("id", voucher.voucher_id);
-    }
-
-    // 🔥 NOTIFIKASI KE WARUNG_INFO (TETAP ADA!)
-    await supabase
-      .from("warung_info")
-      .insert({
-        user_id: profile.id,
-        title: "🎫 Voucher Diklaim",
-        message: `Voucher ${voucher.name} telah diklaim di ${voucher.merchant}. Poin Anda berkurang ${voucher.points}.`,
-        type: "voucher",
-        is_read: false,
-        created_at: new Date().toISOString()
+    try {
+      // 🔥 PAKAI RPC - TANPA AUTH!
+      const { data, error } = await supabase.rpc('claim_voucher_public', {
+        p_transaction_id: voucher.id
       });
 
-    // Update state
-    setProfile({ ...profile, points: profile.points - voucher.points });
-    setVouchers(vouchers.filter(v => v.id !== voucher.id));
-    setSuccessMessage(`✅ ${voucher.name} berhasil diklaim!`);
-    setClaimingId(null);
+      if (error) {
+        console.error("❌ RPC Error:", error);
+        setError("Gagal klaim: " + error.message);
+        setClaimingId(null);
+        return;
+      }
 
-    setTimeout(() => setSuccessMessage(null), 3000);
+      if (data?.success) {
+        // Kurangi poin di UI
+        setProfile({ ...profile, points: profile.points - voucher.points });
+        // Hapus voucher dari daftar
+        setVouchers(vouchers.filter(v => v.id !== voucher.id));
+        setSuccessMessage(data.message || `✅ ${voucher.name} berhasil diklaim!`);
+      } else if (data?.error) {
+        setError(data.error);
+      }
+    } catch (err) {
+      console.error("❌ Error:", err);
+      setError("Terjadi error: " + err.message);
+    } finally {
+      setClaimingId(null);
+      setTimeout(() => setError(null), 5000);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    }
   };
 
   // 🔐 TAMPILAN VERIFIKASI GAGAL

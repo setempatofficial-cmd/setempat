@@ -1,13 +1,14 @@
+// app/components/feed/SmartCitizenButton.jsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/app/context/AuthContext';
 
 // ==================== HELPER HITUNG JARAK ====================
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radius bumi dalam km
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -33,7 +34,7 @@ const CATEGORY_CONFIG = {
   wisata: {
     icon: '🏞️',
     label: 'Wisata',
-    radius: 1,
+    radius: 0.5,
     actions: [
       { id: 'sepi', icon: '😌', label: 'SEPI', tipe: 'Sepi', desc: 'Leluasa' },
       { id: 'ramai', icon: '👥', label: 'RAMAI', tipe: 'Ramai', desc: 'Cukup Banyak' },
@@ -44,7 +45,7 @@ const CATEGORY_CONFIG = {
   jalan: {
     icon: '🛣️',
     label: 'Lalu Lintas',
-    radius: 0.3,
+    radius: 0.5,
     actions: [
       { id: 'lancar', icon: '✅', label: 'LANCAR', tipe: 'Lancar', desc: 'Gaspol' },
       { id: 'macet', icon: '🚗', label: 'MACET', tipe: 'Macet', desc: 'Merayap' },
@@ -55,7 +56,7 @@ const CATEGORY_CONFIG = {
   parkir: {
     icon: '🅿️',
     label: 'Parkiran',
-    radius: 0.2,
+    radius: 0.5,
     actions: [
       { id: 'kosong', icon: '🟢', label: 'KOSONG', tipe: 'Kosong', desc: 'Bebas Pilih' },
       { id: 'tersedia', icon: '🟡', label: 'ADA', tipe: 'Tersedia', desc: 'Sisa Sedikit' },
@@ -104,7 +105,7 @@ export default function SmartCitizenButton({
   adminPhone,
   handleOpenAIModal,
   onUpdate,
-  userLocation
+  userLocation,
 }) {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -112,118 +113,230 @@ export default function SmartCitizenButton({
   const [showSuccess, setShowSuccess] = useState(false);
   const [isInRadiusState, setIsInRadiusState] = useState(false);
   const [distance, setDistance] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showError, setShowError] = useState(false);
 
   const config = CATEGORY_CONFIG[kategori] || CATEGORY_CONFIG.default;
   const RADIUS_KM = config.radius;
+  const RADIUS_METERS = RADIUS_KM * 1000;
 
-  // Validasi radius REAL-TIME
+  // Normalisasi lokasi
+  const normalizedLocation = useMemo(() => {
+    if (!userLocation) return null;
+
+    let lat = null;
+    let lng = null;
+
+    if (userLocation.latitude !== undefined && userLocation.longitude !== undefined) {
+      lat = userLocation.latitude;
+      lng = userLocation.longitude;
+    } else if (userLocation.lat !== undefined && userLocation.lng !== undefined) {
+      lat = userLocation.lat;
+      lng = userLocation.lng;
+    } else if (userLocation.lat !== undefined && userLocation.lon !== undefined) {
+      lat = userLocation.lat;
+      lng = userLocation.lon;
+    } else if (userLocation.coords?.latitude !== undefined && userLocation.coords?.longitude !== undefined) {
+      lat = userLocation.coords.latitude;
+      lng = userLocation.coords.longitude;
+    }
+
+    if (lat === null || lng === null || isNaN(lat) || isNaN(lng)) return null;
+
+    return {
+      latitude: parseFloat(lat),
+      longitude: parseFloat(lng)
+    };
+  }, [userLocation]);
+
+  // Cek radius
   const checkRadius = useCallback(() => {
-    // Validasi lengkap
-    if (!userLocation?.latitude || !userLocation?.longitude) {
-      console.warn(`📍 [${config.label}] User location tidak tersedia`);
+    const loc = normalizedLocation;
+
+    if (!loc?.latitude || !loc?.longitude) {
       setIsInRadiusState(false);
+      setDistance(null);
       return false;
     }
 
     if (!tempatLatitude || !tempatLongitude) {
-      console.warn(`📍 [${config.label}] Tempat coordinates tidak tersedia`);
       setIsInRadiusState(false);
+      setDistance(null);
       return false;
     }
 
     const dist = calculateDistance(
-      userLocation.latitude,
-      userLocation.longitude,
+      loc.latitude,
+      loc.longitude,
       tempatLatitude,
       tempatLongitude
     );
 
-    setDistance(dist);
-    const isWithinRadius = dist <= RADIUS_KM;
+    const distInKm = Math.round(dist * 1000) / 1000;
+    setDistance(distInKm);
+
+    const isWithinRadius = distInKm <= RADIUS_KM;
     setIsInRadiusState(isWithinRadius);
 
-    // Debug log lengkap seperti NearbyMicroSignals
-    console.log(`📍 [SmartCitizen][${config.label}] Jarak ke ${tempatName}: ${dist.toFixed(3)}km | Radius: ${RADIUS_KM}km | ${isWithinRadius ? '✅ DALAM' : '❌ LUAR'} area`);
-    console.log(`   User: ${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}`);
-    console.log(`   Tempat: ${tempatLatitude.toFixed(4)}, ${tempatLongitude.toFixed(4)}`);
-
     return isWithinRadius;
-  }, [userLocation, tempatLatitude, tempatLongitude, RADIUS_KM, config.label, tempatName]);
+  }, [normalizedLocation, tempatLatitude, tempatLongitude, RADIUS_KM]);
 
-  // Cek radius setiap kali lokasi berubah
   useEffect(() => {
     checkRadius();
   }, [checkRadius]);
 
-  // Cek Cooldown
+  // Cek cooldown dari external_signals terakhir
   useEffect(() => {
     if (user?.id && tempatId) {
-      const fetchLastReport = async () => {
-        const { data } = await supabase
-          .from('laporan_warga')
-          .select('created_at')
-          .eq('tempat_id', tempatId)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+      const fetchLastSignal = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('external_signals')
+            .select('created_at')
+            .eq('tempat_id', parseInt(tempatId))
+            .eq('source', 'citizen_click')
+            .eq('source_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        if (data) {
-          const diff = Math.floor((Date.now() - new Date(data.created_at)) / 60000);
-          if (diff < 5) setCooldown(5 - diff);
+          if (error) {
+            console.error('Error fetching cooldown:', error);
+            return;
+          }
+
+          if (data?.created_at) {
+            const diff = Math.floor((Date.now() - new Date(data.created_at).getTime()) / 60000);
+            if (diff < 5) setCooldown(5 - diff);
+          }
+        } catch (err) {
+          console.error('Cooldown check error:', err);
         }
       };
-      fetchLastReport();
+      fetchLastSignal();
     }
   }, [user, tempatId]);
 
+  // Cooldown timer
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 60000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
+  const isWithinRadius = isInRadiusState;
+  const hasLocation = !!normalizedLocation;
+
   const handleClick = async (action) => {
+    setErrorMessage('');
+    setShowError(false);
+
+    // Cek autentikasi user
     if (!user) {
+      setErrorMessage('🔐 Silakan login terlebih dahulu');
+      setShowError(true);
+      setTimeout(() => setShowError(false), 3000);
       window.dispatchEvent(new CustomEvent('open-auth-modal'));
       return;
     }
 
-    if (cooldown > 0 || isSubmitting) return;
+    // Cek cooldown
+    if (cooldown > 0) {
+      setErrorMessage(`⏳ Tunggu ${cooldown} menit lagi`);
+      setShowError(true);
+      setTimeout(() => setShowError(false), 3000);
+      return;
+    }
 
-    // Validasi radius ULANG sebelum submit
+    if (isSubmitting) return;
+
+    if (!hasLocation) {
+      setErrorMessage('📍 Aktifkan GPS untuk update');
+      setShowError(true);
+      setTimeout(() => setShowError(false), 3000);
+      return;
+    }
+
     const isValidRadius = checkRadius();
     if (!isValidRadius) {
-      const distanceText = distance ? `${distance.toFixed(2)}km` : 'jauh';
-      alert(`📍 Anda berada ${distanceText} dari lokasi ini.\n\nUpdate hanya bisa dilakukan jika berada dalam radius ${RADIUS_KM}km dari ${tempatName}.`);
+      const distanceText = distance !== null ? `${(distance * 1000).toFixed(0)} meter` : 'tidak diketahui';
+      setErrorMessage(`📍 Anda ${distanceText} dari lokasi. Butuh ${RADIUS_METERS}m radius.`);
+      setShowError(true);
+      setTimeout(() => setShowError(false), 3000);
       return;
     }
 
     setIsSubmitting(true);
     if (window.navigator.vibrate) window.navigator.vibrate([50, 30, 50]);
 
-    try {
-      const { error } = await supabase.from('laporan_warga').insert({
-        tempat_id: tempatId,
-        user_id: user.id,
-        username: user.user_metadata?.full_name || user.email?.split('@')[0],
-        tipe: action.tipe,
-        deskripsi: action.desc,
-        report_type: 'citizen_click',
-        status: 'approved',
-        user_latitude: userLocation?.latitude,
-        user_longitude: userLocation?.longitude,
-        distance_from_tempat: distance,
-        created_at: new Date().toISOString()
-      });
+    const loc = normalizedLocation;
+    const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Warga';
 
-      if (error) throw error;
+    // 🔥 PERBAIKAN: Format data yang benar
+    const signalData = {
+      tempat_id: parseInt(tempatId),
+      source: 'citizen_click',
+      source_id: user.id,
+      username: displayName,  // 🔥 Nama user asli (bukan "YouKmu Official")
+      content: action.tipe,   // 🔥 HANYA tipe: "Hujan", "Sepi", "Ramai", dll
+      original_text: action.displayText || `${action.tipe}: ${action.desc}`, // 🔥 Tanpa prefix
+      source_platform: 'mobile_app',
+      source_tier: 5,
+      verification_level: 'low',
+      verified: false,
+      confidence: 0.5,
+      created_at: new Date().toISOString(),
+      fetched_at: new Date().toISOString()
+    };
+
+    console.log('📤 Sending signal:', signalData);
+
+    try {
+      const { error } = await supabase
+        .from('external_signals')
+        .insert([signalData]);
+
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        throw new Error(error.message || 'Gagal mengirim laporan');
+      }
+
+      console.log('✅ Citizen signal sent!');
+
+      // 🔥 Trigger onUpdate untuk refresh card
+      if (onUpdate) {
+        // Kirim data ke parent untuk update UI
+        onUpdate({
+          type: 'citizen_click',
+          tipe: action.tipe,
+          desc: action.desc,
+          tempatId: tempatId,
+          username: displayName
+        });
+      }
 
       setShowSuccess(true);
-      onUpdate?.(action.tipe);
       setCooldown(5);
+
       setTimeout(() => setShowSuccess(false), 2500);
 
     } catch (err) {
-      console.error("Error submit laporan:", err);
-      alert("Gagal mengirim laporan. Silakan coba lagi.");
+      console.error('❌ Error submitting signal:', err);
+      setErrorMessage(`❌ ${err.message || 'Gagal mengirim laporan. Silakan coba lagi.'}`);
+      setShowError(true);
+      setTimeout(() => setShowError(false), 5000);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const formatDistance = () => {
+    if (distance === null) return '---';
+    const meters = distance * 1000;
+    if (meters < 10) return '< 10m';
+    if (meters < 1000) return `${Math.round(meters)}m`;
+    return `${distance.toFixed(2)}km`;
   };
 
   return (
@@ -244,23 +357,37 @@ export default function SmartCitizenButton({
         </div>
 
         <div className="flex flex-col items-end gap-1">
-          <div className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5 backdrop-blur-md border ${!userLocation ? 'bg-gray-500/10 text-gray-400 border-gray-500/20' :
-              isInRadiusState ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                'bg-rose-500/10 text-rose-400 border-rose-500/20'
+          <div className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5 backdrop-blur-md border ${!hasLocation ? 'bg-gray-500/10 text-gray-400 border-gray-500/20' :
+            isWithinRadius ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+              'bg-rose-500/10 text-rose-400 border-rose-500/20'
             }`}>
-            <div className={`w-1 h-1 rounded-full animate-pulse ${!userLocation ? 'bg-gray-400' :
-                isInRadiusState ? 'bg-emerald-400' : 'bg-rose-400'
+            <div className={`w-1 h-1 rounded-full animate-pulse ${!hasLocation ? 'bg-gray-400' :
+              isWithinRadius ? 'bg-emerald-400' : 'bg-rose-400'
               }`} />
-            {!userLocation ? 'Aktifkan GPS' :
-              isInRadiusState ? `Dalam ${RADIUS_KM}km` : `Luar ${RADIUS_KM}km`}
+            {!hasLocation ? '🔴 GPS OFF' :
+              isWithinRadius ? `✅ ${formatDistance()}` : `❌ ${formatDistance()}`}
           </div>
-          {distance !== null && (
+          {hasLocation && distance !== null && (
             <span className="text-[6px] opacity-30 font-mono">
-              {distance.toFixed(2)}km
+              {isWithinRadius ? '📍 Dalam radius' : `Butuh ${RADIUS_METERS}m`}
             </span>
           )}
         </div>
       </div>
+
+      {/* Error Message */}
+      <AnimatePresence>
+        {showError && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20"
+          >
+            <p className="text-[9px] font-bold text-rose-400 text-center">{errorMessage}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-4 gap-2 relative z-10">
         <AnimatePresence mode="wait">
@@ -268,19 +395,27 @@ export default function SmartCitizenButton({
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
               className="col-span-4 py-8 flex flex-col items-center justify-center bg-emerald-500/10 rounded-2xl border border-emerald-500/20"
             >
-              <motion.span animate={{ y: [0, -5, 0] }} transition={{ repeat: Infinity }} className="text-3xl mb-2">✨</motion.span>
+              <motion.span
+                animate={{ y: [0, -5, 0] }}
+                transition={{ repeat: Infinity, duration: 0.5 }}
+                className="text-3xl mb-2"
+              >
+                ✨
+              </motion.span>
               <p className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Laporan Diterima!</p>
+              <p className="text-[8px] text-emerald-400/60 mt-1">Terima kasih atas kontribusinya</p>
             </motion.div>
           ) : (
             config.actions.map((action) => (
               <motion.button
                 key={action.id}
-                whileHover={isInRadiusState && cooldown === 0 && userLocation ? { y: -3, scale: 1.02 } : {}}
-                whileTap={isInRadiusState && cooldown === 0 && userLocation ? { scale: 0.95 } : {}}
+                whileHover={isWithinRadius && cooldown === 0 && hasLocation ? { y: -3, scale: 1.02 } : {}}
+                whileTap={isWithinRadius && cooldown === 0 && hasLocation ? { scale: 0.95 } : {}}
                 onClick={() => handleClick(action)}
-                disabled={!userLocation || !isInRadiusState || cooldown > 0 || isSubmitting}
+                disabled={!hasLocation || !isWithinRadius || cooldown > 0 || isSubmitting}
                 className={`
                   relative py-4 px-1 rounded-2xl flex flex-col items-center gap-1.5
                   transition-all duration-300 group/btn
@@ -288,8 +423,15 @@ export default function SmartCitizenButton({
                   disabled:opacity-20 disabled:grayscale disabled:cursor-not-allowed
                 `}
               >
-                <span className="text-2xl drop-shadow-lg group-hover/btn:scale-110 transition-transform">{action.icon}</span>
-                <span className="text-[8px] font-[1000] tracking-tighter uppercase leading-none">{action.label}</span>
+                <span className="text-2xl drop-shadow-lg group-hover/btn:scale-110 transition-transform">
+                  {action.icon}
+                </span>
+                <span className="text-[8px] font-[1000] tracking-tighter uppercase leading-none">
+                  {action.label}
+                </span>
+                <span className="text-[6px] opacity-30 font-mono hidden group-hover/btn:block">
+                  {action.desc}
+                </span>
                 <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl" />
               </motion.button>
             ))
@@ -310,11 +452,15 @@ export default function SmartCitizenButton({
               <span className="text-[8px] font-black uppercase tracking-widest">Sinyal Aktif</span>
             </div>
           )}
+          {isSubmitting && (
+            <span className="text-[8px] text-blue-400 animate-pulse">⏳ Mengirim...</span>
+          )}
         </div>
         <p className="text-[7px] font-bold opacity-30 italic tracking-wide">
-          {!userLocation ? 'Aktifkan GPS untuk update' :
-            !isInRadiusState ? `Harus dalam radius ${RADIUS_KM}km` :
-              'Satu klikmu bantu warga'}
+          {!hasLocation ? '🔴 Aktifkan GPS untuk update' :
+            !isWithinRadius ? `⚠️ Harus dalam radius ${RADIUS_METERS}m` :
+              distance !== null && distance * 1000 < 10 ? '📍 Anda tepat di lokasi!' :
+                '✅ Satu klikmu bantu warga'}
         </p>
       </div>
     </div>

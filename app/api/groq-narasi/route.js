@@ -9,7 +9,7 @@ const groq = new Groq({
 export async function POST(request) {
   try {
     const { prompt } = await request.json();
-    
+
     const completion = await groq.chat.completions.create({
       messages: [
         {
@@ -21,13 +21,13 @@ export async function POST(request) {
           content: prompt
         }
       ],
-      model: "llama-3.1-8b-instant",
+      model: "gpt-oss-20b",
       temperature: 0.6,
       max_tokens: 80
     });
-    
+
     const narasi = completion.choices[0]?.message?.content || "";
-    
+
     return NextResponse.json({ narasi });
   } catch (error) {
     console.error('Groq narasi error:', error);

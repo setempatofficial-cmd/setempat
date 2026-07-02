@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,14 +22,58 @@ import SaldoModal from "./modals/SaldoModal";
 import OpportunityModal from "./modals/OpportunityModal";
 import { useRumahWargaData } from "./hooks/useRumahWargaData";
 
-// ============ KTP WIDGET COMPONENT ============
-function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPoints }) {
+// ============================================================
+// 🔥 1. SKELETON LOADING
+// ============================================================
+function SkeletonLoader() {
+  return (
+    <div className="min-h-screen bg-slate-900 flex justify-center">
+      <div className="w-full max-w-[400px] bg-slate-900 min-h-screen p-5 space-y-6">
+        <div className="animate-pulse">
+          <div className="h-12 bg-slate-800 rounded-2xl mb-6" />
+          <div className="flex justify-between items-start mb-6">
+            <div className="space-y-2">
+              <div className="h-4 w-24 bg-slate-800 rounded" />
+              <div className="h-8 w-32 bg-slate-800 rounded" />
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-slate-800" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="h-20 bg-slate-800 rounded-2xl" />
+            <div className="h-20 bg-slate-800 rounded-2xl" />
+            <div className="h-20 bg-slate-800 rounded-2xl" />
+            <div className="h-20 bg-slate-800 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 🔥 2. KTP WIDGET
+// ============================================================
+function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPoints, isOpen, onClose }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showQRPresenter, setShowQRPresenter] = useState(false);
   const [qrData, setQrData] = useState(null);
   const [qrMessage, setQrMessage] = useState("");
   const [username, setUsername] = useState(null);
+
+  // Di KTPWidget, setelah useState
+  useEffect(() => {
+    if (isOpen) {
+      setIsMenuOpen(true);
+    }
+  }, [isOpen]);
+
+  // Untuk menutup dari luar
+  useEffect(() => {
+    if (!isMenuOpen && onClose) {
+      onClose();
+    }
+  }, [isMenuOpen, onClose]);
 
   useEffect(() => {
     const getUsername = async () => {
@@ -251,53 +295,172 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
   );
 }
 
-// ============ SKELETON LOADING ============
-function SkeletonLoader() {
-  return (
-    <div className="min-h-screen bg-slate-900 flex justify-center">
-      <div className="w-full max-w-[400px] bg-slate-900 min-h-screen p-5 space-y-6">
-        <div className="animate-pulse">
-          <div className="h-12 bg-slate-800 rounded-2xl mb-6" />
-          <div className="flex justify-between items-start mb-6">
-            <div className="space-y-2"><div className="h-4 w-24 bg-slate-800 rounded" /><div className="h-8 w-32 bg-slate-800 rounded" /></div>
-            <div className="w-12 h-12 rounded-2xl bg-slate-800" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="h-20 bg-slate-800 rounded-2xl" /><div className="h-20 bg-slate-800 rounded-2xl" />
-            <div className="h-20 bg-slate-800 rounded-2xl" /><div className="h-20 bg-slate-800 rounded-2xl" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============ MAIN COMPONENT ============
+// ============================================================
+// 🔥 3. MAIN COMPONENT
+// ============================================================
 export default function RumahWargaPage({ onClose }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, profile, loading, role, isAdmin, refreshProfile } = useAuth();
+
+  // ===== STATE =====
   const [isKTPCardOpen, setIsKTPCardOpen] = useState(false);
+  const [isKTPMenuOpen, setIsKTPMenuOpen] = useState(false);
   const [isPointsModalOpen, setIsPointsModalOpen] = useState(false);
   const [isSaldoModalOpen, setIsSaldoModalOpen] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [userPoints, setUserPoints] = useState(0);
   const [userSaldo, setUserSaldo] = useState(0);
-
-  // State untuk kesempatan yang sudah dipisah
   const [pointOpportunities, setPointOpportunities] = useState([]);
   const [moneyOpportunities, setMoneyOpportunities] = useState([]);
-
-  // State untuk modal opportunity
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
 
-  // Fetch opportunities berdasarkan reward_type
+  // ===== HOOK useRumahWargaData =====
+  const {
+    laporanTerbaru,
+    data,
+    loading: dataLoading,
+    refetch,
+    formatTanggal
+  } = useRumahWargaData(user?.id);
+
+  // ===== HANDLERS =====
+  const handlePointsUpdated = useCallback((newPoints) => {
+    setUserPoints(newPoints);
+    const cached = sessionStorage.getItem('user_profile');
+    if (cached) {
+      try {
+        const profile = JSON.parse(cached);
+        sessionStorage.setItem('user_profile', JSON.stringify({
+          ...profile,
+          points: newPoints
+        }));
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
+
+  const handleSaldoUpdated = useCallback(async () => {
+    if (!user?.id) return;
+
+    // 🔥 Fetch ulang langsung dari database, jangan andalkan parameter
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("saldo")
+      .eq("id", user.id)
+      .single();
+
+    if (error) {
+      console.error("Gagal refresh saldo:", error);
+      return;
+    }
+
+    const newSaldo = data?.saldo || 0;
+    setUserSaldo(newSaldo);
+
+    const cached = sessionStorage.getItem('user_profile');
+    if (cached) {
+      try {
+        const profile = JSON.parse(cached);
+        sessionStorage.setItem('user_profile', JSON.stringify({
+          ...profile,
+          saldo: newSaldo
+        }));
+      } catch (e) { /* ignore */ }
+    }
+  }, [user?.id]);
+
+  // Di RumahWargaPage
+  const handleAccessPurchased = useCallback((data) => {
+    console.log('🔥 handleAccessPurchased:', data);
+
+    const { action, voucher_type, isLive, id, voucher_name } = data;
+
+    // 🔥 JIKA ACTION = SHOW_KTP
+    if (action === 'show_ktp') {
+      console.log('📱 Opening KTP Menu for:', voucher_name);
+      setIsKTPMenuOpen(true); // 🔥 BUKA MENU KTP WIDGET
+      return;
+    }
+
+    // 🔥 CEK JENIS VOUCHER
+    if (voucher_type === 'live') {
+      // ============================================================
+      // 🔴 VOUCHER LIVE
+      // ============================================================
+      sessionStorage.setItem('live_purchased_pending', 'true');
+      sessionStorage.setItem('live_purchase_time', String(Date.now()));
+      if (id) {
+        sessionStorage.setItem('live_transaction_id', id);
+      }
+
+      // Refresh data
+      try {
+        if (refetch) refetch();
+        if (refreshProfile) refreshProfile();
+      } catch (err) {
+        console.error('Error refreshing:', err);
+      }
+
+      // Redirect ke live jika on-air
+      if (isLive === true) {
+        console.log('🚀 Live is ON-AIR, redirecting to /live');
+        setTimeout(() => {
+          router.push('/live');
+        }, 300);
+      } else {
+        console.log('⏳ Live is OFF-AIR, staying on Rumah Warga');
+        // Tampilkan toast sukses
+        // Bisa tambahkan notifikasi di sini
+      }
+
+    } else if (voucher_type === 'video') {
+      // ============================================================
+      // 🎬 VOUCHER VIDEO
+      // ============================================================
+      console.log('🎬 Video voucher redeemed:', voucher_name);
+      // Redirect ke halaman video atau tampilkan modal sukses
+      // Tidak perlu redirect ke live
+
+    } else if (voucher_type === 'subscription') {
+      // ============================================================
+      // 📺 VOUCHER SUBSCRIPTION
+      // ============================================================
+      console.log('📺 Subscription voucher redeemed:', voucher_name);
+      // Redirect ke halaman premium atau tampilkan modal sukses
+
+    } else {
+      // ============================================================
+      // 🎁 PHYSICAL VOUCHER (KOPI, MAKANAN, DLL)
+      // ============================================================
+      console.log('🎁 Physical voucher redeemed:', voucher_name);
+      // Tampilkan sukses, TIDAK redirect ke mana-mana
+      // Cukup update poin dan tutup modal
+
+      // Tampilkan alert atau toast sukses
+      // alert(`✅ Voucher "${voucher_name}" berhasil ditukar!`);
+    }
+
+    // Refresh points di UI
+    if (refetch) refetch();
+
+  }, [refetch, refreshProfile, router]);
+
+  const handleShowQR = useCallback((data) => {
+    console.log('📱 Show QR/KTP from PointsModal:', data);
+
+    if (data?.action === 'show_ktp') {
+      setIsKTPMenuOpen(true);
+      return;
+    }
+  }, []);
+
+  // ===== FETCH OPPORTUNITIES =====
   useEffect(() => {
     const fetchOpportunities = async () => {
       const now = new Date().toISOString();
 
-      // Fetch POINT opportunities
       const { data: pointData } = await supabase
         .from("opportunities")
         .select("*")
@@ -307,7 +470,6 @@ export default function RumahWargaPage({ onClose }) {
         .order("deadline", { ascending: true })
         .limit(5);
 
-      // Fetch MONEY opportunities
       const { data: moneyData } = await supabase
         .from("opportunities")
         .select("*")
@@ -324,31 +486,31 @@ export default function RumahWargaPage({ onClose }) {
     fetchOpportunities();
   }, []);
 
-  const { laporanTerbaru, data, loading: dataLoading, refetch, formatTanggal } = useRumahWargaData(user?.id);
-
-  const reputasi = data?.reputasi || { level: 1, gelar: "🌱 Warga Baru", color: "text-green-400", bg: "bg-green-500/10", skor: 0, progress: 0, nextLevelSkor: 25 };
-  const poinSetempat = data?.poinSetempat || 0;
-  const statistik = data?.statistik || { totalLaporan: 0, totalFoto: 0, totalVideo: 0, hariAktif: 0, totalLikes: 0, totalViews: 0, featuredCount: 0, laporanRamai: 0, laporanBerdampak: 0 };
-  const badges = data?.badges || [];
-
-  const handleStoryClick = (story) => {
-    const enrichedStory = {
-      ...story,
-      user_name: profile?.full_name || user?.user_metadata?.full_name || "Warga",
-      user_avatar: profile?.avatar_url,
-      user_id: user?.id,
-      lokasi_display: story.lokasi_display || story.lokasi_name || story.lokasi_custom || "Lokasi Setempat",
-      tempat: story.tempat || {
-        id: story.tempat_id,
-        name: story.lokasi_name || story.lokasi_custom || "Lokasi Setempat",
-        alamat: null,
-        category: null
-      }
-    };
-    setSelectedStory(enrichedStory);
-    setIsStoryModalOpen(true);
+  // ===== DATA DARI useRumahWargaData =====
+  const reputasi = data?.reputasi || {
+    level: 1,
+    gelar: "🌱 Warga Baru",
+    color: "text-green-400",
+    bg: "bg-green-500/10",
+    skor: 0,
+    progress: 0,
+    nextLevelSkor: 25
   };
 
+  const statistik = data?.statistik || {
+    totalLaporan: 0,
+    totalFoto: 0,
+    totalVideo: 0,
+    hariAktif: 0,
+    totalLikes: 0,
+    totalViews: 0,
+    featuredCount: 0,
+    laporanRamai: 0,
+    laporanBerdampak: 0
+  };
+  const badges = data?.badges || [];
+
+  // ===== FETCH POINTS & SALDO =====
   useEffect(() => {
     const fetchPoints = async () => {
       if (!user?.id) return;
@@ -367,15 +529,39 @@ export default function RumahWargaPage({ onClose }) {
       if (!user?.id) return;
       const { data } = await supabase
         .from("profiles")
-        .select("saldo_kontribusi")
+        .select("saldo")
         .eq("id", user.id)
         .single();
-      if (data) setUserSaldo(data.saldo_kontribusi || 0);
+      if (data) setUserSaldo(data.saldo || 0);
     };
     fetchSaldo();
   }, [user?.id]);
 
-  // Handler untuk klik opportunity - membuka modal, BUKAN navigasi
+  useEffect(() => {
+    if (searchParams.get('modal') === 'saldo') {
+      setIsSaldoModalOpen(true);
+    }
+  }, [searchParams]);
+
+  // ===== HANDLER LAINNYA =====
+  const handleStoryClick = (story) => {
+    const enrichedStory = {
+      ...story,
+      user_name: profile?.full_name || user?.user_metadata?.full_name || "Warga",
+      user_avatar: profile?.avatar_url,
+      user_id: user?.id,
+      lokasi_display: story.lokasi_display || story.lokasi_name || story.lokasi_custom || "Lokasi Setempat",
+      tempat: story.tempat || {
+        id: story.tempat_id,
+        name: story.lokasi_name || story.lokasi_custom || "Lokasi Setempat",
+        alamat: null,
+        category: null
+      }
+    };
+    setSelectedStory(enrichedStory);
+    setIsStoryModalOpen(true);
+  };
+
   const handleOpportunityClick = (opportunity) => {
     setIsPointsModalOpen(false);
     setIsSaldoModalOpen(false);
@@ -383,24 +569,43 @@ export default function RumahWargaPage({ onClose }) {
     setIsOpportunityModalOpen(true);
   };
 
+  // ============================================================
+  // 🔥 RENDER - HANYA 1 KALI CEK
+  // ============================================================
+
+  // 🔥 CEK LOADING (HANYA 1 KALI)
   if (loading || dataLoading) return <SkeletonLoader />;
+
+  // 🔥 CEK USER (HANYA 1 KALI)
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 flex justify-center items-center p-6">
-        <div className="text-center"><div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4"><Home className="w-10 h-10 text-slate-600" /></div><p className="text-slate-400 mb-4">Silakan login untuk melihat Rumah Warga</p><a href="/" className="inline-block px-6 py-3 bg-emerald-600 rounded-xl text-white font-bold">Kembali ke Beranda</a></div>
+        <div className="text-center">
+          <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4">
+            <Home className="w-10 h-10 text-slate-600" />
+          </div>
+          <p className="text-slate-400 mb-4">Silakan login untuk melihat Rumah Warga</p>
+          <a href="/" className="inline-block px-6 py-3 bg-emerald-600 rounded-xl text-white font-bold">
+            Kembali ke Beranda
+          </a>
+        </div>
       </div>
     );
   }
 
+  // 🔥 AMBIL DATA USER (HANYA 1 KALI)
   const name = profile?.full_name || user?.user_metadata?.full_name || "Warga";
   const initial = name.charAt(0).toUpperCase();
   const isVerified = profile?.is_verified || false;
 
+  // ============================================================
+  // 🔥 RENDER UTAMA
+  // ============================================================
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex justify-center">
       <div className="w-full max-w-[400px] bg-slate-900 min-h-screen pb-24 shadow-2xl relative">
 
-        {/* HEADER with Back Button */}
+        {/* HEADER */}
         <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-2 py-2">
           <div className="flex items-center">
             <button onClick={() => router.push('/')} className="min-w-[44px] h-11 rounded-full bg-slate-800/50 flex items-center justify-center hover:bg-slate-700/50 transition-all active:scale-95 cursor-pointer">
@@ -420,12 +625,33 @@ export default function RumahWargaPage({ onClose }) {
           {/* PROFIL HEADER */}
           <section className="flex justify-between items-start">
             <div>
-              <div className="flex items-center gap-1.5"><span className="text-emerald-400 text-[11px] font-bold uppercase flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Warga Setempat</span>{isVerified && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">Terverifikasi</span>}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-400 text-[11px] font-bold uppercase flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> Warga Setempat
+                </span>
+                {isVerified && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">Terverifikasi</span>}
+              </div>
               <h2 className="text-2xl font-black tracking-tighter text-white uppercase leading-tight">{name}</h2>
-              <div className="flex flex-col gap-1.5 pt-1"><div className="flex items-center gap-2 text-xs text-slate-400"><MapPin className="w-3.5 h-3.5 text-rose-500" /><span className="font-medium">Akamsi {profile?.desa || profile?.kecamatan || "Purwosari"}</span></div>
-                <div className="flex flex-wrap gap-1.5">{profile?.is_seller && <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><ShoppingBag className="w-3 h-3" /> Bakul</span>}{profile?.is_driver && <span className="bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Truck className="w-3 h-3" /> Ojek</span>}{profile?.is_rewang && <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><HelpingHand className="w-3 h-3" /> Rewang</span>}</div></div>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                  <span className="font-medium">Akamsi {profile?.desa || profile?.kecamatan || "Purwosari"}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {profile?.is_seller && <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><ShoppingBag className="w-3 h-3" /> Bakul</span>}
+                  {profile?.is_driver && <span className="bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Truck className="w-3 h-3" /> Ojek</span>}
+                  {profile?.is_rewang && <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><HelpingHand className="w-3 h-3" /> Rewang</span>}
+                </div>
+              </div>
             </div>
-            <div className="relative"><div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-[1.5px] shadow-lg shadow-emerald-950/30"><div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center overflow-hidden">{profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" alt="avatar" /> : <span className="text-emerald-400 font-black text-xl">{initial}</span>}</div></div>{isVerified && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-slate-900 flex items-center justify-center"><CheckCircle className="w-2.5 h-2.5 text-white" /></div>}</div>
+            <div className="relative">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-[1.5px] shadow-lg shadow-emerald-950/30">
+                <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center overflow-hidden">
+                  {profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" alt="avatar" /> : <span className="text-emerald-400 font-black text-xl">{initial}</span>}
+                </div>
+              </div>
+              {isVerified && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-slate-900 flex items-center justify-center"><CheckCircle className="w-2.5 h-2.5 text-white" /></div>}
+            </div>
           </section>
 
           <hr className="border-slate-800/50" />
@@ -517,7 +743,7 @@ export default function RumahWargaPage({ onClose }) {
                 </div>
                 <div className="text-left">
                   <p className="text-[10px] text-slate-400 uppercase tracking-wider">Dompet Warga</p>
-                  <p className="text-lg font-black text-emerald-400">Rp{userSaldo.toLocaleString()}</p>
+                  <p className="text-lg font-black text-emerald-400">Rp{(userSaldo || 0).toLocaleString()}</p>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition-transform" />
@@ -534,6 +760,8 @@ export default function RumahWargaPage({ onClose }) {
               onOpenKTPCard={() => setIsKTPCardOpen(true)}
               onOpenVouchers={() => setIsPointsModalOpen(true)}
               userPoints={userPoints}
+              isOpen={isKTPMenuOpen}
+              onClose={() => setIsKTPMenuOpen(false)}
             />
           </section>
 
@@ -612,33 +840,28 @@ export default function RumahWargaPage({ onClose }) {
               <span>🎭</span> Peran Saya
             </h3>
             <div className="flex flex-wrap gap-2">
-              {/* Akamsi (selalu ada) */}
               <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
                 <MapPin className="w-4 h-4 text-rose-500" /> Akamsi
               </div>
 
-              {/* Bakul */}
               {(profile?.is_seller || badges.some(b => b.id === "bakul")) && (
                 <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
                   <ShoppingBag className="w-4 h-4 text-amber-500" /> Bakul
                 </div>
               )}
 
-              {/* Driver/Ojek */}
               {(profile?.is_driver || badges.some(b => b.id === "driver")) && (
                 <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
                   <Truck className="w-4 h-4 text-sky-500" /> Ojek
                 </div>
               )}
 
-              {/* Rewang */}
               {(profile?.is_rewang || badges.some(b => b.id === "rewang")) && (
                 <div className="flex-1 min-w-[90px] bg-slate-950/50 border border-slate-800 p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
                   <HelpingHand className="w-4 h-4 text-purple-500" /> Rewang
                 </div>
               )}
 
-              {/* Tombol Ambil Peran - jika belum punya role */}
               {!profile?.is_seller && !profile?.is_driver && !profile?.is_rewang &&
                 !badges.some(b => b.id === "bakul" || b.id === "driver" || b.id === "rewang") && (
                   <button
@@ -652,7 +875,7 @@ export default function RumahWargaPage({ onClose }) {
             </div>
           </section>
 
-          {/* BADGES SECTION */}
+          {/* BADGES SECTION - TETAP SAMA */}
           <section className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
@@ -737,17 +960,21 @@ export default function RumahWargaPage({ onClose }) {
           </section>
         </main>
 
-        {/* MODALS */}
+        {/* ============================================================
+            🔥 MODALS
+            ============================================================ */}
+
         <PointsModal
           isOpen={isPointsModalOpen}
           onClose={() => setIsPointsModalOpen(false)}
           userId={user?.id}
           userPoints={userPoints}
-          reputasi={reputasi}
-          poinSetempat={poinSetempat}
-          statistik={statistik}
+          userSaldo={userSaldo}
           pointOpportunities={pointOpportunities}
           onOpportunityClick={handleOpportunityClick}
+          onPointsUpdated={handlePointsUpdated}
+          onAccessPurchased={handleAccessPurchased}
+          onShowQR={handleShowQR}
         />
 
         {isSaldoModalOpen && (
@@ -758,6 +985,7 @@ export default function RumahWargaPage({ onClose }) {
             userSaldo={userSaldo}
             moneyOpportunities={moneyOpportunities}
             onOpportunityClick={handleOpportunityClick}
+            onSaldoUpdated={handleSaldoUpdated}
           />
         )}
 
@@ -783,7 +1011,6 @@ export default function RumahWargaPage({ onClose }) {
           />
         )}
 
-        {/* MODAL OPPORTUNITY (KESEMPATAN) */}
         {isOpportunityModalOpen && selectedOpportunity && (
           <OpportunityModal
             isOpen={isOpportunityModalOpen}

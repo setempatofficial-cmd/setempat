@@ -334,10 +334,10 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
   const [distanceToTempat, setDistanceToTempat] = useState(null);
   const [isWithinRadius, setIsWithinRadius] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isLocationLoading, setIsLocationLoading] = useState(false);
 
   const channelRef = useRef(null);
   const isMountedRef = useRef(true);
-  const locationWatchIdRef = useRef(null);
 
   // Ambil user yang sedang login
   useEffect(() => {
@@ -413,21 +413,24 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     getTempatCoords();
   }, [tempatId]);
 
-  // Cek lokasi user dengan continuous watch
+  // Cek lokasi user - SEKALI SAJA, bukan continuous watch
   const checkUserLocation = useCallback(() => {
     if (!tempatCoords) return;
+    if (locationPermissionDenied) return; // Jangan coba lagi jika sudah ditolak
+    if (isLocationLoading) return; // Hindari multiple request
 
     if (!navigator.geolocation) {
       setLocationPermissionDenied(true);
       return;
     }
 
-    if (locationWatchIdRef.current) {
-      navigator.geolocation.clearWatch(locationWatchIdRef.current);
-    }
+    setIsLocationLoading(true);
 
-    const watchId = navigator.geolocation.watchPosition(
+    // Hanya sekali getCurrentPosition, BUKAN watchPosition
+    navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (!isMountedRef.current) return;
+
         const userLat = position.coords.latitude;
         const userLon = position.coords.longitude;
         const distance = calculateDistance(
@@ -439,32 +442,58 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
         setDistanceToTempat(distance);
         setIsWithinRadius(distance <= radius);
         setLocationPermissionDenied(false);
+        setIsLocationLoading(false);
       },
       (error) => {
-        console.error("Geolocation error:", error);
-        if (error.code === error.PERMISSION_DENIED) {
+        if (!isMountedRef.current) return;
+
+        // Handle error dengan lebih baik, jangan selalu console.error
+        console.warn("Geolocation warning:", error.code, error.message);
+
+        if (error.code === 1) { // PERMISSION_DENIED
           setLocationPermissionDenied(true);
+        } else if (error.code === 3) { // TIMEOUT
+          // Coba sekali lagi dengan timeout lebih lama
+          setTimeout(() => {
+            if (isMountedRef.current && !locationPermissionDenied) {
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  if (!isMountedRef.current) return;
+                  const userLat = pos.coords.latitude;
+                  const userLon = pos.coords.longitude;
+                  const distance = calculateDistance(
+                    userLat, userLon,
+                    tempatCoords.latitude, tempatCoords.longitude
+                  );
+                  setUserLocation({ lat: userLat, lon: userLon });
+                  setDistanceToTempat(distance);
+                  setIsWithinRadius(distance <= radius);
+                  setLocationPermissionDenied(false);
+                  setIsLocationLoading(false);
+                },
+                (err) => {
+                  if (!isMountedRef.current) return;
+                  console.warn("Geolocation retry failed:", err.message);
+                  setIsLocationLoading(false);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+              );
+            }
+          }, 1000);
+        } else {
+          setIsLocationLoading(false);
         }
-        setIsWithinRadius(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 } // Cache lokasi 1 menit
     );
+  }, [tempatCoords, radius, locationPermissionDenied, isLocationLoading]);
 
-    locationWatchIdRef.current = watchId;
-
-    return () => {
-      if (locationWatchIdRef.current) {
-        navigator.geolocation.clearWatch(locationWatchIdRef.current);
-      }
-    };
-  }, [tempatCoords, radius]);
-
+  // Panggil check location ketika tempatCoords tersedia
   useEffect(() => {
-    if (tempatCoords) {
-      const cleanup = checkUserLocation();
-      return cleanup;
+    if (tempatCoords && !locationPermissionDenied) {
+      checkUserLocation();
     }
-  }, [tempatCoords, checkUserLocation]);
+  }, [tempatCoords, checkUserLocation, locationPermissionDenied]);
 
   const handleCrowdClick = useCallback(() => {
     if (!currentUser) {
@@ -636,52 +665,105 @@ export default function NearbyMicroSignals({ tempatId, theme, radius = 1 }) {
     setError(null);
   }, [isWithinRadius, locationPermissionDenied, currentUser, getWeatherData]);
 
-  // Setup subscription
+  // ============ SETUP SUBSCRIPTION + POLLING FALLBACK ============
   useEffect(() => {
     if (!tempatId) return;
 
     isMountedRef.current = true;
 
+    // Fetch data awal
     fetchLaporanWarga();
 
+    let pollInterval = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
+
+    // Cleanup channel sebelumnya
     if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+      try {
+        supabase.removeChannel(channelRef.current);
+      } catch (e) {
+        console.warn("Cleanup channel error:", e);
+      }
       channelRef.current = null;
     }
 
     const timeoutId = setTimeout(() => {
       if (!isMountedRef.current) return;
 
-      const newChannel = supabase.channel(`laporan_${tempatId}`);
+      try {
+        const newChannel = supabase.channel(`laporan_${tempatId}`, {
+          config: {
+            broadcast: { ack: false },
+            presence: { key: '' }
+          }
+        });
 
-      newChannel
-        .on('postgres_changes', {
+        newChannel.on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
           table: 'laporan_warga',
           filter: `tempat_id=eq.${tempatId}`
-        }, () => {
+        }, (payload) => {
           if (isMountedRef.current) {
-            console.log("New laporan detected, refreshing...");
+            console.log("📡 New laporan detected via Realtime");
             fetchLaporanWarga();
-          }
-        })
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log(`✅ Subscribed to laporan_${tempatId}`);
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error(`❌ Subscription error for laporan_${tempatId}`);
+            // Reset reconnect attempts on success
+            reconnectAttempts = 0;
           }
         });
 
-      channelRef.current = newChannel;
-    }, 100);
+        newChannel.subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`✅ Subscribed to laporan_${tempatId}`);
+            // 🔥 Hentikan polling jika realtime berhasil
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
+          } else if (status === 'CHANNEL_ERROR') {
+            console.warn(`⚠️ Subscription error for laporan_${tempatId}`, err);
+
+            // 🔥 Mulai polling sebagai fallback
+            if (!pollInterval) {
+              console.log("🔄 Starting polling fallback (every 30s)");
+              pollInterval = setInterval(() => {
+                if (isMountedRef.current) {
+                  fetchLaporanWarga();
+                }
+              }, 30000);
+            }
+          }
+        });
+
+        channelRef.current = newChannel;
+
+      } catch (err) {
+        console.error("❌ Failed to create channel:", err);
+        // 🔥 Fallback ke polling
+        if (!pollInterval) {
+          console.log("🔄 Starting polling fallback (every 30s)");
+          pollInterval = setInterval(() => {
+            if (isMountedRef.current) {
+              fetchLaporanWarga();
+            }
+          }, 30000);
+        }
+      }
+    }, 500);
 
     return () => {
       clearTimeout(timeoutId);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
       isMountedRef.current = false;
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        try {
+          supabase.removeChannel(channelRef.current);
+        } catch (e) {
+          console.warn("Cleanup channel error:", e);
+        }
         channelRef.current = null;
       }
     };

@@ -1,7 +1,7 @@
 // utils/timeUtils.js
 'use client'
 
-import { useState, useEffect, useRef } from 'react'; // ← Tambah useRef
+import { useState, useEffect, useRef, useMemo } from 'react';
 
 // ========== TIME CONSTANTS ==========
 export const TIME_THRESHOLDS = {
@@ -43,49 +43,50 @@ export function getTimeInfo(date = new Date()) {
   };
 }
 
-function getWIBTime(date = new Date()) {
-  return new Date(date.getTime() + (7 * 60 * 60 * 1000));
-}
-
 // ========== HOOKS ==========
 export function useClock(updateInterval = 60000) {
-  const initialWIB = getWIBTime(new Date());
-  const [time, setTime] = useState(initialWIB);
-  const [timeLabel, setTimeLabel] = useState(() => getIndonesianTimeLabel(initialWIB));
-  const [timeInfo, setTimeInfo] = useState(() => getTimeInfo(initialWIB));
+  const [time, setTime] = useState(null);
+  const [timeLabel, setTimeLabel] = useState(null);
+  const [timeInfo, setTimeInfo] = useState(null);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
+
     const updateClock = () => {
-      const wibTime = getWIBTime(new Date());
-      setTime(wibTime);
-      const newLabel = getIndonesianTimeLabel(wibTime);
-      if (newLabel !== timeLabel) {
-        setTimeLabel(newLabel);
-        setTimeInfo(getTimeInfo(wibTime));
-      }
+      // 🔥 FIX: Gunakan waktu lokal langsung, tanpa konversi
+      const now = new Date();
+      setTime(now);
+      const newLabel = getIndonesianTimeLabel(now);
+      setTimeLabel(newLabel);
+      setTimeInfo(getTimeInfo(now));
     };
+
     updateClock();
     const interval = setInterval(updateClock, updateInterval);
     return () => clearInterval(interval);
-  }, [updateInterval, timeLabel]);
+  }, [updateInterval]);
 
-  return {
-    time,
-    timeLabel,
-    timeInfo,
-    hour: time.getHours(),
-    minute: time.getMinutes(),
-    formattedTime: time.toLocaleTimeString('id-ID', {
+  const formattedTime = useMemo(() => {
+    if (!time) return '--:--';
+    return time.toLocaleTimeString('id-ID', {
       hour: '2-digit',
       minute: '2-digit'
-    }),
+    });
+  }, [time]);
+
+  return {
+    time: time || new Date(),
+    timeLabel: timeLabel || 'Siang',
+    timeInfo: timeInfo || getTimeInfo(new Date()),
+    hour: time?.getHours() || 12,
+    minute: time?.getMinutes() || 0,
+    formattedTime,
     isClient,
   };
 }
 
-// ✅ BARU: useOptimizedClock
+// ========== OPTIMIZED HOOKS ==========
 export function useOptimizedClock() {
   const [timeInfo, setTimeInfo] = useState(() => getTimeInfo());
   const intervalRef = useRef(null);
@@ -102,7 +103,6 @@ export function useOptimizedClock() {
   return timeInfo;
 }
 
-// ✅ BARU: useFormattedTimeAgo
 export function useFormattedTimeAgo(dateString, options = { debounceMs: 0 }) {
   const [formatted, setFormatted] = useState(() => formatTimeAgoCached(dateString));
   const dateRef = useRef(dateString);

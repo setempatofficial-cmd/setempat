@@ -370,11 +370,14 @@ function PostDetailContent({ id }) {
               kategori={kategori}
               tempatLatitude={item.latitude}
               tempatLongitude={item.longitude}
-              userLocation={isLocationActuallyReady ? location : null}
-              isInRadius={isLocationActuallyReady ? isInRadius : false}
               adminPhone={adminPhone}
               handleOpenAIModal={handleOpenAIModal}
               onUpdate={handleRefresh}
+              // 🔥 PASTIKAN location dikirim dengan benar
+              userLocation={{
+                latitude: location?.latitude || location?.lat,
+                longitude: location?.longitude || location?.lng
+              }}
             />
           </div>
 

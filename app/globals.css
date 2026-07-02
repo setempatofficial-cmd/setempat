@@ -220,3 +220,40 @@ body.feed-locked {
   min-width: 44px !important;
   min-height: 44px !important;
 }
+
+/* Animasi loading progress bar */
+@keyframes loading {
+  0% {
+    width: 10%;
+    transform: translateX(-10%);
+  }
+
+  50% {
+    width: 60%;
+    transform: translateX(0%);
+  }
+
+  100% {
+    width: 90%;
+    transform: translateX(10%);
+  }
+}
+
+/* Animasi spin reverse untuk inner ring */
+@keyframes spin_reverse {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.animate-\[spin_1s_linear_infinite_reverse\] {
+  animation: spin_reverse 1s linear infinite;
+}
+
+.animate-\[loading_4s_ease-in-out_infinite\] {
+  animation: loading 4s ease-in-out infinite;
+}

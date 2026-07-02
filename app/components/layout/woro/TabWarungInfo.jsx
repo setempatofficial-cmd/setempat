@@ -4,7 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Bell, Inbox, ArrowRight, AtSign, MessageSquare, Heart, Gift, UserPlus } from "lucide-react";
+import {
+  Loader2, Bell, Inbox, ArrowRight, AtSign, MessageSquare,
+  Heart, Gift, UserPlus, Video, Crown, Clock, CheckCircle, XCircle
+} from "lucide-react";
 
 export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   const router = useRouter();
@@ -12,13 +15,12 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
   const [loading, setLoading] = useState(true);
   const isMalam = theme?.isMalam ?? true;
 
-  // Update jumlah notifikasi yang belum dibaca
   const updateUnreadCount = (data) => {
     const unreadCount = data.filter(n => !n.is_read).length;
     if (onUnreadCountChange) onUnreadCountChange(unreadCount);
   };
 
-  // ==================== GET ICON NOTIFIKASI ====================
+  // ==================== GET NOTIFICATION ICON ====================
   const getNotificationIcon = (type, isUnread) => {
     const iconClass = isUnread ? 'text-white' : 'text-slate-400';
     const bgClass = isUnread
@@ -51,9 +53,57 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
           </div>
         );
       case 'voucher':
+      case 'voucher_redeemed':
         return (
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
             <Gift size={18} className={iconClass} />
+          </div>
+        );
+      case 'live_pending':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${isUnread ? 'bg-amber-500 border-amber-400' : 'bg-white/5 border-white/5'}`}>
+            <Clock size={18} className={isUnread ? 'text-white' : 'text-slate-400'} />
+          </div>
+        );
+      case 'live_active':
+      case 'live':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${isUnread ? 'bg-red-500 border-red-400' : 'bg-white/5 border-white/5'}`}>
+            <Bell size={18} className={isUnread ? 'text-white' : 'text-slate-400'} />
+          </div>
+        );
+      case 'video':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
+            <Video size={18} className={iconClass} />
+          </div>
+        );
+      case 'subscription':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
+            <Crown size={18} className={iconClass} />
+          </div>
+        );
+      case 'points_topup':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 ${bgClass}`}>
+            <Gift size={18} className={iconClass} />
+          </div>
+        );
+
+      // ✅ TAMBAHKAN BOUNTY
+      case 'bounty_approved':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 
+            ${isUnread ? 'bg-emerald-500 border-emerald-400' : 'bg-white/5 border-white/5'}`}>
+            <CheckCircle size={18} className={isUnread ? 'text-white' : 'text-slate-400'} />
+          </div>
+        );
+      case 'bounty_rejected':
+        return (
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300 
+            ${isUnread ? 'bg-rose-500 border-rose-400' : 'bg-white/5 border-white/5'}`}>
+            <XCircle size={18} className={isUnread ? 'text-white' : 'text-slate-400'} />
           </div>
         );
 
@@ -74,14 +124,71 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
       }
       return notif.message;
     }
-    if (notif.type === 'voucher') {
+
+    // 🔥 FORMAT UNTUK LIVE
+    if (notif.type === 'live_pending') {
+      return notif.message || "Akses Live berhasil dibeli. Tunggu notifikasi saat siaran dimulai.";
+    }
+    if (notif.type === 'live_active') {
+      return notif.message || "Akses Live aktif! Siaran sedang berlangsung. Klik untuk menonton!";
+    }
+    if (notif.type === 'live') {
+      return notif.message || "Siaran Live sedang berlangsung!";
+    }
+
+    // 🔥 FORMAT UNTUK VIDEO
+    if (notif.type === 'video') {
+      return notif.message || "Akses video aktif! Klik untuk menonton.";
+    }
+
+    // 🔥 FORMAT UNTUK SUBSCRIPTION
+    if (notif.type === 'subscription') {
+      return notif.message || "Berlangganan aktif! Nikmati konten premium.";
+    }
+
+    // 🔥 FORMAT UNTUK VOUCHER
+    if (notif.type === 'voucher' || notif.type === 'voucher_redeemed') {
       return notif.message || "Voucher Anda telah diklaim oleh merchant";
     }
-    return notif.message;
+
+    // 🔥 FORMAT UNTUK TOP-UP POIN
+    if (notif.type === 'points_topup') {
+      return notif.message || "Top-Up Poin berhasil!";
+    }
+
+    // ✅ TAMBAHKAN BOUNTY (DI DALAM FUNCTION)
+    if (notif.type === 'bounty_approved') {
+      return notif.message || "✅ Submission Anda telah disetujui! Reward telah ditambahkan.";
+    }
+    if (notif.type === 'bounty_rejected') {
+      return notif.message || "❌ Submission Anda ditolak. Coba lagi dengan konten yang lebih baik.";
+    }
+
+    return notif.message || "Info Petinggi Setempat";
+  };
+
+
+  // ==================== GET METADATA DARI CONTENT ====================
+  const getMetadata = (notif) => {
+    if (notif.metadata) return notif.metadata;
+    if (notif.content) {
+      try {
+        return typeof notif.content === 'string' ? JSON.parse(notif.content) : notif.content;
+      } catch (e) {
+        return {};
+      }
+    }
+    return {};
   };
 
   // ==================== DAPATKAN LINK TUJUAN ====================
   const getNotificationLink = (notif) => {
+    // 🔥 CEK METADATA TERLEBIH DAHULU
+    const metadata = getMetadata(notif);
+    if (metadata.redirect_url) {
+      return metadata.redirect_url;
+    }
+
     if (notif.reference_id && notif.reference_type === 'komentar') {
       return `/post/${notif.tempat_id}?comment_id=${notif.reference_id}`;
     }
@@ -96,6 +203,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
 
   // ==================== HANDLE KLIK NOTIFIKASI ====================
   const handleNotificationClick = async (notif) => {
+    // Tandai sebagai sudah dibaca
     if (!notif.is_read) {
       const updatedNotif = notifications.map(n =>
         n.id === notif.id ? { ...n, is_read: true } : n
@@ -109,15 +217,34 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
         .eq("id", notif.id);
     }
 
-    // 🔥 TAMBAHKAN INI: Jika notifikasi voucher, arahkan ke Rumah Warga
-    if (notif.type === 'voucher') {
-      router.push("/rumah-warga");
+    const metadata = getMetadata(notif);
+
+    // 🔥 CEK UNTUK LIVE (PENDING / ACTIVE)
+    if (notif.type === 'live_pending' || notif.type === 'live_active' || notif.type === 'live') {
+      router.push("/live");
       return;
     }
 
-    const link = getNotificationLink(notif);
-    if (link) {
-      router.push(link);
+    // ✅ REDIRECT BERDASARKAN TIPE NOTIFIKASI
+    switch (notif.type) {
+      case 'video':
+        const videoUrl = metadata.redirect_url || '/video';
+        router.push(videoUrl);
+        break;
+      case 'subscription':
+        router.push("/premium");
+        break;
+      case 'voucher':
+      case 'voucher_redeemed':
+        router.push("/rumah-warga");
+        break;
+      case 'points_topup':
+        router.push("/rumah-warga");
+        break;
+      default:
+        const link = getNotificationLink(notif);
+        if (link) router.push(link);
+        break;
     }
   };
 
@@ -160,8 +287,11 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
           filter: `user_id=eq.${user?.id}`
         },
         (payload) => {
-          setNotifications(prev => [payload.new, ...prev]);
-          updateUnreadCount([payload.new, ...notifications]);
+          setNotifications(prev => {
+            const updated = [payload.new, ...prev];
+            updateUnreadCount(updated);
+            return updated;
+          });
         }
       )
       .subscribe();
@@ -208,6 +338,20 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
         {notifications.map((notif, index) => {
           const isUnread = !notif.is_read;
           const formattedMessage = formatMessage(notif);
+          const metadata = getMetadata(notif);
+
+          // 🔥 DETEKSI JENIS NOTIFIKASI UNTUK LABEL
+          let label = notif.title || "Info Warung";
+          if (notif.type === 'live_pending') label = "⏳ Menunggu Siaran";
+          if (notif.type === 'live_active') label = "🔴 Siaran Live";
+          if (notif.type === 'live') label = "🔴 Siaran Live";
+          if (notif.type === 'video') label = "🎬 Akses Video";
+          if (notif.type === 'subscription') label = "📺 Berlangganan";
+          if (notif.type === 'voucher_redeemed') label = "🎉 Voucher Ditukar";
+          if (notif.type === 'points_topup') label = "🪙 Top-Up Poin";
+
+          if (notif.type === 'bounty_approved') label = "✅ Bounty Disetujui";
+          if (notif.type === 'bounty_rejected') label = "❌ Bounty Ditolak";
 
           return (
             <motion.button
@@ -232,7 +376,6 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex items-center gap-2">
-                    {/* Avatar pengirim - versi tanpa error */}
                     {notif.type === 'mention' && (
                       <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white text-[10px] font-bold border border-white/20 shadow-sm">
                         {(notif.from_username?.[0] || (notif.from_user_name?.[0]) || '?').toUpperCase()}
@@ -242,7 +385,7 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                       ${isUnread
                         ? (isMalam ? 'text-white font-black' : 'text-slate-900 font-black')
                         : (isMalam ? 'text-white/40 font-bold' : 'text-slate-400 font-bold')}`}>
-                      {notif.type === 'mention' ? 'Mention' : (notif.title || "Info Warung")}
+                      {label}
                     </h3>
                   </div>
                   <span className={`text-[10px] font-bold uppercase tracking-tighter shrink-0 opacity-40 ${isMalam ? 'text-white' : 'text-slate-900'}`}>
@@ -250,7 +393,6 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                   </span>
                 </div>
 
-                {/* Username pengirim */}
                 {notif.type === 'mention' && notif.from_username && (
                   <p className={`text-[11px] font-bold mt-1 ${isUnread ? 'text-orange-500' : 'text-orange-500/40'}`}>
                     @{notif.from_username}
@@ -264,7 +406,45 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                   {formattedMessage}
                 </p>
 
-                {/* Info tempat */}
+                {/* ✅ BADGE UNTUK BOUNTY */}
+                {(notif.type === 'bounty_approved' || notif.type === 'bounty_rejected') && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold ${notif.type === 'bounty_approved' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {notif.type === 'bounty_approved' ? '💰 Reward telah masuk ke akun Anda' : '💪 Jangan menyerah, coba kesempatan lain!'}
+                    </span>
+                  </div>
+                )}
+
+                {/* 🔥 TAMBAHKAN INFO EKSTRA UNTUK LIVE */}
+                {notif.type === 'live_pending' && (
+                  <div className="mt-2 flex items-center gap-2 text-amber-400/70 text-[10px]">
+                    <Clock size={12} />
+                    <span>Menunggu siaran dimulai</span>
+                  </div>
+                )}
+                {notif.type === 'live_active' && (
+                  <div className="mt-2 flex items-center gap-2 text-red-400 text-[10px] animate-pulse">
+                    <Bell size={12} />
+                    <span className="font-bold">🔴 SIARAN BERLANGSUNG!</span>
+                  </div>
+                )}
+
+                {/* 🔥 TAMBAHKAN INFO UNTUK VIDEO */}
+                {notif.type === 'video' && (
+                  <div className="mt-2 flex items-center gap-2 text-blue-400/70 text-[10px]">
+                    <Video size={12} />
+                    <span>Akses video 24 jam</span>
+                  </div>
+                )}
+
+                {/* 🔥 TAMBAHKAN INFO UNTUK SUBSCRIPTION */}
+                {notif.type === 'subscription' && (
+                  <div className="mt-2 flex items-center gap-2 text-purple-400/70 text-[10px]">
+                    <Crown size={12} />
+                    <span>Berlangganan 30 hari</span>
+                  </div>
+                )}
+
                 {notif.type === 'mention' && notif.tempat_name && (
                   <div className="flex items-center gap-1 mt-2">
                     <span className="text-[9px] font-black uppercase tracking-wider text-orange-500/60">
@@ -273,16 +453,13 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                   </div>
                 )}
 
-                {/* Preview konten komentar */}
                 {notif.type === 'mention' && notif.content && isUnread && (
-                  <div className={`mt-2 p-2 rounded-lg text-[11px] italic ${isMalam ? 'bg-white/5 text-white/40' : 'bg-slate-50 text-slate-500'
-                    }`}>
+                  <div className={`mt-2 p-2 rounded-lg text-[11px] italic ${isMalam ? 'bg-white/5 text-white/40' : 'bg-slate-50 text-slate-500'}`}>
                     "{notif.content.substring(0, 80)}"
                   </div>
                 )}
 
-                {/* Tombol khusus untuk voucher - PAKAI DIV BUKAN BUTTON */}
-                {notif.type === 'voucher' && (
+                {notif.type === 'voucher_redeemed' && (
                   <div className="mt-3 flex items-center gap-2">
                     <div
                       onClick={(e) => {
@@ -296,8 +473,25 @@ export default function TabWarungInfo({ theme, user, onUnreadCountChange }) {
                   </div>
                 )}
 
-                {/* Link Detail untuk non-voucher - BUKAN BUTTON */}
-                {isUnread && notif.type !== 'voucher' && (
+                {/* 🔥 TOMBOL UNTUK LIVE */}
+                {(notif.type === 'live_pending' || notif.type === 'live_active') && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push("/live");
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-white text-[10px] font-bold transition-all cursor-pointer inline-block ${notif.type === 'live_active'
+                        ? 'bg-red-600 hover:bg-red-500 animate-pulse'
+                        : 'bg-amber-600 hover:bg-amber-500'
+                        }`}
+                    >
+                      {notif.type === 'live_active' ? '🔴 Nonton Sekarang' : '⏳ Ke Halaman Live'}
+                    </div>
+                  </div>
+                )}
+
+                {isUnread && notif.type !== 'voucher_redeemed' && notif.type !== 'live_pending' && notif.type !== 'live_active' && (
                   <div className="flex items-center gap-1.5 mt-3 text-orange-500 text-[10px] font-black uppercase tracking-widest">
                     <span>Lihat Detail</span>
                     <ArrowRight size={10} />

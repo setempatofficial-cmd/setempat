@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
-import { 
-  ArrowLeft, Eye, CheckCircle, XCircle, Clock, 
-  Loader2, Download, ExternalLink, Users, Filter 
+import {
+  ArrowLeft, Eye, CheckCircle, XCircle, Clock,
+  Loader2, Download, ExternalLink, Users, Filter
 } from "lucide-react";
 
 export default function SubmissionsPage() {
@@ -14,7 +14,7 @@ export default function SubmissionsPage() {
   const { user, isSuperAdmin, loading } = useAuth();
   const [submissions, setSubmissions] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
-  const [filter, setFilter] = useState("all"); // all, pending, approved, rejected
+  const [filter, setFilter] = useState("all");
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -30,14 +30,14 @@ export default function SubmissionsPage() {
   useEffect(() => {
     const fetchSubmissions = async () => {
       setLoadingData(true);
-      
+
       // Ambil dari bounty_submissions
       const { data: bountyData, error: bountyError } = await supabase
         .from("bounty_submissions")
         .select(`
           *,
           profiles:user_id (full_name, username, avatar_url),
-          opportunities:opportunity_id (title, icon, reward_text, reward_type)
+          opportunities:opportunity_id (title, icon, reward_text, reward_type, reward_value)
         `)
         .order("submitted_at", { ascending: false });
 
@@ -47,12 +47,11 @@ export default function SubmissionsPage() {
         .select(`
           *,
           profiles:user_id (full_name, username, avatar_url),
-          opportunities:opportunity_id (title, icon, reward_text, reward_type)
+          opportunities:opportunity_id (title, icon, reward_text, reward_type, reward_value)
         `)
         .order("created_at", { ascending: false });
 
       if (!bountyError && bountyData) {
-        // Format bounty submissions
         const formattedBounty = bountyData.map(s => ({
           ...s,
           submission_type: "bounty",
@@ -62,14 +61,14 @@ export default function SubmissionsPage() {
           opportunity_title: s.opportunities?.title,
           opportunity_icon: s.opportunities?.icon,
           reward_text: s.opportunities?.reward_text,
-          reward_type: s.opportunities?.reward_type,
+          reward_type: s.opportunities?.reward_type || s.reward_type,
+          reward_value: s.opportunities?.reward_value || s.reward_value,
           submitted_at: s.submitted_at,
           media_url: s.media_url,
           media_type: s.media_type,
           description: s.description
         }));
-        
-        // Format program submissions
+
         const formattedProgram = (programData || []).map(s => ({
           ...s,
           submission_type: "program",
@@ -80,55 +79,49 @@ export default function SubmissionsPage() {
           opportunity_icon: s.opportunities?.icon,
           reward_text: s.opportunities?.reward_text,
           reward_type: s.opportunities?.reward_type,
+          reward_value: s.opportunities?.reward_value,
           submitted_at: s.created_at,
           media_url: null,
           media_type: null,
           description: null
         }));
-        
+
         setSubmissions([...formattedBounty, ...formattedProgram]);
       } else {
         setSubmissions([]);
       }
-      
+
       setLoadingData(false);
     };
 
     fetchSubmissions();
   }, []);
 
+  // ✅ PERBAIKAN: Hanya update status, biarkan trigger yang handle reward
   const handleApprove = async (submission) => {
     setProcessing(true);
-    
+
     if (submission.submission_type === "bounty") {
-      // Update status bounty_submissions
+      // CUKUP UPDATE STATUS SAJA!
+      // Trigger database akan otomatis memberikan reward (baik point maupun money)
       const { error } = await supabase
         .from("bounty_submissions")
-        .update({ 
-          status: "approved", 
+        .update({
+          status: "approved",
           approved_at: new Date().toISOString(),
           admin_note: "Disetujui oleh SuperAdmin"
         })
         .eq("id", submission.id);
-      
+
       if (!error) {
-        // Tambah poin ke user
-        if (submission.reward_type === "points" && submission.reward_value) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("points")
-            .eq("id", submission.user_id)
-            .single();
-          
-          await supabase
-            .from("profiles")
-            .update({ points: (profile?.points || 0) + submission.reward_value })
-            .eq("id", submission.user_id);
-        }
-        
-        alert("✅ Submission disetujui! Reward telah diberikan.");
-        
-        // Refresh data
+        // ❌ HAPUS SEMUA KODE MANUAL UPDATE REWARD DI SINI!
+        // Biarkan trigger database yang handle sesuai reward_type
+
+        const rewardText = submission.reward_type === "money"
+          ? `Rp${submission.reward_value?.toLocaleString()} akan masuk ke Dompet Warga`
+          : `${submission.reward_value} Poin akan ditambahkan`;
+
+        alert(`✅ Submission disetujui! ${rewardText}`);
         window.location.reload();
       } else {
         alert("Gagal menyetujui: " + error.message);
@@ -137,12 +130,12 @@ export default function SubmissionsPage() {
       // Untuk program, update status user_opportunities
       const { error } = await supabase
         .from("user_opportunities")
-        .update({ 
-          status: "approved", 
+        .update({
+          status: "approved",
           completed_at: new Date().toISOString()
         })
         .eq("id", submission.id);
-      
+
       if (!error) {
         alert("✅ Program disetujui!");
         window.location.reload();
@@ -150,30 +143,32 @@ export default function SubmissionsPage() {
         alert("Gagal menyetujui: " + error.message);
       }
     }
-    
+
     setProcessing(false);
   };
 
   const handleReject = async (submission) => {
     setProcessing(true);
-    
-    const status = "rejected";
-    const table = submission.submission_type === "bounty" 
-      ? "bounty_submissions" 
+
+    const table = submission.submission_type === "bounty"
+      ? "bounty_submissions"
       : "user_opportunities";
-    
+
     const { error } = await supabase
       .from(table)
-      .update({ status })
+      .update({
+        status: "rejected",
+        admin_note: "Ditolak oleh SuperAdmin"
+      })
       .eq("id", submission.id);
-    
+
     if (!error) {
       alert("❌ Submission ditolak.");
       window.location.reload();
     } else {
       alert("Gagal menolak: " + error.message);
     }
-    
+
     setProcessing(false);
   };
 
@@ -186,6 +181,16 @@ export default function SubmissionsPage() {
       default:
         return <span className="text-[8px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full flex items-center gap-1"><Clock size={8} /> Menunggu</span>;
     }
+  };
+
+  // ✅ Tambahkan badge reward type
+  const getRewardBadge = (type) => {
+    if (type === "money") {
+      return <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">💰</span>;
+    } else if (type === "point") {
+      return <span className="text-[8px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">⭐</span>;
+    }
+    return null;
   };
 
   const filteredSubmissions = submissions.filter(s => {
@@ -303,16 +308,18 @@ export default function SubmissionsPage() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        sub.submission_type === "bounty" 
-                          ? "bg-purple-500/20 text-purple-400" 
+                      <span className={`text-xs px-2 py-1 rounded-full ${sub.submission_type === "bounty"
+                          ? "bg-purple-500/20 text-purple-400"
                           : "bg-blue-500/20 text-blue-400"
-                      }`}>
+                        }`}>
                         {sub.submission_type === "bounty" ? "Bounty" : "Program"}
                       </span>
                     </td>
                     <td className="p-4">
-                      <p className="text-sm font-bold text-emerald-400">{sub.reward_text}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-bold text-emerald-400">{sub.reward_text}</p>
+                        {getRewardBadge(sub.reward_type)}
+                      </div>
                     </td>
                     <td className="p-4">
                       <p className="text-xs text-slate-400">
@@ -392,12 +399,12 @@ export default function SubmissionsPage() {
                     <p className="text-xs text-slate-400">Oleh: {selectedSubmission.user_name}</p>
                   </div>
                 </div>
-                
+
                 <div className="bg-slate-800/30 rounded-xl p-3">
                   <p className="text-xs text-slate-400 mb-1">Deskripsi</p>
                   <p className="text-sm text-slate-300">{selectedSubmission.description || "Tidak ada deskripsi"}</p>
                 </div>
-                
+
                 {selectedSubmission.media_url && (
                   <div className="bg-slate-800/30 rounded-xl p-3">
                     <p className="text-xs text-slate-400 mb-1">Media</p>
@@ -411,18 +418,21 @@ export default function SubmissionsPage() {
                     </a>
                   </div>
                 )}
-                
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-800/30 rounded-xl p-3">
                     <p className="text-xs text-slate-400">Reward</p>
                     <p className="text-lg font-bold text-emerald-400">{selectedSubmission.reward_text}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {selectedSubmission.reward_type === "money" ? "💰 Dompet Warga" : "⭐ Poin"}
+                    </p>
                   </div>
                   <div className="bg-slate-800/30 rounded-xl p-3">
                     <p className="text-xs text-slate-400">Status</p>
                     {getStatusBadge(selectedSubmission.status)}
                   </div>
                 </div>
-                
+
                 <div className="flex gap-3 pt-3">
                   {selectedSubmission.status === "pending" && (
                     <>

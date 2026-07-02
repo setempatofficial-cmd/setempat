@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Gift, Target, Award, Coffee, Utensils, Ticket, CheckCircle, Loader2 } from "lucide-react";
+import { X, Gift, Target, Award, Coffee, Utensils, Ticket, CheckCircle, Wallet, Loader2, Bell, Tv, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 const getIconComponent = (iconName) => {
@@ -11,6 +11,7 @@ const getIconComponent = (iconName) => {
     Utensils: Utensils,
     Ticket: Ticket,
     Gift: Gift,
+    Tv: Tv,
   };
   const Icon = icons[iconName] || Gift;
   return Icon;
@@ -21,8 +22,13 @@ export default function PointsModal({
   onClose,
   userId,
   userPoints = 0,
+  userSaldo = 0,
   pointOpportunities = [],
-  onOpportunityClick
+  onOpportunityClick,
+  onPointsUpdated,
+  onAccessPurchased,
+  onShowQR,
+  voucherType = 'all',
 }) {
   const [localPoints, setLocalPoints] = useState(userPoints);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
@@ -30,21 +36,69 @@ export default function PointsModal({
   const [redeeming, setRedeeming] = useState(false);
   const [redeemSuccess, setRedeemSuccess] = useState(false);
   const [vouchers, setVouchers] = useState([]);
+  const [error, setError] = useState(null);
+  const [isLive, setIsLive] = useState(false);
 
+  const [lastTransactionId, setLastTransactionId] = useState(null);
+
+  // ============================================================
+  // 🔥 HELPER: CEK LIVE STATUS
+  // ============================================================
+  const checkLiveStatus = useCallback(async () => {
+    const LIVE_INPUT_ID = process.env.NEXT_PUBLIC_CLOUDFLARE_LIVE_INPUT_ID || "";
+    const STREAM_URL = `https://videodelivery.net/${LIVE_INPUT_ID}/manifest/video.m3u8`;
+
+    if (!STREAM_URL || !LIVE_INPUT_ID) return false;
+
+    const cached = sessionStorage.getItem('live_status');
+    const cachedTime = sessionStorage.getItem('live_status_time');
+    if (cached && cachedTime) {
+      const elapsed = Date.now() - parseInt(cachedTime);
+      if (elapsed < 2000) return cached === 'true';
+    }
+
+    try {
+      const response = await fetch(STREAM_URL, {
+        method: 'HEAD',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      const isLive = response.ok;
+
+      sessionStorage.setItem('live_status', String(isLive));
+      sessionStorage.setItem('live_status_time', String(Date.now()));
+
+      return isLive;
+    } catch (err) {
+      console.warn('CORS error on live check, assuming live.');
+      return true;
+    }
+  }, []);
+
+  // ============================================================
+  // 🔥 FETCH VOUCHERS
+  // ============================================================
   useEffect(() => {
     const fetchVouchers = async () => {
       const { data } = await supabase
         .from("vouchers")
         .select("*")
         .eq("is_active", true)
+        .gt("points_required", 0)
         .order("points_required", { ascending: true });
 
-      if (data) setVouchers(data);
+      if (data) {
+        console.log("✅ Vouchers fetched:", data);
+        console.log("🔴 Live vouchers:", data.filter(v => v.type === 'live'));
+        setVouchers(data);
+      }
     };
 
     if (isOpen) fetchVouchers();
   }, [isOpen]);
 
+  // ============================================================
+  // 🔥 SYNC POINTS
+  // ============================================================
   useEffect(() => {
     setLocalPoints(userPoints);
   }, [userPoints]);
@@ -61,7 +115,18 @@ export default function PointsModal({
           .single();
 
         if (error) throw error;
-        if (data) setLocalPoints(data.points || 0);
+        if (data) {
+          setLocalPoints(data.points || 0);
+
+          const cached = sessionStorage.getItem('user_profile');
+          if (cached) {
+            const profile = JSON.parse(cached);
+            sessionStorage.setItem('user_profile', JSON.stringify({
+              ...profile,
+              points: data.points || 0
+            }));
+          }
+        }
       } catch (err) {
         console.error("Error fetching points:", err);
       }
@@ -70,24 +135,12 @@ export default function PointsModal({
     fetchCurrentPoints();
   }, [isOpen, userId]);
 
-  // 🔥 FILTER VOUCHER: Hanya tampilkan voucher yang mendekati (max 3 target ke depan)
+  // ============================================================
+  // 🔥 FILTER VOUCHER
+  // ============================================================
   const getRelevantVouchers = () => {
-    if (vouchers.length === 0) return [];
-
-    // Cari voucher yang bisa ditukar (poin cukup)
-    const availableVouchers = vouchers.filter(v => v.points_required <= localPoints);
-
-    // Cari voucher target berikutnya (belum bisa ditukar)
-    const nextVoucherIndex = vouchers.findIndex(v => v.points_required > localPoints);
-    const upcomingVouchers = nextVoucherIndex !== -1
-      ? vouchers.slice(nextVoucherIndex, nextVoucherIndex + 2)  // Ambil 2 target ke depan
-      : [];
-
-    // Gabungkan: maksimal 3 voucher available + 2 upcoming = total 5 voucher
-    const relevant = [...availableVouchers.slice(-3), ...upcomingVouchers];
-
-    // Urutkan berdasarkan points_required
-    return relevant.sort((a, b) => a.points_required - b.points_required);
+    // Tampilkan semua voucher yang aktif
+    return vouchers.sort((a, b) => a.points_required - b.points_required);
   };
 
   const relevantVouchers = getRelevantVouchers();
@@ -98,48 +151,439 @@ export default function PointsModal({
   const pointsNeeded = isMaxed || !targetVoucher ? 0 : targetVoucher.points_required - localPoints;
   const hiddenVouchersCount = vouchers.length - relevantVouchers.length;
 
-  const handleRedeem = async () => {
-    if (!selectedVoucher || localPoints < selectedVoucher.points_required || redeeming) return;
+  // ============================================================
+  // 🔥 UPDATE CACHE HELPER
+  // ============================================================
+  const updateUserCache = useCallback((newPoints, newSaldo = null) => {
+    const cached = sessionStorage.getItem('user_profile');
+    if (cached) {
+      try {
+        const profile = JSON.parse(cached);
+        const updated = {
+          ...profile,
+          points: newPoints !== undefined ? newPoints : profile.points,
+          saldo: newSaldo !== null ? newSaldo : profile.saldo
+        };
+        sessionStorage.setItem('user_profile', JSON.stringify(updated));
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
 
+  // ============================================================
+  // 🔥 HELPER: INSERT NOTIFIKASI KE WARUNG_INFO
+  // ============================================================
+  const insertWarungInfo = async (userId, title, message, type, metadata = {}) => {
+    try {
+      if (!userId) {
+        console.error("❌ userId is required");
+        return { success: false, error: "userId is required" };
+      }
+
+      const insertData = {
+        user_id: userId,
+        title: title || "Notifikasi",
+        message: message || "",
+        type: type || "info",
+        is_read: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        content: JSON.stringify({
+          ...metadata,
+          voucher_id: metadata.voucher_id || null,
+          transaction_id: metadata.transaction_id || null,
+          redirect_url: metadata.redirect_url || null,
+          timestamp: new Date().toISOString()
+        }),
+        action_type: type,
+        related_type: type,
+        reference_type: type,
+        reference_id: metadata.transaction_id ? parseInt(metadata.transaction_id) : null,
+        from_user_id: userId,
+        from_user_name: "Sistem",
+        from_username: "sistem",
+      };
+
+      const { data, error } = await supabase
+        .from("warung_info")
+        .insert(insertData)
+        .select();
+
+      if (error) {
+        console.error("❌ Error inserting warung_info:", error);
+        return { success: false, error };
+      }
+
+      return { success: true, data };
+    } catch (err) {
+      console.error("❌ Failed to insert warung_info:", err);
+      return { success: false, error: err };
+    }
+  };
+
+  // ============================================================
+  // 🔥 HANDLE REDEEM - FINAL (DIPERBAIKI)
+  // ============================================================
+  const handleRedeem = async () => {
+    if (!selectedVoucher || redeeming) return;
+
+    // ============================================================
+    // 🔥 VOUCHER FISIK: TUKAR & BUAT TRANSAKSI
+    // ============================================================
+    if (selectedVoucher.type === 'physical' || !selectedVoucher.type) {
+      setRedeeming(true);
+
+      try {
+        // 1. AMBIL POIN TERBARU
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("points")
+          .eq("id", userId)
+          .single();
+
+        if (profileError) throw profileError;
+
+        const currentPoints = profile?.points || 0;
+
+        if (currentPoints < selectedVoucher.points_required) {
+          setError(`Poin tidak mencukupi! Anda punya ${currentPoints} poin, butuh ${selectedVoucher.points_required} poin.`);
+          setRedeeming(false);
+          return;
+        }
+
+        // 2. KURANGI POIN
+        const newPoints = currentPoints - selectedVoucher.points_required;
+
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update({ points: newPoints })
+          .eq("id", userId);
+
+        if (updateError) throw updateError;
+
+        setLocalPoints(newPoints);
+
+        // Update cache
+        const cached = sessionStorage.getItem('user_profile');
+        if (cached) {
+          const profile = JSON.parse(cached);
+          sessionStorage.setItem('user_profile', JSON.stringify({
+            ...profile,
+            points: newPoints
+          }));
+        }
+
+        if (onPointsUpdated) {
+          onPointsUpdated(newPoints);
+        }
+
+        // 3. 🔥 BUAT RECORD DI VOUCHER_TRANSACTIONS
+        const expiredAt = new Date();
+        expiredAt.setDate(expiredAt.getDate() + 7); // Berlaku 7 hari
+
+        const { data: txData, error: txError } = await supabase
+          .from("voucher_transactions")
+          .insert({
+            user_id: userId,
+            voucher_id: selectedVoucher.id,
+            points_spent: selectedVoucher.points_required,
+            status: "pending",
+            redeemed_at: new Date().toISOString(),
+            expired_at: expiredAt.toISOString(),
+            user_points_before: currentPoints,
+            access_method: "points",
+            metadata: {
+              voucher_name: selectedVoucher.name,
+              merchant: selectedVoucher.merchant,
+              type: "physical",
+              redeemed_at: new Date().toISOString()
+            },
+            access_data: {
+              claimed: false,
+              claim_deadline: expiredAt.toISOString()
+            }
+          })
+          .select();
+
+        if (txError) {
+          console.error("❌ Gagal membuat transaksi:", txError);
+          throw txError;
+        }
+
+        // 4. INSERT WARUNG_INFO
+        await insertWarungInfo(
+          userId,
+          "🎁 Voucher Fisik Berhasil Ditukar!",
+          `Anda telah menukarkan ${selectedVoucher.points_required} Poin untuk voucher "${selectedVoucher.name}" dari ${selectedVoucher.merchant}. Jangan lupa klaim sebelum ${expiredAt.toLocaleDateString('id-ID')}!`,
+          "voucher_physical",
+          {
+            voucher_id: selectedVoucher.id,
+            voucher_name: selectedVoucher.name,
+            merchant: selectedVoucher.merchant,
+            transaction_id: txData?.[0]?.id,
+            redirect_url: "/rumah-warga",
+            expire_at: expiredAt.toISOString()
+          }
+        );
+
+        // 5. TAMPILKAN SUKSES
+        setRedeemSuccess(true);
+
+      } catch (err) {
+        console.error('❌ Redeem physical error:', err);
+        setError(err.message || 'Gagal menukarkan voucher. Silakan coba lagi.');
+        setTimeout(() => setError(null), 4000);
+        setRedeeming(false);
+      }
+      return; // ⚠️ STOP di sini
+    }
+
+    // ============================================================
+    // 🔥 VOUCHER DIGITAL (live/video/subscription): Proses RPC
+    // ============================================================
     setRedeeming(true);
 
     try {
-      const expiredAt = new Date();
-      expiredAt.setDate(expiredAt.getDate() + 7);
-
-      const { error: insertError } = await supabase
-        .from("voucher_transactions")
-        .insert({
-          user_id: userId,
-          voucher_id: selectedVoucher.id,
-          points_spent: selectedVoucher.points_required,
-          status: "pending",
-          redeemed_at: new Date().toISOString(),
-          expired_at: expiredAt.toISOString(),
-        });
-
-      if (insertError) throw insertError;
-
-      const { data: profile } = await supabase
+      // 1. AMBIL POIN TERBARU
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("points")
         .eq("id", userId)
         .single();
 
-      await supabase
-        .from("profiles")
-        .update({ points: (profile?.points || 0) - selectedVoucher.points_required })
-        .eq("id", userId);
+      if (profileError) throw profileError;
 
-      setLocalPoints(prev => prev - selectedVoucher.points_required);
+      const currentPoints = profile?.points || 0;
+
+      if (currentPoints < selectedVoucher.points_required) {
+        setError(`Poin tidak mencukupi! Anda punya ${currentPoints} poin, butuh ${selectedVoucher.points_required} poin.`);
+        setLocalPoints(currentPoints);
+        setTimeout(() => setError(null), 4000);
+        setRedeeming(false);
+        return;
+      }
+
+      setLocalPoints(currentPoints);
+
+      // 2. CEK LIVE STATUS
+      const isLiveStatus = await checkLiveStatus();
+      setIsLive(isLiveStatus);
+
+      const expiredAt = new Date();
+      expiredAt.setHours(expiredAt.getHours() + 24);
+
+      let transactionStatus = "active";
+      if (selectedVoucher.type === 'live') {
+        transactionStatus = isLiveStatus ? "active" : "pending";
+      }
+
+      // 3. PANGGIL RPC
+      const { data: rpcData, error: rpcError } = await supabase.rpc('redeem_live_voucher', {
+        p_user_id: userId,
+        p_voucher_id: selectedVoucher.id,
+        p_points_required: selectedVoucher.points_required,
+        p_status: transactionStatus,
+        p_expired_at: expiredAt.toISOString()
+      });
+
+      if (rpcError) {
+        console.error("Detail DB Error:", rpcError);
+        throw new Error(`Sistem Database Gagal: ${rpcError.message}`);
+      }
+      setLastTransactionId(rpcData.transaction_id);
+      // 4. UPDATE STATE POIN
+      const { data: freshProfile } = await supabase
+        .from("profiles")
+        .select("points")
+        .eq("id", userId)
+        .single();
+
+      if (freshProfile) {
+        setLocalPoints(freshProfile.points || 0);
+
+        // Update cache
+        const cached = sessionStorage.getItem('user_profile');
+        if (cached) {
+          const profile = JSON.parse(cached);
+          sessionStorage.setItem('user_profile', JSON.stringify({
+            ...profile,
+            points: freshProfile.points || 0
+          }));
+        }
+
+        if (onPointsUpdated) {
+          onPointsUpdated(freshProfile.points || 0);
+        }
+      }
+
+      // 5. INSERT WARUNG_INFO
+      let warungTitle = "";
+      let warungMessage = "";
+      let warungType = "";
+      let metadata = {
+        transaction_id: rpcData.transaction_id,
+        voucher_id: selectedVoucher.id,
+        voucher_name: selectedVoucher.name,
+        merchant: selectedVoucher.merchant,
+        redirect_url: "/rumah-warga"
+      };
+
+      if (selectedVoucher.type === 'live') {
+        if (isLiveStatus) {
+          warungTitle = "🔴 Akses Live Aktif!";
+          warungMessage = `Selamat! Anda sekarang memiliki akses ke siaran live. Klik untuk menonton!`;
+          warungType = "live_active";
+          metadata.redirect_url = "/live";
+        } else {
+          warungTitle = "⏳ Akses Live Dibeli";
+          warungMessage = `Anda telah membeli akses live. Kami akan memberitahu Anda saat siaran dimulai.`;
+          warungType = "live_pending";
+          metadata.redirect_url = "/live";
+        }
+      } else if (selectedVoucher.type === 'video') {
+        warungTitle = "🎬 Akses Video Aktif!";
+        warungMessage = `Voucher "${selectedVoucher.name}" berhasil ditukar. Akses video berlaku 24 jam.`;
+        warungType = "video";
+        metadata.redirect_url = `/video/${selectedVoucher.video_id || '1'}`;
+      } else if (selectedVoucher.type === 'subscription') {
+        warungTitle = "📺 Berlangganan Aktif!";
+        warungMessage = `Berlangganan "${selectedVoucher.name}" berhasil diaktifkan. Berlaku 30 hari.`;
+        warungType = "subscription";
+        metadata.redirect_url = "/premium";
+      }
+
+      await insertWarungInfo(userId, warungTitle, warungMessage, warungType, metadata);
+
+      // 6. TAMPILKAN POPUP SUKSES
+      if (onAccessPurchased) {
+        onAccessPurchased({
+          id: lastTransactionId,
+          status: transactionStatus,
+          voucher_id: selectedVoucher.id,
+          voucher_type: selectedVoucher.type,
+          voucher_name: selectedVoucher.name,
+          isLive: isLiveStatus,
+          merchant: selectedVoucher.merchant,
+          points_held: selectedVoucher.points_required
+        });
+      }
       setRedeemSuccess(true);
 
     } catch (err) {
-      alert("Gagal menukarkan voucher: " + err.message);
+      console.error('Redeem error:', err);
+      setError(err.message || 'Gagal menukarkan voucher. Silakan coba lagi.');
+      setTimeout(() => setError(null), 4000);
+    } finally {
       setRedeeming(false);
     }
   };
 
+  // ============================================================
+  // 🔥 HANDLE SHOW KTP
+  // ============================================================
+  const handleShowKTP = () => {
+    setRedeemSuccess(false);
+    setShowConfirmModal(false);
+    setSelectedVoucher(null);
+    setRedeeming(false);
+    onClose();
+
+    if (onAccessPurchased) {
+      onAccessPurchased({
+        action: "show_ktp",
+        voucher_name: selectedVoucher?.name
+      });
+    }
+  };
+
+  // ============================================================
+  // 🔥 HANDLE TOP-UP POIN
+  // ============================================================
+  const handleTopUpPoin = async (pkg) => {
+    if (!userId) return;
+
+    const isConfirmed = confirm(`Beli ${pkg.points} Poin seharga Rp${pkg.price.toLocaleString()}?`);
+    if (!isConfirmed) return;
+
+    setError(null);
+
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("saldo, points")
+        .eq("id", userId)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error("Data user tidak ditemukan!");
+      }
+
+      if ((profile.saldo || 0) < pkg.price) {
+        throw new Error(`Saldo tidak mencukupi! Saldo Anda: Rp${(profile.saldo || 0).toLocaleString()}`);
+      }
+
+      const newSaldo = (profile.saldo || 0) - pkg.price;
+      const newPoints = (profile.points || 0) + pkg.points;
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          saldo: newSaldo,
+          points: newPoints
+        })
+        .eq("id", userId);
+
+      if (updateError) throw updateError;
+
+      updateUserCache(newPoints, newSaldo);
+      setLocalPoints(newPoints);
+
+      if (onPointsUpdated) {
+        onPointsUpdated(newPoints);
+      }
+
+      await supabase
+        .from("voucher_transactions")
+        .insert({
+          user_id: userId,
+          voucher_id: null,
+          points_spent: 0,
+          amount: pkg.price,
+          status: "completed",
+          redeemed_at: new Date().toISOString(),
+          metadata: {
+            type: "topup_poin",
+            points_added: pkg.points,
+            price: pkg.price,
+            saldo_before: profile.saldo || 0,
+            saldo_after: newSaldo
+          }
+        });
+
+      await insertWarungInfo(
+        userId,
+        "🪙 Top-Up Poin Berhasil!",
+        `Anda telah membeli ${pkg.points} Poin seharga Rp${pkg.price.toLocaleString()}. Saldo Anda sekarang Rp${newSaldo.toLocaleString()}.`,
+        "points_topup",
+        {
+          points_added: pkg.points,
+          price: pkg.price,
+          saldo_before: profile.saldo || 0,
+          saldo_after: newSaldo
+        }
+      );
+
+      alert(`✅ Berhasil! ${pkg.points} Poin telah ditambahkan.`);
+
+    } catch (err) {
+      console.error("Error top-up:", err);
+      setError(err.message || "Gagal top-up. Silakan coba lagi.");
+      setTimeout(() => setError(null), 4000);
+    }
+  };
+
+  // ============================================================
+  // 🔥 RENDER
+  // ============================================================
   return (
     <>
       <AnimatePresence>
@@ -159,6 +603,7 @@ export default function PointsModal({
               className="bg-slate-900 border border-slate-800/80 rounded-t-3xl sm:rounded-2xl w-full max-w-[380px] max-h-[85vh] overflow-y-auto shadow-2xl pb-6"
               onClick={(e) => e.stopPropagation()}
             >
+              {/* HEADER */}
               <div className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/60 px-5 py-4 flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -171,6 +616,15 @@ export default function PointsModal({
                 </button>
               </div>
 
+              {/* ERROR MESSAGE */}
+              {error && (
+                <div className="mx-5 mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-400">{error}</p>
+                </div>
+              )}
+
+              {/* ... (konten PointsModal tetap sama) ... */}
               <div className="p-5 space-y-5">
                 {/* HERO POIN CARD */}
                 <div className="bg-gradient-to-b from-slate-800/40 to-slate-800/10 rounded-2xl p-5 border border-slate-800/80 text-center">
@@ -213,7 +667,7 @@ export default function PointsModal({
                   </div>
                 )}
 
-                {/* TUKAR HADIAH - HANYA VOUCHER RELEVAN */}
+                {/* TUKAR HADIAH */}
                 <div>
                   <div className="flex items-center justify-between mb-3 px-1">
                     <div className="flex items-center gap-2">
@@ -221,9 +675,7 @@ export default function PointsModal({
                       <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Pilihan Voucher</h4>
                     </div>
                     {hiddenVouchersCount > 0 && (
-                      <span className="text-[9px] text-slate-500">
-                        +{hiddenVouchersCount} voucher lainnya
-                      </span>
+                      <span className="text-[9px] text-slate-500">+{hiddenVouchersCount} voucher lainnya</span>
                     )}
                   </div>
 
@@ -250,11 +702,38 @@ export default function PointsModal({
                                 <Icon className="w-4 h-4" />
                               </div>
                               <div className="min-w-0">
-                                <p className="text-xs font-bold text-slate-200 truncate">{voucher.name}</p>
-                                <p className="text-[11px] text-slate-500 truncate">{voucher.merchant}</p>
-                                <p className="text-[9px] text-amber-400/70 mt-0.5">
-                                  ⏰ Berlaku 7 hari setelah tukar
-                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-xs font-bold text-slate-200 truncate">{voucher.name}</p>
+                                  {voucher.type === 'live' && (
+                                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[8px] rounded-full font-bold animate-pulse">🔴 LIVE</span>
+                                  )}
+                                  {voucher.type === 'video' && (
+                                    <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] rounded-full font-bold">🎬 VIDEO</span>
+                                  )}
+                                  {voucher.type === 'subscription' && (
+                                    <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 text-[8px] rounded-full font-bold">📺 BERLANGGANAN</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 truncate">{voucher.merchant || 'Setempat'}</p>
+                                {voucher.type === 'live' && (
+                                  <div className="mt-1">
+                                    <p className="text-[8px] text-emerald-400/70">
+                                      ⏰ Berlaku 24 jam sejak ditukar
+                                    </p>
+                                    <p className="text-[8px] text-slate-500 mt-0.5">
+                                      🔄 Tukar lagi untuk live berikutnya
+                                    </p>
+                                  </div>
+                                )}
+                                {voucher.type === 'video' && (
+                                  <p className="text-[8px] text-blue-400/70 mt-0.5">🎥 Akses video 24 jam</p>
+                                )}
+                                {voucher.type === 'subscription' && (
+                                  <p className="text-[8px] text-purple-400/70 mt-0.5">📅 Berlangganan 30 hari</p>
+                                )}
+                                {(!voucher.type || voucher.type === 'physical') && (
+                                  <p className="text-[9px] text-amber-400/70 mt-0.5">⏰ Berlaku 7 hari setelah tukar</p>
+                                )}
                               </div>
                             </div>
 
@@ -283,14 +762,39 @@ export default function PointsModal({
                   </div>
                 </div>
 
+                {/* TOP-UP POIN */}
+                <div className="border-t border-slate-800 pt-4">
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <Wallet className="w-4 h-4 text-amber-400" />
+                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Top-Up Poin</h4>
+                    <span className="ml-auto text-[10px] text-slate-500">
+                      💰 Saldo: Rp{(userSaldo || 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: '10 Poin', price: 5000, points: 10 },
+                      { label: '25 Poin', price: 10000, points: 25 },
+                      { label: '50 Poin', price: 15000, points: 50 },
+                    ].map((pkg) => (
+                      <button
+                        key={pkg.points}
+                        onClick={() => handleTopUpPoin(pkg)}
+                        className="p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-emerald-500/50 transition-all text-center"
+                      >
+                        <p className="text-sm font-bold text-emerald-400">{pkg.points} Poin</p>
+                        <p className="text-[10px] text-slate-400">Rp{pkg.price.toLocaleString()}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* KESEMPATAN DAPAT POIN */}
                 {pointOpportunities.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3 px-1">
                       <Target className="w-4 h-4 text-amber-400" />
-                      <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                        Kesempatan Dapat Poin
-                      </h4>
+                      <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Kesempatan Dapat Poin</h4>
                     </div>
                     <div className="space-y-2">
                       {pointOpportunities.map((opp) => (
@@ -343,32 +847,132 @@ export default function PointsModal({
               onClick={(e) => e.stopPropagation()}
             >
               {redeemSuccess ? (
+                // SUCCESS MESSAGE
                 <div className="text-center">
-                  <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-3" />
-                  <h3 className="text-xl font-bold text-white mb-2">Berhasil!</h3>
-                  <p className="text-slate-400 text-sm mb-2">
-                    Voucher {selectedVoucher.name} telah ditukar.
-                  </p>
-                  <p className="text-xs text-amber-400 mb-2">
-                    ⚠️ Voucher berlaku 7 hari ke depan
-                  </p>
-                  <p className="text-xs text-slate-500 mb-4">
-                    Tunjukkan QR Code KTP ke merchant untuk klaim voucher.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setRedeemSuccess(false);
-                      setShowConfirmModal(false);
-                      setSelectedVoucher(null);
-                      setRedeeming(false);
-                      onClose();
-                    }}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-colors"
-                  >
-                    Tutup
-                  </button>
+                  {/* LIVE VOUCHER */}
+                  {selectedVoucher.type === 'live' ? (
+                    <>
+                      {isLive ? (
+                        // 🔥 LIVE ON-AIR
+                        <>
+                          <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
+                            <CheckCircle className="w-10 h-10 text-emerald-400" />
+                          </div>
+                          <h3 className="text-xl font-bold text-white mb-2">🎉 Akses Live Aktif!</h3>
+                          <p className="text-slate-400 text-sm mb-4">Selamat menonton siaran live!</p>
+                          <button
+                            onClick={() => {
+                              setRedeemSuccess(false);
+                              setShowConfirmModal(false);
+                              setSelectedVoucher(null);
+                              setRedeeming(false);
+                              onClose();
+                              if (onAccessPurchased) {
+                                onAccessPurchased({
+                                  id: rpcData?.transaction_id,
+                                  status: "active",
+                                  voucher_type: selectedVoucher.type,
+                                  voucher_name: selectedVoucher.name
+                                });
+                              }
+                            }}
+                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-colors"
+                          >
+                            🎬 Nonton Sekarang
+                          </button>
+                        </>
+                      ) : (
+                        // ⏳ LIVE OFF-AIR
+                        <>
+                          <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-3">
+                            <Bell className="w-10 h-10 text-amber-400" />
+                          </div>
+                          <h3 className="text-xl font-bold text-white mb-2">⏳ Akses Live Dibeli!</h3>
+                          <p className="text-slate-400 text-sm mb-2">Kami akan memberitahu saat siaran dimulai.</p>
+                          <div className="bg-slate-800/50 rounded-xl p-3 mb-4">
+                            <p className="text-xs text-slate-400">📬 Notifikasi akan masuk ke <strong className="text-amber-400">Warung Info</strong></p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setRedeemSuccess(false);
+                              setShowConfirmModal(false);
+                              setSelectedVoucher(null);
+                              setRedeeming(false);
+                              onClose();
+                            }}
+                            className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold transition-colors"
+                          >
+                            🏠 Kembali ke Rumah Warga
+                          </button>
+                        </>
+                      )}
+                    </>
+                  ) : selectedVoucher.type === 'physical' || !selectedVoucher.type ? (
+                    // 🔥 PHYSICAL VOUCHER - TANPA QR CODE, LANGSUNG KE KTP
+                    <>
+                      <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-10 h-10 text-emerald-400" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">✅ Voucher Berhasil Ditukar!</h3>
+                      <p className="text-slate-400 text-sm mb-3">
+                        Voucher "{selectedVoucher.name}" dari {selectedVoucher.merchant} siap diklaim.
+                      </p>
+
+                      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-4">
+                        <p className="text-xs text-amber-400 text-center">
+                          🔑 Tunjukkan <strong>KTP Digital</strong> Anda ke merchant untuk klaim voucher.
+                        </p>
+                        <p className="text-[10px] text-slate-500 text-center mt-1">
+                          Merchant akan scan QR Code KTP Anda
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={handleShowKTP}
+                          className="py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-colors"
+                        >
+                          📱 Tunjukkan KTP
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRedeemSuccess(false);
+                            setShowConfirmModal(false);
+                            setSelectedVoucher(null);
+                            setRedeeming(false);
+                            onClose();
+                          }}
+                          className="py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold transition-colors"
+                        >
+                          🏠 Kembali
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    // Voucher lainnya (video, subscription)
+                    <>
+                      <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-10 h-10 text-emerald-400" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">✅ Berhasil!</h3>
+                      <p className="text-slate-400 text-sm mb-4">Voucher berhasil ditukar!</p>
+                      <button
+                        onClick={() => {
+                          setRedeemSuccess(false);
+                          setShowConfirmModal(false);
+                          setSelectedVoucher(null);
+                          setRedeeming(false);
+                          onClose();
+                        }}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition-colors"
+                      >
+                        Tutup
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : (
+                // CONFIRMATION (tetap sama)
                 <>
                   <div className="text-center mb-4">
                     <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
@@ -384,6 +988,32 @@ export default function PointsModal({
                   <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
                     <p className="text-center font-bold text-white">{selectedVoucher.name}</p>
                     <p className="text-center text-xs text-slate-400">{selectedVoucher.merchant}</p>
+
+                    {selectedVoucher.type === 'live' && (
+                      <div className="mt-2 p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                        <p className="text-center text-xs text-emerald-400 font-bold">✅ Beli sekarang, tonton saat siaran dimulai!</p>
+                        <p className="text-center text-[9px] text-slate-500 mt-1">⏳ Notifikasi akan muncul saat live tayang</p>
+                      </div>
+                    )}
+
+                    {selectedVoucher.type === 'video' && (
+                      <div className="mt-2 p-2 bg-blue-500/10 rounded-lg">
+                        <p className="text-center text-xs text-blue-400">🎬 Akses Video akan aktif selama 24 jam</p>
+                      </div>
+                    )}
+
+                    {selectedVoucher.type === 'subscription' && (
+                      <div className="mt-2 p-2 bg-purple-500/10 rounded-lg">
+                        <p className="text-center text-xs text-purple-400">📅 Berlangganan aktif selama 30 hari</p>
+                      </div>
+                    )}
+
+                    {(!selectedVoucher.type || selectedVoucher.type === 'physical') && (
+                      <div className="mt-2 p-2 bg-amber-500/10 rounded-lg">
+                        <p className="text-center text-xs text-amber-400">⏰ Berlaku 7 hari setelah tukar</p>
+                      </div>
+                    )}
+
                     <div className="flex justify-between mt-3 pt-3 border-t border-slate-700">
                       <span className="text-slate-400">Biaya</span>
                       <span className="text-emerald-400 font-bold">{selectedVoucher.points_required} Poin</span>
@@ -393,14 +1023,44 @@ export default function PointsModal({
                       <span className="text-amber-400 text-xs font-bold">
                         {(() => {
                           const expired = new Date();
-                          expired.setDate(expired.getDate() + 7);
-                          return expired.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                          if (selectedVoucher.type === 'live') {
+                            expired.setHours(expired.getHours() + 24);
+                            return expired.toLocaleString('id-ID', {
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            });
+                          } else if (selectedVoucher.type === 'video') {
+                            expired.setDate(expired.getDate() + 1);
+                          } else if (selectedVoucher.type === 'subscription') {
+                            expired.setDate(expired.getDate() + 30);
+                          } else {
+                            expired.setDate(expired.getDate() + 7);
+                          }
+                          return expired.toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric'
+                          });
                         })()}
                       </span>
                     </div>
-                    <p className="text-[9px] text-slate-500 text-center mt-2">
-                      ⚠️ Voucher akan kadaluarsa dalam 7 hari jika tidak diklaim
-                    </p>
+
+                    {selectedVoucher.type === 'live' && (
+                      <p className="text-[9px] text-emerald-400/70 text-center mt-2 flex items-center justify-center gap-1">
+                        <Bell className="w-3 h-3" /> Kamu akan mendapat notifikasi saat live dimulai
+                      </p>
+                    )}
+                    {selectedVoucher.type === 'video' && (
+                      <p className="text-[9px] text-blue-400/70 text-center mt-2">🎬 Akses video akan aktif segera setelah konfirmasi</p>
+                    )}
+                    {selectedVoucher.type === 'subscription' && (
+                      <p className="text-[9px] text-purple-400/70 text-center mt-2">📅 Berlangganan akan aktif segera setelah konfirmasi</p>
+                    )}
+                    {(!selectedVoucher.type || selectedVoucher.type === 'physical') && (
+                      <p className="text-[9px] text-amber-400/70 text-center mt-2">⚠️ Voucher akan kadaluarsa dalam 7 hari jika tidak diklaim</p>
+                    )}
                   </div>
 
                   <div className="flex gap-3">
@@ -416,7 +1076,14 @@ export default function PointsModal({
                       disabled={redeeming}
                       className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center disabled:opacity-50"
                     >
-                      {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : "Ya, Tukar"}
+                      {redeeming ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Memproses...
+                        </>
+                      ) : (
+                        "Ya, Tukar"
+                      )}
                     </button>
                   </div>
                 </>
@@ -427,4 +1094,4 @@ export default function PointsModal({
       </AnimatePresence>
     </>
   );
-}
+}  

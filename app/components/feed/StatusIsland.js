@@ -2,18 +2,18 @@
 
 import { useDataContext } from "@/contexts/DataContext";
 import { useMemo, useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion"; // Dioptimasi menggunakan framer-motion
+import { motion, AnimatePresence } from "framer-motion";
 import { generateStatusText, getDefaultTextByTime } from "@/lib/generateStatusText";
 import { generateRingkasanMultiUser } from "@/lib/generateRingkasanMultiUser";
 import { getPassiveSignals, getPassiveStatusText, getPassiveRingkasan } from "@/lib/passiveSignals";
 import { useWeather, getWeatherAsSignal } from "@/hooks/useWeather";
+import { supabase } from "@/lib/supabaseClient";
 
 // ==================== CONSTANTS ====================
 const STATUS_CONFIG = {
   FRESH_REPORT_HOURS: 12,
-  CACHE_TTL_MS: 60000,
+  CACHE_TTL_MS: 30000,
   RECENT_REPORT_HOURS: 2,
-  MAX_PASSIVE_SIGNALS: 4,
   MAX_DISPLAY_REPORTS: 4
 };
 
@@ -68,6 +68,13 @@ const getRelativeTime = (createdAt) => {
   if (diffMin < 60) return `${diffMin}m lalu`;
   if (diffMin < 1440) return `${Math.floor(diffMin / 60)}j lalu`;
   return `${Math.floor(diffMin / 1440)}hari lalu`;
+};
+
+// 🔥 Helper: ambil timestamp aman (0 kalau tidak ada) supaya bisa dibandingkan
+const getTimestamp = (createdAt) => {
+  if (!createdAt) return 0;
+  const t = new Date(createdAt).getTime();
+  return Number.isNaN(t) ? 0 : t;
 };
 
 // ==================== SUB-COMPONENTS ====================
@@ -163,9 +170,9 @@ const WeatherDetail = ({ weather, hasFreshData }) => {
 
       {recommendation && (
         <div className={`mt-2.5 p-2 rounded-lg text-[10px] font-semibold leading-relaxed shadow-xs ${isHeavyRain ? 'bg-red-100/40 text-red-700' :
-            isModerateRain ? 'bg-blue-100/40 text-blue-700' :
-              isLightRain ? 'bg-slate-100/50 text-slate-600' :
-                'bg-amber-100/40 text-amber-700'
+          isModerateRain ? 'bg-blue-100/40 text-blue-700' :
+            isLightRain ? 'bg-slate-100/50 text-slate-600' :
+              'bg-amber-100/40 text-amber-700'
           }`}>
           {recommendation}
         </div>
@@ -210,14 +217,92 @@ export default function StatusIsland({
   const [internalExpanded, setInternalExpanded] = useState(false);
   const [passiveSignal, setPassiveSignal] = useState(null);
   const [isLoadingPassive, setIsLoadingPassive] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // 🔥 Trigger refresh
   const passiveCacheRef = useRef(new Map());
   const abortControllerRef = useRef(null);
+  const subscriptionRef = useRef(null); // 🔥 Realtime subscription
 
   const { weather } = useWeather(locationName);
 
   const isExpanded = externalExpanded ?? internalExpanded;
   const setIsExpanded = externalSetIsExpanded || setInternalExpanded;
   const targetId = item?.id || tempatId;
+
+  // ============================================
+  // 🔥 REALTIME SUBSCRIPTION
+  // ============================================
+  useEffect(() => {
+    if (!targetId) return;
+
+    const channel = supabase
+      .channel(`external_signals_${targetId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'external_signals',
+          // ⚠️ Supabase Realtime hanya mendukung filter satu kolom (tempat_id),
+          // jadi row `view_detail` (source: user_activity) tetap akan lolos
+          // ke sini dan HARUS difilter manual di callback di bawah.
+          filter: `tempat_id=eq.${targetId}`
+        },
+        (payload) => {
+          const record = payload.new || payload.old;
+
+          // 🔥 PERBAIKAN: abaikan event dari view_detail / aktivitas pasif.
+          // Tabel `external_signals` dipakai bersama untuk citizen_click DAN
+          // user_activity (view_detail), jadi setiap kali ada orang buka
+          // detail tempat, INSERT itu ikut nyangkut di channel `event: '*'`
+          // ini dan memicu refetch + buang cache — padahal tidak ada
+          // perubahan kondisi apa pun yang perlu direspons segera.
+          // Hanya source yang benar-benar merepresentasikan laporan warga
+          // (citizen_click) atau sumber eksternal lain yang boleh memicu
+          // refresh instan. View activity biarkan menunggu siklus cache
+          // normal (CACHE_TTL_MS) supaya tidak jadi refetch storm.
+          if (record?.source === 'user_activity') {
+            return;
+          }
+
+          console.log('🔄 External signals changed:', payload);
+          setRefreshTrigger(prev => prev + 1);
+          const cacheKey = `${targetId}_with_weather`;
+          passiveCacheRef.current.delete(cacheKey);
+        }
+      )
+      .subscribe();
+
+    subscriptionRef.current = channel;
+
+    const minatChannel = supabase
+      .channel(`minat_${targetId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'minat',
+          filter: `tempat_id=eq.${targetId}`
+        },
+        (payload) => {
+          console.log('🔄 Minat changed:', payload);
+          setRefreshTrigger(prev => prev + 1);
+          const cacheKey = `${targetId}_with_weather`;
+          passiveCacheRef.current.delete(cacheKey);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+      if (minatChannel) {
+        supabase.removeChannel(minatChannel);
+      }
+    };
+  }, [targetId]);
 
   const realtimeData = useMemo(() => {
     if (!targetId) return null;
@@ -240,9 +325,16 @@ export default function StatusIsland({
 
   const { freshReports, latestFreshReport, hoursSinceLastReport, hasFreshData, freshCount } = reportStats;
 
-  // Fetch passive signals
+  // 🔥 PERBAIKAN: passiveSignal SELALU di-fetch, tidak lagi dibuang begitu saja
+  // saat hasFreshData true. Sebelumnya baris `if (!targetId || hasFreshData)`
+  // membuat passiveSignal jadi null setiap kali DataContext selesai loading
+  // dan menemukan laporan resmi (walau umurnya sampai 12 jam) — ini yang bikin
+  // status laporan warga yang tadinya tampil benar tiba-tiba "berubah" beberapa
+  // saat setelah refresh, karena kalah race terhadap loading DataContext.
+  // Prioritas mana yang ditampilkan sekarang ditentukan di `status` useMemo
+  // berdasarkan TIMESTAMP siapa yang lebih baru, bukan urutan loading.
   useEffect(() => {
-    if (!targetId || hasFreshData) {
+    if (!targetId) {
       setPassiveSignal(null);
       return;
     }
@@ -262,10 +354,11 @@ export default function StatusIsland({
 
     const fetchSignals = async () => {
       try {
-        const result = await getPassiveSignals(targetId, STATUS_CONFIG.MAX_PASSIVE_SIGNALS);
+        console.log('🔄 Fetching passive signals for:', targetId);
+        const result = await getPassiveSignals(targetId);
         let finalResult = result;
 
-        if (weather && !hasFreshData) {
+        if (weather) {
           const weatherSignal = getWeatherAsSignal(weather);
           finalResult = {
             ...result,
@@ -283,7 +376,7 @@ export default function StatusIsland({
           passiveCacheRef.current.set(cacheKey, { data: finalResult, timestamp: Date.now() });
         }
       } catch (err) {
-        if (isMounted && !abortController.signal.aborted && weather && !hasFreshData) {
+        if (isMounted && !abortController.signal.aborted && weather) {
           setPassiveSignal({ weather: getWeatherAsSignal(weather), total: 1, hasWeatherAlert: true });
         } else if (isMounted && !abortController.signal.aborted) {
           setPassiveSignal(null);
@@ -295,13 +388,31 @@ export default function StatusIsland({
 
     fetchSignals();
     return () => { isMounted = false; abortController.abort(); };
-  }, [targetId, hasFreshData, weather]);
+  }, [targetId, weather, refreshTrigger]); // 🔥 hasFreshData dihapus dari dependency: fetch tidak lagi bergantung padanya
+
+  // 🔥 Force refresh saat mount
+  useEffect(() => {
+    if (targetId) {
+      setRefreshTrigger(prev => prev + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetId]);
 
   const seed = targetId || "default";
   const defaultSuasana = useMemo(() => {
     const category = item?.category || "general";
     return getDefaultTextByTime(seed, category);
   }, [seed, item?.category]);
+
+  // 🔥 PERBAIKAN UTAMA: bandingkan timestamp laporan warga (citizen click) vs
+  // laporan resmi (fresh report). Yang lebih baru yang menang — bukan
+  // hasFreshData sebagai gerbang absolut. Ini menghilangkan race/flicker
+  // setelah refresh.
+  const citizenTimestamp = getTimestamp(passiveSignal?.latestCitizen?.created_at);
+  const freshTimestamp = getTimestamp(latestFreshReport?.created_at);
+  const hasCitizenReport = !!(passiveSignal?.latestCitizen && passiveSignal?.citizenCount > 0);
+  const citizenIsNewerOrOnly = hasCitizenReport && (!hasFreshData || citizenTimestamp >= freshTimestamp);
+  const freshIsNewer = hasFreshData && latestFreshReport && (!hasCitizenReport || freshTimestamp > citizenTimestamp);
 
   const status = useMemo(() => {
     const weatherLevel = passiveSignal?.weather ? getWeatherLevel(passiveSignal.weather.condition) : 0;
@@ -310,55 +421,14 @@ export default function StatusIsland({
     const isHeavyRain = isWeatherCondition(passiveSignal?.weather?.condition, 'heavyRain');
     const isFog = isWeatherCondition(passiveSignal?.weather?.condition, 'fog');
 
-    if ((isHeavyRain || weatherLevel >= 4) && !hasFreshData) {
-      return {
-        text: passiveSignal.weather.statusText,
-        color: "text-red-600 dark:text-red-400",
-        bgColor: "bg-red-500",
-        icon: passiveSignal.weather.icon,
-        badge: weatherLevel === 5 ? "⚠️ HUJAN LEBAT" : "🌧️ HUJAN SEDANG",
-        vibe: passiveSignal.weather.vibe,
-        level: weatherLevel,
-      };
+    // 🔥 PRIORITAS 1: Citizen Report — hanya kalau memang yang terbaru
+    if (citizenIsNewerOrOnly) {
+      const passiveStatus = getPassiveStatusText(passiveSignal);
+      if (passiveStatus) return passiveStatus;
     }
 
-    if (isFog && !hasFreshData) {
-      return {
-        text: `🌫️ Kabut (${passiveSignal.weather.temp}°C)`,
-        color: "text-amber-600 dark:text-amber-400",
-        bgColor: "bg-amber-500",
-        icon: "🌫️",
-        badge: "KABUT",
-        vibe: "Kabut mengurangi jarak pandang, hati-hati berkendara",
-        level: 3,
-      };
-    }
-
-    if (isModerateRain && !hasFreshData) {
-      return {
-        text: `🌧️ Hujan Sedang (${passiveSignal.weather.temp}°C)`,
-        color: "text-blue-600 dark:text-blue-400",
-        bgColor: "bg-blue-500",
-        icon: "🌧️",
-        badge: "HUJAN SEDANG",
-        vibe: "Hujan sedang, jalanan licin, waspada",
-        level: 4,
-      };
-    }
-
-    if (isLightRain && !hasFreshData) {
-      return {
-        text: `🌧️ Hujan Ringan (${passiveSignal.weather.temp}°C)`,
-        color: "text-slate-700 dark:text-slate-300",
-        bgColor: "bg-slate-400",
-        icon: "🌧️",
-        badge: "HUJAN RINGAN",
-        vibe: "Hujan ringan, jangan lupa payung",
-        level: 2,
-      };
-    }
-
-    if (hasFreshData && latestFreshReport) {
+    // 🔥 PRIORITAS 2: Fresh Report dari database — hanya kalau memang yang terbaru
+    if (freshIsNewer) {
       const kondisi = latestFreshReport?.tipe || item?.latest_condition || "Normal";
       const trafficCondition = latestFreshReport?.traffic_condition;
       const isRecent = latestFreshReport?.created_at
@@ -378,12 +448,63 @@ export default function StatusIsland({
       });
     }
 
-    if (passiveSignal?.total > 0 && !hasFreshData && !passiveSignal?.weather) {
+    // 🔥 PRIORITAS 3: Weather Extreme (tidak ada laporan warga/resmi yang lebih relevan)
+    if (isHeavyRain || weatherLevel >= 4) {
+      return {
+        text: passiveSignal.weather.statusText,
+        color: "text-red-600 dark:text-red-400",
+        bgColor: "bg-red-500",
+        icon: passiveSignal.weather.icon,
+        badge: weatherLevel === 5 ? "⚠️ HUJAN LEBAT" : "🌧️ HUJAN SEDANG",
+        vibe: passiveSignal.weather.vibe,
+        level: weatherLevel,
+      };
+    }
+
+    if (isFog) {
+      return {
+        text: `🌫️ Kabut (${passiveSignal.weather.temp}°C)`,
+        color: "text-amber-600 dark:text-amber-400",
+        bgColor: "bg-amber-500",
+        icon: "🌫️",
+        badge: "KABUT",
+        vibe: "Kabut mengurangi jarak pandang, hati-hati berkendara",
+        level: 3,
+      };
+    }
+
+    if (isModerateRain) {
+      return {
+        text: `🌧️ Hujan Sedang (${passiveSignal.weather.temp}°C)`,
+        color: "text-blue-600 dark:text-blue-400",
+        bgColor: "bg-blue-500",
+        icon: "🌧️",
+        badge: "HUJAN SEDANG",
+        vibe: "Hujan sedang, jalanan licin, waspada",
+        level: 4,
+      };
+    }
+
+    if (isLightRain) {
+      return {
+        text: `🌧️ Hujan Ringan (${passiveSignal.weather.temp}°C)`,
+        color: "text-slate-700 dark:text-slate-300",
+        bgColor: "bg-slate-400",
+        icon: "🌧️",
+        badge: "HUJAN RINGAN",
+        vibe: "Hujan ringan, jangan lupa payung",
+        level: 2,
+      };
+    }
+
+    // 🔥 PRIORITAS 4: Passive Signal lain (aktivitas, tanpa citizen report/cuaca signifikan)
+    if (passiveSignal?.total > 0 && !passiveSignal?.weather) {
       const passiveStatus = getPassiveStatusText(passiveSignal);
       if (passiveStatus) return passiveStatus;
     }
 
-    if (passiveSignal?.weather && !hasFreshData && weatherLevel === DEFAULT_WEATHER_LEVEL) {
+    // 🔥 PRIORITAS 5: Weather Normal
+    if (passiveSignal?.weather && weatherLevel === DEFAULT_WEATHER_LEVEL) {
       return {
         text: defaultSuasana,
         color: "text-slate-600 dark:text-slate-400",
@@ -395,6 +516,7 @@ export default function StatusIsland({
       };
     }
 
+    // 🔥 PRIORITAS 6: Default
     return {
       text: defaultSuasana,
       color: "text-slate-600 dark:text-slate-400",
@@ -404,10 +526,15 @@ export default function StatusIsland({
       vibe: hoursSinceLastReport ? `Belum ada laporan dalam ${hoursSinceLastReport} jam` : "Belum ada laporan",
       level: 1,
     };
-  }, [hasFreshData, latestFreshReport, freshCount, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
+  }, [citizenIsNewerOrOnly, freshIsNewer, latestFreshReport, freshCount, item, hoursSinceLastReport, defaultSuasana, seed, passiveSignal]);
 
+  // 🔥 Ringkasan mengikuti prioritas yang sama (citizen vs fresh berdasar waktu)
   const ringkasanMultiUser = useMemo(() => {
-    if (hasFreshData && freshReports.length) {
+    if (citizenIsNewerOrOnly && passiveSignal?.ringkasan) {
+      return passiveSignal.ringkasan;
+    }
+
+    if (freshIsNewer && freshReports.length) {
       let ringkasan = generateRingkasanMultiUser(freshReports, item?.category || "general");
       if (weather && (isWeatherCondition(weather.condition, 'lightRain') ||
         isWeatherCondition(weather.condition, 'moderateRain') ||
@@ -428,9 +555,12 @@ export default function StatusIsland({
       return `☀️ Cuaca: ${w.statusText}. Kondisi mendukung aktivitas normal.`;
     }
 
-    if (passiveSignal?.total > 0) return getPassiveRingkasan(passiveSignal, item?.name);
+    if (passiveSignal?.total > 0) {
+      return getPassiveRingkasan(passiveSignal, item?.name);
+    }
+
     return "Belum ada laporan terbaru dari warga sekitar.";
-  }, [hasFreshData, freshReports, item?.category, item?.name, passiveSignal, weather]);
+  }, [citizenIsNewerOrOnly, freshIsNewer, freshReports, item?.category, item?.name, passiveSignal, weather]);
 
   const jarakFix = useMemo(() => {
     const dist = item?.distance;
@@ -439,9 +569,12 @@ export default function StatusIsland({
     return num < 1 ? `${Math.round(num * 1000)} m` : `${num.toFixed(1)} km`;
   }, [item?.distance]);
 
-  const waktuUpdate = useMemo(() => getRelativeTime(latestFreshReport?.created_at), [latestFreshReport]);
+  const waktuUpdate = useMemo(() => {
+    if (citizenIsNewerOrOnly) return getRelativeTime(passiveSignal?.latestCitizen?.created_at);
+    return getRelativeTime(latestFreshReport?.created_at);
+  }, [citizenIsNewerOrOnly, passiveSignal, latestFreshReport]);
 
-  const canExpand = (status.level >= 2 && hasFreshData) ||
+  const canExpand = (status.level >= 2 && (hasFreshData || hasCitizenReport)) ||
     passiveSignal?.weather?.isExtreme ||
     isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') ||
     isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ||
@@ -449,7 +582,7 @@ export default function StatusIsland({
     (passiveSignal?.total > 0);
 
   const getGlowStyle = () => {
-    if (hasFreshData && status.level >= 2) return 'shadow-[0_8px_30px_-4px_rgba(245,158,11,0.12)] border-amber-500/20';
+    if ((hasFreshData || hasCitizenReport) && status.level >= 2) return 'shadow-[0_8px_30px_-4px_rgba(245,158,11,0.12)] border-amber-500/20';
     if (passiveSignal?.weather?.isExtreme) return 'shadow-[0_8px_30px_-4px_rgba(220,38,38,0.18)] border-red-500/25';
     if (isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain')) return 'shadow-[0_8px_30px_-4px_rgba(59,130,246,0.12)] border-blue-500/20';
     if (isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain')) return 'shadow-[0_6px_20px_-4px_rgba(100,116,139,0.1)] border-slate-300/30';
@@ -460,7 +593,6 @@ export default function StatusIsland({
 
   return (
     <div className="mx-3 -mt-5 relative z-10 transition-all duration-300 select-none">
-      {/* Container Utama menggunakan motion untuk feedback ketukan haptic-look */}
       <motion.div
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
         whileTap={canExpand ? { scale: 0.98 } : {}}
@@ -477,26 +609,28 @@ export default function StatusIsland({
               <p className={`text-[11px] font-black tracking-wider uppercase truncate ${status.color}`}>
                 {status.text}
               </p>
-              {hasFreshData && <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Laporan Aktif Warga</span>}
-              {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') && (
+              {(hasFreshData || hasCitizenReport) && (citizenIsNewerOrOnly || freshIsNewer) && (
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Laporan Aktif Warga</span>
+              )}
+              {!citizenIsNewerOrOnly && !freshIsNewer && isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') && (
                 <span className="text-[9px] text-slate-500 font-medium animate-pulse mt-0.5">☔ Hujan ringan, bawa payung</span>
               )}
-              {!hasFreshData && isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') && (
+              {!citizenIsNewerOrOnly && !freshIsNewer && isWeatherCondition(passiveSignal?.weather?.condition, 'moderateRain') && (
                 <span className="text-[9px] text-blue-500 font-medium animate-pulse mt-0.5">🌧️ Hujan sedang, waspada</span>
               )}
-              {!hasFreshData && passiveSignal?.weather?.isExtreme && (
+              {!citizenIsNewerOrOnly && !freshIsNewer && passiveSignal?.weather?.isExtreme && (
                 <span className="text-[9px] text-red-500 font-medium animate-pulse mt-0.5">⚠️ Peringatan Cuaca Ekstrem!</span>
               )}
-              {!hasFreshData && !passiveSignal?.weather && isLoadingPassive && (
+              {!passiveSignal && isLoadingPassive && (
                 <span className="text-[9px] text-purple-400 font-semibold animate-pulse mt-0.5">🔍 Cek Situasi...</span>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <WeatherBadge weather={weather} hasFreshData={hasFreshData} />
+            <WeatherBadge weather={weather} hasFreshData={citizenIsNewerOrOnly || freshIsNewer} />
 
-            {passiveSignal && !hasFreshData && passiveSignal.total > 0 && !passiveSignal?.weather && (
+            {passiveSignal && !citizenIsNewerOrOnly && !freshIsNewer && passiveSignal.total > 0 && !passiveSignal?.weather && (
               <span className="text-[10px] font-bold text-purple-600 bg-purple-50/80 px-2.5 py-1 rounded-full border border-purple-100 shadow-xs">
                 ⚡ {passiveSignal.total} Aktivitas
               </span>
@@ -506,7 +640,7 @@ export default function StatusIsland({
               <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                 {waktuUpdate}
               </span>
-            ) : weather && !hasFreshData ? (
+            ) : weather && !citizenIsNewerOrOnly && !freshIsNewer ? (
               <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
                 {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
               </span>
@@ -527,7 +661,6 @@ export default function StatusIsland({
         </div>
       </motion.div>
 
-      {/* Expandable Detail Section dengan Animasi Elastis & AnimatePresence */}
       <AnimatePresence>
         {isExpanded && canExpand && (
           <motion.div
@@ -538,52 +671,53 @@ export default function StatusIsland({
             className="bg-white/90 backdrop-blur-lg rounded-b-2xl border-x border-b border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden"
           >
             <div className="p-4 pt-1 space-y-4">
-              <WeatherDetail weather={passiveSignal?.weather} hasFreshData={hasFreshData} />
+              <WeatherDetail weather={passiveSignal?.weather} hasFreshData={citizenIsNewerOrOnly || freshIsNewer} />
 
-              {/* Context Summary Box */}
               <div className={`p-3 rounded-xl border text-xs leading-relaxed shadow-xs
-                ${hasFreshData ? 'bg-amber-50/30 border-amber-100/70 text-slate-700' :
+                ${(citizenIsNewerOrOnly || freshIsNewer) ? 'bg-amber-50/30 border-amber-100/70 text-slate-700' :
                   passiveSignal?.weather?.isExtreme ? 'bg-red-50/30 border-red-100/70' :
                     isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'bg-slate-50/50 border-slate-200/60' :
                       'bg-purple-50/30 border-purple-100/70 text-slate-700'}
               `}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[9px] font-black uppercase tracking-widest ${hasFreshData ? 'text-amber-600' :
+                  <span className={`text-[9px] font-black uppercase tracking-widest ${(citizenIsNewerOrOnly || freshIsNewer) ? 'text-amber-600' :
                     passiveSignal?.weather?.isExtreme ? 'text-red-600' :
                       isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? 'text-slate-500' :
                         'text-purple-600'
                     }`}>
-                    {hasFreshData ? `💬 Ringkasan ${freshCount} Warga` :
-                      passiveSignal?.weather?.isExtreme ? '⚠️ Peringatan Cuaca' :
-                        isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Info Cuaca' :
-                          '👀 Analisis Situasi'}
+                    {citizenIsNewerOrOnly ? `💬 Ringkasan ${passiveSignal?.citizenCount || 0} Warga` :
+                      freshIsNewer ? `💬 Ringkasan ${freshCount} Warga` :
+                        passiveSignal?.weather?.isExtreme ? '⚠️ Peringatan Cuaca' :
+                          isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Info Cuaca' :
+                            '👀 Analisis Situasi'}
                   </span>
-                  {!hasFreshData && passiveSignal?.total > 0 && (
+                  {!citizenIsNewerOrOnly && !freshIsNewer && passiveSignal?.total > 0 && (
                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">4 jam terakhir</span>
                   )}
                 </div>
 
-                <p className={`font-medium ${hasFreshData ? "italic text-slate-600" : "text-slate-600"}`}>
+                <p className={`font-medium ${(citizenIsNewerOrOnly || freshIsNewer) ? "italic text-slate-600" : "text-slate-600"}`}>
                   {ringkasanMultiUser}
                 </p>
 
-                {/* Avatar Pile */}
                 <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-200/30">
-                  {hasFreshData ? (
+                  {freshIsNewer ? (
                     <AvatarGroup reports={freshReports} count={freshCount} type="warga" />
+                  ) : citizenIsNewerOrOnly ? (
+                    <AvatarGroup reports={[{}]} count={passiveSignal?.citizenCount || 1} type="warga" />
                   ) : passiveSignal?.total > 0 && (
                     <AvatarGroup reports={Array(Math.min(passiveSignal.total, 4)).fill({})} count={passiveSignal.total} type="passive" />
                   )}
                   <span className="text-[10px] text-slate-400 font-bold">
-                    {hasFreshData ? `${freshCount} warga ikut bersuara` :
-                      passiveSignal?.weather?.isExtreme ? '⚠️ Tetap waspada' :
-                        isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Siapkan perlengkapan hujan' :
-                          `${passiveSignal?.total || 0} interaksi lokal`}
+                    {freshIsNewer ? `${freshCount} warga ikut bersuara` :
+                      citizenIsNewerOrOnly ? `${passiveSignal?.citizenCount || 0} warga ikut bersuara` :
+                        passiveSignal?.weather?.isExtreme ? '⚠️ Tetap waspada' :
+                          isWeatherCondition(passiveSignal?.weather?.condition, 'lightRain') ? '☔ Siapkan perlengkapan hujan' :
+                            `${passiveSignal?.total || 0} interaksi lokal`}
                   </span>
                 </div>
               </div>
 
-              {/* Footer Mini Stats */}
               <div className="flex items-center justify-between px-0.5 text-[9px] font-black text-slate-400 uppercase tracking-wider">
                 <div className="flex gap-4">
                   <div className="flex flex-col gap-0.5">
@@ -591,19 +725,19 @@ export default function StatusIsland({
                     <span className="text-slate-700 font-extrabold text-[11px]">🗃️ {jumlahWarga || 0}</span>
                   </div>
                   <div className="border-l border-slate-200/60 pl-4 flex flex-col gap-0.5">
-                    <span className="font-bold text-[9px] text-slate-400/80">{hasFreshData ? 'Laporan' : 'Interaksi'}</span>
+                    <span className="font-bold text-[9px] text-slate-400/80">{(hasFreshData || hasCitizenReport) ? 'Laporan' : 'Interaksi'}</span>
                     <span className="text-slate-700 font-extrabold text-[11px]">
-                      {hasFreshData ? `👥 ${freshCount}` : `👥 ${passiveSignal?.total || 0}`}
+                      {freshIsNewer ? `👥 ${freshCount}` : citizenIsNewerOrOnly ? `👥 ${passiveSignal?.citizenCount || 0}` : `👥 ${passiveSignal?.total || 0}`}
                     </span>
                   </div>
-                  {weather && !hasFreshData && (
+                  {weather && !citizenIsNewerOrOnly && !freshIsNewer && (
                     <div className="border-l border-slate-200/60 pl-4 flex flex-col gap-0.5">
                       <span className="font-bold text-[9px] text-slate-400/80">Cuaca</span>
                       <span className={`font-extrabold text-[11px] ${isWeatherCondition(weather.condition, 'heavyRain') ? 'text-red-600' :
-                          isWeatherCondition(weather.condition, 'moderateRain') ? 'text-blue-600' :
-                            isWeatherCondition(weather.condition, 'lightRain') ? 'text-slate-600' :
-                              isWeatherCondition(weather.condition, 'fog') ? 'text-amber-600' :
-                                'text-slate-500'
+                        isWeatherCondition(weather.condition, 'moderateRain') ? 'text-blue-600' :
+                          isWeatherCondition(weather.condition, 'lightRain') ? 'text-slate-600' :
+                            isWeatherCondition(weather.condition, 'fog') ? 'text-amber-600' :
+                              'text-slate-500'
                         }`}>
                         {weather.icon} {weather.temp}°
                       </span>

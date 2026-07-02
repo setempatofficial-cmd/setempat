@@ -50,47 +50,94 @@ export default function LiveInsight({
 }) {
   const [index, setIndex] = useState(0);
   const [descriptionFromDB, setDescriptionFromDB] = useState(null);
-  const [expandedTextId, setExpandedTextId] = useState(null); // ✅ NEW: state untuk expand teks
+  const [expandedTextId, setExpandedTextId] = useState(null);
   const touchStart = useRef(null);
   const touchMoved = useRef(false);
   const containerRef = useRef(null);
-  const autoSlideIntervalRef = useRef(null); // ✅ NEW: untuk pause auto-slide saat expand
+  const autoSlideIntervalRef = useRef(null);
 
   const isDark = theme?.isMalam || theme?.name === "MALAM";
 
-  // Fetch Info Tempat
+  // ============================================
+  // 🎯 FETCH INFO TEMPAT - DIPERBAIKI
+  // ============================================
   useEffect(() => {
     async function fetchInfo() {
-      if (tempatData?.description) {
-        setDescriptionFromDB(tempatData.description);
+      if (!tempatId || isNaN(Number(tempatId))) {
+        setDescriptionFromDB(null);
         return;
       }
-      if (!tempatId) return;
 
-      const { data } = await supabase
-        .from('tempat')
-        .select('name, description, category')
-        .eq('id', tempatId)
-        .single();
+      if (tempatData?.description) {
+        setDescriptionFromDB({
+          text: tempatData.description,
+          name: tempatData.name,
+          category: tempatData.category
+        });
+        return;
+      }
 
-      if (data) setDescriptionFromDB({
-        text: data.description,
-        name: data.name,
-        category: data.category
-      });
+      try {
+        const { data, error } = await supabase
+          .from('tempat')
+          .select('name, description, category')
+          .eq('id', tempatId)
+          .single();
+
+        if (error) {
+          console.error('❌ Error fetch tempat:', error);
+          setDescriptionFromDB(null);
+          return;
+        }
+
+        if (data) {
+          setDescriptionFromDB({
+            text: data.description,
+            name: data.name,
+            category: data.category
+          });
+        } else {
+          setDescriptionFromDB(null);
+        }
+      } catch (error) {
+        console.error('❌ Exception fetch tempat:', error);
+        setDescriptionFromDB(null);
+      }
     }
+
     fetchInfo();
   }, [tempatId, tempatData]);
 
-  // Generate insights
+  // ============================================
+  // 🎯 GENERATE INSIGHTS - DIPERBAIKI
+  // ============================================
   const insights = useMemo(() => {
     let list = [];
 
+    // ✅ PRIORITAS 1: Tampilkan laporan warga (TAPI FILTER citizen_click)
     if (signals?.length > 0) {
       const now = Date.now();
+
+      // 🔥 FILTER: Hanya tampilkan laporan dari database (bukan citizen_click)
       const recentSignals = signals
-        .filter(s => (now - new Date(s.created_at).getTime()) <= 86400000)
+        .filter(s => {
+          // ✅ Filter laporan dalam 24 jam terakhir
+          if (!s?.created_at) return false;
+          const hoursDiff = (now - new Date(s.created_at).getTime()) / (1000 * 60 * 60);
+          if (hoursDiff > 24) return false;
+
+          // 🔥🔥🔥 SKIP citizen_click dari external_signals 🔥🔥🔥
+          // Citizen click memiliki report_type = 'citizen_click' atau source = 'citizen_click'
+          if (s.report_type === 'citizen_click') return false;
+          if (s.source === 'citizen_click') return false;
+
+          // 🔥 SKIP juga jika ini dari external_signals dengan source 'user_activity'
+          if (s.source === 'user_activity') return false;
+
+          return true;
+        })
         .sort((a, b) => {
+          // Prioritas: laporan user sendiri > laporan orang lain
           if (currentUser && a.user_id === currentUser.id) return -1;
           if (currentUser && b.user_id === currentUser.id) return 1;
           return new Date(b.created_at) - new Date(a.created_at);
@@ -100,45 +147,86 @@ export default function LiveInsight({
         const isMe = currentUser && s.user_id === currentUser.id;
         const authorName = isMe
           ? (currentUser.user_metadata?.full_name || "Anda")
-          : (s.user_name || "Warga");
+          : (s.user_name || s.username || "Warga");
+
+        let sourceLabel = isMe ? "LAPORAN ANDA" : "WARGA";
+        if (!s.tempat_id && !isMe) {
+          sourceLabel = "LAPORAN UMUM";
+        }
 
         return {
-          id: s.id,
+          id: s.id || `signal-${Date.now()}`,
           text: s.deskripsi || s.content || "Update tersedia",
           author: authorName,
           reportData: s,
           time: formatRelativeTime(s.created_at),
-          sourceLabel: isMe ? "LAPORAN ANDA" : "WARGA",
+          sourceLabel: sourceLabel,
           isUrgent: /(macet|kecelakaan|banjir|ramai|antri)/i.test((s.deskripsi || "").toLowerCase()),
-          tipe: s.tipe || "Update",
-          isMe
+          tipe: s.tipe || s.report_type || "Update",
+          isMe,
+          hasTempat: !!s.tempat_id
         };
       });
     }
 
-    // Fallback ke info tempat
+    // ✅ PRIORITAS 2: Fallback ke info tempat
     if (list.length === 0 && descriptionFromDB) {
-      const text = typeof descriptionFromDB === 'string' ? descriptionFromDB : descriptionFromDB.text;
+      const text = typeof descriptionFromDB === 'string'
+        ? descriptionFromDB
+        : descriptionFromDB.text || "Informasi tempat";
+
       list.push({
         id: "desc",
         text: text,
-        author: descriptionFromDB.name || locationName,
+        author: descriptionFromDB.name || locationName || "Lokasi",
         reportData: null,
         time: "Terkini",
         sourceLabel: "TENTANG TEMPAT",
         fromDescription: true,
         isUrgent: false,
         tipe: "Informasi",
-        isMe: false
+        isMe: false,
+        hasTempat: true
+      });
+    }
+
+    // ✅ PRIORITAS 3: Jika tidak ada data sama sekali
+    if (list.length === 0) {
+      list.push({
+        id: "empty",
+        text: currentUser
+          ? `Halo ${currentUser.user_metadata?.full_name || "Warga"}! Belum ada laporan terbaru.`
+          : "Belum ada laporan untuk lokasi ini",
+        author: currentUser?.user_metadata?.full_name || "Sistem",
+        reportData: null,
+        time: "Sekarang",
+        sourceLabel: "INFORMASI",
+        fromDescription: true,
+        isUrgent: false,
+        tipe: "Info",
+        isMe: !!currentUser,
+        hasTempat: false
       });
     }
 
     return list;
   }, [signals, currentUser, descriptionFromDB, locationName]);
 
+  // ============================================
+  // 🎯 FIX INDEX - DIPERBAIKI
+  // ============================================
   const insightsLength = insights.length;
 
-  // ✅ NEW: Fungsi untuk pause/resume auto-slide
+  useEffect(() => {
+    if (insightsLength > 0 && index >= insightsLength) {
+      setIndex(0);
+    }
+  }, [index, insightsLength]);
+
+  if (insightsLength === 0) {
+    return null;
+  }
+
   const pauseAutoSlide = useCallback(() => {
     if (autoSlideIntervalRef.current) {
       clearInterval(autoSlideIntervalRef.current);
@@ -169,7 +257,6 @@ export default function LiveInsight({
     };
   }, [insightsLength]);
 
-  // Fix index jika melebihi length
   useEffect(() => {
     if (insightsLength > 0 && index >= insightsLength) {
       setIndex(0);
@@ -210,9 +297,8 @@ export default function LiveInsight({
     touchMoved.current = false;
   };
 
-  // ✅ NEW: Handle expand/collapse teks
   const handleToggleExpand = useCallback((insightId, e) => {
-    e.stopPropagation(); // Mencegah event bubbling
+    e.stopPropagation();
 
     if (expandedTextId === insightId) {
       setExpandedTextId(null);
@@ -221,7 +307,6 @@ export default function LiveInsight({
       setExpandedTextId(insightId);
       pauseAutoSlide();
 
-      // Auto-collapse setelah 10 detik (opsional)
       setTimeout(() => {
         setExpandedTextId(prev => prev === insightId ? null : prev);
         resumeAutoSlide();
@@ -232,7 +317,6 @@ export default function LiveInsight({
   const current = insights[index] || insights[0];
   if (!current || insightsLength === 0) return null;
 
-  // ✅ NEW: Cek apakah teks memerlukan tombol expand (lebih dari 100 karakter atau mengandung baris baru)
   const needsExpand = current?.text && (
     current.text.length > 100 ||
     (current.text.match(/\n/g) || []).length > 1 ||
@@ -254,8 +338,8 @@ export default function LiveInsight({
 
         {/* Label Badge */}
         <div className={`absolute top-0 right-0 px-2 py-0.5 rounded-bl-lg text-[8px] font-black text-white z-10 ${current?.isMe ? 'bg-gradient-to-r from-orange-500 to-amber-600' :
-            current?.isUrgent ? 'bg-gradient-to-r from-red-500 to-rose-600' :
-              'bg-gradient-to-r from-emerald-500 to-teal-600'
+          current?.isUrgent ? 'bg-gradient-to-r from-red-500 to-rose-600' :
+            'bg-gradient-to-r from-emerald-500 to-teal-600'
           }`}>
           {current?.sourceLabel}
         </div>
@@ -283,14 +367,13 @@ export default function LiveInsight({
             </div>
           </div>
 
-          {/* ✅ CONTENT DENGAN EXPAND/COLLAPSE */}
+          {/* CONTENT DENGAN EXPAND/COLLAPSE */}
           <div className="min-h-[40px]">
             <p className={`text-[12px] leading-relaxed italic transition-all duration-200 ${!isExpanded ? 'line-clamp-2' : ''
               } ${isDark ? "text-slate-300" : "text-slate-600"}`}>
               “{current?.text}”
             </p>
 
-            {/* ✅ TOMBOL BACA SELENGKAPNYA */}
             {needsExpand && (
               <button
                 onClick={(e) => handleToggleExpand(current.id, e)}
@@ -319,7 +402,6 @@ export default function LiveInsight({
               <span className="text-[8px] font-bold opacity-60 uppercase tracking-wide">{current?.tipe}</span>
             </div>
 
-            {/* Dot Indicators */}
             {insightsLength > 1 && (
               <div className="flex gap-1.5">
                 {insights.map((_, i) => (
