@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -296,11 +296,26 @@ function KTPWidget({ profile, user, theme, onOpenKTPCard, onOpenVouchers, userPo
 }
 
 // ============================================================
+// 🔥 2b. SALDO MODAL TRIGGER (butuh Suspense boundary karena
+//        pakai useSearchParams)
+// ============================================================
+function SaldoModalTrigger({ onTrigger }) {
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('modal') === 'saldo') {
+      onTrigger();
+    }
+  }, [searchParams, onTrigger]);
+
+  return null;
+}
+
+// ============================================================
 // 🔥 3. MAIN COMPONENT
 // ============================================================
 export default function RumahWargaPage({ onClose }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, profile, loading, role, isAdmin, refreshProfile } = useAuth();
 
   // ===== STATE =====
@@ -537,12 +552,6 @@ export default function RumahWargaPage({ onClose }) {
     fetchSaldo();
   }, [user?.id]);
 
-  useEffect(() => {
-    if (searchParams.get('modal') === 'saldo') {
-      setIsSaldoModalOpen(true);
-    }
-  }, [searchParams]);
-
   // ===== HANDLER LAINNYA =====
   const handleStoryClick = (story) => {
     const enrichedStory = {
@@ -603,6 +612,12 @@ export default function RumahWargaPage({ onClose }) {
   // ============================================================
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 flex justify-center">
+      {/* 🔥 Trigger buka modal saldo dari query param ?modal=saldo,
+          dibungkus Suspense agar tidak menggagalkan static prerender */}
+      <Suspense fallback={null}>
+        <SaldoModalTrigger onTrigger={() => setIsSaldoModalOpen(true)} />
+      </Suspense>
+
       <div className="w-full max-w-[400px] bg-slate-900 min-h-screen pb-24 shadow-2xl relative">
 
         {/* HEADER */}
